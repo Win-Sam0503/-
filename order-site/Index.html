@@ -156,7 +156,16 @@
   .timepick select { flex: 1; min-width: 0; padding-left: 6px; padding-right: 2px; }
   .tools-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
   .tool-row { grid-template-columns: 1.6fr 90px 1.4fr 36px; }
-  .cart-row select[data-f="unit"] { padding-left: 6px; padding-right: 2px; }
+  .unit-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
+  .unit-pop {
+    position: absolute; z-index: 50; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.15); max-height: 260px; overflow-y: auto; padding: 4px 0; min-width: 170px;
+  }
+  .unit-pop .grp { font-size: 12px; color: var(--muted); padding: 6px 12px 2px; }
+  .unit-pop .opt { padding: 7px 12px; cursor: pointer; font-size: 15px; }
+  .unit-pop .opt small { color: var(--muted); margin-left: 4px; }
+  .unit-pop .opt.hi, .unit-pop .opt:hover { background: var(--brand-soft); color: var(--brand); }
+  .unit-pop .none { padding: 8px 12px; color: var(--bad); font-size: 13px; }
   .printbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .printbar select { width: auto; }
   .print-scroll { overflow-x: auto; padding-bottom: 16px; }
@@ -296,7 +305,7 @@
               <div><label for="nName">食材名稱</label><input id="nName" type="text" maxlength="40"></div>
               <div><label for="nVendor">廠商</label><select id="nVendor"></select></div>
               <div><label for="nQty">數量</label><input id="nQty" type="number" min="0" step="0.5"></div>
-              <div><label for="nUnit">單位</label><select id="nUnit"></select></div>
+              <div><label for="nUnit">單位</label><input id="nUnit" type="text" class="unit-input" autocomplete="off" maxlength="10" placeholder="打字搜尋"></div>
               <button type="button" class="btn small" id="addNew">加入清單</button>
             </div>
           </div>
@@ -400,13 +409,7 @@
   </main>
 </div>
 
-<datalist id="unitList">
-  <option value="斤"><option value="兩"><option value="台斤"><option value="公斤"><option value="克">
-  <option value="顆"><option value="個"><option value="粒"><option value="條"><option value="根"><option value="把">
-  <option value="片"><option value="塊"><option value="隻"><option value="尾"><option value="付"><option value="打">
-  <option value="包"><option value="袋"><option value="盒"><option value="罐"><option value="瓶"><option value="桶"><option value="箱">
-  <option value="公升"><option value="毫升"><option value="份">
-</datalist>
+<div id="unitPop" class="unit-pop hidden" role="listbox"></div>
 <datalist id="itemList"></datalist>
 
 <script>
@@ -586,7 +589,6 @@
       ? '管理者不受鎖單限制，可以訂今天起 30 天內的課。'
       : '<b>訂貨規則：</b>' + esc(data.lockRule) + '。目前最早可以訂 <b>' + esc(shortDate(data.minDate)) +
         '</b> 起的課，最晚到 ' + esc(shortDate(data.maxDate)) + '。';
-    $('nUnit').innerHTML = unitOptions('');
     $('setupWarn').innerHTML = data.missingSetup && data.missingSetup.length
       ? '<div class="msg setup-warn"><b>管理者請注意：</b>試算表還缺少 ' + esc(data.missingSetup.join('、')) +
         '。缺少的部分網站照常運作，只是對應的資料不會存進試算表（請參考 README 的設定說明）。</div>' : '';
@@ -762,11 +764,12 @@
     }
   });
   $('addNew').addEventListener('click', function () {
-    var name = $('nName').value.trim(), vendor = $('nVendor').value, qty = $('nQty').value, unit = $('nUnit').value;
+    var name = $('nName').value.trim(), vendor = $('nVendor').value, qty = $('nQty').value, unit = validUnit($('nUnit').value);
     if (!name) { alert('請填寫食材名稱。'); return; }
     var dup = data.items.find(function (it) { return it.name === name; });
     if (dup) { alert('食材總表已經有「' + name + '」，請直接從上方搜尋加入。'); return; }
     if (!vendor) { alert('請選擇廠商。'); return; }
+    if ($('nUnit').value.trim() && !unit) { alert('單位要從清單選擇，可以打字搜尋，例如打「斤」「包」「克」。'); $('nUnit').focus(); return; }
     draft.cart.push({ key: 'n' + Date.now(), id: '', name: name, vendor: vendor, qty: qty, unit: unit, note: '', isNew: true, noOrder: false, section: draft.activeSection });
     $('nName').value = ''; $('nQty').value = ''; $('nUnit').value = '';
     saveDraft(); renderCart();
@@ -785,11 +788,104 @@
     u = normUnit(u);
     return data && (data.orderUnits.indexOf(u) >= 0 || data.recipeUnits.indexOf(u) >= 0) ? u : '';
   }
-  function unitOptions(sel) {
-    var opt = function (u) { return '<option' + (u === sel ? ' selected' : '') + '>' + esc(u) + '</option>'; };
-    return '<option value="">單位</option><optgroup label="叫貨單位">' + data.orderUnits.map(opt).join('') +
-      '</optgroup><optgroup label="配方單位">' + data.recipeUnits.map(opt).join('') + '</optgroup>';
+  function unitInput(val, label) {
+    return '<input type="text" class="unit-input' + (val && !validUnit(val) ? ' invalid' : '') + '" data-f="unit" autocomplete="off" maxlength="10" placeholder="單位"' +
+      ' value="' + esc(val || '') + '" aria-label="' + esc(label || '單位') + '">';
   }
+
+  // 單位搜尋選單：可以用中文輸入法打字搜尋（下拉選單在 Windows 會強制切成英文輸入法）
+  var UNIT_HINT = { 'g': '公克、克', '公斤': 'kg、千克', '斤': '台斤', 'T': '大匙、湯匙', 't': '小匙、茶匙', 'ml': '毫升、cc', '公升': 'L、升' };
+  var unitPop = $('unitPop'), unitTarget = null, unitHi = 0, unitList = [];
+  function unitMatches(q) {
+    q = String(q || '').trim().toLowerCase();
+    var all = data.orderUnits.map(function (u) { return { u: u, g: '叫貨單位' }; })
+      .concat(data.recipeUnits.map(function (u) { return { u: u, g: '配方單位' }; }));
+    if (!q) return all;
+    var exact = normUnit(q);
+    var hits = all.filter(function (x) {
+      return x.u === exact || (x.u + ' ' + (UNIT_HINT[x.u] || '')).toLowerCase().indexOf(q) >= 0;
+    });
+    // 完全符合的（含同義字，例如「克」→ g）排第一個
+    return hits.filter(function (x) { return x.u === exact; }).concat(hits.filter(function (x) { return x.u !== exact; }));
+  }
+  // typing = true 時依輸入的字篩選；剛點進欄位時列出全部，並標示目前的單位
+  function openUnitPop(input, typing) {
+    unitTarget = input;
+    var cur = validUnit(input.value);
+    unitList = unitMatches(typing || !cur ? input.value : '');
+    unitHi = 0;
+    if (!typing && cur) unitList.forEach(function (x, i) { if (x.u === cur) unitHi = i; });
+    var html = '', g = null;
+    unitList.forEach(function (x, i) {
+      if (x.g !== g) { html += '<div class="grp">' + x.g + '</div>'; g = x.g; }
+      html += '<div class="opt' + (i === unitHi ? ' hi' : '') + '" data-i="' + i + '" role="option">' + esc(x.u) +
+        (UNIT_HINT[x.u] ? '<small>' + esc(UNIT_HINT[x.u]) + '</small>' : '') + '</div>';
+    });
+    unitPop.innerHTML = html || '<div class="none">沒有符合的單位，請換個字搜尋</div>';
+    var r = input.getBoundingClientRect();
+    unitPop.style.left = (window.scrollX + r.left) + 'px';
+    unitPop.style.top = (window.scrollY + r.bottom + 4) + 'px';
+    unitPop.style.width = Math.max(r.width, 170) + 'px';
+    unitPop.classList.remove('hidden');
+    var hi = unitPop.querySelector('.opt.hi');
+    if (hi && !typing) hi.scrollIntoView({ block: 'nearest' });
+  }
+  function closeUnitPop() { unitPop.classList.add('hidden'); unitTarget = null; }
+  function pickUnit(u) {
+    var input = unitTarget;
+    if (!input) return;
+    input.value = u;
+    input.classList.remove('invalid');
+    closeUnitPop();   // 先關掉，下面的 input 事件才不會又把選單打開
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function finishUnit(input) {
+    // 離開欄位時：同義字換成標準寫法；清單以外的字標紅色
+    var v = input.value.trim();
+    var ok = validUnit(v);
+    if (ok && ok !== input.value) {
+      input.value = ok;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    input.classList.toggle('invalid', !!v && !ok);
+  }
+  document.addEventListener('focusin', function (e) {
+    if (e.target.classList && e.target.classList.contains('unit-input')) {
+      openUnitPop(e.target, false);
+      e.target.select();   // 直接打字就會取代原本的單位
+    }
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target === unitTarget && e.isTrusted !== false) { e.target.classList.remove('invalid'); openUnitPop(e.target, true); }
+  });
+  document.addEventListener('focusout', function (e) {
+    if (e.target.classList && e.target.classList.contains('unit-input')) {
+      finishUnit(e.target);
+      setTimeout(function () { if (document.activeElement !== unitTarget) closeUnitPop(); }, 0);
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.target !== unitTarget || unitPop.classList.contains('hidden')) return;
+    var opts = unitPop.querySelectorAll('.opt');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      unitHi = (unitHi + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % Math.max(opts.length, 1);
+      Array.prototype.forEach.call(opts, function (o, i) { o.classList.toggle('hi', i === unitHi); });
+      if (opts[unitHi]) opts[unitHi].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && !e.isComposing) {
+      if (unitList[unitHi]) { e.preventDefault(); pickUnit(unitList[unitHi].u); }
+    } else if (e.key === 'Escape') {
+      closeUnitPop();
+    }
+  });
+  // 用 pointerdown 並取消預設動作，點選項時輸入框不會先失去焦點
+  unitPop.addEventListener('pointerdown', function (e) {
+    var o = e.target.closest('.opt');
+    e.preventDefault();
+    if (o) pickUnit(unitList[Number(o.getAttribute('data-i'))].u);
+  });
+  window.addEventListener('resize', closeUnitPop);
 
   // 段落（配方分段，例如麵包體、抹醬）
   function renderSections() {
@@ -823,7 +919,7 @@
       '<div class="c-nm">' + code + '<span class="nm">' + esc(c.name) + '</span> ' + (c.isNew ? '<span class="badge warn">待審核</span>' : '') +
         '<div class="muted small">' + esc(c.vendor) + '</div>' + secSel + '</div>' +
       '<div class="c-q"><input type="number" min="0" step="any" inputmode="decimal" data-f="qty" placeholder="數量" value="' + esc(c.qty) + '" aria-label="' + esc(c.name) + ' 數量"></div>' +
-      '<div class="c-u"><select data-f="unit" aria-label="' + esc(c.name) + ' 單位">' + unitOptions(c.unit) + '</select></div>' +
+      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位') + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
       '<div class="c-s"><label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label></div>' +
       '<button type="button" class="x" title="移除" aria-label="移除 ' + esc(c.name) + '">×</button></div>';
@@ -1183,7 +1279,7 @@
       var isTool = it.id === TOOL;
       return '<tr data-row="' + it.row + '"><td>' + esc(it.name) + (isTool ? ' <span class="badge">器具</span>' : '') + '<div class="muted small">' + esc(it.vendor) + '</div></td>' +
         '<td><input type="number" min="0" step="any" data-f="qty" value="' + esc(it.qty) + '" style="width:80px"></td>' +
-        '<td>' + (isTool ? '' : '<select data-f="unit">' + unitOptions(validUnit(it.unit) || it.unit) + (validUnit(it.unit) ? '' : '<option selected>' + esc(it.unit) + '</option>') + '</select>') + '</td>' +
+        '<td>' + (isTool ? '' : unitInput(it.unit, it.name + ' 單位').replace('class="unit-input', 'style="width:80px" class="unit-input')) + '</td>' +
         '<td><input type="text" data-f="note" maxlength="100" value="' + esc(it.note) + '"></td>' +
         '<td class="c">' + (isTool ? '' : '<input type="checkbox" data-f="noOrder"' + (it.noOrder ? ' checked' : '') + '>') + '</td>' +
         '<td class="c"><input type="checkbox" data-f="cancel"' + (it.status === '已取消' ? ' checked disabled' : '') + '></td></tr>';
@@ -1202,8 +1298,11 @@
       var it = o.items.find(function (x) { return String(x.row) === tr.getAttribute('data-row'); });
       var get = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return el ? (el.type === 'checkbox' ? el.checked : el.value) : null; };
       if (it.status === '已取消') return;
-      var c = { row: it.row, qty: get('qty'), unit: get('unit') || it.unit, note: get('note'), noOrder: !!get('noOrder'), cancel: !!get('cancel') };
+      var isTool = it.id === TOOL;
+      var c = { row: it.row, qty: get('qty'), unit: isTool ? '' : validUnit(get('unit')), note: get('note'), noOrder: !!get('noOrder'), cancel: !!get('cancel') };
       if (!c.cancel && !(Number(c.qty) > 0)) err = '「' + it.name + '」的數量需大於 0。';
+      if (!c.cancel && !isTool && !c.unit) err = '「' + it.name + '」的單位要從清單選擇。';
+      if (isTool) c.unit = it.unit;
       var same = !c.cancel && Number(c.qty) === it.qty && c.unit === it.unit && c.note === it.note && c.noOrder === !!it.noOrder;
       if (!same) changes.push(c);
     });
@@ -1301,7 +1400,7 @@
             '<div><label>廠商</label><select data-f="vendor">' + data.vendors.map(function (v) {
               return '<option' + (v === p.vendor ? ' selected' : '') + '>' + esc(v) + '</option>';
             }).join('') + '</select></div>' +
-            '<div><label>單位</label><input type="text" data-f="unit" list="unitList" maxlength="10" value="' + esc(p.unit) + '"></div>' +
+            '<div><label>單位</label>' + unitInput(p.unit, p.name + ' 單位') + '</div>' +
             '<div class="wide" style="grid-column:1/-1"><label>或對應到既有食材（輸入名稱搜尋）</label><input type="text" data-f="existing" list="itemList" placeholder="例：I0007 青蔥"></div>' +
           '</div>' +
           '<div class="actions">' +
