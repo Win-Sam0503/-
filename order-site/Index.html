@@ -856,6 +856,13 @@
       e.target.select();   // 直接打字就會取代原本的單位
     }
   });
+  // 已經在欄位裡（例如剛選完單位）再點一次，也要打開選單
+  document.addEventListener('click', function (e) {
+    if (e.target.classList && e.target.classList.contains('unit-input') && unitPop.classList.contains('hidden')) {
+      openUnitPop(e.target, false);
+      e.target.select();
+    }
+  });
   document.addEventListener('input', function (e) {
     if (e.target === unitTarget && e.isTrusted !== false) { e.target.classList.remove('invalid'); openUnitPop(e.target, true); }
   });
