@@ -108,7 +108,8 @@
   .item.added { background: var(--brand-soft); border-color: var(--brand); }
   .item .nm { font-weight: 600; }
   .item .al { font-size: 12px; color: var(--muted); }
-  .item .add { color: var(--brand); font-weight: 700; font-size: 20px; line-height: 1; }
+  .item .add { color: var(--brand); font-weight: 700; font-size: 20px; line-height: 1; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .item .add .badge { font-weight: 500; }
   .more { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: 14px; padding: 8px; }
   .newitem { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; }
   .newform { display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr auto; gap: 8px; align-items: end; margin-top: 8px; }
@@ -193,12 +194,13 @@
 
     <!-- 訂貨 -->
     <section id="viewOrder">
+      <div class="msg info" id="lockBanner"></div>
       <div class="panel">
         <h2>上課資訊</h2>
         <div class="grid2">
-          <div><label for="fDate">使用日期 <span class="req">*</span></label><input id="fDate" type="date"><div class="hint" id="dateHint"></div></div>
+          <div><label for="fDate">上課日期 <span class="req">*</span></label><input id="fDate" type="date"><div class="hint" id="dateHint"></div></div>
           <div><label for="fDept">科別 <span class="req">*</span></label><select id="fDept"></select></div>
-          <div><label for="fTime">上課時間</label><input id="fTime" type="text" list="timeList" maxlength="30" placeholder="例：上午、第1-4節"></div>
+          <div><label for="fTime">上課時間 <span class="req">*</span></label><select id="fTime"></select></div>
           <div><label for="fRoom">上課教室</label><input id="fRoom" type="text" maxlength="30"></div>
           <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"></div>
           <div><label for="fFor">代訂對象老師</label><select id="fFor"></select></div>
@@ -260,7 +262,7 @@
     <section id="viewMine" class="hidden">
       <div class="panel" style="padding:12px 16px">
         <h2 style="margin:0">我的訂單 <button type="button" class="btn ghost small" id="reloadMine">重新整理</button></h2>
-        <div class="muted small">包含你送出的訂單，以及別人代你訂的訂單（最近 60 天）。使用日期前一天以前、狀態為「待處理」的訂單可以自行取消。</div>
+        <div class="muted small">包含你送出的訂單，以及別人代你訂的訂單（最近 60 天）。還沒過訂貨截止、狀態為「待處理」的訂單可以自行取消；已截止的訂單無法修改，需要更動請聯絡管理者。</div>
       </div>
       <div id="mineMsg"></div>
       <div id="mineList"></div>
@@ -271,8 +273,8 @@
       <div class="panel">
         <h2>訂單彙整</h2>
         <div class="grid2">
-          <div><label for="sFrom">使用日期（起）</label><input id="sFrom" type="date"></div>
-          <div><label for="sTo">使用日期（迄）</label><input id="sTo" type="date"></div>
+          <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
+          <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
           <div style="display:flex;align-items:flex-end;gap:8px">
             <label class="check" style="margin-bottom:10px"><input type="checkbox" id="sHideCancel" checked> 不含已取消</label>
             <button type="button" class="btn" id="sLoad">查詢</button>
@@ -302,10 +304,6 @@
   <option value="片"><option value="塊"><option value="隻"><option value="尾"><option value="付"><option value="打">
   <option value="包"><option value="袋"><option value="盒"><option value="罐"><option value="瓶"><option value="桶"><option value="箱">
   <option value="公升"><option value="毫升"><option value="份">
-</datalist>
-<datalist id="timeList">
-  <option value="上午"><option value="下午"><option value="全天">
-  <option value="第1-2節"><option value="第3-4節"><option value="第1-4節"><option value="第5-6節"><option value="第5-7節"><option value="第5-8節">
 </datalist>
 <datalist id="itemList"></datalist>
 
@@ -464,6 +462,13 @@
     $('nVendor').innerHTML = '<option value="">請選擇</option>' + data.vendors.map(function (v) {
       return '<option>' + esc(v) + '</option>';
     }).join('');
+    $('fTime').innerHTML = '<option value="">請選擇</option>' + data.classTimes.map(function (t) {
+      return '<option>' + esc(t) + '</option>';
+    }).join('');
+    $('lockBanner').innerHTML = data.isAdmin
+      ? '管理者不受鎖單限制，可以訂今天起 30 天內的課。'
+      : '<b>訂貨規則：</b>' + esc(data.lockRule) + '。目前最早可以訂 <b>' + esc(shortDate(data.minDate)) +
+        '</b> 起的課，最晚到 ' + esc(shortDate(data.maxDate)) + '。';
     $('fDate').min = data.minDate;
     $('fDate').max = data.maxDate;
     $('itemList').innerHTML = data.items.map(function (it) {
@@ -516,13 +521,19 @@
   function writeInfo() {
     Object.keys(INFO_FIELDS).forEach(function (k) { $(INFO_FIELDS[k]).value = draft.info[k] || ''; });
     if (draft.info.useDate && (draft.info.useDate < data.minDate || draft.info.useDate > data.maxDate)) $('fDate').value = '';
+    if (data.classTimes.indexOf(draft.info.classTime) < 0) $('fTime').value = '';
   }
   function deliveryCode(d) { return d.getDay() <= 2 ? '一二' : '三四五'; }
   function updateDateHint() {
     var d = parseDate($('fDate').value);
     var h = $('dateHint');
     if (!d) { h.textContent = ''; h.style.color = ''; return; }
-    if (d.getDay() === 0 || d.getDay() === 6) {
+    var v = $('fDate').value;
+    if (v < data.minDate) {
+      h.textContent = '已過訂貨截止，最早只能訂 ' + shortDate(data.minDate); h.style.color = 'var(--bad)';
+    } else if (v > data.maxDate) {
+      h.textContent = '最晚只能訂 ' + shortDate(data.maxDate); h.style.color = 'var(--bad)';
+    } else if (d.getDay() === 0 || d.getDay() === 6) {
       h.textContent = '星期' + WEEK[d.getDay()] + '：週末不送貨'; h.style.color = 'var(--bad)';
     } else {
       h.textContent = '星期' + WEEK[d.getDay()] + '・送貨組別 ' + deliveryCode(d); h.style.color = '';
@@ -556,7 +567,7 @@
     var d = parseDate($('fDate').value);
     var code = d ? deliveryCode(d) : '';
     var inCart = {};
-    draft.cart.forEach(function (c) { if (!c.isNew) inCart[c.id] = true; });
+    draft.cart.forEach(function (c) { if (!c.isNew) inCart[c.id] = (inCart[c.id] || 0) + 1; });
 
     var list = data.items.filter(function (it) {
       if (vendorFilter !== '全部' && it.vendor !== vendorFilter) return false;
@@ -579,7 +590,7 @@
         '<span><span class="nm">' + esc(it.name) + '</span>' +
         (it.alias ? '<div class="al">又名 ' + esc(it.alias) + '</div>' : '') +
         '<div class="al">' + esc(it.vendor) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
-        '<span class="add">' + (added ? '✓' : '+') + '</span></button>';
+        '<span class="add">' + (added ? '<span class="badge info" title="已加入 ' + added + ' 次">已選 ' + added + '</span> +' : '+') + '</span></button>';
     }).join('') + (list.length > SHOW_LIMIT ? '<div class="more">還有 ' + (list.length - SHOW_LIMIT) + ' 項，請輸入關鍵字縮小範圍</div>' : '');
   }
   $('search').addEventListener('input', renderResults);
@@ -595,11 +606,7 @@
     var b = e.target.closest('.item');
     if (!b) return;
     var it = itemById[b.getAttribute('data-id')];
-    var existing = draft.cart.find(function (c) { return !c.isNew && c.id === it.id; });
-    if (existing) {
-      focusCartRow(existing.key);
-      return;
-    }
+    // 同一樣食材可以重複加入，每次都是獨立的一列（各自的數量、單位、備註）
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: it.unit, note: '', isNew: false };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
@@ -678,9 +685,12 @@
     readInfo();
     var i = draft.info;
     var d = parseDate(i.useDate);
-    var err = !d ? '請選擇使用日期。'
-      : (d.getDay() === 0 || d.getDay() === 6) ? '使用日期是週末，廠商不送貨，請改選平日。'
+    var err = !d ? '請選擇上課日期。'
+      : i.useDate < data.minDate ? '已過訂貨截止，上課日期最早只能選 ' + shortDate(data.minDate) + '。'
+      : i.useDate > data.maxDate ? '上課日期最晚只能選 ' + shortDate(data.maxDate) + '。'
+      : (d.getDay() === 0 || d.getDay() === 6) ? '上課日期是週末，廠商不送貨，請改選平日。'
       : !i.dept ? '請選擇科別。'
+      : !i.classTime ? '請選擇上課時間。'
       : !i.className ? '請填寫上課班級。'
       : !i.project ? '請填寫實作項目。' : '';
     if (!err) {
@@ -692,7 +702,7 @@
     }
     if (err) {
       msg('orderMsg', 'error', err);
-      if (/日期|科別|班級|實作/.test(err)) window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (/日期|截止|科別|上課時間|班級|實作/.test(err)) window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -714,7 +724,7 @@
     msg('orderMsg', '', '');
     call('submitOrder', token, payload).then(function (res) {
       $('doneNo').textContent = res.orderNo;
-      $('doneInfo').textContent = '使用日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
+      $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
         (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '');
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room };
       draft = emptyDraft();
@@ -742,6 +752,7 @@
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
     }).join('');
     var buttons = '';
+    if (opts.mine && o.locked && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
       if (o.canCancel) buttons += '<button type="button" class="btn danger small" data-act="cancel" data-no="' + esc(o.orderNo) + '">取消訂單</button>';
@@ -789,7 +800,7 @@
       });
       saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewOrder');
-      msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材，請選擇新的使用日期並確認數量後送出。');
+      msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材，請選擇新的上課日期並確認數量後送出。');
       $('fDate').focus();
     }
   });
@@ -821,7 +832,7 @@
       return;
     }
     msg('sumMsg', '', '');
-    // 依「廠商 > 使用日期 > 食材+單位」加總
+    // 依「廠商 > 上課日期 > 食材+單位」加總
     var byVendor = {};
     list.forEach(function (o) {
       o.items.forEach(function (it) {

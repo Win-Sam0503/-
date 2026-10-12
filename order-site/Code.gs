@@ -18,9 +18,13 @@ const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';
 
 const SITE_TITLE = '餐飲科訂貨系統';
 const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能
-const DEPARTMENTS = ['中餐', '西餐', '烘焙', '飲調'];
-const MIN_DAYS_AHEAD = 1;                   // 使用日期最早可選幾天後（1 = 明天）
-const MAX_DAYS_AHEAD = 60;                  // 使用日期最晚可選幾天後
+const DEPARTMENTS = ['中餐', '西餐', '烘焙', '飲調', '果雕', '刀功'];
+const CLASS_TIMES = ['上午', '下午'];
+// 鎖單：每週三 23:59 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
+const LOCK_WEEKDAY = 3;                     // 截止星期（1 = 星期一 … 5 = 星期五）
+const LOCK_HOUR = 23;
+const LOCK_MINUTE = 59;
+const MAX_DAYS_AHEAD = 30;                  // 上課日期最晚可選幾天後
 const MAX_ITEMS_PER_ORDER = 80;
 const SESSION_HOURS = 6;                    // 登入有效時間
 const MAX_LOGIN_FAILS = 5;                  // 連續輸錯幾次就暫停登入
@@ -38,6 +42,8 @@ const SHEET = {
 };
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
+// 試算表標題的別名：訂單總表用「使用日期」或「上課日期」都可以
+const HEADER_ALIASES = { '上課日期': '使用日期', '使用日期': '上課日期' };
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -133,15 +139,20 @@ function getBootstrap(token) {
   const depts = DEPARTMENTS.slice();
   items.forEach(function (it) { if (it.dept !== '通用' && depts.indexOf(it.dept) < 0) depts.push(it.dept); });
 
+  const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
+  const now = new Date();
   return {
     account: account,
-    isAdmin: ADMIN_ACCOUNTS.indexOf(account) >= 0,
+    isAdmin: isAdmin,
     items: items,
     vendors: vendors,
     teachers: teachers,
     departments: depts,
-    minDate: dateStr_(addDays_(today_(), MIN_DAYS_AHEAD)),
+    classTimes: CLASS_TIMES,
+    minDate: dateStr_(isAdmin ? today_() : earliestClassDate_(now)),
     maxDate: dateStr_(addDays_(today_(), MAX_DAYS_AHEAD)),
+    lockRule: '每週' + WEEKDAY[LOCK_WEEKDAY] + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 截止下週的訂單',
+    nextDeadline: fmtDateTime_(currentDeadline_(now)),
     statuses: ORDER_STATUSES,
   };
 }
@@ -156,7 +167,7 @@ function getBootstrap(token) {
  */
 function submitOrder(token, payload) {
   const account = auth_(token);
-  const o = validateOrder_(payload, account);
+  const o = validateOrder_(payload, account, ADMIN_ACCOUNTS.indexOf(account) >= 0);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -200,21 +211,27 @@ function submitOrder(token, payload) {
   }
 }
 
-function validateOrder_(p, account) {
+function validateOrder_(p, account, isAdmin) {
   if (!p || typeof p !== 'object') throw new Error('訂單資料不完整。');
   const useDate = parseDate_(p.useDate);
-  if (!useDate) throw new Error('請選擇使用日期。');
-  const min = addDays_(today_(), MIN_DAYS_AHEAD);
+  if (!useDate) throw new Error('請選擇上課日期。');
+  const min = isAdmin ? today_() : earliestClassDate_(new Date());
   const max = addDays_(today_(), MAX_DAYS_AHEAD);
-  if (useDate < min) throw new Error('使用日期最早只能選 ' + dateStr_(min) + '。');
-  if (useDate > max) throw new Error('使用日期最晚只能選 ' + dateStr_(max) + '。');
+  if (useDate < min) {
+    throw new Error(isAdmin ? '上課日期不能早於今天。'
+      : '這週的訂貨已截止（每週' + WEEKDAY[LOCK_WEEKDAY] + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) +
+        ' 截止下週訂單），目前最早只能訂 ' + dateStr_(min) + ' 的課。');
+  }
+  if (useDate > max) throw new Error('上課日期最晚只能選 ' + dateStr_(max) + '（30 天內）。');
   const dow = useDate.getDay();
-  if (dow === 0 || dow === 6) throw new Error('使用日期是週末，廠商不送貨，請改選平日。');
+  if (dow === 0 || dow === 6) throw new Error('上課日期是週末，廠商不送貨，請改選平日。');
 
   const dept = clean_(p.dept, 20);
+  const classTime = clean_(p.classTime, 10);
   const className = clean_(p.className, 30);
   const project = clean_(p.project, 60);
   if (!dept) throw new Error('請選擇科別。');
+  if (CLASS_TIMES.indexOf(classTime) < 0) throw new Error('請選擇上課時間（' + CLASS_TIMES.join('／') + '）。');
   if (!className) throw new Error('請填寫上課班級。');
   if (!project) throw new Error('請填寫實作項目。');
 
@@ -263,7 +280,7 @@ function validateOrder_(p, account) {
   if (lines.length > MAX_ITEMS_PER_ORDER) throw new Error('一張訂單最多 ' + MAX_ITEMS_PER_ORDER + ' 項食材。');
 
   return {
-    useDate: useDate, dept: dept, classTime: clean_(p.classTime, 30), room: clean_(p.room, 30),
+    useDate: useDate, dept: dept, classTime: classTime, room: clean_(p.room, 30),
     className: className, project: project, onBehalfOf: onBehalfOf, lines: lines,
   };
 }
@@ -296,7 +313,7 @@ function readVendorGroups_() {
   return map;
 }
 
-/** 依使用日期的星期決定送貨組別；廠商設定沒有列的廠商，週一二為「一二」、週三四五為「三四五」。 */
+/** 依上課日期的星期決定送貨組別；廠商設定沒有列的廠商，週一二為「一二」、週三四五為「三四五」。 */
 function deliveryGroup_(vendor, dow, vendorGroups) {
   const ch = WEEKDAY[dow];
   const codes = vendorGroups[vendor] || [];
@@ -320,7 +337,7 @@ function nextOrderNo_() {
   return no;
 }
 
-/** 我送出的、或別人代我訂的訂單（最近 60 天的使用日期起）。 */
+/** 我送出的、或別人代我訂的訂單（最近 60 天的上課日期起）。 */
 function getMyOrders(token) {
   const account = auth_(token);
   const since = addDays_(today_(), -60);
@@ -344,8 +361,9 @@ function cancelOrder(token, orderNo) {
     if (rows.some(function (x) { return String(x['狀態']).trim() !== '待處理'; })) {
       throw new Error('這張訂單已經在處理，無法自行取消，請聯絡管理者。');
     }
-    const d = toDate_(r['使用日期']);
-    if (d && d <= today_()) throw new Error('使用日期當天或之後無法取消，請聯絡管理者。');
+    if (isLocked_(toDate_(r['使用日期']))) {
+      throw new Error('這張訂單的上課週已過訂貨截止時間，無法取消，請聯絡管理者。');
+    }
   });
 }
 
@@ -353,7 +371,7 @@ function cancelOrder(token, orderNo) {
 // 管理者
 // =====================================================================
 
-/** 指定使用日期的所有訂單。 */
+/** 指定上課日期的所有訂單。 */
 function adminGetOrders(token, from, to) {
   auth_(token, true);
   let start = parseDate_(from);
@@ -508,12 +526,11 @@ function groupOrders_(rows, account) {
       status: String(r['狀態'] || ''),
     });
   });
-  const today = today_();
   list.forEach(function (o) {
     const s = o.items.map(function (i) { return i.status; });
     o.status = s.every(function (x) { return x === s[0]; }) ? s[0] : '部分處理';
-    const d = parseDate_(o.useDate);
-    o.canCancel = !!account && o.status === '待處理' && !!d && d > today;
+    o.locked = isLocked_(parseDate_(o.useDate));
+    o.canCancel = !!account && o.status === '待處理' && !o.locked;
   });
   return list;
 }
@@ -561,6 +578,9 @@ function readTable_(name, required) {
     const k = String(h).trim();
     if (k && cols[k] === undefined) cols[k] = i + 1;
   });
+  Object.keys(HEADER_ALIASES).forEach(function (k) {
+    if (cols[k] === undefined && cols[HEADER_ALIASES[k]] !== undefined) cols[k] = cols[HEADER_ALIASES[k]];
+  });
   (required || []).forEach(function (k) {
     if (cols[k] === undefined) throw new Error('分頁「' + name + '」缺少「' + k + '」欄位。');
   });
@@ -583,13 +603,17 @@ function appendRows_(name, objs, formats) {
   const start = sh.getLastRow() + 1;
   const needRows = start + objs.length - 1 - sh.getMaxRows();
   if (needRows > 0) sh.insertRowsAfter(sh.getMaxRows(), needRows);
+  const val = function (o, h) {
+    const v = o[h] !== undefined ? o[h] : o[HEADER_ALIASES[h]];
+    return v === undefined || v === null ? '' : v;
+  };
   const data = objs.map(function (o) {
-    return headers.map(function (h) { return o[h] === undefined || o[h] === null ? '' : o[h]; });
+    return headers.map(function (h) { return val(o, h); });
   });
   // 文字欄位設成純文字格式，避免「0912」「1/2」被轉成數字或日期
   headers.forEach(function (h, i) {
-    const fmt = formats && formats[h];
-    const isText = objs.some(function (o) { return typeof o[h] === 'string' && o[h] !== ''; });
+    const fmt = formats && (formats[h] || formats[HEADER_ALIASES[h]]);
+    const isText = objs.some(function (o) { const v = val(o, h); return typeof v === 'string' && v !== ''; });
     if (fmt) sh.getRange(start, i + 1, objs.length, 1).setNumberFormat(fmt);
     else if (isText) sh.getRange(start, i + 1, objs.length, 1).setNumberFormat('@');
   });
@@ -617,8 +641,8 @@ function isTrue_(v) {
   return v === true || String(v).trim().toUpperCase() === 'TRUE' || String(v).trim() === '是';
 }
 
-function today_() {
-  const s = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd').split('-');
+function today_(now) {
+  const s = Utilities.formatDate(now || new Date(), tz_(), 'yyyy-MM-dd').split('-');
   return new Date(Number(s[0]), Number(s[1]) - 1, Number(s[2]));
 }
 
@@ -645,4 +669,26 @@ function dateStr_(d) {
 
 function fmtDateTime_(v) {
   return v instanceof Date ? Utilities.formatDate(v, tz_(), 'yyyy/MM/dd HH:mm') : String(v || '');
+}
+
+// ---- 鎖單 ----
+
+/** 本週（星期一開始）的訂貨截止時間：本週三 23:59:59。 */
+function currentDeadline_(now) {
+  const today = today_(now);
+  const monday = addDays_(today, -((today.getDay() + 6) % 7));
+  const d = addDays_(monday, LOCK_WEEKDAY - 1);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), LOCK_HOUR, LOCK_MINUTE, 59);
+}
+
+/** 老師目前最早可以訂的上課日期：截止前是下週一，截止後是下下週一。 */
+function earliestClassDate_(now) {
+  const today = today_(now);
+  const nextMonday = addDays_(today, 7 - ((today.getDay() + 6) % 7));
+  return now <= currentDeadline_(now) ? nextMonday : addDays_(nextMonday, 7);
+}
+
+/** 這個上課日期的訂單是否已鎖住（已過截止，老師不能再取消）。 */
+function isLocked_(classDate) {
+  return !classDate || classDate < earliestClassDate_(new Date());
 }
