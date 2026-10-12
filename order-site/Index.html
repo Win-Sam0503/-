@@ -138,6 +138,25 @@
   .order { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
   .order .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .order .head b { font-size: 16px; }
+  .file-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .file-btn { cursor: pointer; margin: 0; }
+  .imp-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; margin: 8px 0; }
+  .imp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .imp-table th, .imp-table td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; vertical-align: top; }
+  .imp-table input[type=text], .imp-table select { padding: 5px 6px; font-size: 14px; }
+  .imp-table .src { color: var(--muted); font-size: 12px; max-width: 180px; word-break: break-all; }
+  .imp-table tr.off td { opacity: .5; }
+  .imp-table .q { width: 70px; } .imp-table .u { width: 70px; }
+  .imp-sec td { font-weight: 700; color: var(--info); background: var(--info-soft); }
+  @media (max-width: 640px) {
+    .imp-table thead { display: none; }
+    .imp-table tr { display: grid; grid-template-columns: 28px 1fr 1fr; gap: 4px; border-bottom: 1px solid var(--line); padding: 6px 0; }
+    .imp-table td { border: 0; padding: 2px; }
+    .imp-table td.nm, .imp-table td.src, .imp-table td.nt { grid-column: 2 / -1; }
+    .imp-table .q, .imp-table .u { width: 100%; }
+    .imp-table td.qc { grid-column: 2; } .imp-table td.uc { grid-column: 3; }
+    .imp-sec td { grid-column: 1 / -1; }
+  }
   .order .info { font-size: 14px; color: var(--muted); margin: 4px 0 8px; }
   table { width: 100%; border-collapse: collapse; font-size: 15px; }
   th, td { padding: 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -297,6 +316,16 @@
           <button type="button" class="btn ghost small" id="tplDelete">刪除範本</button>
         </div>
         <div id="tplMsg" class="small" style="margin-top:6px"></div>
+      </div>
+      <div class="panel" id="importPanel">
+        <h2>從檔案帶入 <span class="muted small" style="font-weight:normal">Excel、Word、紙本拍照、PDF</span></h2>
+        <div class="tpl-row">
+          <label class="btn secondary small file-btn" for="impFile">選擇檔案／拍照</label>
+          <input id="impFile" type="file" accept=".xlsx,.xls,.xlsm,.csv,.ods,.docx,.doc,.odt,.txt,image/*,.pdf" class="file-hidden">
+          <span class="muted small">系統會讀出食材、數量、單位和上課資訊，確認後才會加入訂購清單。</span>
+        </div>
+        <div id="impMsg" style="margin-top:8px"></div>
+        <div id="impReview"></div>
       </div>
       <div class="panel">
         <h2>上課資訊</h2>
@@ -468,6 +497,7 @@
           <button type="button" class="btn secondary small" id="aToggle">啟用排程</button>
           <button type="button" class="btn ghost small" id="aVendorNow">立即產生下週訂貨單</button>
           <button type="button" class="btn ghost small" id="aDigestNow">立即寄每日摘要</button>
+          <button type="button" class="btn ghost small" id="aMaintNow">立即備份＋封存</button>
           <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
         </div>
         <h3 style="font-size:16px;margin:18px 0 6px">LINE 官方帳號通知</h3>
@@ -1370,18 +1400,19 @@
       return t.name + ' ×' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : '');
     }).join('、')) + '</div>' : '';
     var buttons = '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
-    if (opts.admin) buttons += '<button type="button" class="btn ghost small" data-act="edit" data-no="' + esc(o.orderNo) + '">修改明細</button>';
-    if (opts.mine && o.locked && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
+    if (opts.admin && !o.archived) buttons += '<button type="button" class="btn ghost small" data-act="edit" data-no="' + esc(o.orderNo) + '">修改明細</button>';
+    if (opts.mine && o.locked && !o.archived && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
       if (o.canCancel) buttons += '<button type="button" class="btn danger small" data-act="cancel" data-no="' + esc(o.orderNo) + '">取消訂單</button>';
     }
-    if (opts.admin) {
+    if (opts.admin && !o.archived) {
       buttons += '<select data-act="status" data-no="' + esc(o.orderNo) + '" style="width:auto">' + data.statuses.map(function (s) {
         return '<option' + (s === o.status ? ' selected' : '') + '>' + esc(s) + '</option>';
       }).join('') + (data.statuses.indexOf(o.status) < 0 ? '<option selected disabled>' + esc(o.status) + '</option>' : '') + '</select>';
     }
-    return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b>' + statusBadge(o.status) + '</div>' +
+    return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
+        (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') + statusBadge(o.status) + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine +
@@ -2159,15 +2190,19 @@
   var autoState = null;
   function renderAuto(st) {
     autoState = st;
-    var on = st.vendorTrigger && st.digestTrigger;
+    var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger;
     var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
     $('autoStatus').innerHTML =
       '每週一 ' + st.vendorHour + ':00 產生下週廠商訂貨單：' + yes(st.vendorTrigger, '已啟用', '未啟用') + '<br>' +
       '每天 ' + st.digestHour + ':00 寄每日摘要：' + yes(st.digestTrigger, '已啟用', '未啟用') + '（沒有新訂單、沒有待審核時不寄）<br>' +
+      '每週日 ' + st.maintHour + ':00 備份試算表＋封存舊訂單：' + yes(st.maintTrigger, '已啟用', '未啟用') +
+        '（備份保留 ' + st.backupKeep + ' 份；上課日期過了 ' + st.archiveDays + ' 天的訂單搬到「歷史訂單」分頁）<br>' +
+      (st.lastMaintTime ? '上次維護：' + esc(st.lastMaintTime) + '　' + esc(st.lastMaintText) + '<br>' : '') +
       'Email 收件人：' + esc(st.emails.join('、') || '（無）') + '<br>' +
       'LINE：' + yes(st.lineTokenSet, 'Token 已設定', 'Token 未設定') + '　' + yes(st.lineBound, '已綁定', '未綁定') + '<br>' +
       (st.lastVendorUrl ? '上次產生的訂貨單：<a href="' + esc(st.lastVendorUrl) + '" target="_blank" rel="noopener">打開</a>（' + esc(st.lastVendorTime) + '）<br>' : '') +
-      '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾。';
+      '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾，備份在「三信家商餐飲科訂貨系統備份」資料夾。' +
+      (st.vendorTrigger && st.digestTrigger && !st.maintTrigger ? '<br><b style="color:var(--bad)">每週維護是新功能，請按一下「啟用排程」，才會建立週日的排程。</b>' : '');
     $('aToggle').textContent = on ? '停用排程' : '啟用排程';
   }
   function loadAuto(keepMsg) {
@@ -2192,7 +2227,7 @@
   function notifyText(n) { return n ? '　Email：' + n.email + '；LINE：' + n.line : ''; }
   $('aReload').addEventListener('click', function () { loadAuto(); });
   $('aToggle').addEventListener('click', function () {
-    var enable = !(autoState && autoState.vendorTrigger && autoState.digestTrigger);
+    var enable = !(autoState && autoState.vendorTrigger && autoState.digestTrigger && autoState.maintTrigger);
     autoCall(this, 'adminSetAutomation', function () { return enable ? '排程已啟用。' : '排程已停用。'; }, enable);
   });
   $('aVendorNow').addEventListener('click', function () {
@@ -2203,6 +2238,10 @@
   });
   $('aDigestNow').addEventListener('click', function () {
     autoCall(this, 'adminRunDigestNow', function (r) { return '摘要已送出。' + notifyText(r.notify); });
+  });
+  $('aMaintNow').addEventListener('click', function () {
+    if (!confirm('現在就備份試算表，並把上課日期過了 2 週的訂單搬到「歷史訂單」？')) return;
+    autoCall(this, 'adminRunMaintenanceNow', function (r) { return (r.error ? '⚠ ' : '') + r.text + notifyText(r.notify); });
   });
   $('aTest').addEventListener('click', function () {
     autoCall(this, 'adminTestNotify', function (r) { return '測試通知已送出。' + notifyText(r); });
@@ -2222,6 +2261,433 @@
         '3. 官方帳號回覆「綁定完成」後，按上面的「重新整理」確認。<br>綁定碼 ' + r.minutes + ' 分鐘內有效。</div>';
     }).catch(function (e) { msg('autoMsg', 'error', e.message); })
       .then(function () { setBusy(b, false); });
+  });
+
+  // ------------------------------------------------------------------
+  // 從檔案帶入（Excel、Word、照片）
+  // ------------------------------------------------------------------
+  var imp = null;   // { fileName, info: {欄位: 值}, rows: [{ on, src, name, id, qty, unit, note, section, vendor }] }
+
+  function readFileForUpload(file) {
+    return new Promise(function (resolve, reject) {
+      var isImg = /^image\/(jpeg|png|gif|bmp|webp)$/.test(file.type);
+      var fr = new FileReader();
+      fr.onerror = function () { reject(new Error('讀取檔案失敗。')); };
+      fr.onload = function () {
+        var url = fr.result;
+        var done = function (u, type, name) { resolve({ name: name || file.name, mimeType: type || file.type, data: u.slice(u.indexOf(',') + 1) }); };
+        if (!isImg) { done(url); return; }
+        // 手機照片很大：縮小再上傳，文字辨識比較快
+        var img = new Image();
+        img.onload = function () {
+          var max = 2200, w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, max / Math.max(w, h));
+          var cv = document.createElement('canvas');
+          cv.width = Math.round(w * k); cv.height = Math.round(h * k);
+          var g = cv.getContext('2d');
+          g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+          g.drawImage(img, 0, 0, cv.width, cv.height);
+          done(cv.toDataURL('image/jpeg', 0.88), 'image/jpeg', file.name.replace(/\.\w+$/, '') + '.jpg');
+        };
+        img.onerror = function () { done(url); };
+        img.src = url;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  $('impFile').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    this.value = '';
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { msg('impMsg', 'error', '檔案太大，請小於 20 MB。'); return; }
+    var isPhoto = /^image\//.test(file.type) || /\.(pdf|heic|heif)$/i.test(file.name);
+    msg('impMsg', 'info', '讀取中…' + (isPhoto ? '照片要做文字辨識，大約 10～30 秒。' : ''));
+    $('impReview').innerHTML = '';
+    readFileForUpload(file).then(function (f) {
+      return call('importFile', token, f);
+    }).then(function (res) {
+      imp = parseImport(res);
+      imp.fileName = file.name;
+      imp.kind = res.kind;
+      renderImport();
+    }).catch(function (e) { msg('impMsg', 'error', '讀取失敗：' + e.message); });
+  });
+
+  // ---- 比對食材 ----
+  function normKey(s) {
+    return String(s == null ? '' : s)
+      .replace(/[０-９Ａ-Ｚａ-ｚ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[\s　()（）［］\[\]「」『』*＊・.,，、:：;；'"`~～\-_/]/g, '').toLowerCase();
+  }
+  var catKeys = null, impDept = '';
+  function catalogKeys() {
+    if (catKeys) return catKeys;
+    catKeys = [];
+    data.items.forEach(function (it) {
+      [it.name].concat(String(it.alias || '').split(/[,，、/／\s]+/)).concat([it.code, it.id]).forEach(function (k, i) {
+        k = normKey(k);
+        if (k && (k.length >= 2 || i === 0)) catKeys.push({ k: k, it: it, name: i === 0 });
+      });
+    });
+    catKeys.sort(function (a, b) { return b.k.length - a.k.length || (b.name ? 1 : 0) - (a.name ? 1 : 0); });
+    return catKeys;
+  }
+  // 回傳 { it, at, len }：在 text 裡找到的食材（最長的名稱／別名優先）
+  function findItem(text) {
+    var n = normKey(text);
+    if (!n) return null;
+    var keys = catalogKeys(), dept = impDept || $('fDept').value, best = null;
+    for (var i = 0; i < keys.length; i++) {
+      var x = keys[i];
+      if (best && x.k.length < best.len) break;
+      if (x.k === n || (x.k.length >= 2 || n.length === 1) && n.indexOf(x.k) >= 0) {
+        // 同樣長度時：完全相同 > 本科別 > 通用
+        var score = (x.k === n ? 4 : 0) + (x.it.dept === dept ? 2 : x.it.dept === '通用' ? 1 : 0);
+        if (!best || score > best.score) best = { it: x.it, len: x.k.length, score: score, key: x.k };
+      }
+    }
+    return best;
+  }
+  function itemByName(name) {
+    var n = normKey(name);
+    if (!n) return null;
+    var keys = catalogKeys();
+    for (var i = 0; i < keys.length; i++) if (keys[i].k === n) return keys[i].it;
+    return null;
+  }
+
+  // ---- 數量、單位 ----
+  var UNIT_WORDS = null;
+  function unitWords() {
+    if (UNIT_WORDS) return UNIT_WORDS;
+    var w = data.orderUnits.concat(data.recipeUnits, pendingUnits(),
+      ['公克', '克', 'G', 'kg', 'KG', 'Kg', '台斤', '大匙', '小匙', '湯匙', '茶匙', 'cc', 'CC', '毫升', 'L', '千克', '升']);
+    w.sort(function (a, b) { return b.length - a.length; });
+    UNIT_WORDS = w.map(function (u) { return u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|');
+    return UNIT_WORDS;
+  }
+  function stdUnit(u) {
+    var m = { '湯匙': 'T', '茶匙': 't', '千克': '公斤', '升': '公升' };
+    return validUnit(m[u] || u) || (m[u] || u);
+  }
+  function halfWidth(s) {
+    return String(s == null ? '' : s).replace(/[０-９Ａ-Ｚａ-ｚ／．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  }
+  function numVal(t) {
+    t = halfWidth(t).replace(/\s+/g, '');
+    var f = t.match(/^(\d+)\/(\d+)$/);
+    if (f && +f[2]) return Math.round(+f[1] / +f[2] * 100) / 100;
+    var n = normNum(t);
+    return n ? Number(n) : NaN;
+  }
+  var NUM_RE = '(\\d+(?:\\.\\d+)?(?:\\/\\d+)?|[零〇一二兩三四五六七八九十]+半?|半)';
+  // 從一段文字找「數量＋單位」，例如「500g」「2 斤」「半顆」「3」
+  function findQty(text) {
+    var t = halfWidth(text);
+    var re = new RegExp(NUM_RE + '\\s*(' + unitWords() + ')?', 'g'), m;
+    while ((m = re.exec(t))) {
+      if (!m[0]) { re.lastIndex++; continue; }
+      var q = numVal(m[1]);
+      if (!isNaN(q) && q > 0) return { qty: q, unit: m[2] ? stdUnit(m[2]) : '', at: m.index, len: m[0].length };
+    }
+    var u = t.match(new RegExp('^\\s*(' + unitWords() + ')\\s*$'));
+    return u ? { qty: NaN, unit: stdUnit(u[1]), at: 0, len: t.length } : null;
+  }
+
+  // ---- 上課資訊 ----
+  function parseInfo(text) {
+    var t = halfWidth(text), info = {}, m;
+    m = t.match(/(\d{2,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})/);
+    if (m) {
+      var y = +m[1]; if (y < 1000) y += 1911;
+      info.useDate = y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+    } else if ((m = t.match(/日期\s*[:：]?\s*(\d{1,2})\s*[\/月]\s*(\d{1,2})/))) {
+      var now = new Date(), d = new Date(now.getFullYear(), +m[1] - 1, +m[2]);
+      if (d < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 60)) d.setFullYear(d.getFullYear() + 1);
+      info.useDate = isoDate(d);
+    }
+    if ((m = t.match(/(上午|下午|早上|中午|晚上)\s*(\d{1,2})\s*[:：點時]\s*(\d{1,2})?/))) {
+      info.classTime = timeStr(m[1] === '下午' || m[1] === '晚上' || (m[1] === '中午' && +m[2] < 6) ? 'pm' : 'am', +m[2], +(m[3] || 0));
+    } else if ((m = t.match(/時間\s*[:：]?\s*(\d{1,2})\s*[:：]\s*(\d{2})/))) {
+      var h = +m[1];
+      info.classTime = timeStr(h >= 12 ? 'pm' : 'am', h > 12 ? h - 12 : h, +m[2]);
+    }
+    if ((m = t.match(/班\s*級\s*[:：]?\s*([A-Za-z0-9\u4e00-\u9fff\-]{1,10})/))) info.className = m[1].replace(/班$/, '');
+    else if ((m = t.match(/(?:^|[^\d])(\d{3})\s*班/))) info.className = m[1];
+    if ((m = t.match(/組\s*數\s*[:：]?\s*(\d{1,2})/)) || (m = t.match(/共\s*(\d{1,2})\s*組/)) || (m = t.match(/(?:^|[^第\d])(\d{1,2})\s*組(?!別)/))) {
+      if (+m[1] >= 1 && +m[1] <= 99) info.groups = String(+m[1]);
+    }
+    if ((m = t.match(/(?:上課)?教\s*室\s*[:：]?\s*([A-Za-z0-9\u4e00-\u9fff\-]{1,15})/))) info.room = m[1];
+    if ((m = t.match(/(?:實作項目|實習項目|實習內容|實作內容|實習課程|課程名稱|菜\s*名|產品名稱)\s*[:：]?\s*([^\n]{1,60})/))) {
+      var p = m[1].split(/\s{2,}|\t|(?=上課|日期|班級|組數|教室|老師|時間)/)[0].trim();
+      if (p) info.project = p;
+    }
+    var depts = data.departments.filter(function (d) { return t.indexOf(d) >= 0; });
+    if (depts.length) info.dept = depts.sort(function (a, b) { return t.indexOf(a) - t.indexOf(b); })[0];
+    var who = data.teachers.filter(function (n) { return n && n !== data.account && t.indexOf(n) >= 0; });
+    var me = t.indexOf(data.account) >= 0;
+    if (who.length === 1 && !me && $('fFor').querySelector('option[value="' + who[0] + '"]')) info.onBehalfOf = who[0];
+    return info;
+  }
+  function timeStr(ap, h, mi) {
+    if (!(h >= 1 && h <= 12)) return '';
+    mi = Math.round(mi / 5) * 5; if (mi >= 60) mi = 55;
+    return (ap === 'pm' ? '下午' : '上午') + ' ' + h + ':' + ('0' + mi).slice(-2);
+  }
+
+  // ---- 表格 ----
+  var H_NAME = /食材|品名|名稱|材料|品項|原料|料名|貨品/;
+  var H_TOTAL = /總量|合計|總計|總數|全班/;
+  var H_QTY = /數量|重量|用量|份量|叫貨|訂購量|需求量|^量$/;
+  var H_UNIT = /單位/;
+  var H_NOTE = /備註|說明|規格/;
+  var H_GROUP = /^(第)?\s*\d+\s*組$|^組\s*\d+$/;
+  function isInfoCell(c) { return /實作|實習|上課|班級|組數|教室|日期|老師|科別|時間/.test(c); }
+
+  function parseTable(rows) {
+    var out = [], hdr = -1, blocks = [];
+    for (var r = 0; r < Math.min(rows.length, 20) && hdr < 0; r++) {
+      var names = [];
+      rows[r].forEach(function (c, i) { c = String(c).trim(); if (H_NAME.test(c) && c.length <= 8 && !isInfoCell(c)) names.push(i); });
+      if (!names.length) continue;
+      var row = rows[r].map(function (c) { return String(c).replace(/\s+/g, '').trim(); });
+      // 一列裡有幾個「食材」欄就有幾塊（例如左右兩欄並排的請料單）
+      names.forEach(function (ni, bi) {
+        var end = bi + 1 < names.length ? names[bi + 1] : row.length, b = { name: ni, total: -1, qty: -1, unit: -1, note: -1, groups: [] };
+        for (var i = ni + 1; i < end; i++) {
+          var c = row[i];
+          if (!c) continue;
+          if (H_TOTAL.test(c) && b.total < 0) b.total = i;
+          else if (H_UNIT.test(c) && b.unit < 0) b.unit = i;
+          else if (H_QTY.test(c) && b.qty < 0) b.qty = i;
+          else if (H_NOTE.test(c) && b.note < 0) b.note = i;
+          else if (H_GROUP.test(c)) b.groups.push(i);
+        }
+        blocks.push(b);
+      });
+      hdr = r;
+    }
+    if (hdr < 0) return null;   // 沒有標題列：當成文字處理
+    blocks.forEach(function (b) {
+      var section = '';
+      for (var r = hdr + 1; r < rows.length; r++) {
+        var cell = function (i) { return i >= 0 && rows[r][i] != null ? String(rows[r][i]).trim() : ''; };
+        var name = cell(b.name);
+        if (!name || H_NAME.test(name) && name.length <= 4) continue;
+        var qcell = b.total >= 0 && cell(b.total) ? cell(b.total) : b.qty >= 0 ? cell(b.qty) : '';
+        var q = qcell ? findQty(qcell) : null;
+        var qty = q ? q.qty : NaN, unit = q ? q.unit : '';
+        if (isNaN(qty) && b.groups.length) {
+          var sum = 0, any = false;
+          b.groups.forEach(function (i) { var g = findQty(cell(i)); if (g && !isNaN(g.qty)) { sum += g.qty; any = true; if (!unit) unit = g.unit; } });
+          if (any) qty = Math.round(sum * 100) / 100;
+        }
+        var nameQ = isNaN(qty) ? findQty(name) : null;
+        if (nameQ && !isNaN(nameQ.qty) && nameQ.at > 0) {   // 「麵粉 500g」寫在同一格
+          qty = nameQ.qty; unit = unit || nameQ.unit; name = name.slice(0, nameQ.at).trim();
+        }
+        if (b.unit >= 0 && cell(b.unit)) unit = stdUnit(cell(b.unit).trim());
+        var hit = findItem(name);
+        var rowText = rows[r].filter(function (c) { return String(c).trim(); }).join(' ');
+        // 只有名稱、沒有數量、也對不到食材 → 當成段落標題（例如「麵糰」「內餡」）
+        if (isNaN(qty) && !hit && name.length <= 12 && !/\d/.test(name)) {
+          var others = rows[r].filter(function (c, i) { return i !== b.name && String(c).trim(); });
+          if (!others.length) { section = name; continue; }
+        }
+        if (isInfoCell(name) && !hit) continue;
+        out.push(makeRow(rowText, name, hit, qty, unit, cell(b.note), section));
+      }
+    });
+    return out;
+  }
+
+  // ---- 文字（照片辨識、Word 段落、沒有標題列的表格）----
+  function parseLines(lines) {
+    var out = [], cur = null, section = '';
+    lines.forEach(function (line) {
+      halfWidth(line).split(/\t|\s{2,}|[|｜]/).forEach(function (seg) {
+        seg = seg.trim();
+        if (!seg) return;
+        var hit = findItem(seg);
+        var noCode = seg.replace(/[A-Za-z]+\d{3,}/g, ' ');   // 食材編號（例如 I0560）不是數量
+        var q = findQty(noCode);
+        var pureQty = !!q && q.at === 0 && q.len >= noCode.trim().length;
+        if (hit && !pureQty) {
+          cur = makeRow(seg, hit.it.name, hit, q ? q.qty : NaN, q ? q.unit : '', '', section);
+          out.push(cur);
+          return;
+        }
+        if (q && cur && (isNaN(cur.qty) || !cur.fileUnit) && pureQty) {   // 名稱和數量被拆成兩行
+          if (isNaN(cur.qty) && !isNaN(q.qty)) { cur.qty = q.qty; cur.on = !!cur.id && q.qty > 0; }
+          if (q.unit && !cur.fileUnit) { cur.unit = q.unit; cur.fileUnit = true; }
+          cur.src += ' ' + seg;
+          return;
+        }
+        // 對不到食材，但看起來像「名稱 數量 單位」
+        var m = seg.match(new RegExp('^([\\u4e00-\\u9fffA-Za-z（）()]{1,15})\\s*[:：]?\\s*' + NUM_RE + '\\s*(' + unitWords() + ')?'));
+        if (m && !isInfoCell(m[1]) && !/^(第|共)/.test(m[1])) {
+          cur = makeRow(seg, m[1], null, numVal(m[2]), m[3] ? stdUnit(m[3]) : '', '', section);
+          out.push(cur);
+          return;
+        }
+        if (!q && seg.length <= 8 && /^[\u4e00-\u9fff]+[:：]?$/.test(seg) && !isInfoCell(seg) && !NOT_SECTION.test(seg)) {
+          section = seg.replace(/[:：]$/, ''); cur = null;
+        }
+      });
+    });
+    return out;
+  }
+
+  var NOT_SECTION = /單|表|學校|家商|科|老師|簽|日期|合計|總計|食材|品名|數量|單位|備註/;
+  function makeRow(src, name, hit, qty, unit, note, section) {
+    var it = hit ? hit.it : null;
+    var u = unit || (it ? validUnit(it.unit) : '');
+    return {
+      on: !!it && !isNaN(qty) && qty > 0,
+      src: String(src).slice(0, 80),
+      name: it ? it.name : String(name).slice(0, 40),
+      id: it ? it.id : '',
+      vendor: it ? it.vendor : '',
+      qty: isNaN(qty) ? NaN : qty,
+      unit: u,
+      fileUnit: !!unit,
+      note: String(note || '').slice(0, 100),
+      section: section || '',
+    };
+  }
+
+  function parseImport(res) {
+    catKeys = null; UNIT_WORDS = null;   // 食材總表、單位可能剛更新
+    var infoLines = [];
+    (res.tables || []).forEach(function (t) {
+      t.rows.forEach(function (r) { var l = r.map(function (c) { return String(c).trim(); }).filter(Boolean).join(' '); if (l) infoLines.push(l); });
+    });
+    var info = parseInfo(infoLines.concat(String(res.text || '').split('\n')).join('\n'));
+    impDept = info.dept || '';   // 同名食材優先選檔案上的科別
+    var rows = [], lineInput = [];
+    (res.tables || []).forEach(function (t) {
+      var parsed = parseTable(t.rows);
+      if (!parsed) t.rows.forEach(function (r) {
+        var l = r.map(function (c) { return String(c).trim(); }).filter(Boolean).join('  ');
+        if (l) lineInput.push(l);
+      });
+      if (parsed) rows = rows.concat(parsed);
+    });
+    var text = String(res.text || '').split('\n');
+    rows = rows.concat(parseLines(lineInput.concat(text)));
+    return { info: info, rows: rows };
+  }
+
+  // ---- 確認清單 ----
+  var INFO_LABEL = { useDate: '上課日期', dept: '科別', classTime: '上課時間', room: '上課教室', className: '上課班級', groups: '組數', onBehalfOf: '代訂對象', project: '實作項目' };
+  function renderImport() {
+    if (!imp) { $('impReview').innerHTML = ''; return; }
+    var infoKeys = Object.keys(INFO_LABEL).filter(function (k) { return imp.info[k]; });
+    var found = imp.rows.filter(function (r) { return r.id; }).length;
+    msg('impMsg', imp.rows.length ? 'ok' : 'error', imp.rows.length
+      ? '讀到 ' + imp.rows.length + ' 列，其中 ' + found + ' 列對應到食材總表。請確認下面的內容，有勾選的才會加入。'
+      : '沒有讀到食材。' + (imp.kind === 'ocr' ? '照片請拍正、拍清楚，或改用 Excel／Word 檔。' : '請確認檔案裡有「食材／品名」和「數量」欄位。'));
+    if (!imp.rows.length && !infoKeys.length) { $('impReview').innerHTML = ''; return; }
+    var dl = '<datalist id="impItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
+    var infoHtml = infoKeys.length
+      ? '<div class="imp-info"><b>上課資訊（會覆蓋目前填的）：</b>' + infoKeys.map(function (k) {
+          return '<label class="check" style="color:inherit"><input type="checkbox" data-info="' + k + '" checked> ' + INFO_LABEL[k] + '：' + esc(imp.info[k]) + '</label>';
+        }).join('') + '</div>'
+      : '<div class="muted small" style="margin:8px 0">檔案裡沒有讀到上課資訊，請自己填。</div>';
+    var lastSec = null;
+    var body = imp.rows.map(function (r, i) {
+      var head = '';
+      if (r.section !== lastSec && r.section) head = '<tr class="imp-sec"><td colspan="6">段落：' + esc(r.section) + '</td></tr>';
+      lastSec = r.section;
+      var status = r.id ? '' : '<div class="small" style="color:var(--warn)">食材總表沒有，會當新食材送審。廠商：<select data-f="vendor"><option value="">請選擇</option>' +
+        data.vendors.map(function (v) { return '<option' + (v === r.vendor ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') + '</select></div>';
+      return head + '<tr data-i="' + i + '"' + (r.on ? '' : ' class="off"') + '>' +
+        '<td><input type="checkbox" data-f="on"' + (r.on ? ' checked' : '') + ' aria-label="加入"></td>' +
+        '<td class="nm"><input type="text" data-f="name" list="impItems" maxlength="40" value="' + esc(r.name) + '" aria-label="食材">' + status + '</td>' +
+        '<td class="qc"><input type="text" class="num-input q" data-f="qty" inputmode="decimal" autocomplete="off" maxlength="10" value="' + (isNaN(r.qty) ? '' : esc(fmtQty(r.qty))) + '" aria-label="數量"></td>' +
+        '<td class="uc">' + unitInput(r.unit, '單位', true).replace('class="unit-input', 'class="unit-input u') + '</td>' +
+        '<td class="nt"><input type="text" data-f="note" maxlength="100" placeholder="備註" value="' + esc(r.note) + '" aria-label="備註"></td>' +
+        '<td class="src">' + esc(r.src) + '</td></tr>';
+    }).join('');
+    var hasCart = draft.cart.length || draft.tools.length;
+    $('impReview').innerHTML = dl + '<div class="muted small">檔案：' + esc(imp.fileName) + '</div>' + infoHtml +
+      (imp.rows.length ? '<div class="tablewrap"><table class="imp-table"><thead><tr><th></th><th>食材</th><th>數量</th><th>單位</th><th>備註</th><th>檔案原文</th></tr></thead><tbody>' + body + '</tbody></table></div>' : '') +
+      '<div class="actions" style="margin-top:10px">' +
+        '<button type="button" class="btn ghost small" data-imp="cancel">不要帶入</button>' +
+        (imp.rows.length ? '<button type="button" class="btn ghost small" data-imp="all">全選</button>' : '') +
+        (hasCart
+          ? '<button type="button" class="btn secondary small" data-imp="append">加在目前清單後面</button><button type="button" class="btn small" data-imp="replace">取代目前清單</button>'
+          : '<button type="button" class="btn small" data-imp="replace">加入訂購清單</button>') +
+      '</div>';
+  }
+  function impRowOf(el) {
+    var tr = el.closest('tr[data-i]');
+    return tr ? { tr: tr, r: imp.rows[+tr.getAttribute('data-i')] } : null;
+  }
+  $('impReview').addEventListener('input', function (e) {
+    var x = impRowOf(e.target); if (!x) return;
+    var f = e.target.getAttribute('data-f');
+    if (f === 'name') {
+      var it = itemByName(e.target.value);
+      var was = !!x.r.id;
+      x.r.name = e.target.value.trim();
+      x.r.id = it ? it.id : ''; x.r.vendor = it ? it.vendor : x.r.vendor;
+      if (it) x.r.name = it.name;
+      if (was !== !!it) { syncImp(); renderImport(); }
+    } else if (f === 'qty') x.r.qty = toNum(e.target.value);
+    else if (f === 'unit' || f === 'note') x.r[f] = e.target.value.trim();
+  });
+  $('impReview').addEventListener('change', function (e) {
+    var x = impRowOf(e.target); if (!x) return;
+    var f = e.target.getAttribute('data-f');
+    if (f === 'on') { x.r.on = e.target.checked; x.tr.classList.toggle('off', !x.r.on); }
+    if (f === 'vendor') x.r.vendor = e.target.value;
+    if (f === 'name') { var it = itemByName(e.target.value); if (it) e.target.value = it.name; }
+  });
+  function syncImp() {
+    Array.prototype.forEach.call($('impReview').querySelectorAll('tr[data-i]'), function (tr) {
+      var r = imp.rows[+tr.getAttribute('data-i')];
+      var v = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return el ? (el.type === 'checkbox' ? el.checked : el.value) : null; };
+      r.on = v('on'); r.qty = toNum(v('qty')); r.unit = String(v('unit') || '').trim(); r.note = String(v('note') || '').trim();
+      if (v('vendor') !== null) r.vendor = v('vendor');
+    });
+  }
+  $('impReview').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-imp]');
+    if (!b) return;
+    var act = b.getAttribute('data-imp');
+    if (act === 'cancel') { imp = null; renderImport(); msg('impMsg', '', ''); return; }
+    syncImp();
+    if (act === 'all') { imp.rows.forEach(function (r) { r.on = true; }); renderImport(); return; }
+    var picked = imp.rows.filter(function (r) { return r.on; });
+    var bad = picked.filter(function (r) { return !r.name || isNaN(r.qty) || r.qty <= 0 || (!r.id && !r.vendor); });
+    if (bad.length) {
+      alert('這些勾選的列還沒填好（需要食材名稱、數量，新食材要選廠商）：\n' + bad.map(function (r) { return r.name || r.src; }).join('、'));
+      return;
+    }
+    if (!picked.length && !Object.keys(imp.info).length) { alert('沒有勾選任何食材。'); return; }
+    // 上課資訊：用檔案的（只覆蓋有讀到、有勾選的欄位）
+    Array.prototype.forEach.call($('impReview').querySelectorAll('[data-info]'), function (cb) {
+      if (cb.checked) draft.info[cb.getAttribute('data-info')] = imp.info[cb.getAttribute('data-info')];
+    });
+    if (act === 'replace') { draft.cart = []; draft.tools = []; draft.sections = []; draft.activeSection = ''; }
+    var g = Number(draft.info.groups) || 0;
+    picked.forEach(function (r, idx) {
+      var it = r.id ? itemById[r.id] : null;
+      var unit = validUnit(r.unit) || r.unit;
+      draft.cart.push({ key: 'f' + Date.now() + idx, id: it ? it.id : '', name: it ? it.name : r.name, vendor: it ? it.vendor : r.vendor,
+        qty: String(r.qty), per: g ? String(Math.round(r.qty / g * 10000) / 10000) : '', unit: unit, note: r.note,
+        isNew: !it, noOrder: false, section: r.section || '' });
+      if (r.section && draft.sections.indexOf(r.section) < 0) draft.sections.push(r.section);
+    });
+    writeInfo(); updateDateHint();
+    var outDate = draft.info.useDate && $('fDate').value !== draft.info.useDate;
+    saveDraft(); renderCart(); renderResults();
+    var n = picked.length;
+    imp = null; renderImport();
+    msg('impMsg', 'ok', '已' + (act === 'replace' ? '帶入' : '加入') + ' ' + n + ' 項食材。請檢查訂購清單和上課資訊後再送出。' +
+      (outDate ? '（檔案上的日期 ' + draft.info.useDate + ' 不在可訂貨的範圍，請重新選上課日期）' : ''));
+    $('cartPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   // ------------------------------------------------------------------

@@ -54,6 +54,12 @@ const AUTO_FOLDER_NAME = '三信家商餐飲科訂貨單';   // 自動產生的�
 const DIGEST_HOUR = 7;                       // 每日摘要信幾點寄
 const VENDOR_ORDER_HOUR = 12;                // 每週一幾點產生下週廠商訂貨單（配合 12:00 截止）
 const LINE_BIND_MINUTES = 30;                // LINE 綁定碼有效時間
+const MAINT_HOUR = 23;                       // 每週日幾點做每週維護（先備份、再封存舊訂單）
+const ARCHIVE_AFTER_DAYS = 14;               // 上課日期過了幾天的訂單搬到「歷史訂單」
+const BACKUP_KEEP = 4;                       // 試算表備份保留幾份（每週一份）
+const BACKUP_FOLDER_NAME = '三信家商餐飲科訂貨系統備份';
+const BACKUP_PREFIX = '訂貨表備份 ';
+const IMPORT_MAX_MB = 10;                    // 上傳檔案大小上限
 const PENDING_ID = '待審核';
 
 const SHEET = {
@@ -65,6 +71,7 @@ const SHEET = {
   pending: '待審核食材',
   templates: '範本',
   units: '單位',
+  history: '歷史訂單',
 };
 
 // 需要你在試算表手動新增的欄位（沒有的話網站照常運作，只是對應功能不會存檔）
@@ -597,7 +604,7 @@ function nextOrderNo_() {
 function getMyOrders(token) {
   const account = auth_(token);
   const since = addDays_(today_(), -60);
-  const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
+  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows, since).filter(function (r) {
     if (String(r['操作老師']).trim() !== account && String(r['代訂對象老師'] || '').trim() !== account) return false;
     const d = toDate_(r['使用日期']);
     return !d || d >= since;
@@ -634,7 +641,7 @@ function adminGetOrders(token, from, to) {
   let end = parseDate_(to) || start;
   if (!start) throw new Error('請選擇日期。');
   if (end < start) { const t = start; start = end; end = t; }
-  const rows = readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.filter(function (r) {
+  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, start).filter(function (r) {
     const d = toDate_(r['使用日期']);
     return d && d >= start && d <= end;
   });
@@ -889,7 +896,7 @@ function deleteTemplateRows_(account, name) {
 // 第一次使用：在 Apps Script 編輯器選函式「setupAutomation」按「執行」並授權，
 // 之後就會每週一中午、每天早上自動執行。也可以在網站「廠商訂貨單」頁管理。
 
-const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest'];
+const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance'];
 
 /** 在編輯器執行一次：授權並建立排程。 */
 function setupAutomation() {
@@ -906,6 +913,8 @@ function setTriggers_(enabled) {
     .onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(VENDOR_ORDER_HOUR).inTimezone(tz_()).create();
   ScriptApp.newTrigger('dailyDigest').timeBased()
     .everyDays(1).atHour(DIGEST_HOUR).inTimezone(tz_()).create();
+  ScriptApp.newTrigger('weeklyMaintenance').timeBased()
+    .onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(MAINT_HOUR).inTimezone(tz_()).create();
 }
 
 function automationStatus_() {
@@ -914,6 +923,12 @@ function automationStatus_() {
   return {
     vendorTrigger: handlers.indexOf('autoVendorOrders') >= 0,
     digestTrigger: handlers.indexOf('dailyDigest') >= 0,
+    maintTrigger: handlers.indexOf('weeklyMaintenance') >= 0,
+    lastMaintTime: props.getProperty('LAST_MAINT_TIME') || '',
+    lastMaintText: props.getProperty('LAST_MAINT_TEXT') || '',
+    maintHour: MAINT_HOUR,
+    archiveDays: ARCHIVE_AFTER_DAYS,
+    backupKeep: BACKUP_KEEP,
     emails: notifyEmails_(),
     lineTokenSet: !!props.getProperty('LINE_TOKEN'),
     lineBound: !!props.getProperty('LINE_TO'),
@@ -943,6 +958,12 @@ function dailyDigest(e) {
   runDigest_(false);
 }
 
+// 排程：每週日晚上先備份試算表、再把舊訂單搬到「歷史訂單」
+function weeklyMaintenance(e) {
+  if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
+  runMaintenance_();
+}
+
 // ---- 管理者在網站上操作 ----
 
 function adminGetAutomation(token) {
@@ -959,6 +980,11 @@ function adminSetAutomation(token, enabled) {
 function adminRunVendorNow(token) {
   auth_(token, true);
   return runVendorOrders_();
+}
+
+function adminRunMaintenanceNow(token) {
+  auth_(token, true);
+  return runMaintenance_();
 }
 
 function adminRunDigestNow(token) {
@@ -1077,6 +1103,230 @@ function notify_(subject, html, lineText) {
     out.line = '尚未綁定 LINE';
   }
   return out;
+}
+
+// ---- 每週維護：備份＋封存 ----
+
+function runMaintenance_() {
+  const props = PropertiesService.getScriptProperties();
+  const out = { backup: null, archived: 0, orders: 0, error: '' };
+  try {
+    out.backup = backupSpreadsheet_();
+  } catch (e) {
+    out.error = '備份失敗，這次先不封存舊訂單：' + e.message;
+  }
+  if (!out.error) {
+    try {
+      const a = archiveOldOrders_();
+      out.archived = a.rows; out.orders = a.orders; out.before = a.before;
+    } catch (e) {
+      out.error = '封存舊訂單失敗：' + e.message;
+    }
+  }
+  const lines = [];
+  if (out.backup) lines.push('已備份試算表（保留最近 ' + BACKUP_KEEP + ' 份' + (out.backup.removed ? '，刪除 ' + out.backup.removed + ' 份舊備份' : '') + '）');
+  if (!out.error) lines.push(out.orders ? '已把 ' + out.orders + ' 張舊訂單（上課日期 ' + out.before + ' 以前）搬到「' + SHEET.history + '」' : '沒有需要封存的舊訂單');
+  if (out.error) lines.push('⚠ ' + out.error);
+  const text = lines.join('；');
+  props.setProperty('LAST_MAINT_TIME', fmtDateTime_(new Date()));
+  props.setProperty('LAST_MAINT_TEXT', text);
+  out.notify = notify_('【每週維護】' + (out.error ? '有問題，請查看' : '完成'),
+    '<ul>' + lines.map(function (l) { return '<li>' + escHtml_(l) + '</li>'; }).join('') + '</ul>' +
+      (out.backup ? '<p><a href="' + out.backup.url + '">打開這週的備份</a>（雲端硬碟資料夾「' + escHtml_(BACKUP_FOLDER_NAME) + '」）</p>' : ''),
+    '【每週維護】\n' + lines.join('\n'));
+  out.text = text;
+  return out;
+}
+
+/** 複製整份試算表到備份資料夾，只留最近 BACKUP_KEEP 份。 */
+function backupSpreadsheet_() {
+  const src = DriveApp.getFileById(ss_().getId());
+  const folders = DriveApp.getFoldersByName(BACKUP_FOLDER_NAME);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(BACKUP_FOLDER_NAME);
+  const copy = src.makeCopy(BACKUP_PREFIX + Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), folder);
+  const files = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getName().indexOf(BACKUP_PREFIX) === 0) files.push(f);
+  }
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  let removed = 0;
+  files.slice(BACKUP_KEEP).forEach(function (f) {
+    if (f.getId() === copy.getId()) return;
+    f.setTrashed(true);
+    removed++;
+  });
+  return { url: copy.getUrl(), name: copy.getName(), removed: removed };
+}
+
+/** 上課日期早於 (今天 − ARCHIVE_AFTER_DAYS) 的訂單整張搬到「歷史訂單」分頁。 */
+function archiveOldOrders_() {
+  const before = addDays_(today_(), -ARCHIVE_AFTER_DAYS);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const t = readTable_(SHEET.orders, ['訂單編號', '使用日期']);
+    // 一張訂單的上課日期都一樣；以訂單為單位判斷，避免一張單被拆開
+    const newest = {};
+    t.rows.forEach(function (r) {
+      const no = String(r['訂單編號']).trim();
+      const d = toDate_(r['使用日期']);
+      if (!no) return;
+      if (newest[no] === null) return;
+      newest[no] = !d ? null : (!newest[no] || d > newest[no] ? d : newest[no]);   // 沒有日期的不封存
+    });
+    const old = t.rows.filter(function (r) {
+      const no = String(r['訂單編號']).trim();
+      return no && newest[no] && newest[no] < before;
+    });
+    if (!old.length) return { rows: 0, orders: 0, before: dateStr_(before) };
+
+    historySheet_(t.sheet);
+    const already = {};
+    readTable_(SHEET.history, ['訂單編號']).rows.forEach(function (r) { already[String(r['訂單編號']).trim()] = true; });
+    // 上次搬到一半（已寫入歷史、還沒刪除）的訂單不重複寫入
+    const toWrite = old.filter(function (r) { return !already[String(r['訂單編號']).trim()]; }).map(function (r) {
+      const o = {};
+      Object.keys(t.cols).forEach(function (k) { o[k] = r[k]; });
+      return o;
+    });
+    appendRows_(SHEET.history, toWrite);
+    SpreadsheetApp.flush();
+
+    deleteRows_(t.sheet, old.map(function (r) { return r._row; }));
+    SpreadsheetApp.flush();
+    const orders = {};
+    old.forEach(function (r) { orders[String(r['訂單編號']).trim()] = true; });
+    return { rows: old.length, orders: Object.keys(orders).length, before: dateStr_(before) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 取得「歷史訂單」分頁；沒有就建立，標題跟訂單總表一樣（缺的欄位補在後面）。 */
+function historySheet_(ordersSheet) {
+  const headers = ordersSheet.getRange(1, 1, 1, Math.max(ordersSheet.getLastColumn(), 1)).getValues()[0]
+    .map(function (h) { return String(h).trim(); }).filter(Boolean);
+  let sh = ss_().getSheetByName(SHEET.history);
+  if (!sh) {
+    sh = ss_().insertSheet(SHEET.history);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    return sh;
+  }
+  const have = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+  const missing = headers.filter(function (h) { return have.indexOf(h) < 0 && have.indexOf(HEADER_ALIASES[h]) < 0; });
+  if (missing.length) {
+    if (sh.getMaxColumns() < have.length + missing.length) sh.insertColumnsAfter(sh.getMaxColumns(), have.length + missing.length - sh.getMaxColumns());
+    sh.getRange(1, have.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+  }
+  return sh;
+}
+
+/** 刪除多列（連續的列一次刪），從下往上刪列號才不會跑掉。 */
+function deleteRows_(sh, rows) {
+  rows = rows.slice().sort(function (a, b) { return b - a; });
+  // 試算表至少要留一列沒凍結的列
+  if (sh.getMaxRows() - sh.getFrozenRows() <= rows.length) sh.insertRowsAfter(sh.getMaxRows(), 1);
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j + 1 < rows.length && rows[j + 1] === rows[j] - 1) j++;
+    sh.deleteRows(rows[j], j - i + 1);
+    i = j + 1;
+  }
+}
+
+/** 目前的訂單再加上「歷史訂單」裡上課日期在 since 之後的列（標記 _archived）。 */
+function withHistory_(rows, since) {
+  const sh = ss_().getSheetByName(SHEET.history);
+  if (!sh || sh.getLastRow() < 2) return rows;
+  const current = {};
+  rows.forEach(function (r) { current[String(r['訂單編號']).trim()] = true; });
+  const hist = readTable_(SHEET.history, ['訂單編號']).rows.filter(function (r) {
+    if (current[String(r['訂單編號']).trim()]) return false;
+    const d = toDate_(r['使用日期']);
+    return !since || !d || d >= since;
+  });
+  hist.forEach(function (r) { r._archived = true; });
+  return rows.concat(hist);
+}
+
+// ---- 檔案匯入：Excel、Word、照片（OCR）→ 表格與文字 ----
+//
+// 需要在 Apps Script 編輯器左邊「服務 ＋」加入「Drive API」。
+// 檔案先轉成 Google 試算表／文件讀內容，讀完立刻刪掉，不會留在雲端硬碟。
+
+const IMPORT_TYPES_ = {
+  sheet: /\.(xlsx|xls|xlsm|csv|ods)$/i,
+  doc: /\.(docx|doc|odt|rtf|txt)$/i,
+  ocr: /\.(jpe?g|png|gif|bmp|webp|heic|heif|pdf)$/i,
+};
+
+function importFile(token, file) {
+  auth_(token);
+  if (!file || !file.data) throw new Error('沒有收到檔案。');
+  const name = clean_(file.name, 100) || '上傳檔案';
+  const kind = IMPORT_TYPES_.sheet.test(name) ? 'sheet' : IMPORT_TYPES_.doc.test(name) ? 'doc'
+    : (IMPORT_TYPES_.ocr.test(name) || /^image\//.test(file.mimeType || '')) ? 'ocr' : '';
+  if (!kind) throw new Error('不支援這種檔案。請上傳 Excel（.xlsx）、Word（.docx）、照片或 PDF。');
+  const bytes = Utilities.base64Decode(String(file.data));
+  if (bytes.length > IMPORT_MAX_MB * 1024 * 1024) throw new Error('檔案太大（上限 ' + IMPORT_MAX_MB + ' MB）。');
+  if (typeof Drive === 'undefined') {
+    throw new Error('伺服器還沒開啟「Drive API」服務。請管理者到 Apps Script 編輯器左邊「服務 ＋」加入 Drive API，再重新部署。');
+  }
+  const blob = Utilities.newBlob(bytes, file.mimeType || 'application/octet-stream', name);
+  const target = kind === 'sheet' ? MimeType.GOOGLE_SHEETS : MimeType.GOOGLE_DOCS;
+  const id = convertFile_(blob, name, target, kind === 'ocr');
+  try {
+    return kind === 'sheet' ? readConvertedSheet_(id) : readConvertedDoc_(id, kind === 'ocr');
+  } finally {
+    try { Drive.Files.remove(id); } catch (e) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e2) {} }
+  }
+}
+
+/** 用 Drive API 把檔案轉成 Google 格式（照片／PDF 會做文字辨識），回傳新檔案 ID。 */
+function convertFile_(blob, name, targetMime, ocr) {
+  return retry_(function () {
+    if (Drive.Files.create) {   // Drive API v3
+      const f = Drive.Files.create({ name: '[匯入暫存] ' + name, mimeType: targetMime }, blob, ocr ? { ocrLanguage: 'zh-TW' } : {});
+      return f.id;
+    }
+    const f = Drive.Files.insert({ title: '[匯入暫存] ' + name, mimeType: targetMime }, blob,   // Drive API v2
+      ocr ? { ocr: true, ocrLanguage: 'zh-TW', convert: true } : { convert: true });
+    return f.id;
+  });
+}
+
+function readConvertedSheet_(id) {
+  const ss = SpreadsheetApp.openById(id);
+  const tables = ss.getSheets().map(function (sh) {
+    const r = Math.min(sh.getLastRow(), 300), c = Math.min(sh.getLastColumn(), 40);
+    return { name: sh.getName(), rows: r && c ? sh.getRange(1, 1, r, c).getDisplayValues() : [] };
+  }).filter(function (t) { return t.rows.length; });
+  return { kind: 'sheet', tables: tables, text: '' };
+}
+
+function readConvertedDoc_(id, ocr) {
+  const body = DocumentApp.openById(id).getBody();
+  const tables = [], lines = [];
+  for (let i = 0; i < body.getNumChildren(); i++) {
+    const el = body.getChild(i);
+    const type = el.getType();
+    if (type === DocumentApp.ElementType.TABLE) {
+      const tb = el.asTable(), rows = [];
+      for (let r = 0; r < tb.getNumRows() && r < 300; r++) {
+        const row = tb.getRow(r), cells = [];
+        for (let c = 0; c < row.getNumCells(); c++) cells.push(row.getCell(c).getText().replace(/\s*\n\s*/g, ' ').trim());
+        rows.push(cells);
+      }
+      tables.push({ name: '表格' + (tables.length + 1), rows: rows });
+    } else if (type === DocumentApp.ElementType.PARAGRAPH || type === DocumentApp.ElementType.LIST_ITEM) {
+      el.getText().split('\n').forEach(function (l) { if (l.trim()) lines.push(l.trim()); });
+    }
+  }
+  return { kind: ocr ? 'ocr' : 'doc', tables: tables, text: lines.slice(0, 600).join('\n') };
 }
 
 // ---- 廠商訂貨單 ----
@@ -1283,8 +1533,9 @@ function groupOrders_(rows, account) {
       status: String(r['狀態'] || ''),
       noOrder: isTrue_(r['不叫貨']),
       section: String(r['段落'] || ''),
-      row: r._row,
+      row: r._archived ? null : r._row,
     });
+    if (r._archived) map[no].archived = true;
   });
   list.forEach(function (o) {
     // 狀態以沒取消的品項為準（管理者刪掉個別品項時，訂單本身不算「部分處理」）
@@ -1292,7 +1543,8 @@ function groupOrders_(rows, account) {
     const active = s.filter(function (x) { return x !== '已取消'; });
     if (active.length) s = active;
     o.status = s.every(function (x) { return x === s[0]; }) ? s[0] : '部分處理';
-    o.locked = isLocked_(parseDate_(o.useDate));
+    o.archived = !!o.archived;
+    o.locked = o.archived || isLocked_(parseDate_(o.useDate));
     o.canCancel = !!account && o.status === '待處理' && !o.locked;
   });
   return list;
