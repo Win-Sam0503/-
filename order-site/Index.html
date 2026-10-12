@@ -144,6 +144,49 @@
   .pending-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; background: #fff; }
   .pending-card .grid2 { margin-top: 8px; }
 
+  .timepick { display: flex; gap: 6px; align-items: center; }
+  .timepick select { flex: 1; min-width: 0; padding-left: 6px; padding-right: 2px; }
+  .tools-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .tool-row { grid-template-columns: 1.6fr 90px 1.4fr 36px; }
+  .printbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .printbar select { width: auto; }
+  .print-scroll { overflow-x: auto; padding-bottom: 16px; }
+
+  /* 請料單（A4 直式） */
+  .sheet {
+    width: 190mm; height: 277mm; margin: 0 auto; background: #fff; color: #000; overflow: hidden;
+    font-family: "DFKai-SB", "BiauKai", "標楷體", "Kaiti TC", "Noto Serif TC", serif;
+    box-shadow: 0 2px 12px rgba(0,0,0,.15); padding: 0; position: relative;
+  }
+  .sheet table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs, 11pt); }
+  .sheet td, .sheet th { border: 1px solid #000; padding: 0 1.5mm; height: var(--rh, 7mm); line-height: 1.15; font-weight: normal; overflow: hidden; white-space: nowrap; text-overflow: clip; }
+  .sheet .c { text-align: center; }
+  .sheet .r { text-align: right; }
+  .sheet .title { font-size: 15pt; text-align: center; height: 10mm; letter-spacing: 1px; }
+  .sheet .hdr td { height: 8.5mm; font-size: 11.5pt; }
+  .sheet .sec td { text-align: center; font-size: 12pt; letter-spacing: 4px; height: 8mm; }
+  .sheet .colh td { text-align: center; height: 7mm; font-size: 10.5pt; }
+  .sheet .note { font-size: 0.8em; }
+  .sheet .vtext { writing-mode: vertical-rl; text-align: center; letter-spacing: 2px; white-space: normal; }
+  .sheet .wrap { white-space: normal; }
+  .sheet .blank { display: inline-block; min-width: 9mm; border-bottom: 1px solid #000; height: 1em; vertical-align: bottom; }
+  .sheet.teacher { padding: 6mm 4mm; }
+  .sheet.teacher h1 { text-align: center; font-size: 18pt; font-weight: normal; margin: 0 0 4mm; letter-spacing: 2px; }
+  .sheet.teacher .meta { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 2mm 4mm; font-size: 11.5pt; margin: 0 6mm 5mm; }
+  .sheet.teacher .boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm 10mm; padding: 0 4mm; }
+  .sheet.teacher .boxes table td { border-width: 1px; }
+  .sheet.teacher .boxes .bt td { font-size: 12.5pt; text-align: center; height: 8mm; border-width: 1.5px; }
+  .sheet.teacher .extra { margin: 5mm 6mm 0; font-size: 10.5pt; white-space: normal; }
+
+  @page { size: A4 portrait; margin: 10mm; }
+  @media print {
+    body { background: #fff; }
+    #viewLogin, #app > header, .noprint, #globalMsg { display: none !important; }
+    main { padding: 0 !important; max-width: none !important; }
+    .print-scroll { overflow: visible; padding: 0; }
+    .sheet { box-shadow: none; margin: 0; }
+  }
+
   @media (max-width: 700px) {
     .grid2 { grid-template-columns: 1fr 1fr; }
     .grid2 .wide { grid-column: 1 / -1; }
@@ -153,6 +196,7 @@
     .cart-row { grid-template-columns: 1fr 1fr 36px; grid-template-areas: "nm nm x" "q u u" "n n n"; }
     .cart-row .c-nm { grid-area: nm; } .cart-row .c-q { grid-area: q; } .cart-row .c-u { grid-area: u; }
     .cart-row .c-n { grid-area: n; } .cart-row .x { grid-area: x; justify-self: end; }
+    .tool-row { grid-template-areas: "nm nm x" "q n n"; }
   }
   @media (max-width: 420px) {
     .grid2 { grid-template-columns: 1fr; }
@@ -200,7 +244,12 @@
         <div class="grid2">
           <div><label for="fDate">上課日期 <span class="req">*</span></label><input id="fDate" type="date"><div class="hint" id="dateHint"></div></div>
           <div><label for="fDept">科別 <span class="req">*</span></label><select id="fDept"></select></div>
-          <div><label for="fTime">上課時間 <span class="req">*</span></label><select id="fTime"></select></div>
+          <div><label for="fAmpm">上課時間 <span class="req">*</span></label>
+            <div class="timepick">
+              <select id="fAmpm" aria-label="上午或下午"><option value="">上／下午</option><option>上午</option><option>下午</option></select>
+              <select id="fHour" aria-label="幾點"></select>
+              <select id="fMin" aria-label="幾分"></select>
+            </div><input type="hidden" id="fTime"></div>
           <div><label for="fRoom">上課教室</label><input id="fRoom" type="text" maxlength="30"></div>
           <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"></div>
           <div><label for="fFor">代訂對象老師</label><select id="fFor"></select></div>
@@ -236,6 +285,12 @@
         <div id="orderMsg"></div>
         <div class="cart-row cart-head"><div>食材</div><div>數量</div><div>單位</div><div>備註</div><div></div></div>
         <div id="cart"></div>
+        <div class="tools-box">
+          <div class="vendor-title" style="margin-top:0">使用器具</div>
+          <div class="muted small">例如烤盤、蛋糕模、擠花袋，自由填寫名稱、數量、備註。</div>
+          <div id="tools"></div>
+          <button type="button" class="btn ghost small" id="addTool" style="margin-top:8px">＋ 新增器具</button>
+        </div>
         <div class="submitbar">
           <button type="button" class="btn ghost small" id="clearCart">清空清單</button>
           <button type="button" class="btn" id="submitBtn">送出訂單</button>
@@ -252,6 +307,7 @@
         <div class="no" id="doneNo"></div>
         <div id="doneInfo" class="muted"></div>
         <div class="actions" style="justify-content:center;margin-top:20px">
+          <button type="button" class="btn secondary" id="printNew">列印請料單</button>
           <button type="button" class="btn secondary" data-goto="viewMine">查看我的訂單</button>
           <button type="button" class="btn" data-goto="viewOrder">再訂一張</button>
         </div>
@@ -266,6 +322,25 @@
       </div>
       <div id="mineMsg"></div>
       <div id="mineList"></div>
+    </section>
+
+    <!-- 列印 -->
+    <section id="viewPrint" class="hidden">
+      <div class="panel noprint">
+        <h2>列印請料單</h2>
+        <div class="printbar">
+          <label for="pFormat" style="margin:0">格式</label>
+          <select id="pFormat">
+            <option value="bake">實習專用請料單（材料＋特殊器具）</option>
+            <option value="chinese">實習專用請料單（依廠商分類）</option>
+            <option value="teacher">教師料單（A～F 分類）</option>
+          </select>
+          <button type="button" class="btn" id="pPrint">列印</button>
+          <button type="button" class="btn ghost" id="pBack">返回</button>
+        </div>
+        <div class="muted small" style="margin-top:6px">一張訂單印一張 A4。如果按「列印」沒有反應，請按鍵盤 Ctrl + P（Mac：⌘ + P）。</div>
+      </div>
+      <div class="print-scroll"><div id="printArea"></div></div>
     </section>
 
     <!-- 管理者：訂單彙整 -->
@@ -379,7 +454,8 @@
   var DRAFT_KEY = function () { return 'ckOrder.draft.' + (data ? data.account : ''); };
 
   function emptyDraft() {
-    return { info: {}, cart: [] };   // cart: [{ key, id, name, vendor, qty, unit, note, isNew }]
+    // cart: [{ key, id, name, vendor, qty, unit, note, isNew }]；tools: [{ key, name, qty, note }]
+    return { info: {}, cart: [], tools: [] };
   }
   function saveDraft() {
     readInfo();
@@ -390,6 +466,7 @@
       var d = JSON.parse(localStorage.getItem(DRAFT_KEY()) || 'null');
       if (d && d.cart) draft = d;
     } catch (e) {}
+    if (!Array.isArray(draft.tools)) draft.tools = [];
     // 清掉已停用的食材
     draft.cart = draft.cart.filter(function (c) { return c.isNew || itemById[c.id]; });
   }
@@ -413,10 +490,10 @@
     var btn = $('loginBtn');
     setBusy(btn, true, '登入中…');
     msg('loginMsg', '', '');
-    call('login', acc, pw).then(function (res) {
+    call('loginAndLoad', acc, pw).then(function (res) {
       token = res.token;
       try { sessionStorage.setItem(TOKEN_KEY, token); localStorage.setItem('ckOrder.lastAccount', acc); } catch (e) {}
-      return start();
+      return start(res.data);
     }).catch(function (err) {
       msg('loginMsg', 'error', err.message);
     }).then(function () { setBusy(btn, false); });
@@ -429,11 +506,12 @@
     if (t) call('logout', t).catch(function () {});
   });
 
-  function start() {
+  function start(preloaded) {
     $('viewLogin').classList.add('hidden');
     $('app').classList.remove('hidden');
     msg('globalMsg', 'info', '資料載入中…');
-    return call('getBootstrap', token).then(function (d) {
+    var load = preloaded ? Promise.resolve(preloaded) : call('getBootstrap', token);
+    return load.then(function (d) {
       data = d;
       itemById = {};
       data.items.forEach(function (it) { itemById[it.id] = it; });
@@ -462,9 +540,12 @@
     $('nVendor').innerHTML = '<option value="">請選擇</option>' + data.vendors.map(function (v) {
       return '<option>' + esc(v) + '</option>';
     }).join('');
-    $('fTime').innerHTML = '<option value="">請選擇</option>' + data.classTimes.map(function (t) {
-      return '<option>' + esc(t) + '</option>';
-    }).join('');
+    var hours = '<option value="">點</option>';
+    for (var h = 1; h <= 12; h++) hours += '<option value="' + h + '">' + h + ' 點</option>';
+    $('fHour').innerHTML = hours;
+    var mins = '<option value="">分</option>';
+    for (var m = 0; m < 60; m += 5) mins += '<option value="' + ('0' + m).slice(-2) + '">' + m + ' 分</option>';
+    $('fMin').innerHTML = mins;
     $('lockBanner').innerHTML = data.isAdmin
       ? '管理者不受鎖單限制，可以訂今天起 30 天內的課。'
       : '<b>訂貨規則：</b>' + esc(data.lockRule) + '。目前最早可以訂 <b>' + esc(shortDate(data.minDate)) +
@@ -485,8 +566,9 @@
     if (data.isAdmin) refreshPendingCount();
   }
 
+  var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewPending'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewPending', 'viewPrint'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -495,7 +577,8 @@
     });
     msg('globalMsg', '', '');
     window.scrollTo(0, 0);
-    if (view === 'viewMine') loadMine();
+    if (view === 'viewMine' && !keepMine) loadMine();
+    keepMine = false;
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
@@ -521,8 +604,21 @@
   function writeInfo() {
     Object.keys(INFO_FIELDS).forEach(function (k) { $(INFO_FIELDS[k]).value = draft.info[k] || ''; });
     if (draft.info.useDate && (draft.info.useDate < data.minDate || draft.info.useDate > data.maxDate)) $('fDate').value = '';
-    if (data.classTimes.indexOf(draft.info.classTime) < 0) $('fTime').value = '';
+    if (!TIME_RE.test(draft.info.classTime || '')) $('fTime').value = '';
+    timeToSelects();
   }
+  var TIME_RE = /^(上午|下午) (1[0-2]|[1-9]):([0-5][05])$/;
+  function timeToSelects() {
+    var m = $('fTime').value.match(TIME_RE);
+    $('fAmpm').value = m ? m[1] : ''; $('fHour').value = m ? m[2] : ''; $('fMin').value = m ? m[3] : '';
+  }
+  ['fAmpm', 'fHour', 'fMin'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      var a = $('fAmpm').value, h = $('fHour').value, m = $('fMin').value;
+      $('fTime').value = a && h && m ? a + ' ' + h + ':' + m : '';
+      saveDraft();
+    });
+  });
   function deliveryCode(d) { return d.getDay() <= 2 ? '一二' : '三四五'; }
   function updateDateHint() {
     var d = parseDate($('fDate').value);
@@ -640,8 +736,10 @@
   // ------------------------------------------------------------------
   function renderCart() {
     var cart = draft.cart.slice().sort(function (a, b) { return a.vendor < b.vendor ? -1 : a.vendor > b.vendor ? 1 : 0; });
-    $('cartCount').textContent = cart.length ? '共 ' + cart.length + ' 項' : '';
-    $('submitBtn').disabled = !cart.length;
+    $('cartCount').textContent = (cart.length ? '食材 ' + cart.length + ' 項' : '') +
+      (draft.tools.length ? (cart.length ? '・' : '') + '器具 ' + draft.tools.length + ' 項' : '');
+    $('submitBtn').disabled = !cart.length && !draft.tools.length;
+    renderTools();
     if (!cart.length) {
       $('cart').innerHTML = '<div class="empty">還沒有選食材，從上方點選加入。</div>';
       return;
@@ -673,9 +771,42 @@
     saveDraft(); renderCart(); renderResults();
   });
   $('clearCart').addEventListener('click', function () {
-    if (!draft.cart.length || !confirm('確定要清空訂購清單？')) return;
+    if ((!draft.cart.length && !draft.tools.length) || !confirm('確定要清空訂購清單（食材和器具）？')) return;
     draft.cart = [];
+    draft.tools = [];
     saveDraft(); renderCart(); renderResults();
+  });
+
+  // 使用器具
+  function renderTools() {
+    $('tools').innerHTML = draft.tools.map(function (t) {
+      return '<div class="cart-row tool-row" data-key="' + esc(t.key) + '">' +
+        '<div class="c-nm"><input type="text" maxlength="40" data-f="name" placeholder="器具名稱，例如：烤盤" value="' + esc(t.name) + '" aria-label="器具名稱"></div>' +
+        '<div class="c-q"><input type="number" min="0" step="1" inputmode="numeric" data-f="qty" placeholder="數量" value="' + esc(t.qty) + '" aria-label="器具數量"></div>' +
+        '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(t.note) + '" aria-label="器具備註"></div>' +
+        '<button type="button" class="x" title="移除" aria-label="移除器具">×</button></div>';
+    }).join('');
+  }
+  $('addTool').addEventListener('click', function () {
+    var t = { key: 't' + Date.now() + Math.random().toString(36).slice(2, 5), name: '', qty: '', note: '' };
+    draft.tools.push(t);
+    saveDraft(); renderCart();
+    var el = document.querySelector('#tools .cart-row[data-key="' + t.key + '"] input[data-f="name"]');
+    if (el) el.focus();
+  });
+  $('tools').addEventListener('input', function (e) {
+    var f = e.target.getAttribute('data-f');
+    if (!f) return;
+    var key = e.target.closest('.cart-row').getAttribute('data-key');
+    var t = draft.tools.find(function (x) { return x.key === key; });
+    if (t) { t[f] = e.target.value; saveDraft(); }
+    if ($('orderMsg').querySelector('.msg.error')) msg('orderMsg', '', '');
+  });
+  $('tools').addEventListener('click', function (e) {
+    if (!e.target.classList.contains('x')) return;
+    var key = e.target.closest('.cart-row').getAttribute('data-key');
+    draft.tools = draft.tools.filter(function (x) { return x.key !== key; });
+    saveDraft(); renderCart();
   });
 
   // ------------------------------------------------------------------
@@ -700,6 +831,15 @@
         if (!String(c.unit || '').trim()) { err = '請填寫「' + c.name + '」的單位。'; break; }
       }
     }
+    // 器具：名稱和數量都空白的列直接略過
+    var tools = draft.tools.filter(function (t) { return String(t.name || '').trim() || String(t.qty || '').trim(); });
+    if (!err) {
+      for (var j = 0; j < tools.length; j++) {
+        if (!String(tools[j].name || '').trim()) { err = '請填寫使用器具的名稱。'; break; }
+        if (!(Number(tools[j].qty) > 0)) { err = '請填寫器具「' + tools[j].name + '」的數量。'; break; }
+      }
+    }
+    if (!err && !draft.cart.length && !tools.length) err = '請至少選擇一項食材或器具。';
     if (err) {
       msg('orderMsg', 'error', err);
       if (/日期|截止|科別|上課時間|班級|實作/.test(err)) window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -714,10 +854,11 @@
       }),
       newItems: draft.cart.filter(function (c) { return c.isNew; }).map(function (c) {
         return { name: c.name, vendor: c.vendor, qty: Number(c.qty), unit: c.unit, note: c.note };
-      })
+      }),
+      tools: tools.map(function (t) { return { name: String(t.name).trim(), qty: Number(t.qty), note: t.note }; })
     };
     var who = i.onBehalfOf ? '（代 ' + i.onBehalfOf + ' 老師訂）' : '';
-    if (!confirm('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材？')) return;
+    if (!confirm('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？')) return;
 
     var btn = $('submitBtn');
     setBusy(btn, true, '送出中…');
@@ -725,7 +866,9 @@
     call('submitOrder', token, payload).then(function (res) {
       $('doneNo').textContent = res.orderNo;
       $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
-        (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '');
+        (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '') +
+        (res.tools ? '、' + res.tools + ' 項器具' : '');
+      lastSubmitted = res.orderNo;
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room };
       draft = emptyDraft();
       draft.info = keep;
@@ -744,14 +887,18 @@
   function orderCard(o, opts) {
     var info = [shortDate(o.useDate), o.dept, o.className ? o.className + ' 班' : '', o.classTime, o.room].filter(Boolean).join('・');
     var who = '操作：' + o.teacher + (o.onBehalfOf ? '，代訂：' + o.onBehalfOf : '');
-    var rows = o.items.map(function (it) {
+    var tools = o.items.filter(function (it) { return it.id === TOOL; });
+    var rows = o.items.filter(function (it) { return it.id !== TOOL; }).map(function (it) {
       return '<tr><td>' + esc(it.name) + (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') +
         (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
         '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td>' +
         '<td class="muted small">' + esc(it.vendor) + '</td>' +
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
     }).join('');
-    var buttons = '';
+    var toolLine = tools.length ? '<div class="small" style="margin-top:6px"><b>使用器具：</b>' + esc(tools.map(function (t) {
+      return t.name + ' ×' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : '');
+    }).join('、')) + '</div>' : '';
+    var buttons = '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
     if (opts.mine && o.locked && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
@@ -764,7 +911,7 @@
     }
     return '<div class="order"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b>' + statusBadge(o.status) + '</div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) + '</div>' +
-      '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' +
+      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
 
@@ -785,7 +932,9 @@
     if (!b) return;
     var no = b.getAttribute('data-no');
     var o = mineCache.find(function (x) { return x.orderNo === no; });
-    if (b.getAttribute('data-act') === 'cancel') {
+    if (b.getAttribute('data-act') === 'print') {
+      printOrder(o, 'viewMine');
+    } else if (b.getAttribute('data-act') === 'cancel') {
       if (!confirm('確定取消訂單 ' + no + '（' + o.project + '）？')) return;
       setBusy(b, true, '取消中…');
       call('cancelOrder', token, no).then(function () {
@@ -794,13 +943,16 @@
     } else if (b.getAttribute('data-act') === 'copy') {
       if (draft.cart.length && !confirm('目前的訂購清單會被取代，確定要再訂一次這張訂單？')) return;
       draft.info = { useDate: '', dept: o.dept, classTime: o.classTime, room: o.room, className: o.className, project: o.project, onBehalfOf: o.teacher === data.account ? o.onBehalfOf : '' };
+      draft.tools = o.items.filter(function (it) { return it.id === TOOL; }).map(function (it, idx) {
+        return { key: 't' + Date.now() + idx, name: it.name, qty: it.qty, note: it.note };
+      });
       draft.cart = o.items.filter(function (it) { return it.id === '待審核' || itemById[it.id]; }).map(function (it, idx) {
         var isNew = it.id === '待審核';
         return { key: 'c' + Date.now() + idx, id: isNew ? '' : it.id, name: it.name, vendor: it.vendor, qty: it.qty, unit: it.unit, note: it.note, isNew: isNew };
       });
       saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewOrder');
-      msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材，請選擇新的上課日期並確認數量後送出。');
+      msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材和器具，請選擇新的上課日期並確認數量後送出。');
       $('fDate').focus();
     }
   });
@@ -837,6 +989,7 @@
     list.forEach(function (o) {
       o.items.forEach(function (it) {
         if (hideCancel && it.status === '已取消') return;
+        if (it.id === TOOL) return;   // 器具另外列
         var v = byVendor[it.vendor] = byVendor[it.vendor] || {};
         var dkey = o.useDate + '|' + (it.group || '');
         var day = v[dkey] = v[dkey] || {};
@@ -862,11 +1015,27 @@
       }).join('');
       return '<div class="panel"><h2>' + esc(vName) + ' <button type="button" class="btn secondary small" data-copy="' + esc(vName) + '">複製叫貨文字</button></h2>' + body + '</div>';
     }).join('');
+    var toolOrders = list.filter(function (o) { return o.items.some(function (it) { return it.id === TOOL; }); });
+    if (toolOrders.length) {
+      $('sumVendors').innerHTML += '<div class="panel"><h2>使用器具</h2><div class="tablewrap"><table><thead><tr><th>上課日期</th><th>班級／老師</th><th>實習項目</th><th>器具</th></tr></thead><tbody>' +
+        toolOrders.map(function (o) {
+          return '<tr><td>' + esc(shortDate(o.useDate)) + '<div class="muted small">' + esc(o.classTime) + '</div></td>' +
+            '<td>' + esc(o.className) + '<div class="muted small">' + esc(o.onBehalfOf || o.teacher) + '</div></td>' +
+            '<td>' + esc(o.project) + '</td><td>' + esc(o.items.filter(function (it) { return it.id === TOOL; }).map(function (t) {
+              return t.name + ' ×' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : '');
+            }).join('、')) + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>';
+    }
     $('sumVendors')._data = byVendor;
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">各張訂單（' + list.length + ' 張）</h2></div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
+  $('sumOrders').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act="print"]');
+    if (!b) return;
+    printOrder(sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); }), 'viewSummary');
+  });
   $('sHideCancel').addEventListener('change', renderSummary);
 
   $('sumVendors').addEventListener('click', function (e) {
@@ -977,6 +1146,172 @@
       }
     }).catch(function (err) { msg('pendMsg', 'error', err.message); setBusy(b, false); });
   });
+
+  // ------------------------------------------------------------------
+  // 列印請料單
+  // ------------------------------------------------------------------
+  var TOOL = '器具';
+  var lastSubmitted = null;
+  var printing = null, printBack = 'viewMine';
+
+  function printOrder(o, back) {
+    if (!o) return;
+    printing = o;
+    printBack = back;
+    $('pFormat').value = o.dept === '烘焙' ? 'bake' : o.dept === '中餐' ? 'chinese' : 'teacher';
+    renderPrint();
+    show('viewPrint');
+  }
+  $('pFormat').addEventListener('change', renderPrint);
+  $('pPrint').addEventListener('click', function () { window.print(); });
+  $('pBack').addEventListener('click', function () {
+    // 從「我的訂單」來的就不重新載入；從「送出成功」來的要載入
+    keepMine = printBack === 'viewMine' && $('mineList').children.length > 0;
+    show(printBack);
+  });
+  $('printNew').addEventListener('click', function () {
+    var b = this;
+    setBusy(b, true, '載入中…');
+    call('getMyOrders', token).then(function (list) {
+      mineCache = list;
+      printOrder(list.find(function (x) { return x.orderNo === lastSubmitted; }) || list[0], 'viewMine');
+    }).catch(function (e) { alert('載入失敗：' + e.message); })
+      .then(function () { setBusy(b, false); });
+  });
+
+  function teacherOf(o) { return o.onBehalfOf || o.teacher; }
+  function dateParts(o) {
+    var d = parseDate(o.useDate);
+    return d ? { m: d.getMonth() + 1, d: d.getDate(), w: WEEK[d.getDay()] } : { m: '', d: '', w: '' };
+  }
+  function timeParts(o) {
+    var m = String(o.classTime || '').match(/^(上午|下午) (\d+):(\d+)$/);
+    return m ? { ap: m[1], h: Number(m[2]), mi: Number(m[3]) } : null;
+  }
+  function blank(w) { return '<span class="blank" style="min-width:' + (w || 9) + 'mm"></span>'; }
+  function cell(v, cls, attrs) { return '<td' + (cls ? ' class="' + cls + '"' : '') + (attrs || '') + '>' + v + '</td>'; }
+  function qtyText(it) { return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : ''); }
+  function nameText(it) { return esc(it.name) + (it.note ? ' <span class="note">（' + esc(it.note) + '）</span>' : ''); }
+  // 依列數決定列高和字級，讓整張單子維持一頁
+  function fit(rows, availMm, minFs) {
+    var rh = Math.min(8.4, availMm / rows);
+    return '--rh:' + rh.toFixed(2) + 'mm;--fs:' + Math.min(11.5, Math.max(minFs || 6.5, rh * 1.55)).toFixed(1) + 'pt';
+  }
+
+  function renderPrint() {
+    var o = printing;
+    var foods = o.items.filter(function (it) { return it.id !== TOOL; })
+      .sort(function (a, b) { return a.vendor < b.vendor ? -1 : a.vendor > b.vendor ? 1 : 0; });
+    var tools = o.items.filter(function (it) { return it.id === TOOL; });
+    var f = $('pFormat').value;
+    $('printArea').innerHTML = f === 'bake' ? sheetBake(o, foods, tools)
+      : f === 'chinese' ? sheetChinese(o, foods, tools) : sheetTeacher(o, foods, tools);
+  }
+
+  // 格式一：實習專用請料單（左：共同材料採購明細；右：特殊器具申請明細＋備註）
+  function sheetBake(o, foods, tools) {
+    var dp = dateParts(o), tp = timeParts(o);
+    var T = Math.max(15, tools.length);
+    var N = Math.max(24, foods.length, T + 3);
+    var time = tp ? tp.ap + ' ' + tp.h + ' 點 ' + tp.mi + ' 分' : esc(o.classTime);
+    var html = '<div class="sheet"><table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
+      '<colgroup><col style="width:6%"><col style="width:20%"><col style="width:8%"><col style="width:9%"><col style="width:11%">' +
+      '<col style="width:6%"><col style="width:20%"><col style="width:10%"><col style="width:10%"></colgroup>' +
+      '<tr><td colspan="9" class="title">' + esc(o.dept || '') + '實習專用請料單</td></tr>' +
+      '<tr class="hdr"><td colspan="9">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + time + '</td></tr>' +
+      '<tr class="hdr"><td colspan="5">上課班級：' + esc(o.className) + '　共 ' + blank(8) + ' 組</td><td colspan="4" class="c">實習項目</td></tr>' +
+      '<tr class="hdr"><td colspan="5">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="3" class="c wrap">' + esc(o.project) + '</td></tr>' +
+      '<tr class="hdr"><td colspan="5">指導老師：' + esc(teacherOf(o)) + '</td><td class="c">2</td><td colspan="3"></td></tr>' +
+      '<tr class="sec"><td colspan="5">共同材料採購明細</td><td colspan="4">特殊器具申請明細</td></tr>' +
+      '<tr class="colh"><td>編號</td><td>品名</td><td>1g/$</td><td>一組</td><td>全班</td><td>編號</td><td>品名</td><td>領出</td><td>歸還</td></tr>';
+    for (var i = 0; i < N; i++) {
+      var it = foods[i];
+      html += '<tr>' + cell(i + 1, 'c') + cell(it ? nameText(it) : '') + cell('') + cell('') + cell(it ? qtyText(it) : '', 'r');
+      if (i < T) {
+        var t = tools[i];
+        html += cell(t ? i + 1 : '', 'c') + cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + cell('');
+      } else if (i === T) {
+        html += '<td colspan="4" class="c" style="letter-spacing:4px">備註</td>';
+      } else if (i === T + 1) {
+        html += '<td colspan="4" rowspan="' + (N - T - 1) + '"></td>';
+      }
+      html += '</tr>';
+    }
+    html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td></td><td colspan="4">倉庫負責老師：</td></tr></table></div>';
+    return html;
+  }
+
+  // 格式二：實習專用請料單（依廠商分類，標題含實習項目）
+  function sheetChinese(o, foods, tools) {
+    var dp = dateParts(o);
+    var N = Math.max(24, foods.length, tools.length);
+    var html = '<div class="sheet"><table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
+      '<colgroup><col style="width:6%"><col style="width:17%"><col style="width:8%"><col style="width:7%"><col style="width:7%">' +
+      '<col style="width:10%"><col style="width:8%"><col style="width:12%"><col style="width:17%"><col style="width:8%"></colgroup>' +
+      '<tr><td colspan="10" class="title wrap">' + esc(o.dept || '') + esc(o.project || '') + '實習專用請料單</td></tr>' +
+      '<tr class="hdr"><td colspan="10">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + esc(o.classTime) + '</td></tr>' +
+      '<tr class="hdr"><td colspan="7">上課班級：' + esc(o.className) + '　共 ' + blank(8) + ' 組</td><td colspan="3" class="c">實習項目</td></tr>' +
+      '<tr class="hdr"><td colspan="7">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="2" class="c wrap">' + esc(o.project) + '</td></tr>' +
+      '<tr class="hdr"><td colspan="7">指導老師：' + esc(teacherOf(o)) + '　老師</td><td class="c">2</td><td colspan="2"></td></tr>' +
+      '<tr class="sec"><td colspan="8">共同材料採購明細</td><td colspan="2">器具明細</td></tr>' +
+      '<tr class="colh"><td>編號</td><td>品名</td><td>需求量</td><td>單價</td><td>單位</td><td>全班</td><td>價格</td><td>備註</td><td>品名</td><td>數量</td></tr>';
+    // 廠商欄合併儲存格
+    var groups = [];
+    foods.forEach(function (it, i) {
+      if (!groups.length || groups[groups.length - 1].v !== it.vendor) groups.push({ v: it.vendor, start: i, n: 0 });
+      groups[groups.length - 1].n++;
+    });
+    var groupAt = {};
+    groups.forEach(function (g) { groupAt[g.start] = g; });
+    for (var i = 0; i < N; i++) {
+      var it = foods[i], t = tools[i];
+      html += '<tr>';
+      if (groupAt[i]) html += '<td rowspan="' + groupAt[i].n + '" class="vtext">' + esc(groupAt[i].v) + '</td>';
+      else if (i >= foods.length) html += cell('');
+      html += cell(it ? esc(it.name) : '', 'c') + cell('') + cell('') + cell(it ? esc(it.unit) : '', 'c') +
+        cell(it ? esc(fmtQty(it.qty)) : '', 'c') + cell('') + cell(it && it.note ? '<span class="note">' + esc(it.note) + '</span>' : '') +
+        cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + '</tr>';
+    }
+    html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table></div>';
+    return html;
+  }
+
+  // 格式三：教師料單（依 A～F 廠商分六區）
+  var BOXES = [['A', '菜與水果類(A)'], ['C', '蛋類(C)'], ['E', '乾貨類(E)'], ['B', '肉類(B)'], ['D', '海鮮類(D)'], ['F', '飲料乾貨類(F)']];
+  function sheetTeacher(o, foods, tools) {
+    var by = {}, others = [];
+    foods.forEach(function (it) {
+      var k = String(it.vendor || '').charAt(0).toUpperCase();
+      if ('ABCDEF'.indexOf(k) >= 0 && k) (by[k] = by[k] || []).push(it); else others.push(it);
+    });
+    var R = 19;
+    BOXES.forEach(function (b) { R = Math.max(R, (by[b[0]] || []).length); });
+    var extraLines = (tools.length ? 1 : 0) + (others.length ? 1 : 0);
+    var avail = (277 - 12 - 14 - 22 - 7 - 2 * 8 - 2 * 7 - 6 - extraLines * 10) / 2;
+    var dp = dateParts(o);
+    var html = '<div class="sheet teacher"><h1>三信家商餐飲科教師料單</h1>' +
+      '<div class="meta"><div>教師姓名：' + esc(teacherOf(o)) + '</div><div>上課班級：' + esc(o.className) + '</div><div>實習項目：' + esc(o.project) + '</div>' +
+      '<div>上課日期：' + dp.m + '/' + dp.d + '（' + dp.w + '）</div><div style="grid-column:span 2">上課時間(上午/下午)：' + esc(o.classTime) + '</div></div>' +
+      '<div class="boxes">';
+    BOXES.forEach(function (b) {
+      var list = by[b[0]] || [];
+      html += '<table style="' + fit(R, avail, 8.5) + '"><colgroup><col style="width:58%"><col style="width:42%"></colgroup>' +
+        '<tr class="bt"><td colspan="2">' + b[1] + '</td></tr><tr class="colh"><td>編號</td><td>數量</td></tr>';
+      for (var i = 0; i < R; i++) {
+        var it = list[i];
+        html += '<tr>' + cell(it ? nameText(it) : '') + cell(it ? qtyText(it) : '') + '</tr>';
+      }
+      html += '</table>';
+    });
+    html += '</div>';
+    if (others.length) html += '<div class="extra"><b>其他：</b>' + others.map(function (it) {
+      return esc(it.vendor) + ' ' + nameText(it) + ' ' + qtyText(it);
+    }).join('、') + '</div>';
+    if (tools.length) html += '<div class="extra"><b>使用器具：</b>' + tools.map(function (t) {
+      return nameText(t) + ' ×' + esc(fmtQty(t.qty));
+    }).join('、') + '</div>';
+    return html + '</div>';
+  }
 
   // ------------------------------------------------------------------
   // 啟動

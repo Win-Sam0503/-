@@ -19,11 +19,14 @@ const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';
 const SITE_TITLE = '餐飲科訂貨系統';
 const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能
 const DEPARTMENTS = ['中餐', '西餐', '烘焙', '飲調', '果雕', '刀功'];
-const CLASS_TIMES = ['上午', '下午'];
-// 鎖單：每週三 23:59 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
-const LOCK_WEEKDAY = 3;                     // 截止星期（1 = 星期一 … 5 = 星期五）
-const LOCK_HOUR = 23;
-const LOCK_MINUTE = 59;
+// 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
+const CLASS_TIME_PATTERN = /^(上午|下午) (1[0-2]|[1-9]):[0-5][05]$/;
+// 鎖單：每週一 12:00 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
+const LOCK_WEEKDAY = 1;                     // 截止星期（1 = 星期一 … 5 = 星期五）
+const LOCK_HOUR = 12;
+const LOCK_MINUTE = 0;
+const TOOL_ID = '器具';                     // 使用器具在訂單總表的「食材ID」與「廠商」
+const ITEMS_CACHE_MINUTES = 10;             // 食材清單暫存時間（加快登入）；核准新食材時會立即更新
 const MAX_DAYS_AHEAD = 30;                  // 上課日期最晚可選幾天後
 const MAX_ITEMS_PER_ORDER = 80;
 const SESSION_HOURS = 6;                    // 登入有效時間
@@ -83,6 +86,13 @@ function login(account, password) {
   return { token: token, account: account, isAdmin: ADMIN_ACCOUNTS.indexOf(account) >= 0 };
 }
 
+/** 登入並一次載入網站資料（少一次來回，登入比較快）。 */
+function loginAndLoad(account, password) {
+  const res = login(account, password);
+  res.data = getBootstrap(res.token);
+  return res;
+}
+
 function logout(token) {
   CacheService.getScriptCache().remove('session:' + token);
   return true;
@@ -112,21 +122,7 @@ function auth_(token, needAdmin) {
 /** 登入後一次載入網站需要的資料。 */
 function getBootstrap(token) {
   const account = auth_(token);
-  const items = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']).rows
-    .filter(function (r) {
-      return String(r['食材ID']).trim() && (r['啟用'] === undefined || isTrue_(r['啟用']));
-    })
-    .map(function (r) {
-      return {
-        id: String(r['食材ID']).trim(),
-        name: String(r['食材名稱']).trim(),
-        alias: String(r['別名'] || '').trim(),
-        vendor: String(r['廠商'] || '').trim(),
-        dept: String(r['科別'] || '通用').trim() || '通用',
-        unit: String(r['單位'] || '').trim(),
-        group: String(r['適用組別'] || '全部').trim() || '全部',
-      };
-    });
+  const items = cachedItems_();
   const vendors = [];
   items.forEach(function (it) { if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor); });
   vendors.sort();
@@ -148,13 +144,60 @@ function getBootstrap(token) {
     vendors: vendors,
     teachers: teachers,
     departments: depts,
-    classTimes: CLASS_TIMES,
     minDate: dateStr_(isAdmin ? today_() : earliestClassDate_(now)),
     maxDate: dateStr_(addDays_(today_(), MAX_DAYS_AHEAD)),
-    lockRule: '每週' + WEEKDAY[LOCK_WEEKDAY] + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 截止下週的訂單',
-    nextDeadline: fmtDateTime_(currentDeadline_(now)),
+    lockRule: lockRuleText_(),
     statuses: ORDER_STATUSES,
   };
+}
+
+/** 食材清單（暫存在伺服器，避免每次登入都讀整張食材總表）。 */
+function cachedItems_() {
+  const cache = CacheService.getScriptCache();
+  const meta = cache.get('items:n');
+  if (meta) {
+    const keys = [];
+    for (let i = 0; i < Number(meta); i++) keys.push('items:' + i);
+    const parts = cache.getAll(keys);
+    if (keys.every(function (k) { return parts[k] != null; })) {
+      try { return JSON.parse(keys.map(function (k) { return parts[k]; }).join('')); } catch (e) {}
+    }
+  }
+  const items = readItems_();
+  const json = JSON.stringify(items);
+  const CHUNK = 90000;   // 每個暫存值上限 100KB
+  const put = {};
+  let n = 0;
+  for (let i = 0; i < json.length; i += CHUNK) put['items:' + (n++)] = json.slice(i, i + CHUNK);
+  put['items:n'] = String(n);
+  try { cache.putAll(put, ITEMS_CACHE_MINUTES * 60); } catch (e) { console.error(e.message); }
+  return items;
+}
+
+function clearItemsCache_() {
+  CacheService.getScriptCache().remove('items:n');
+}
+
+function readItems_() {
+  return readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']).rows
+    .filter(function (r) {
+      return String(r['食材ID']).trim() && (r['啟用'] === undefined || isTrue_(r['啟用']));
+    })
+    .map(function (r) {
+      return {
+        id: String(r['食材ID']).trim(),
+        name: String(r['食材名稱']).trim(),
+        alias: String(r['別名'] || '').trim(),
+        vendor: String(r['廠商'] || '').trim(),
+        dept: String(r['科別'] || '通用').trim() || '通用',
+        unit: String(r['單位'] || '').trim(),
+        group: String(r['適用組別'] || '全部').trim() || '全部',
+      };
+    });
+}
+
+function lockRuleText_() {
+  return '每週' + WEEKDAY[LOCK_WEEKDAY] + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 截止下週的訂單';
 }
 
 /**
@@ -205,7 +248,8 @@ function submitOrder(token, payload) {
     if (pending.length) appendRows_(SHEET.pending, pending, { '新增時間': 'yyyy/mm/dd hh:mm:ss' });
 
     SpreadsheetApp.flush();
-    return { orderNo: orderNo, useDate: dateStr_(o.useDate), count: o.lines.length, pending: pending.length };
+    const tools = o.lines.filter(function (l) { return l.id === TOOL_ID; }).length;
+    return { orderNo: orderNo, useDate: dateStr_(o.useDate), count: o.lines.length - tools, tools: tools, pending: pending.length };
   } finally {
     lock.releaseLock();
   }
@@ -219,19 +263,18 @@ function validateOrder_(p, account, isAdmin) {
   const max = addDays_(today_(), MAX_DAYS_AHEAD);
   if (useDate < min) {
     throw new Error(isAdmin ? '上課日期不能早於今天。'
-      : '這週的訂貨已截止（每週' + WEEKDAY[LOCK_WEEKDAY] + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) +
-        ' 截止下週訂單），目前最早只能訂 ' + dateStr_(min) + ' 的課。');
+      : '已過訂貨截止（' + lockRuleText_() + '），目前最早只能訂 ' + dateStr_(min) + ' 的課。');
   }
   if (useDate > max) throw new Error('上課日期最晚只能選 ' + dateStr_(max) + '（30 天內）。');
   const dow = useDate.getDay();
   if (dow === 0 || dow === 6) throw new Error('上課日期是週末，廠商不送貨，請改選平日。');
 
   const dept = clean_(p.dept, 20);
-  const classTime = clean_(p.classTime, 10);
+  const classTime = clean_(p.classTime, 12);
   const className = clean_(p.className, 30);
   const project = clean_(p.project, 60);
   if (!dept) throw new Error('請選擇科別。');
-  if (CLASS_TIMES.indexOf(classTime) < 0) throw new Error('請選擇上課時間（' + CLASS_TIMES.join('／') + '）。');
+  if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午、幾點、幾分）。');
   if (!className) throw new Error('請填寫上課班級。');
   if (!project) throw new Error('請填寫實作項目。');
 
@@ -276,7 +319,16 @@ function validateOrder_(p, account, isAdmin) {
     });
   });
 
-  if (!lines.length) throw new Error('請至少選擇一項食材。');
+  (Array.isArray(p.tools) ? p.tools : []).forEach(function (t) {
+    const name = clean_(t && t.name, 40);
+    if (!name) throw new Error('請填寫使用器具的名稱。');
+    lines.push({
+      id: TOOL_ID, name: name, vendor: TOOL_ID, group: '',
+      qty: qty_(t.qty, name), unit: '', note: clean_(t.note, 100),
+    });
+  });
+
+  if (!lines.length) throw new Error('請至少選擇一項食材或器具。');
   if (lines.length > MAX_ITEMS_PER_ORDER) throw new Error('一張訂單最多 ' + MAX_ITEMS_PER_ORDER + ' 項食材。');
 
   return {
@@ -451,6 +503,7 @@ function adminReviewItem(token, row, decision, edits) {
         '食材ID': id, '食材名稱': name, '別名': name === origName ? '' : origName, '廠商': vendor,
         '科別': '通用', '單位': unit, '適用組別': '全部', '啟用': true,
       }]);
+      clearItemsCache_();
       fixOrderLines_(orderNo, origName, { id: id, name: name, vendor: vendor });
       result = '已核准（' + id + '）';
     } else if (decision === 'map') {
@@ -673,19 +726,19 @@ function fmtDateTime_(v) {
 
 // ---- 鎖單 ----
 
-/** 本週（星期一開始）的訂貨截止時間：本週三 23:59:59。 */
+/** 本週（星期一開始）的訂貨截止時間，例如本週一 12:00。 */
 function currentDeadline_(now) {
   const today = today_(now);
   const monday = addDays_(today, -((today.getDay() + 6) % 7));
   const d = addDays_(monday, LOCK_WEEKDAY - 1);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), LOCK_HOUR, LOCK_MINUTE, 59);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), LOCK_HOUR, LOCK_MINUTE, 0);
 }
 
 /** 老師目前最早可以訂的上課日期：截止前是下週一，截止後是下下週一。 */
 function earliestClassDate_(now) {
   const today = today_(now);
   const nextMonday = addDays_(today, 7 - ((today.getDay() + 6) % 7));
-  return now <= currentDeadline_(now) ? nextMonday : addDays_(nextMonday, 7);
+  return now < currentDeadline_(now) ? nextMonday : addDays_(nextMonday, 7);
 }
 
 /** 這個上課日期的訂單是否已鎖住（已過截止，老師不能再取消）。 */
