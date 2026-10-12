@@ -1,10 +1,17 @@
 <!DOCTYPE html>
+<!--
+  三信家商餐飲科訂貨系統（網頁）
+  © 2026 翁煒程 版權所有。
+  本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。
+  未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，
+  亦不得提供予校外人士使用。違者將依法追究相關法律責任。
+-->
 <html lang="zh-Hant">
 <head>
 <base target="_top">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>餐飲科訂貨系統</title>
+<title>三信家商餐飲科訂貨系統</title>
 <style>
   :root {
     --bg: #f5f6f8;
@@ -156,6 +163,19 @@
   .timepick select { flex: 1; min-width: 0; padding-left: 6px; padding-right: 2px; }
   .tools-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
   .tool-row { grid-template-columns: 1.6fr 90px 1.4fr 36px; }
+  .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
+  .login .copyright { padding: 16px 0 0; text-align: left; border-top: 1px solid var(--line); margin-top: 16px; }
+  #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
+  .mode-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 14px; }
+  .tot { font-size: 12px; color: var(--info); margin-top: 2px; white-space: nowrap; }
+  .unit-pop .opt.add { color: var(--info); border-top: 1px dashed var(--line); }
+  .vpage { background: #fff; color: #000; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+  .vpage h1 { font-size: 20px; margin: 0; text-align: center; }
+  .vpage .vsub { text-align: center; color: #444; margin: 2px 0 12px; }
+  .vpage h3 { font-size: 15px; margin: 14px 0 6px; }
+  .vpage table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .vpage th, .vpage td { border: 1px solid #999; padding: 4px 6px; }
+  .vpage th { background: #f2f2f2; color: #000; }
   .unit-input.invalid, .num-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
   .unit-pop {
     position: absolute; z-index: 50; background: #fff; border: 1px solid var(--line); border-radius: 10px;
@@ -200,7 +220,9 @@
   @page { size: A4 portrait; margin: 10mm; }
   @media print {
     body { background: #fff; }
-    #viewLogin, #app > header, .noprint, #globalMsg { display: none !important; }
+    #viewLogin, #app > header, .noprint, #globalMsg, #watermark, .copyright { display: none !important; }
+    .vpage { border: 0; border-radius: 0; padding: 0; margin: 0; page-break-after: always; }
+    .vpage:last-child { page-break-after: auto; }
     main { padding: 0 !important; max-width: none !important; }
     .print-scroll { overflow: visible; padding: 0; }
     .sheet { box-shadow: none; margin: 0; }
@@ -230,12 +252,13 @@
 <!-- 登入 -->
 <section id="viewLogin" class="wrap" style="padding:16px">
   <form id="loginForm" class="panel login" novalidate>
-    <h1>餐飲科訂貨系統</h1>
+    <h1>三信家商餐飲科訂貨系統</h1>
     <p class="muted">請用老師帳號登入</p>
     <div id="loginMsg"></div>
     <div class="field"><label for="lAccount">帳號</label><input id="lAccount" type="text" autocomplete="username"></div>
     <div class="field"><label for="lPassword">密碼</label><input id="lPassword" type="password" autocomplete="current-password"></div>
     <button class="btn" id="loginBtn" type="submit">登入</button>
+    <div class="copyright">© 2026 翁煒程 版權所有。<br>本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。<br>未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，亦不得提供予校外人士使用。<br>違者將依法追究相關法律責任。</div>
   </form>
 </section>
 
@@ -243,11 +266,12 @@
 <div id="app" class="hidden">
   <header>
     <div class="wrap">
-      <div><h1>餐飲科訂貨系統</h1><div class="who" id="who"></div></div>
+      <div><h1>三信家商餐飲科訂貨系統</h1><div class="who" id="who"></div></div>
       <nav id="nav">
         <button type="button" data-view="viewOrder" class="active">訂貨</button>
         <button type="button" data-view="viewMine">我的訂單</button>
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
+        <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
         <button type="button" id="logoutBtn">登出</button>
       </nav>
@@ -305,7 +329,7 @@
               <div><label for="nName">食材名稱</label><input id="nName" type="text" maxlength="40"></div>
               <div><label for="nVendor">廠商</label><select id="nVendor"></select></div>
               <div><label for="nQty">數量</label><input id="nQty" type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10"></div>
-              <div><label for="nUnit">單位</label><input id="nUnit" type="text" class="unit-input" autocomplete="off" maxlength="10" placeholder="打字搜尋"></div>
+              <div><label for="nUnit">單位</label><input id="nUnit" type="text" class="unit-input" data-new="1" autocomplete="off" maxlength="10" placeholder="打字搜尋"></div>
               <button type="button" class="btn small" id="addNew">加入清單</button>
             </div>
           </div>
@@ -315,6 +339,7 @@
       <div class="panel" id="cartPanel">
         <h2>訂購清單 <span class="muted small" id="cartCount"></span></h2>
         <div id="orderMsg"></div>
+        <div class="mode-row" id="modeRow"></div>
         <div class="sec-chips" id="secChips"></div>
         <div class="cart-row cart-head"><div>食材</div><div>數量</div><div>單位</div><div>備註</div><div>庫存</div><div></div></div>
         <div id="cart"></div>
@@ -397,6 +422,25 @@
       <div id="sumOrders"></div>
     </section>
 
+    <!-- 管理者：廠商訂貨單 -->
+    <section id="viewVendor" class="hidden">
+      <div class="panel noprint">
+        <h2>廠商訂貨單</h2>
+        <div class="grid2">
+          <div><label for="vFrom">上課日期（起）</label><input id="vFrom" type="date"></div>
+          <div><label for="vTo">上課日期（迄）</label><input id="vTo" type="date"></div>
+          <div><label for="vVendor">廠商</label><select id="vVendor"></select></div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn secondary" id="vLoad">產生訂貨單</button>
+          <button type="button" class="btn" id="vPrint" disabled>列印</button>
+        </div>
+        <div class="muted small">每家廠商一頁：上面是食材合計（重量換算成同一種單位），下面是各班明細。不含已取消、勾選「有貨」的品項，也不含器具。</div>
+      </div>
+      <div id="vendorMsg" class="noprint"></div>
+      <div id="vendorSheets"></div>
+    </section>
+
     <!-- 管理者：審核食材 -->
     <section id="viewPending" class="hidden">
       <div class="panel" style="padding:12px 16px">
@@ -404,10 +448,13 @@
         <div class="muted small">核准會把食材加入食材總表並給新的食材 ID；如果其實已有這個食材，請用「對應既有食材」。兩種方式都會更新原訂單的食材資料。</div>
       </div>
       <div id="pendMsg"></div>
+      <div id="pendUnits"></div>
       <div id="pendList"></div>
     </section>
   </main>
+  <footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
 </div>
+<div id="watermark" class="hidden" aria-hidden="true"></div>
 
 <div id="unitPop" class="unit-pop hidden" role="listbox"></div>
 <datalist id="itemList"></datalist>
@@ -465,6 +512,7 @@
     var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
   }
+  function isoDate(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
   function shortDate(s) {
     var d = parseDate(s);
     return d ? (d.getMonth() + 1) + '/' + d.getDate() + '（' + WEEK[d.getDay()] + '）' : s;
@@ -491,7 +539,9 @@
   function emptyDraft() {
     // cart: [{ key, id, name, vendor, qty, unit, note, isNew }]；tools: [{ key, name, qty, note }]
     // sections: 段落名稱（依建立順序）；activeSection: 新加入的食材放在哪個段落
-    return { info: {}, cart: [], tools: [], sections: [], activeSection: '' };
+    // qtyMode: 'total' 填全班的量；'group' 填一組的量（c.per），全班 = 一組 × 組數
+    // newUnits: 這次新增、還沒審核的單位
+    return { info: {}, cart: [], tools: [], sections: [], activeSection: '', qtyMode: 'total', newUnits: [] };
   }
   function saveDraft() {
     readInfo();
@@ -504,6 +554,8 @@
     } catch (e) {}
     if (!Array.isArray(draft.tools)) draft.tools = [];
     if (!Array.isArray(draft.sections)) draft.sections = [];
+    if (!Array.isArray(draft.newUnits)) draft.newUnits = [];
+    if (draft.qtyMode !== 'group') draft.qtyMode = 'total';
     if (draft.sections.indexOf(draft.activeSection) < 0) draft.activeSection = '';
     draft.cart.forEach(function (c) { if (c.section && draft.sections.indexOf(c.section) < 0) draft.sections.push(c.section); });
     // 清掉已停用的食材
@@ -515,6 +567,7 @@
   // ------------------------------------------------------------------
   function showLogin(text) {
     token = null;
+    stopWatermark();
     try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
     $('app').classList.add('hidden');
     $('viewLogin').classList.remove('hidden');
@@ -593,6 +646,8 @@
       ? '<div class="msg setup-warn"><b>管理者請注意：</b>試算表還缺少 ' + esc(data.missingSetup.join('、')) +
         '。缺少的部分網站照常運作，只是對應的資料不會存進試算表（請參考 README 的設定說明）。</div>' : '';
     loadTemplates();
+    startWatermark();
+    $('vVendor').innerHTML = '<option value="">全部廠商</option>' + data.vendors.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
     $('fDate').min = data.minDate;
     $('fDate').max = data.maxDate;
     $('itemList').innerHTML = data.items.map(function (it) {
@@ -611,7 +666,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewPending', 'viewPrint'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewVendor', 'viewPending', 'viewPrint'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -626,6 +681,12 @@
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
     if (view === 'viewPending') loadPending(note);
+    if (view === 'viewVendor' && !$('vFrom').value) {
+      // 預設：下週一到下週五
+      var t = new Date(), mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() + (8 - t.getDay()) % 7 + (t.getDay() === 1 ? 7 : 0));
+      var fri = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4);
+      $('vFrom').value = isoDate(mon); $('vTo').value = isoDate(fri);
+    }
   }
 
   $('nav').addEventListener('click', function (e) {
@@ -830,13 +891,19 @@
     u = String(u == null ? '' : u).trim();
     return SYN[u] || u;
   }
+  function pendingUnits() {
+    var out = (data.pendingUnits || []).slice();
+    draft.newUnits.forEach(function (u) { if (out.indexOf(u) < 0) out.push(u); });
+    return out;
+  }
   function validUnit(u) {
     u = normUnit(u);
-    return data && (data.orderUnits.indexOf(u) >= 0 || data.recipeUnits.indexOf(u) >= 0) ? u : '';
+    return data && (data.orderUnits.indexOf(u) >= 0 || data.recipeUnits.indexOf(u) >= 0 || pendingUnits().indexOf(u) >= 0) ? u : '';
   }
-  function unitInput(val, label) {
+  // allowNew：可以在選單裡「＋ 新增單位」（老師訂貨時才可以）
+  function unitInput(val, label, allowNew) {
     return '<input type="text" class="unit-input' + (val && !validUnit(val) ? ' invalid' : '') + '" data-f="unit" autocomplete="off" maxlength="10" placeholder="單位"' +
-      ' value="' + esc(val || '') + '" aria-label="' + esc(label || '單位') + '">';
+      (allowNew ? ' data-new="1"' : '') + ' value="' + esc(val || '') + '" aria-label="' + esc(label || '單位') + '">';
   }
 
   // 單位搜尋選單：可以用中文輸入法打字搜尋（下拉選單在 Windows 會強制切成英文輸入法）
@@ -845,7 +912,8 @@
   function unitMatches(q) {
     q = String(q || '').trim().toLowerCase();
     var all = data.orderUnits.map(function (u) { return { u: u, g: '叫貨單位' }; })
-      .concat(data.recipeUnits.map(function (u) { return { u: u, g: '配方單位' }; }));
+      .concat(data.recipeUnits.map(function (u) { return { u: u, g: '配方單位' }; }))
+      .concat(pendingUnits().map(function (u) { return { u: u, g: '新增的單位（審核中）' }; }));
     if (!q) return all;
     var exact = normUnit(q);
     var hits = all.filter(function (x) {
@@ -867,6 +935,13 @@
       html += '<div class="opt' + (i === unitHi ? ' hi' : '') + '" data-i="' + i + '" role="option">' + esc(x.u) +
         (UNIT_HINT[x.u] ? '<small>' + esc(UNIT_HINT[x.u]) + '</small>' : '') + '</div>';
     });
+    // 打了清單沒有的字：可以新增單位（送管理者審核）
+    var typed = String(input.value || '').trim();
+    var canAdd = typing && input.getAttribute('data-new') && typed && !validUnit(typed) && !/[0-9０-９]/.test(typed) && typed.length <= 10;
+    if (canAdd) {
+      unitList.push({ u: typed, add: true });
+      html += '<div class="opt add' + (unitList.length - 1 === unitHi ? ' hi' : '') + '" data-i="' + (unitList.length - 1) + '" role="option">＋ 新增單位「' + esc(typed) + '」<small>送管理者審核</small></div>';
+    }
     unitPop.innerHTML = html || '<div class="none">沒有符合的單位，請換個字搜尋</div>';
     var r = input.getBoundingClientRect();
     unitPop.style.left = (window.scrollX + r.left) + 'px';
@@ -877,9 +952,14 @@
     if (hi && !typing) hi.scrollIntoView({ block: 'nearest' });
   }
   function closeUnitPop() { unitPop.classList.add('hidden'); unitTarget = null; }
-  function pickUnit(u) {
+  function pickUnit(u, isNew) {
     var input = unitTarget;
     if (!input) return;
+    if (isNew) {
+      if (!confirm('新增單位「' + u + '」？\n可以先用在這張訂單，管理者核准後大家都選得到。')) return;
+      if (draft.newUnits.indexOf(u) < 0) draft.newUnits.push(u);
+      saveDraft();
+    }
     input.value = u;
     input.classList.remove('invalid');
     closeUnitPop();   // 先關掉，下面的 input 事件才不會又把選單打開
@@ -927,7 +1007,7 @@
       Array.prototype.forEach.call(opts, function (o, i) { o.classList.toggle('hi', i === unitHi); });
       if (opts[unitHi]) opts[unitHi].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' && !e.isComposing) {
-      if (unitList[unitHi]) { e.preventDefault(); pickUnit(unitList[unitHi].u); }
+      if (unitList[unitHi]) { e.preventDefault(); pickUnit(unitList[unitHi].u, unitList[unitHi].add); }
     } else if (e.key === 'Escape') {
       closeUnitPop();
     }
@@ -936,7 +1016,7 @@
   unitPop.addEventListener('pointerdown', function (e) {
     var o = e.target.closest('.opt');
     e.preventDefault();
-    if (o) pickUnit(unitList[Number(o.getAttribute('data-i'))].u);
+    if (o) { var it = unitList[Number(o.getAttribute('data-i'))]; pickUnit(it.u, it.add); }
   });
   window.addEventListener('resize', closeUnitPop);
 
@@ -962,6 +1042,63 @@
     saveDraft(); renderCart();
   });
 
+  // 數量欄：填全班的量，或填一組的量（下面顯示全班）
+  function round2(n) { return Math.round(n * 100) / 100; }
+  function totText(c) {
+    var g = currentGroups(), p = toNum(c.per);
+    return g && p > 0 ? '全班 ' + round2(p * g) : (g ? '' : '請先填組數');
+  }
+  function qtyCell(c, label) {
+    var attrs = 'type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10"';
+    if (draft.qtyMode === 'group') {
+      return '<input ' + attrs + ' data-f="per" placeholder="一組" value="' + esc(c.per == null ? '' : c.per) + '" aria-label="' + esc(label) + ' 一組的數量">' +
+        '<div class="tot">' + esc(totText(c)) + '</div>';
+    }
+    return '<input ' + attrs + ' data-f="qty" placeholder="數量" value="' + esc(c.qty) + '" aria-label="' + esc(label) + ' 數量">';
+  }
+  // 一組模式：依「一組的量 × 組數」重算全班數量
+  function recalcTotals() {
+    if (draft.qtyMode !== 'group') return;
+    var g = currentGroups();
+    draft.cart.concat(draft.tools).forEach(function (c) {
+      var p = toNum(c.per);
+      c.qty = g && p > 0 ? String(round2(p * g)) : '';
+    });
+  }
+  function renderModeRow() {
+    $('modeRow').innerHTML = '<span class="muted">數量填：</span>' +
+      '<button type="button" class="chip' + (draft.qtyMode === 'total' ? ' active' : '') + '" data-mode="total">全班的量</button>' +
+      '<button type="button" class="chip' + (draft.qtyMode === 'group' ? ' active' : '') + '" data-mode="group">一組的量</button>' +
+      (draft.qtyMode === 'group' ? '<span class="muted small">' + (currentGroups() ? '× ' + currentGroups() + ' 組，自動算出全班' : '請先在上課資訊填「組數」') + '</span>' : '');
+  }
+  $('modeRow').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-mode]');
+    if (!b || b.getAttribute('data-mode') === draft.qtyMode) return;
+    var g = currentGroups();
+    if (b.getAttribute('data-mode') === 'group') {
+      if (!g) { msg('orderMsg', 'error', '要填一組的量，請先在上課資訊填「組數」。'); $('fGroups').focus(); return; }
+      draft.cart.concat(draft.tools).forEach(function (c) { var q = toNum(c.qty); c.per = q > 0 ? String(Math.round(q / g * 10000) / 10000) : ''; });
+      draft.qtyMode = 'group';
+    } else {
+      recalcTotals();
+      draft.qtyMode = 'total';
+    }
+    msg('orderMsg', '', '');
+    saveDraft(); renderCart();
+  });
+  // 組數改了：一組模式要重算全班
+  $('fGroups').addEventListener('change', function () {
+    if (draft.qtyMode === 'group') { recalcTotals(); saveDraft(); renderCart(); } else renderModeRow();
+  });
+  // 一組的量改了：更新該列的「全班」
+  function onPerInput(target, obj) {
+    obj.per = target.value;
+    var g = currentGroups(), p = toNum(obj.per);
+    obj.qty = g && p > 0 ? String(round2(p * g)) : '';
+    var tot = target.parentNode.querySelector('.tot');
+    if (tot) tot.textContent = totText(obj);
+  }
+
   function cartRowHtml(c) {
     var secSel = draft.sections.length ? '<select data-f="section" aria-label="段落" style="margin-top:4px;font-size:13px;padding:3px 6px">' +
       [''].concat(draft.sections).map(function (sec) {
@@ -971,8 +1108,8 @@
     return '<div class="cart-row" data-key="' + esc(c.key) + '">' +
       '<div class="c-nm">' + code + '<span class="nm">' + esc(c.name) + '</span> ' + (c.isNew ? '<span class="badge warn">待審核</span>' : '') +
         '<div class="muted small">' + esc(c.vendor) + '</div>' + secSel + '</div>' +
-      '<div class="c-q"><input type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10" data-f="qty" placeholder="數量" value="' + esc(c.qty) + '" aria-label="' + esc(c.name) + ' 數量"></div>' +
-      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位') + '</div>' +
+      '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
+      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
       '<div class="c-s"><label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label></div>' +
       '<button type="button" class="x" title="移除" aria-label="移除 ' + esc(c.name) + '">×</button></div>';
@@ -988,6 +1125,7 @@
     $('cartCount').textContent = (cart.length ? '食材 ' + cart.length + ' 項' : '') +
       (draft.tools.length ? (cart.length ? '・' : '') + '器具 ' + draft.tools.length + ' 項' : '');
     $('submitBtn').disabled = !cart.length && !draft.tools.length;
+    renderModeRow();
     renderSections();
     renderTools();
     if (!cart.length) {
@@ -1011,7 +1149,8 @@
     if (!f) return;
     var key = e.target.closest('.cart-row').getAttribute('data-key');
     var c = draft.cart.find(function (x) { return x.key === key; });
-    if (c) {
+    if (c && f === 'per') { onPerInput(e.target, c); saveDraft(); }
+    else if (c) {
       c[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       saveDraft();
       if (f === 'section') renderCart();
@@ -1041,6 +1180,7 @@
     draft.tools = [];
     draft.sections = [];
     draft.activeSection = '';
+    draft.newUnits = [];
     saveDraft(); renderCart(); renderResults();
   });
 
@@ -1049,7 +1189,7 @@
     $('tools').innerHTML = draft.tools.map(function (t) {
       return '<div class="cart-row tool-row" data-key="' + esc(t.key) + '">' +
         '<div class="c-nm"><input type="text" maxlength="40" data-f="name" placeholder="器具名稱，例如：烤盤" value="' + esc(t.name) + '" aria-label="器具名稱"></div>' +
-        '<div class="c-q"><input type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10" data-f="qty" placeholder="數量" value="' + esc(t.qty) + '" aria-label="器具數量"></div>' +
+        '<div class="c-q">' + qtyCell(t, '器具') + '</div>' +
         '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(t.note) + '" aria-label="器具備註"></div>' +
         '<button type="button" class="x" title="移除" aria-label="移除器具">×</button></div>';
     }).join('');
@@ -1066,7 +1206,8 @@
     if (!f) return;
     var key = e.target.closest('.cart-row').getAttribute('data-key');
     var t = draft.tools.find(function (x) { return x.key === key; });
-    if (t) { t[f] = e.target.value; saveDraft(); }
+    if (t && f === 'per') { onPerInput(e.target, t); saveDraft(); }
+    else if (t) { t[f] = e.target.value; saveDraft(); }
     if ($('orderMsg').querySelector('.msg.error')) msg('orderMsg', '', '');
   });
   $('tools').addEventListener('click', function (e) {
@@ -1081,7 +1222,9 @@
   // ------------------------------------------------------------------
   $('submitBtn').addEventListener('click', function () {
     readInfo();
+    recalcTotals();
     var i = draft.info;
+    var perMode = draft.qtyMode === 'group';
     var d = parseDate(i.useDate);
     var err = !d ? '請選擇上課日期。'
       : i.useDate < data.minDate ? '已過訂貨截止，上課日期最早只能選 ' + shortDate(data.minDate) + '。'
@@ -1091,11 +1234,12 @@
       : !i.classTime ? '請選擇上課時間。'
       : !i.className ? '請填寫上課班級。'
       : (i.groups && !(/^\d+$/.test(i.groups) && +i.groups >= 1 && +i.groups <= 99)) ? '組數需為 1 到 99 的整數。'
-      : !i.project ? '請填寫實作項目。' : '';
+      : !i.project ? '請填寫實作項目。'
+      : (perMode && !currentGroups()) ? '數量是填「一組的量」，請先填組數。' : '';
     if (!err) {
       for (var k = 0; k < draft.cart.length; k++) {
         var c = draft.cart[k];
-        if (!(toNum(c.qty) > 0)) { err = '請填寫「' + c.name + '」的數量（數字，例如 2、0.5、半）。'; focusCartRow(c.key); break; }
+        if (!(toNum(c.qty) > 0)) { err = '請填寫「' + c.name + '」' + (perMode ? '一組' : '') + '的數量（數字，例如 2、0.5、半）。'; focusCartRow(c.key); break; }
         if (!validUnit(c.unit)) { err = '請選擇「' + c.name + '」的單位。'; break; }
       }
     }
@@ -1123,7 +1267,8 @@
       newItems: draft.cart.filter(function (c) { return c.isNew; }).map(function (c) {
         return { name: c.name, vendor: c.vendor, qty: toNum(c.qty), unit: c.unit, note: c.note, noOrder: !!c.noOrder, section: c.section || '' };
       }),
-      tools: tools.map(function (t) { return { name: String(t.name).trim(), qty: toNum(t.qty), note: t.note }; })
+      tools: tools.map(function (t) { return { name: String(t.name).trim(), qty: toNum(t.qty), note: t.note }; }),
+      newUnits: draft.newUnits.filter(function (u) { return draft.cart.some(function (c) { return normUnit(c.unit) === u; }); })
     };
     var who = i.onBehalfOf ? '（代 ' + i.onBehalfOf + ' 老師訂）' : '';
     if (!confirm('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？')) return;
@@ -1138,8 +1283,11 @@
         (res.tools ? '、' + res.tools + ' 項器具' : '');
       lastSubmitted = res.orderNo;
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
+      var keepMode = draft.qtyMode;
+      payload.newUnits.forEach(function (u) { if (data.pendingUnits.indexOf(u) < 0) data.pendingUnits.push(u); });
       draft = emptyDraft();
       draft.info = keep;
+      draft.qtyMode = keepMode;
       saveDraft();
       writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewDone');
@@ -1229,6 +1377,7 @@
       draft.sections = [];
       draft.cart.forEach(function (c) { if (c.section && draft.sections.indexOf(c.section) < 0) draft.sections.push(c.section); });
       draft.activeSection = '';
+      draft.qtyMode = 'total';   // 舊訂單存的是全班數量
       saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewOrder');
       msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材和器具，請選擇新的上課日期並確認數量後送出。');
@@ -1434,12 +1583,47 @@
       $('pendingCount').textContent = n;
       $('pendingCount').classList.toggle('hidden', !n);
     };
-    if (list) { set(list.length); return; }
-    call('adminGetPending', token).then(function (l) { set(l.length); }).catch(function () {});
+    if (list) { set(list.length + pendUnitCount); return; }
+    Promise.all([call('adminGetPending', token), call('adminGetPendingUnits', token)]).then(function (r) {
+      pendUnitCount = r[1].length; set(r[0].length + r[1].length);
+    }).catch(function () {});
   }
+  var pendUnitCount = 0;
+  function loadPendingUnits() {
+    return call('adminGetPendingUnits', token).then(function (list) {
+      pendUnitCount = list.length;
+      $('pendUnits').innerHTML = list.length ? '<div class="panel"><h2>待審核單位（' + list.length + '）</h2>' + list.map(function (u) {
+        return '<div class="pending-card" data-urow="' + u.row + '" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+          '<b style="font-size:18px;min-width:60px">' + esc(u.unit) + '</b>' +
+          '<span class="muted small" style="flex:1">' + esc(u.teacher) + '・' + esc(u.time) + '</span>' +
+          '<select data-f="utype" style="width:auto"><option value="叫貨">叫貨單位</option><option value="配方">配方單位</option></select>' +
+          '<button type="button" class="btn danger small" data-uact="reject">退回</button>' +
+          '<button type="button" class="btn small" data-uact="approve">核准</button></div>';
+      }).join('') + '</div>' : '';
+    }).catch(function (e) { $('pendUnits').innerHTML = '<div class="msg error">單位載入失敗：' + esc(e.message) + '</div>'; });
+  }
+  $('pendUnits').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-uact]');
+    if (!b) return;
+    var card = b.closest('[data-urow]');
+    var act = b.getAttribute('data-uact');
+    var unit = card.querySelector('b').textContent;
+    var type = card.querySelector('[data-f="utype"]').value;
+    if (act === 'reject' && !confirm('確定退回單位「' + unit + '」？之後老師就不能再用這個單位。')) return;
+    setBusy(b, true);
+    call('adminReviewUnit', token, Number(card.getAttribute('data-urow')), act, type).then(function (res) {
+      // 更新本機的單位清單
+      data.pendingUnits = data.pendingUnits.filter(function (u) { return u !== unit; });
+      if (act === 'approve') (type === '配方' ? data.recipeUnits : data.orderUnits).push(unit);
+      msg('pendMsg', 'ok', '單位「' + unit + '」' + res + '。');
+      loadPendingUnits().then(function () { refreshPendingCount(); });
+    }).catch(function (err) { msg('pendMsg', 'error', err.message); setBusy(b, false); });
+  });
+
   function loadPending(note) {
     msg('pendMsg', 'info', '載入中…');
     $('pendList').innerHTML = '';
+    loadPendingUnits();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));
@@ -1526,11 +1710,11 @@
     draft.cart = []; draft.tools = []; draft.sections = []; draft.activeSection = '';
     t.items.forEach(function (it, idx) {
       var key = 'p' + Date.now() + idx;
-      if (it.type === '器具') { draft.tools.push({ key: key, name: it.name, qty: round(it.perGroup * g), note: it.note }); return; }
+      if (it.type === '器具') { draft.tools.push({ key: key, name: it.name, qty: round(it.perGroup * g), per: String(it.perGroup), note: it.note }); return; }
       if (it.type === '食材' && !itemById[it.id]) { skipped.push(it.name); return; }
       var cur = it.type === '食材' ? itemById[it.id] : null;
       draft.cart.push({ key: key, id: cur ? cur.id : '', name: cur ? cur.name : it.name, vendor: cur ? cur.vendor : it.vendor,
-        qty: round(it.perGroup * g), unit: validUnit(it.unit), note: it.note, isNew: !cur, noOrder: it.noOrder, section: it.section || '' });
+        qty: round(it.perGroup * g), per: String(it.perGroup), unit: validUnit(it.unit), note: it.note, isNew: !cur, noOrder: it.noOrder, section: it.section || '' });
       if (it.section && draft.sections.indexOf(it.section) < 0) draft.sections.push(it.section);
     });
     if (!$('fDept').value && t.dept) $('fDept').value = t.dept;
@@ -1549,6 +1733,7 @@
   });
   $('tplSave').addEventListener('click', function () {
     readInfo();
+    recalcTotals();
     var g = currentGroups();
     if (!g) { msg('orderMsg', 'error', '存成範本前請先填「組數」，網站會換算成一組的量。'); $('fGroups').focus(); return; }
     var tools = draft.tools.filter(function (t) { return String(t.name || '').trim() && toNum(t.qty) > 0; });
@@ -1772,6 +1957,94 @@
       return esc(it.vendor) + ' ' + nameText(it) + ' ' + qtyText(it);
     }).join('、') + '</div>';
     return html + '</div>';
+  }
+
+  // ------------------------------------------------------------------
+  // 浮水印：登入老師姓名＋目前時間（每分鐘更新），截圖時可以追查來源
+  // ------------------------------------------------------------------
+  var wmTimer = null;
+  function drawWatermark() {
+    if (!data) return;
+    var n = new Date();
+    var p2 = function (x) { return ('0' + x).slice(-2); };
+    var text = data.account + '  ' + n.getFullYear() + '/' + p2(n.getMonth() + 1) + '/' + p2(n.getDate()) + ' ' + p2(n.getHours()) + ':' + p2(n.getMinutes());
+    var esx = function (t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); };
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="340" height="200">' +
+      '<text x="20" y="130" transform="rotate(-24 170 100)" font-size="17" font-family="sans-serif" fill="#000" fill-opacity="0.07">' + esx(text) + '</text></svg>';
+    $('watermark').style.backgroundImage = 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+  }
+  function startWatermark() {
+    drawWatermark();
+    $('watermark').classList.remove('hidden');
+    if (wmTimer) clearInterval(wmTimer);
+    wmTimer = setInterval(drawWatermark, 60000);
+  }
+  function stopWatermark() {
+    if (wmTimer) clearInterval(wmTimer);
+    wmTimer = null;
+    $('watermark').classList.add('hidden');
+  }
+
+  // ------------------------------------------------------------------
+  // 管理者：廠商訂貨單（每家廠商一頁：食材合計＋各班明細）
+  // ------------------------------------------------------------------
+  $('vLoad').addEventListener('click', function () {
+    var from = $('vFrom').value, to = $('vTo').value || from;
+    if (!from) { msg('vendorMsg', 'error', '請選擇日期。'); return; }
+    if (to < from) { msg('vendorMsg', 'error', '迄日不能早於起日。'); return; }
+    var btn = this;
+    setBusy(btn, true, '產生中…');
+    msg('vendorMsg', 'info', '載入中…');
+    $('vendorSheets').innerHTML = '';
+    $('vPrint').disabled = true;
+    call('adminGetOrders', token, from, to).then(function (list) {
+      var html = vendorSheets(list, from, to, $('vVendor').value);
+      $('vendorSheets').innerHTML = html;
+      msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有需要叫貨的品項。');
+      $('vPrint').disabled = !html;
+    }).catch(function (e) { msg('vendorMsg', 'error', '載入失敗：' + e.message); })
+      .then(function () { setBusy(btn, false); });
+  });
+  $('vPrint').addEventListener('click', function () { window.print(); });
+
+  function vendorSheets(orders, from, to, only) {
+    var by = {};
+    orders.forEach(function (o) {
+      if (o.status === '已取消') return;
+      o.items.forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.status === '已取消') return;
+        if (only && it.vendor !== only) return;
+        (by[it.vendor] = by[it.vendor] || []).push({ o: o, it: it });
+      });
+    });
+    var range = shortDate(from) + (to !== from ? ' ～ ' + shortDate(to) : '');
+    return Object.keys(by).sort().map(function (v) {
+      var lines = by[v];
+      // 合計：同食材＋同單位加總，重量換算成同一種單位
+      var sum = {}, keys = [];
+      lines.forEach(function (x) {
+        var cv = convertUnit(x.it.qty, x.it.unit, v);
+        var k = x.it.name + '|' + cv.unit;
+        if (!sum[k]) { sum[k] = { name: x.it.name, unit: cv.unit, qty: 0 }; keys.push(k); }
+        sum[k].qty += cv.qty;
+      });
+      keys.sort();
+      lines.sort(function (a, b) {
+        return a.o.useDate < b.o.useDate ? -1 : a.o.useDate > b.o.useDate ? 1
+          : (a.o.className + a.it.name).localeCompare(b.o.className + b.it.name, 'zh-Hant');
+      });
+      return '<div class="vpage"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(range) + '</div>' +
+        '<h3>【食材合計】</h3><table><thead><tr><th>食材</th><th style="width:20%">單位</th><th style="width:20%">合計</th></tr></thead><tbody>' +
+        keys.map(function (k) {
+          return '<tr><td>' + esc(sum[k].name) + '</td><td>' + esc(sum[k].unit) + '</td><td style="text-align:right">' + esc(fmtQty(sum[k].qty)) + '</td></tr>';
+        }).join('') + '</tbody></table>' +
+        '<h3>【明細】</h3><table><thead><tr><th>上課日期</th><th>組別</th><th>上課班級</th><th>食材</th><th>數量</th><th>單位</th><th>老師</th></tr></thead><tbody>' +
+        lines.map(function (x) {
+          return '<tr><td>' + esc(shortDate(x.o.useDate)) + '</td><td>' + esc(x.it.group) + '</td><td>' + esc(x.o.className) + '</td>' +
+            '<td>' + esc(x.it.name) + (x.it.note ? '<span style="color:#555">（' + esc(x.it.note) + '）</span>' : '') + '</td>' +
+            '<td style="text-align:right">' + esc(fmtQty(x.it.qty)) + '</td><td>' + esc(x.it.unit) + '</td><td>' + esc(x.o.onBehalfOf || x.o.teacher) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }).join('');
   }
 
   // ------------------------------------------------------------------

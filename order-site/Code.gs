@@ -1,5 +1,10 @@
 /**
- * 餐飲科老師訂貨網站：Google Apps Script 後端
+ * 三信家商餐飲科訂貨系統：Google Apps Script 後端
+ *
+ * © 2026 翁煒程 版權所有。
+ * 本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。
+ * 未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，
+ * 亦不得提供予校外人士使用。違者將依法追究相關法律責任。
  *
  * 資料全部存在試算表「訂貨表2.0」：
  *   帳號設定   老師帳號、密碼、啟用
@@ -8,6 +13,8 @@
  *   廠商設定   廠商的送貨組別與星期代碼
  *   訂單總表   老師送出的訂單，一個食材一列
  *   待審核食材 老師提交、食材總表裡沒有的食材
+ *   範本       老師各自的配方範本
+ *   單位       老師新增的單位（管理者審核）
  *
  * 程式依「標題名稱」找欄位，欄位順序調整不影響，但請不要改標題文字。
  * 部署方式見 README.md。
@@ -16,7 +23,7 @@
 // 試算表 ID（網址 /d/ 與 /edit 之間那段）。
 const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';
 
-const SITE_TITLE = '餐飲科訂貨系統';
+const SITE_TITLE = '三信家商餐飲科訂貨系統';
 const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能
 const DEPARTMENTS = ['中餐', '西餐', '烘焙', '飲調', '果雕', '刀功'];
 // 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
@@ -48,6 +55,7 @@ const SHEET = {
   orders: '訂單總表',
   pending: '待審核食材',
   templates: '範本',
+  units: '單位',
 };
 
 // 需要你在試算表手動新增的欄位（沒有的話網站照常運作，只是對應功能不會存檔）
@@ -55,6 +63,7 @@ const OPTIONAL_COLUMNS = {
   '訂單總表': ['組數', '不叫貨', '段落', '審核人'],
   '食材總表': ['舊編號'],
 };
+const UNIT_HEADERS = ['單位', '類型', '狀態', '提交老師', '提交時間', '審核人'];
 const TEMPLATE_HEADERS = ['老師', '範本名稱', '科別', '實作項目', '類型', '食材ID', '名稱', '廠商', '一組數量', '單位', '備註', '段落', '不叫貨', '建立時間'];
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
@@ -161,8 +170,9 @@ function getBootstrap(token) {
     maxDate: dateStr_(addDays_(today_(), MAX_DAYS_AHEAD)),
     lockRule: lockRuleText_(),
     statuses: ORDER_STATUSES,
-    orderUnits: ORDER_UNITS,
-    recipeUnits: RECIPE_UNITS,
+    orderUnits: unitLists_().order,
+    recipeUnits: unitLists_().recipe,
+    pendingUnits: unitLists_().pending,
     missingSetup: isAdmin ? missingSetup_() : [],
   };
 }
@@ -176,6 +186,7 @@ function missingSetup_() {
     OPTIONAL_COLUMNS[name].forEach(function (c) { if (cols[c] === undefined) out.push('「' + name + '」的「' + c + '」欄'); });
   });
   if (!ss_().getSheetByName(SHEET.templates)) out.push('「範本」分頁');
+  if (!ss_().getSheetByName(SHEET.units)) out.push('「單位」分頁');
   return out;
 }
 
@@ -256,6 +267,7 @@ function submitOrder(token, payload) {
   try {
     const orderNo = nextOrderNo_();
     const now = new Date();
+    registerUnits_(o.newUnits, account);
     const base = {
       '訂單編號': orderNo,
       '送出時間': now,
@@ -340,6 +352,7 @@ function validateOrder_(p, account, isAdmin) {
   });
   const vendorGroups = readVendorGroups_();
 
+  const newUnits = checkNewUnits_(p.newUnits);
   const lines = [];
   (Array.isArray(p.items) ? p.items : []).forEach(function (it) {
     const id = String(it && it.id || '').trim();
@@ -349,7 +362,7 @@ function validateOrder_(p, account, isAdmin) {
     const vendor = String(r['廠商']).trim();
     lines.push({
       id: id, name: name, vendor: vendor,
-      qty: qty_(it.qty, name), unit: unit_(it.unit, r['單位'], name), note: clean_(it.note, 100),
+      qty: qty_(it.qty, name), unit: unit_(it.unit, r['單位'], name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder, section: clean_(it.section, 20),
     });
@@ -361,7 +374,7 @@ function validateOrder_(p, account, isAdmin) {
     if (!vendor) throw new Error('請選擇「' + name + '」的廠商。');
     lines.push({
       id: PENDING_ID, name: name, vendor: vendor,
-      qty: qty_(it.qty, name), unit: unit_(it.unit, '', name), note: clean_(it.note, 100),
+      qty: qty_(it.qty, name), unit: unit_(it.unit, '', name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder, section: clean_(it.section, 20),
     });
@@ -382,6 +395,7 @@ function validateOrder_(p, account, isAdmin) {
   return {
     useDate: useDate, dept: dept, classTime: classTime, room: clean_(p.room, 30),
     className: className, project: project, onBehalfOf: onBehalfOf, groups: groups, lines: lines,
+    newUnits: newUnits.filter(function (u) { return lines.some(function (l) { return l.unit === u; }); }),
   };
 }
 
@@ -396,11 +410,99 @@ function normUnit_(u) {
   return UNIT_SYNONYMS[u] || u;
 }
 
-function unit_(v, fallback, name) {
+function unit_(v, fallback, name, extra) {
   const u = normUnit_(clean_(v, 10)) || normUnit_(fallback);
   if (!u) throw new Error('請選擇「' + name + '」的單位。');
-  if (ORDER_UNITS.indexOf(u) < 0 && RECIPE_UNITS.indexOf(u) < 0) throw new Error('「' + name + '」的單位「' + u + '」不在選單中，請重新選擇。');
+  const ok = unitLists_();
+  if (ok.all.indexOf(u) < 0 && (!extra || extra.indexOf(u) < 0)) {
+    throw new Error('「' + name + '」的單位「' + u + '」不在選單中，請重新選擇，或用「＋ 新增單位」。');
+  }
   return u;
+}
+
+// ---- 老師新增的單位（「單位」分頁，管理者審核） ----
+
+let UNIT_CACHE_ = null;   // 同一次執行內重複使用
+
+/** { order: [...], recipe: [...], pending: [...], all: [...] }：內建單位＋核准的單位；審核中的也可以用 */
+function unitLists_() {
+  if (UNIT_CACHE_) return UNIT_CACHE_;
+  const order = ORDER_UNITS.slice(), recipe = RECIPE_UNITS.slice(), pending = [];
+  readCustomUnits_().forEach(function (r) {
+    const u = r.unit;
+    if (!u || order.indexOf(u) >= 0 || recipe.indexOf(u) >= 0 || pending.indexOf(u) >= 0) return;
+    if (r.status === '核准') (r.type === '配方' ? recipe : order).push(u);
+    else if (r.status === '待審核') pending.push(u);
+  });
+  UNIT_CACHE_ = { order: order, recipe: recipe, pending: pending, all: order.concat(recipe, pending) };
+  return UNIT_CACHE_;
+}
+
+function readCustomUnits_() {
+  if (!ss_().getSheetByName(SHEET.units)) return [];
+  return readTable_(SHEET.units, ['單位', '狀態']).rows.map(function (r) {
+    return {
+      row: r._row, unit: normUnit_(r['單位']), type: String(r['類型'] || '').trim(),
+      status: String(r['狀態'] || '').trim() || '待審核', teacher: String(r['提交老師'] || ''),
+      time: fmtDateTime_(r['提交時間']),
+    };
+  });
+}
+
+/** 檢查老師這次新增的單位，回傳整理過的清單（還沒寫入試算表）。 */
+function checkNewUnits_(list) {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(function (v) {
+    const u = normUnit_(clean_(v, 10));
+    if (!u || out.indexOf(u) >= 0) return;
+    if (/[0-9０-９]/.test(u)) throw new Error('新增的單位「' + u + '」不能包含數字。');
+    if (unitLists_().all.indexOf(u) >= 0) return;   // 已經有了
+    if (readCustomUnits_().some(function (r) { return r.unit === u && r.status === '退回'; })) {
+      throw new Error('單位「' + u + '」已被管理者退回，請改用清單中的單位。');
+    }
+    out.push(u);
+  });
+  if (out.length && !ss_().getSheetByName(SHEET.units)) throw new Error('試算表還沒有「單位」分頁，暫時不能新增單位，請聯絡管理者。');
+  return out;
+}
+
+function registerUnits_(units, account) {
+  if (!units.length) return;
+  appendRows_(SHEET.units, units.map(function (u) {
+    return { '單位': u, '類型': '', '狀態': '待審核', '提交老師': account, '提交時間': new Date() };
+  }), { '提交時間': 'yyyy/mm/dd hh:mm' });
+  UNIT_CACHE_ = null;
+}
+
+function adminGetPendingUnits(token) {
+  auth_(token, true);
+  return readCustomUnits_().filter(function (r) { return r.status === '待審核'; });
+}
+
+/** decision: 'approve'（type: '叫貨' 或 '配方'）或 'reject' */
+function adminReviewUnit(token, row, decision, type) {
+  const admin = auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.units, ['單位', '狀態']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    if (!r) throw new Error('找不到這個單位，請重新整理。');
+    if (String(r['狀態'] || '').trim() && String(r['狀態']).trim() !== '待審核') throw new Error('這個單位已經審核過了。');
+    if (decision === 'approve') {
+      setCell_(t, r._row, '類型', type === '配方' ? '配方' : '叫貨');
+      setCell_(t, r._row, '狀態', '核准');
+    } else if (decision === 'reject') {
+      setCell_(t, r._row, '狀態', '退回');
+    } else {
+      throw new Error('審核動作不正確。');
+    }
+    if (t.cols['審核人'] !== undefined) setCell_(t, r._row, '審核人', admin);
+    UNIT_CACHE_ = null;
+    return decision === 'approve' ? '已核准' : '已退回';
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** 讀「廠商設定」：{ 廠商: [星期代碼, ...] } */
