@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>老師訂貨網站</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --text: #1d2433;
+    --muted: #667085;
+    --line: #e4e7ec;
+    --brand: #1f3864;
+    --brand-soft: #e8edf6;
+    --ok: #2e7d32;
+    --ok-soft: #e6f4ea;
+    --warn: #8a6100;
+    --warn-soft: #fff4d6;
+    --bad: #b42318;
+    --bad-soft: #fde8e7;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  header {
+    background: var(--brand);
+    color: #fff;
+    padding: 16px;
+  }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; }
+  nav { display: flex; gap: 6px; }
+  nav button {
+    background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.5);
+    border-radius: 999px; padding: 6px 14px; font-size: 15px; cursor: pointer;
+  }
+  nav button.active { background: #fff; color: var(--brand); border-color: #fff; font-weight: 600; }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  main { padding: 16px 16px 120px; }
+  .hidden { display: none !important; }
+
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar input {
+    flex: 1 1 200px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px;
+  }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--card); border-radius: 999px;
+    padding: 6px 12px; font-size: 14px; cursor: pointer; color: var(--text);
+  }
+  .chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .card.in-cart { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; }
+  .card .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+  .card .name { font-weight: 600; font-size: 17px; }
+  .card .meta { color: var(--muted); font-size: 14px; }
+  .card .price { font-size: 18px; font-weight: 700; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.bad { background: var(--bad-soft); color: var(--bad); }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .stepper button {
+    width: 40px; height: 40px; border: 0; background: var(--brand-soft); color: var(--brand);
+    font-size: 20px; cursor: pointer;
+  }
+  .stepper input {
+    width: 56px; height: 40px; border: 0; text-align: center; font-size: 16px;
+    -moz-appearance: textfield;
+  }
+  .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  .cartbar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--card);
+    border-top: 1px solid var(--line); padding: 12px 16px; box-shadow: 0 -4px 16px rgba(0,0,0,.06);
+  }
+  .cartbar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .cartbar .sum { font-size: 15px; color: var(--muted); }
+  .cartbar .sum b { color: var(--text); font-size: 18px; }
+
+  .btn {
+    background: var(--brand); color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 20px; font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.secondary { background: var(--card); color: var(--brand); border: 1px solid var(--brand); }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .panel h2 { margin: 0 0 12px; font-size: 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 14px; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tfoot td { font-weight: 700; border-bottom: 0; }
+
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+  label .req { color: var(--bad); }
+  .form input, .form textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; font-family: inherit;
+  }
+  .form textarea { min-height: 72px; resize: vertical; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+
+  .msg { padding: 12px 14px; border-radius: 10px; margin-bottom: 12px; }
+  .msg.error { background: var(--bad-soft); color: var(--bad); }
+  .msg.info { background: var(--brand-soft); color: var(--brand); }
+  .success { text-align: center; padding: 32px 16px; }
+  .success .no { font-size: 24px; font-weight: 700; color: var(--brand); margin: 8px 0 16px; letter-spacing: .5px; }
+  .muted { color: var(--muted); }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+
+  .order { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; background: var(--card); }
+  .order .head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .order .head b { font-size: 16px; }
+
+  @media (max-width: 560px) {
+    .form { grid-template-columns: 1fr; }
+    header h1 { font-size: 18px; }
+    .actions .btn { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>老師訂貨網站</h1>
+    <nav>
+      <button id="tabShop" class="active" type="button">訂貨</button>
+      <button id="tabMine" type="button">查詢訂單</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- 商品清單 -->
+  <section id="viewShop">
+    <div id="shopMsg"></div>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="搜尋品名或品號" aria-label="搜尋商品">
+    </div>
+    <div id="chips" class="chips"></div>
+    <div id="grid" class="grid"><div class="empty">商品載入中…</div></div>
+  </section>
+
+  <!-- 確認訂單 -->
+  <section id="viewCheckout" class="hidden">
+    <div id="checkoutMsg"></div>
+    <div class="panel">
+      <h2>訂購明細</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>品名</th><th class="num">單價</th><th class="num">數量</th><th class="num">小計</th></tr></thead>
+          <tbody id="summaryBody"></tbody>
+          <tfoot><tr><td colspan="3">合計</td><td class="num" id="summaryTotal"></td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+    <form id="orderForm" class="panel" novalidate>
+      <h2>聯絡與送貨資料</h2>
+      <div class="form">
+        <div><label for="fName">姓名 <span class="req">*</span></label><input id="fName" autocomplete="name" maxlength="30" required></div>
+        <div><label for="fSchool">學校／單位</label><input id="fSchool" autocomplete="organization" maxlength="40"></div>
+        <div><label for="fPhone">聯絡電話 <span class="req">*</span></label><input id="fPhone" type="tel" autocomplete="tel" maxlength="20" required></div>
+        <div><label for="fDate">希望到貨日</label><input id="fDate" type="date"></div>
+        <div class="full"><label for="fAddress">送貨地址 <span class="req">*</span></label><input id="fAddress" autocomplete="street-address" maxlength="100" required></div>
+        <div class="full"><label for="fNote">備註</label><textarea id="fNote" maxlength="200" placeholder="例如：上課日期、收貨時段"></textarea></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn secondary" id="backToShop">回到商品</button>
+        <button type="submit" class="btn" id="submitBtn">送出訂單</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 送出成功 -->
+  <section id="viewDone" class="hidden">
+    <div class="panel success">
+      <div style="font-size:40px">✓</div>
+      <h2>訂單已送出</h2>
+      <div class="muted">訂單編號</div>
+      <div class="no" id="doneNo"></div>
+      <div id="doneTotal" class="muted"></div>
+      <p class="muted">可在「查詢訂單」用姓名和電話查看處理進度。</p>
+      <div class="actions" style="justify-content:center">
+        <button type="button" class="btn" id="newOrder">再訂一張</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 查詢訂單 -->
+  <section id="viewMine" class="hidden">
+    <form id="mineForm" class="panel" novalidate>
+      <h2>查詢我的訂單</h2>
+      <div class="form">
+        <div><label for="qName">姓名</label><input id="qName" maxlength="30"></div>
+        <div><label for="qPhone">下單時的聯絡電話</label><input id="qPhone" type="tel" maxlength="20"></div>
+      </div>
+      <div class="actions"><button type="submit" class="btn" id="mineBtn">查詢</button></div>
+    </form>
+    <div id="mineMsg"></div>
+    <div id="mineList"></div>
+  </section>
+</main>
+
+<div class="cartbar" id="cartbar">
+  <div class="wrap">
+    <div class="sum">已選 <b id="cartCount">0</b> 項，合計 <b id="cartTotal">$0</b></div>
+    <button class="btn" id="toCheckout" type="button" disabled>下一步</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- 後端呼叫（google.script.run 包成 Promise）----
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (err) {
+        reject(err && err.message ? err : new Error(String(err)));
+      });
+      runner[fn].apply(runner, args);
+    });
+  }
+
+  // ---- 狀態 ----
+  var products = [];
+  var cart = {};            // id -> qty
+  var category = '全部';
+  var STORE_KEY = 'teacherOrder.contact';
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function money(n) { return '$' + Math.round(n).toLocaleString('zh-TW'); }
+  function showMsg(el, type, text) { el.innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : ''; }
+
+  function show(view) {
+    ['viewShop', 'viewCheckout', 'viewDone', 'viewMine'].forEach(function (v) { $(v).classList.toggle('hidden', v !== view); });
+    $('cartbar').classList.toggle('hidden', view !== 'viewShop');
+    $('tabShop').classList.toggle('active', view !== 'viewMine');
+    $('tabMine').classList.toggle('active', view === 'viewMine');
+    window.scrollTo(0, 0);
+  }
+
+  // ---- 商品 ----
+  function loadProducts() {
+    call('getProducts').then(function (list) {
+      products = list || [];
+      renderChips();
+      renderGrid();
+    }).catch(function (e) {
+      $('grid').innerHTML = '';
+      showMsg($('shopMsg'), 'error', '商品載入失敗：' + e.message);
+    });
+  }
+
+  function renderChips() {
+    var cats = ['全部'];
+    products.forEach(function (p) { if (cats.indexOf(p.category) < 0) cats.push(p.category); });
+    $('chips').innerHTML = cats.map(function (c) {
+      return '<button type="button" class="chip' + (c === category ? ' active' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>';
+    }).join('');
+  }
+
+  function stockBadge(s) {
+    var cls = s === '有貨' ? 'ok' : s === '庫存少' ? 'warn' : 'bad';
+    return '<span class="badge ' + cls + '">' + esc(s) + '</span>';
+  }
+
+  function renderGrid() {
+    var q = $('search').value.trim().toLowerCase();
+    var list = products.filter(function (p) {
+      if (category !== '全部' && p.category !== category) return false;
+      if (q && (p.name + ' ' + p.id).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    if (!list.length) {
+      $('grid').innerHTML = '<div class="empty">' + (products.length ? '找不到符合的商品' : '目前沒有可訂購的商品') + '</div>';
+      return;
+    }
+    $('grid').innerHTML = list.map(function (p) {
+      var qty = cart[p.id] || 0;
+      return '<div class="card' + (qty ? ' in-cart' : '') + '" data-id="' + esc(p.id) + '">' +
+        '<div class="top"><div><div class="name">' + esc(p.name) + '</div>' +
+        '<div class="meta">' + esc(p.id) + '</div></div>' + stockBadge(p.stock) + '</div>' +
+        '<div class="row"><div class="price">' + money(p.price) + '<span class="meta"> / ' + esc(p.unit) + '</span></div>' +
+        '<div class="stepper">' +
+          '<button type="button" data-act="dec" aria-label="減少">−</button>' +
+          '<input type="number" inputmode="numeric" min="0" max="999" value="' + qty + '" aria-label="' + esc(p.name) + ' 數量">' +
+          '<button type="button" data-act="inc" aria-label="增加">+</button>' +
+        '</div></div></div>';
+    }).join('');
+  }
+
+  function setQty(id, qty) {
+    qty = Math.max(0, Math.min(999, Math.floor(Number(qty) || 0)));
+    if (qty) cart[id] = qty; else delete cart[id];
+    var card = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+    if (card) {
+      card.classList.toggle('in-cart', qty > 0);
+      card.querySelector('input').value = qty;
+    }
+    updateCartBar();
+  }
+
+  function cartItems() {
+    return products.filter(function (p) { return cart[p.id]; }).map(function (p) {
+      return { id: p.id, name: p.name, unit: p.unit, price: p.price, qty: cart[p.id] };
+    });
+  }
+
+  function updateCartBar() {
+    var items = cartItems();
+    var total = items.reduce(function (s, it) { return s + it.price * it.qty; }, 0);
+    $('cartCount').textContent = items.length;
+    $('cartTotal').textContent = money(total);
+    $('toCheckout').disabled = items.length === 0;
+  }
+
+  // ---- 結帳 ----
+  function renderSummary() {
+    var items = cartItems();
+    $('summaryBody').innerHTML = items.map(function (it) {
+      return '<tr><td>' + esc(it.name) + '<div class="muted" style="font-size:13px">' + esc(it.unit) + '</div></td>' +
+        '<td class="num">' + money(it.price) + '</td><td class="num">' + it.qty + '</td>' +
+        '<td class="num">' + money(it.price * it.qty) + '</td></tr>';
+    }).join('');
+    $('summaryTotal').textContent = money(items.reduce(function (s, it) { return s + it.price * it.qty; }, 0));
+  }
+
+  function loadContact() {
+    try {
+      var c = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+      $('fName').value = c.name || '';
+      $('fSchool').value = c.school || '';
+      $('fPhone').value = c.phone || '';
+      $('fAddress').value = c.address || '';
+      $('qName').value = c.name || '';
+      $('qPhone').value = c.phone || '';
+    } catch (e) { /* 無法使用瀏覽器儲存時略過 */ }
+  }
+  function saveContact(c) {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ name: c.name, school: c.school, phone: c.phone, address: c.address })); } catch (e) {}
+  }
+
+  function submitOrder(ev) {
+    ev.preventDefault();
+    var payload = {
+      name: $('fName').value.trim(),
+      school: $('fSchool').value.trim(),
+      phone: $('fPhone').value.trim(),
+      address: $('fAddress').value.trim(),
+      wantDate: $('fDate').value,
+      note: $('fNote').value.trim(),
+      items: cartItems().map(function (it) { return { id: it.id, qty: it.qty }; })
+    };
+    var digits = payload.phone.replace(/\D/g, '');
+    var err = !payload.name ? '請填寫姓名。'
+      : (digits.length < 8 || digits.length > 10) ? '請填寫正確的聯絡電話。'
+      : !payload.address ? '請填寫送貨地址。'
+      : !payload.items.length ? '購物車是空的。' : '';
+    if (err) { showMsg($('checkoutMsg'), 'error', err); window.scrollTo(0, 0); return; }
+
+    var btn = $('submitBtn');
+    btn.disabled = true; btn.textContent = '送出中…';
+    showMsg($('checkoutMsg'), '', '');
+    call('submitOrder', payload).then(function (res) {
+      saveContact(payload);
+      $('doneNo').textContent = res.orderNo;
+      $('doneTotal').textContent = '合計 ' + money(res.total) + '，共 ' + res.items.length + ' 項';
+      cart = {};
+      $('fNote').value = '';
+      $('fDate').value = '';
+      updateCartBar();
+      renderGrid();
+      loadContact();
+      show('viewDone');
+    }).catch(function (e) {
+      showMsg($('checkoutMsg'), 'error', '送出失敗：' + e.message);
+      window.scrollTo(0, 0);
+    }).then(function () {
+      btn.disabled = false; btn.textContent = '送出訂單';
+    });
+  }
+
+  // ---- 查詢訂單 ----
+  function statusBadge(s) {
+    var cls = s === '已出貨' ? 'ok' : s === '已取消' ? 'bad' : 'warn';
+    return '<span class="badge ' + cls + '">' + esc(s) + '</span>';
+  }
+
+  function queryMine(ev) {
+    ev.preventDefault();
+    var name = $('qName').value.trim(), phone = $('qPhone').value.trim();
+    if (!name || phone.replace(/\D/g, '').length < 8) {
+      showMsg($('mineMsg'), 'error', '請輸入姓名與下單時的聯絡電話。');
+      return;
+    }
+    var btn = $('mineBtn');
+    btn.disabled = true; btn.textContent = '查詢中…';
+    showMsg($('mineMsg'), '', '');
+    $('mineList').innerHTML = '';
+    call('getMyOrders', phone, name).then(function (orders) {
+      if (!orders.length) { showMsg($('mineMsg'), 'info', '查無訂單。請確認姓名與電話和下單時相同。'); return; }
+      $('mineList').innerHTML = orders.map(function (o) {
+        return '<div class="order"><div class="head"><b>' + esc(o.orderNo) + '</b>' + statusBadge(o.status) + '</div>' +
+          '<div class="muted" style="font-size:14px">下單 ' + esc(o.date) + (o.wantDate ? '・希望到貨 ' + esc(o.wantDate) : '') + '</div>' +
+          '<table><tbody>' + o.items.map(function (it) {
+            return '<tr><td>' + esc(it.name) + '</td><td class="num">' + it.qty + ' ' + esc(it.unit) + '</td>' +
+              '<td class="num">' + money(it.amount) + '</td><td class="num">' + statusBadge(it.status) +
+              (it.shipDate ? '<div class="muted" style="font-size:12px">' + esc(it.shipDate) + '</div>' : '') + '</td></tr>';
+          }).join('') + '</tbody><tfoot><tr><td colspan="2">合計（不含取消）</td><td class="num">' + money(o.total) + '</td><td></td></tr></tfoot></table></div>';
+      }).join('');
+    }).catch(function (e) {
+      showMsg($('mineMsg'), 'error', '查詢失敗：' + e.message);
+    }).then(function () {
+      btn.disabled = false; btn.textContent = '查詢';
+    });
+  }
+
+  // ---- 事件 ----
+  $('search').addEventListener('input', renderGrid);
+  $('chips').addEventListener('click', function (e) {
+    var b = e.target.closest('.chip');
+    if (!b) return;
+    category = b.getAttribute('data-cat');
+    renderChips();
+    renderGrid();
+  });
+  $('grid').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var id = b.closest('.card').getAttribute('data-id');
+    setQty(id, (cart[id] || 0) + (b.getAttribute('data-act') === 'inc' ? 1 : -1));
+  });
+  $('grid').addEventListener('change', function (e) {
+    if (e.target.tagName !== 'INPUT') return;
+    setQty(e.target.closest('.card').getAttribute('data-id'), e.target.value);
+  });
+  $('toCheckout').addEventListener('click', function () {
+    renderSummary();
+    showMsg($('checkoutMsg'), '', '');
+    show('viewCheckout');
+  });
+  $('backToShop').addEventListener('click', function () { show('viewShop'); });
+  $('newOrder').addEventListener('click', function () { show('viewShop'); });
+  $('orderForm').addEventListener('submit', submitOrder);
+  $('mineForm').addEventListener('submit', queryMine);
+  $('tabShop').addEventListener('click', function () { show('viewShop'); });
+  $('tabMine').addEventListener('click', function () { show('viewMine'); });
+
+  // 希望到貨日不可早於今天
+  var t = new Date();
+  $('fDate').min = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+
+  loadContact();
+  loadProducts();
+})();
+</script>
+</body>
+</html>
