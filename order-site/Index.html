@@ -165,6 +165,9 @@
   .tool-row { grid-template-columns: 1.6fr 90px 1.4fr 36px; }
   .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
   .login .copyright { padding: 16px 0 0; text-align: left; border-top: 1px solid var(--line); margin-top: 16px; }
+  #nav.forced button:not(#logoutBtn) { display: none; }
+  .pw-form { max-width: 440px; margin: 0 auto; }
+  .pw-form .field { margin-bottom: 12px; }
   #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
   .mode-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 14px; }
   .tot { font-size: 12px; color: var(--info); margin-top: 2px; white-space: nowrap; }
@@ -273,6 +276,7 @@
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
+        <button type="button" data-view="viewPassword">改密碼</button>
         <button type="button" id="logoutBtn">登出</button>
       </nav>
     </div>
@@ -422,6 +426,22 @@
       <div id="sumOrders"></div>
     </section>
 
+    <!-- 修改密碼 -->
+    <section id="viewPassword" class="hidden">
+      <form id="pwForm" class="panel pw-form" novalidate>
+        <h2 id="pwTitle">修改密碼</h2>
+        <div id="pwMsg"></div>
+        <div class="field" id="pwOldBox"><label for="pwOld">目前的密碼</label><input id="pwOld" type="password" autocomplete="current-password"></div>
+        <div class="field"><label for="pwNew">新密碼（至少 4 碼，不能是 0000）</label><input id="pwNew" type="password" autocomplete="new-password"></div>
+        <div class="field"><label for="pwNew2">再輸入一次新密碼</label><input id="pwNew2" type="password" autocomplete="new-password"></div>
+        <label class="check" style="margin-bottom:8px"><input type="checkbox" id="pwShow"> 顯示密碼</label>
+        <div class="actions">
+          <button type="button" class="btn ghost" id="pwCancel">取消</button>
+          <button type="submit" class="btn" id="pwSave">儲存新密碼</button>
+        </div>
+      </form>
+    </section>
+
     <!-- 管理者：廠商訂貨單 -->
     <section id="viewVendor" class="hidden">
       <div class="panel noprint">
@@ -497,6 +517,11 @@
         .withSuccessHandler(resolve)
         .withFailureHandler(function (err) {
           var msg = err && err.message ? err.message : String(err);
+          if (msg.indexOf('MUST_CHANGE_PASSWORD') >= 0) {
+            enterForcedChange(null);
+            reject(new Error('請先修改密碼。'));
+            return;
+          }
           if (msg.indexOf('SESSION_EXPIRED') >= 0) {
             showLogin('登入已逾時，請重新登入。');
             reject(new Error('登入已逾時'));
@@ -587,6 +612,8 @@
   // ------------------------------------------------------------------
   function showLogin(text) {
     token = null;
+    forcedPw = null;
+    $('nav').classList.remove('forced');
     stopWatermark();
     try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
     $('app').classList.add('hidden');
@@ -605,6 +632,7 @@
     call('loginAndLoad', acc, pw).then(function (res) {
       token = res.token;
       try { sessionStorage.setItem(TOKEN_KEY, token); localStorage.setItem('ckOrder.lastAccount', acc); } catch (e) {}
+      if (res.mustChange) { enterForcedChange(acc, pw); return; }
       return start(res.data);
     }).catch(function (err) {
       msg('loginMsg', 'error', err.message);
@@ -686,7 +714,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewVendor', 'viewPending', 'viewPrint'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewVendor', 'viewPending', 'viewPrint', 'viewPassword'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -701,6 +729,7 @@
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
     if (view === 'viewPending') loadPending(note);
+    if (view === 'viewPassword') resetPwForm();
     if (view === 'viewVendor') loadAuto();
     if (view === 'viewVendor' && !$('vFrom').value) {
       // 預設：下週一到下週五
@@ -2067,6 +2096,62 @@
         }).join('') + '</tbody></table></div>';
     }).join('');
   }
+
+  // ------------------------------------------------------------------
+  // 修改密碼（用預設密碼登入時強制修改）
+  // ------------------------------------------------------------------
+  var forcedPw = null;   // 強制改密碼時：{ account, oldPw }
+  function enterForcedChange(account, oldPw) {
+    forcedPw = { account: account || (forcedPw && forcedPw.account) || '', oldPw: oldPw || (forcedPw && forcedPw.oldPw) || '' };
+    $('viewLogin').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('nav').classList.add('forced');
+    $('who').textContent = (forcedPw.account || '') + ' 已登入';
+    msg('globalMsg', '', '');
+    show('viewPassword');
+  }
+  function resetPwForm() {
+    ['pwOld', 'pwNew', 'pwNew2'].forEach(function (id) { $(id).value = ''; });
+    $('pwShow').checked = false;
+    ['pwOld', 'pwNew', 'pwNew2'].forEach(function (id) { $(id).type = 'password'; });
+    var forced = !!forcedPw;
+    $('pwTitle').textContent = forced ? '第一次登入，請先設定你自己的密碼' : '修改密碼';
+    // 剛登入的密碼已知，就不用再輸入一次目前的密碼
+    $('pwOldBox').classList.toggle('hidden', forced && !!forcedPw.oldPw);
+    $('pwCancel').classList.toggle('hidden', forced);
+    msg('pwMsg', forced ? 'info' : '', forced ? '你目前使用的是預設密碼，請先改成只有你知道的密碼，改好就可以開始訂貨。' : '');
+    setTimeout(function () { (forced && forcedPw.oldPw ? $('pwNew') : $('pwOld')).focus(); }, 0);
+  }
+  $('pwShow').addEventListener('change', function () {
+    var t = this.checked ? 'text' : 'password';
+    ['pwOld', 'pwNew', 'pwNew2'].forEach(function (id) { $(id).type = t; });
+  });
+  $('pwCancel').addEventListener('click', function () { show('viewOrder'); });
+  $('pwForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var oldPw = forcedPw && forcedPw.oldPw ? forcedPw.oldPw : $('pwOld').value;
+    var p1 = $('pwNew').value, p2 = $('pwNew2').value;
+    var err = !oldPw ? '請輸入目前的密碼。'
+      : /\s/.test(p1) ? '新密碼不能有空白。'
+      : p1.length < 4 ? '新密碼至少要 4 碼。'
+      : p1 === '0000' ? '新密碼不能是預設密碼 0000。'
+      : p1 === oldPw ? '新密碼不能跟目前的密碼一樣。'
+      : p1 !== p2 ? '兩次輸入的新密碼不一樣，請再確認。' : '';
+    if (err) { msg('pwMsg', 'error', err); return; }
+    var btn = $('pwSave');
+    setBusy(btn, true, '儲存中…');
+    call('changePassword', token, oldPw, p1).then(function () {
+      var wasForced = !!forcedPw;
+      forcedPw = null;
+      $('nav').classList.remove('forced');
+      resetPwForm();
+      msg('pwMsg', 'ok', '密碼已更新，下次登入請用新密碼。');
+      if (wasForced) {
+        return start().then(function () { msg('globalMsg', 'ok', '密碼已更新，下次登入請用新密碼。'); });
+      }
+    }).catch(function (e2) { msg('pwMsg', 'error', e2.message); })
+      .then(function () { setBusy(btn, false); });
+  });
 
   // ------------------------------------------------------------------
   // 管理者：自動化設定

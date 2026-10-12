@@ -37,7 +37,9 @@ const ITEMS_CACHE_MINUTES = 10;             // 食材清單暫存時間（加快
 const MAX_DAYS_AHEAD = 30;                  // 上課日期最晚可選幾天後
 const MAX_ITEMS_PER_ORDER = 80;
 const SESSION_HOURS = 6;                    // 登入有效時間
-const MAX_LOGIN_FAILS = 5;                  // 連續輸錯幾次就暫停登入
+const MAX_LOGIN_FAILS = 5;
+const DEFAULT_PASSWORD = '0000';            // 用這個密碼登入時，要先改密碼才能使用
+const MIN_PASSWORD_LENGTH = 4;                  // 連續輸錯幾次就暫停登入
 const LOCK_MINUTES = 10;
 const ORDER_STATUSES = ['待處理', '已審核', '已叫貨', '已到貨', '已取消'];
 // 單位選單：叫貨單位、配方單位。老師只能從這些單位選，避免同一個單位有好幾種寫法。
@@ -112,13 +114,49 @@ function login(account, password) {
   cache.remove(failKey);
   const token = Utilities.getUuid();
   cache.put('session:' + token, account, SESSION_HOURS * 3600);
-  return { token: token, account: account, isAdmin: ADMIN_ACCOUNTS.indexOf(account) >= 0 };
+  const mustChange = password === DEFAULT_PASSWORD;
+  if (mustChange) cache.put('mustchange:' + token, '1', SESSION_HOURS * 3600);
+  return { token: token, account: account, isAdmin: ADMIN_ACCOUNTS.indexOf(account) >= 0, mustChange: mustChange };
+}
+
+/**
+ * 老師自己改密碼。
+ * 規則：至少 MIN_PASSWORD_LENGTH 碼、不能跟舊密碼一樣、不能是預設密碼。
+ */
+function changePassword(token, oldPassword, newPassword) {
+  const account = auth_(token, false, true);
+  oldPassword = String(oldPassword == null ? '' : oldPassword);
+  newPassword = String(newPassword == null ? '' : newPassword);
+  if (/\s/.test(newPassword)) throw new Error('新密碼不能有空白。');
+  if (newPassword.length < MIN_PASSWORD_LENGTH) throw new Error('新密碼至少要 ' + MIN_PASSWORD_LENGTH + ' 碼。');
+  if (newPassword.length > 30) throw new Error('新密碼最多 30 碼。');
+  if (newPassword === DEFAULT_PASSWORD) throw new Error('新密碼不能是預設密碼 ' + DEFAULT_PASSWORD + '。');
+  if (newPassword === oldPassword) throw new Error('新密碼不能跟目前的密碼一樣。');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
+    const r = t.rows.find(function (x) { return String(x['帳號']).trim() === account; });
+    if (!r || !isTrue_(r['啟用'])) throw new Error('找不到你的帳號，請聯絡管理者。');
+    if (String(r['密碼']) !== oldPassword) throw new Error('目前的密碼不正確。');
+    // 純文字格式，避免「0123」被試算表變成數字 123
+    const cell = t.sheet.getRange(r._row, t.cols['密碼']);
+    cell.setNumberFormat('@');
+    cell.setValue(newPassword);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  CacheService.getScriptCache().remove('mustchange:' + token);
+  logLogin_(account, '改密碼');
+  return true;
 }
 
 /** 登入並一次載入網站資料（少一次來回，登入比較快）。 */
 function loginAndLoad(account, password) {
   const res = login(account, password);
-  res.data = getBootstrap(res.token);
+  if (!res.mustChange) res.data = getBootstrap(res.token);   // 要先改密碼的，改完才載入資料
   return res;
 }
 
@@ -137,9 +175,12 @@ function logLogin_(account, result) {
 }
 
 /** 檢查登入狀態，回傳帳號名稱。 */
-function auth_(token, needAdmin) {
-  const account = token ? CacheService.getScriptCache().get('session:' + token) : null;
+function auth_(token, needAdmin, allowMustChange) {
+  const cache = CacheService.getScriptCache();
+  const account = token ? cache.get('session:' + token) : null;
   if (!account) throw new Error('SESSION_EXPIRED');
+  // 還在用預設密碼的，除了改密碼以外什麼都不能做
+  if (!allowMustChange && cache.get('mustchange:' + token)) throw new Error('MUST_CHANGE_PASSWORD');
   if (needAdmin && ADMIN_ACCOUNTS.indexOf(account) < 0) throw new Error('只有管理者可以使用這個功能。');
   return account;
 }
