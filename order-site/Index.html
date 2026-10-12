@@ -434,6 +434,11 @@
           }
           reject(new Error(msg.replace(/^Error:\s*/, '').replace(/^Exception:\s*/, '')));
         });
+      if (typeof runner[fn] !== 'function') {
+        // 網頁是新版、但 Apps Script 的 Code.gs 還是舊版（或沒部署新版本）時會發生
+        reject(new Error('伺服器上找不到「' + fn + '」功能。請確認 Apps Script 的 Code.gs 已換成最新版並儲存，再到「部署 → 管理部署作業 → 編輯 → 新版本 → 部署」。'));
+        return;
+      }
       runner[fn].apply(runner, args);
     });
   }
