@@ -32,7 +32,12 @@ const MAX_ITEMS_PER_ORDER = 80;
 const SESSION_HOURS = 6;                    // 登入有效時間
 const MAX_LOGIN_FAILS = 5;                  // 連續輸錯幾次就暫停登入
 const LOCK_MINUTES = 10;
-const ORDER_STATUSES = ['待處理', '已叫貨', '已到貨', '已取消'];
+const ORDER_STATUSES = ['待處理', '已審核', '已叫貨', '已到貨', '已取消'];
+// 單位選單：叫貨單位、配方單位。老師只能從這些單位選，避免同一個單位有好幾種寫法。
+const ORDER_UNITS = ['斤', '兩', '公斤', 'g', '顆', '個', '粒', '條', '根', '把', '支', '朵', '片', '塊', '隻', '尾', '付', '打', '包', '袋', '盒', '罐', '瓶', '桶', '箱', '公升'];
+const RECIPE_UNITS = ['T', 't', '杯', 'ml'];
+const UNIT_SYNONYMS = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'cc': 'ml', 'CC': 'ml', '毫升': 'ml', 'L': '公升' };
+const MAX_GROUPS = 99;
 const PENDING_ID = '待審核';
 
 const SHEET = {
@@ -42,7 +47,15 @@ const SHEET = {
   vendors: '廠商設定',
   orders: '訂單總表',
   pending: '待審核食材',
+  templates: '範本',
 };
+
+// 需要你在試算表手動新增的欄位（沒有的話網站照常運作，只是對應功能不會存檔）
+const OPTIONAL_COLUMNS = {
+  '訂單總表': ['組數', '不叫貨', '段落', '審核人'],
+  '食材總表': ['舊編號'],
+};
+const TEMPLATE_HEADERS = ['老師', '範本名稱', '科別', '實作項目', '類型', '食材ID', '名稱', '廠商', '一組數量', '單位', '備註', '段落', '不叫貨', '建立時間'];
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 // 試算表標題的別名：訂單總表用「使用日期」或「上課日期」都可以
@@ -148,7 +161,32 @@ function getBootstrap(token) {
     maxDate: dateStr_(addDays_(today_(), MAX_DAYS_AHEAD)),
     lockRule: lockRuleText_(),
     statuses: ORDER_STATUSES,
+    orderUnits: ORDER_UNITS,
+    recipeUnits: RECIPE_UNITS,
+    missingSetup: isAdmin ? missingSetup_() : [],
   };
+}
+
+/** 檢查試算表是否已加上新功能需要的欄位和分頁，回傳缺少的項目（只給管理者看）。 */
+function missingSetup_() {
+  const out = [];
+  Object.keys(OPTIONAL_COLUMNS).forEach(function (name) {
+    let cols = {};
+    try { cols = readHeaders_(name); } catch (e) { out.push('分頁「' + name + '」'); return; }
+    OPTIONAL_COLUMNS[name].forEach(function (c) { if (cols[c] === undefined) out.push('「' + name + '」的「' + c + '」欄'); });
+  });
+  if (!ss_().getSheetByName(SHEET.templates)) out.push('「範本」分頁');
+  return out;
+}
+
+function readHeaders_(name) {
+  const sh = sheet_(name);
+  const cols = {};
+  sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].forEach(function (h, i) {
+    const k = String(h).trim();
+    if (k && cols[k] === undefined) cols[k] = i + 1;
+  });
+  return cols;
 }
 
 /** 食材清單（暫存在伺服器，避免每次登入都讀整張食材總表）。 */
@@ -192,6 +230,7 @@ function readItems_() {
         dept: String(r['科別'] || '通用').trim() || '通用',
         unit: String(r['單位'] || '').trim(),
         group: String(r['適用組別'] || '全部').trim() || '全部',
+        code: String(r['舊編號'] || '').trim(),
       };
     });
 }
@@ -229,12 +268,14 @@ function submitOrder(token, payload) {
       '上課教室': o.room,
       '上課班級': o.className,
       '實作項目': o.project,
+      '組數': o.groups || '',
       '狀態': '待處理',
     };
     const rows = o.lines.map(function (l) {
       return Object.assign({}, base, {
         '食材ID': l.id, '食材名稱': l.name, '廠商': l.vendor, '送貨組別': l.group,
         '數量': l.qty, '單位': l.unit, '備註': l.note,
+        '不叫貨': l.noOrder ? true : '', '段落': l.section || '',
       });
     });
     appendRows_(SHEET.orders, rows, { '送出時間': 'yyyy/mm/dd hh:mm:ss', '使用日期': 'yyyy-mm-dd' });
@@ -277,6 +318,11 @@ function validateOrder_(p, account, isAdmin) {
   if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午、幾點、幾分）。');
   if (!className) throw new Error('請填寫上課班級。');
   if (!project) throw new Error('請填寫實作項目。');
+  let groups = '';
+  if (p.groups !== '' && p.groups !== null && p.groups !== undefined) {
+    groups = Number(p.groups);
+    if (!Number.isInteger(groups) || groups < 1 || groups > MAX_GROUPS) throw new Error('組數需為 1 到 ' + MAX_GROUPS + ' 的整數。');
+  }
 
   let onBehalfOf = clean_(p.onBehalfOf, 30);
   if (onBehalfOf === account) onBehalfOf = '';
@@ -305,6 +351,7 @@ function validateOrder_(p, account, isAdmin) {
       id: id, name: name, vendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, r['單位'], name), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
+      noOrder: !!it.noOrder, section: clean_(it.section, 20),
     });
   });
   (Array.isArray(p.newItems) ? p.newItems : []).forEach(function (it) {
@@ -316,6 +363,7 @@ function validateOrder_(p, account, isAdmin) {
       id: PENDING_ID, name: name, vendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, '', name), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
+      noOrder: !!it.noOrder, section: clean_(it.section, 20),
     });
   });
 
@@ -333,19 +381,25 @@ function validateOrder_(p, account, isAdmin) {
 
   return {
     useDate: useDate, dept: dept, classTime: classTime, room: clean_(p.room, 30),
-    className: className, project: project, onBehalfOf: onBehalfOf, lines: lines,
+    className: className, project: project, onBehalfOf: onBehalfOf, groups: groups, lines: lines,
   };
 }
 
 function qty_(v, name) {
   const n = Number(v);
-  if (!isFinite(n) || n <= 0 || n > 9999) throw new Error('「' + name + '」的數量需大於 0。');
+  if (!isFinite(n) || n <= 0 || n > 99999) throw new Error('「' + name + '」的數量需大於 0。');
   return Math.round(n * 100) / 100;
 }
 
+function normUnit_(u) {
+  u = String(u == null ? '' : u).trim();
+  return UNIT_SYNONYMS[u] || u;
+}
+
 function unit_(v, fallback, name) {
-  const u = clean_(v, 10) || String(fallback || '').trim();
-  if (!u) throw new Error('請填寫「' + name + '」的單位。');
+  const u = normUnit_(clean_(v, 10)) || normUnit_(fallback);
+  if (!u) throw new Error('請選擇「' + name + '」的單位。');
+  if (ORDER_UNITS.indexOf(u) < 0 && RECIPE_UNITS.indexOf(u) < 0) throw new Error('「' + name + '」的單位「' + u + '」不在選單中，請重新選擇。');
   return u;
 }
 
@@ -440,9 +494,47 @@ function adminGetOrders(token, from, to) {
 }
 
 function adminSetStatus(token, orderNo, status) {
-  auth_(token, true);
+  const admin = auth_(token, true);
   if (ORDER_STATUSES.indexOf(status) < 0) throw new Error('狀態不正確。');
-  return updateOrderStatus_(orderNo, status, null);
+  return updateOrderStatus_(orderNo, status, null, status === '已審核' ? admin : null);
+}
+
+/**
+ * 管理者修改訂單明細。
+ * changes: [{ row, qty, unit, note, noOrder, cancel }]，row 是訂單總表的列號（由 adminGetOrders 提供）
+ */
+function adminUpdateOrder(token, orderNo, changes) {
+  const admin = auth_(token, true);
+  orderNo = String(orderNo || '').trim();
+  if (!Array.isArray(changes) || !changes.length) throw new Error('沒有要修改的內容。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.orders, ['訂單編號', '數量', '單位', '狀態']);
+    const byRow = {};
+    t.rows.forEach(function (r) { if (String(r['訂單編號']).trim() === orderNo) byRow[r._row] = r; });
+    if (!Object.keys(byRow).length) throw new Error('找不到訂單 ' + orderNo + '。');
+    changes.forEach(function (c) {
+      const r = byRow[Number(c.row)];
+      if (!r) throw new Error('訂單明細已變動，請重新整理後再改。');
+      const name = String(r['食材名稱'] || '');
+      if (c.cancel) {
+        setCell_(t, r._row, '狀態', '已取消');
+        return;
+      }
+      setCell_(t, r._row, '數量', qty_(c.qty, name));
+      if (String(r['食材ID']).trim() !== TOOL_ID) setCell_(t, r._row, '單位', unit_(c.unit, r['單位'], name));
+      if (t.cols['備註'] !== undefined) setCell_(t, r._row, '備註', clean_(c.note, 100));
+      if (t.cols['不叫貨'] !== undefined) setCell_(t, r._row, '不叫貨', c.noOrder ? true : '');
+    });
+    if (t.cols['審核人'] !== undefined) {
+      Object.keys(byRow).forEach(function (row) { setCell_(t, Number(row), '審核人', admin); });
+    }
+    SpreadsheetApp.flush();
+    return true;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function adminGetPending(token) {
@@ -542,6 +634,105 @@ function fixOrderLines_(orderNo, origName, to) {
 }
 
 // =====================================================================
+// 範本（每位老師各自的）
+// =====================================================================
+
+function templateSheet_() {
+  const sh = ss_().getSheetByName(SHEET.templates);
+  if (!sh) throw new Error('試算表還沒有「範本」分頁，請管理者先新增。');
+  return sh;
+}
+
+/** 我的範本：[{ name, dept, project, created, items: [{ type, id, name, vendor, perGroup, unit, note, section, noOrder }] }] */
+function getTemplates(token) {
+  const account = auth_(token);
+  if (!ss_().getSheetByName(SHEET.templates)) return [];
+  const map = {};
+  const list = [];
+  readTable_(SHEET.templates, ['老師', '範本名稱']).rows.forEach(function (r) {
+    if (String(r['老師']).trim() !== account) return;
+    const name = String(r['範本名稱']).trim();
+    if (!name) return;
+    if (!map[name]) {
+      map[name] = { name: name, dept: String(r['科別'] || ''), project: String(r['實作項目'] || ''), created: fmtDateTime_(r['建立時間']), items: [] };
+      list.push(map[name]);
+    }
+    map[name].items.push({
+      type: String(r['類型'] || '食材'),
+      id: String(r['食材ID'] || ''),
+      name: String(r['名稱'] || ''),
+      vendor: String(r['廠商'] || ''),
+      perGroup: Number(r['一組數量']) || 0,
+      unit: String(r['單位'] || ''),
+      note: String(r['備註'] || ''),
+      section: String(r['段落'] || ''),
+      noOrder: isTrue_(r['不叫貨']),
+    });
+  });
+  return list.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+}
+
+/**
+ * 存成範本（同名的會覆蓋）。
+ * t: { name, dept, project, items: [{ type: '食材'|'新食材'|'器具', id, name, vendor, perGroup, unit, note, section, noOrder }] }
+ */
+function saveTemplate(token, t) {
+  const account = auth_(token);
+  const name = clean_(t && t.name, 30);
+  if (!name) throw new Error('請填寫範本名稱。');
+  const items = Array.isArray(t.items) ? t.items : [];
+  if (!items.length) throw new Error('範本至少要有一項食材或器具。');
+  if (items.length > MAX_ITEMS_PER_ORDER) throw new Error('範本最多 ' + MAX_ITEMS_PER_ORDER + ' 項。');
+  const now = new Date();
+  const rows = items.map(function (it) {
+    const type = ['食材', '新食材', '器具'].indexOf(it.type) >= 0 ? it.type : '食材';
+    const nm = clean_(it.name, 40);
+    const per = Number(it.perGroup);
+    if (!nm) throw new Error('範本有品項沒有名稱。');
+    if (!isFinite(per) || per <= 0) throw new Error('「' + nm + '」一組的數量需大於 0。');
+    return {
+      '老師': account, '範本名稱': name, '科別': clean_(t.dept, 20), '實作項目': clean_(t.project, 60),
+      '類型': type, '食材ID': type === '食材' ? clean_(it.id, 20) : '', '名稱': nm, '廠商': clean_(it.vendor, 20),
+      '一組數量': Math.round(per * 10000) / 10000, '單位': type === '器具' ? '' : normUnit_(clean_(it.unit, 10)),
+      '備註': clean_(it.note, 100), '段落': clean_(it.section, 20), '不叫貨': it.noOrder ? true : '', '建立時間': now,
+    };
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    templateSheet_();
+    deleteTemplateRows_(account, name);
+    appendRows_(SHEET.templates, rows, { '建立時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+    return name;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteTemplate(token, name) {
+  const account = auth_(token);
+  name = clean_(name, 30);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    templateSheet_();
+    return deleteTemplateRows_(account, name);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteTemplateRows_(account, name) {
+  const t = readTable_(SHEET.templates, ['老師', '範本名稱']);
+  const rows = t.rows.filter(function (r) {
+    return String(r['老師']).trim() === account && String(r['範本名稱']).trim() === name;
+  }).map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
+  rows.forEach(function (row) { t.sheet.deleteRow(row); });   // 從下往上刪，列號才不會跑掉
+  return rows.length;
+}
+
+// =====================================================================
 // 共用：訂單
 // =====================================================================
 
@@ -564,6 +755,8 @@ function groupOrders_(rows, account) {
         room: String(r['上課教室'] || ''),
         className: String(r['上課班級'] || ''),
         project: String(r['實作項目'] || ''),
+        groups: r['組數'] === '' || r['組數'] === undefined ? '' : Number(r['組數']) || '',
+        reviewer: String(r['審核人'] || ''),
         items: [],
       };
       list.push(map[no]);
@@ -577,10 +770,16 @@ function groupOrders_(rows, account) {
       unit: String(r['單位'] || ''),
       note: String(r['備註'] || ''),
       status: String(r['狀態'] || ''),
+      noOrder: isTrue_(r['不叫貨']),
+      section: String(r['段落'] || ''),
+      row: r._row,
     });
   });
   list.forEach(function (o) {
-    const s = o.items.map(function (i) { return i.status; });
+    // 狀態以沒取消的品項為準（管理者刪掉個別品項時，訂單本身不算「部分處理」）
+    let s = o.items.map(function (i) { return i.status; });
+    const active = s.filter(function (x) { return x !== '已取消'; });
+    if (active.length) s = active;
     o.status = s.every(function (x) { return x === s[0]; }) ? s[0] : '部分處理';
     o.locked = isLocked_(parseDate_(o.useDate));
     o.canCancel = !!account && o.status === '待處理' && !o.locked;
@@ -588,7 +787,7 @@ function groupOrders_(rows, account) {
   return list;
 }
 
-function updateOrderStatus_(orderNo, status, check) {
+function updateOrderStatus_(orderNo, status, check, reviewer) {
   orderNo = String(orderNo || '').trim();
   if (!orderNo) throw new Error('缺少訂單編號。');
   const lock = LockService.getScriptLock();
@@ -598,7 +797,12 @@ function updateOrderStatus_(orderNo, status, check) {
     const rows = t.rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
     if (!rows.length) throw new Error('找不到訂單 ' + orderNo + '。');
     if (check) check(rows);
-    rows.forEach(function (r) { setCell_(t, r._row, '狀態', status); });
+    rows.forEach(function (r) {
+      // 管理者已個別取消的品項保持取消
+      if (String(r['狀態']).trim() === '已取消' && rows.some(function (x) { return String(x['狀態']).trim() !== '已取消'; })) return;
+      setCell_(t, r._row, '狀態', status);
+      if (reviewer && t.cols['審核人'] !== undefined) setCell_(t, r._row, '審核人', reviewer);
+    });
     SpreadsheetApp.flush();
     return status;
   } finally {
