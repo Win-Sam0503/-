@@ -1619,6 +1619,12 @@
   function qtyText(it) { return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : '') + (it.noOrder ? '<span class="note">（有貨）</span>' : ''); }
   function nameText(it) { return esc(it.name) + (it.note ? ' <span class="note">（' + esc(it.note) + '）</span>' : ''); }
   function codeOf(it) { return itemById[it.id] && itemById[it.id].code ? itemById[it.id].code : ''; }
+  // 一組的量＝全班 ÷ 組數（有填組數才算），最多兩位小數
+  function perGroup(o, it) {
+    var g = Number(o.groups);
+    if (!(g > 0) || !(it.qty > 0)) return '';
+    return esc(String(Math.round(it.qty / g * 100) / 100));
+  }
   function groupsText(o) { return o.groups ? ' ' + esc(o.groups) + ' ' : blank(8); }
   // 依列數決定列高和字級，讓整張單子維持一頁
   function fit(rows, availMm, minFs) {
@@ -1671,7 +1677,7 @@
     for (var i = 0; i < N; i++) {
       var ln = lines[i];
       if (ln && ln.label !== undefined) html += '<tr><td></td><td colspan="4"><b>【' + esc(ln.label) + '】</b></td>';
-      else html += '<tr>' + cell(ln ? ln.no : '', 'c') + cell(ln ? nameText(ln.it) : '') + cell('') + cell('') + cell(ln ? qtyText(ln.it) : '', 'r');
+      else html += '<tr>' + cell(ln ? ln.no : '', 'c') + cell(ln ? nameText(ln.it) : '') + cell('') + cell(ln ? perGroup(o, ln.it) : '', 'r') + cell(ln ? qtyText(ln.it) : '', 'r');
       if (i < T) {
         var t = tools[i];
         html += cell(t ? i + 1 : '', 'c') + cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + cell('');
@@ -1715,7 +1721,7 @@
       html += '<tr>';
       if (groupAt[i]) html += '<td rowspan="' + groupAt[i].n + '" class="vtext">' + esc(groupAt[i].v) + '</td>';
       else if (i >= foods.length) html += cell('');
-      html += cell(it ? esc(it.name) : '', 'c') + cell('') + cell('') + cell(it ? esc(it.unit) : '', 'c') +
+      html += cell(it ? esc(it.name) : '', 'c') + cell(it ? perGroup(o, it) : '', 'c') + cell('') + cell(it ? esc(it.unit) : '', 'c') +
         cell(it ? esc(fmtQty(it.qty)) : '', 'c') + cell('') + cell(note ? '<span class="note">' + esc(note) + '</span>' : '') +
         cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + '</tr>';
     }
