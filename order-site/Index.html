@@ -439,6 +439,26 @@
       </div>
       <div id="vendorMsg" class="noprint"></div>
       <div id="vendorSheets"></div>
+
+      <div class="panel noprint" id="autoPanel">
+        <h2>自動化 <button type="button" class="btn ghost small" id="aReload">重新整理</button></h2>
+        <div id="autoMsg"></div>
+        <div id="autoStatus" class="small" style="line-height:1.9"></div>
+        <div class="actions" style="justify-content:flex-start">
+          <button type="button" class="btn secondary small" id="aToggle">啟用排程</button>
+          <button type="button" class="btn ghost small" id="aVendorNow">立即產生下週訂貨單</button>
+          <button type="button" class="btn ghost small" id="aDigestNow">立即寄每日摘要</button>
+          <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
+        </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">LINE 官方帳號通知</h3>
+        <div class="muted small">到 LINE Developers 後台 → 你的 Messaging API channel → 「Messaging API」分頁最下面，按 Issue 取得 <b>Channel access token</b>，貼在這裡。</div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="aLineToken">Channel access token</label><input id="aLineToken" type="password" autocomplete="off" placeholder="貼上後按儲存（不會顯示在畫面上）"></div>
+          <button type="button" class="btn secondary small" id="aLineSave">儲存</button>
+          <button type="button" class="btn ghost small" id="aLineBind">產生綁定碼</button>
+        </div>
+        <div id="aBindInfo" class="small" style="margin-top:8px"></div>
+      </div>
     </section>
 
     <!-- 管理者：審核食材 -->
@@ -681,6 +701,7 @@
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
     if (view === 'viewPending') loadPending(note);
+    if (view === 'viewVendor') loadAuto();
     if (view === 'viewVendor' && !$('vFrom').value) {
       // 預設：下週一到下週五
       var t = new Date(), mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() + (8 - t.getDay()) % 7 + (t.getDay() === 1 ? 7 : 0));
@@ -2046,6 +2067,77 @@
         }).join('') + '</tbody></table></div>';
     }).join('');
   }
+
+  // ------------------------------------------------------------------
+  // 管理者：自動化設定
+  // ------------------------------------------------------------------
+  var autoState = null;
+  function renderAuto(st) {
+    autoState = st;
+    var on = st.vendorTrigger && st.digestTrigger;
+    var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
+    $('autoStatus').innerHTML =
+      '每週一 ' + st.vendorHour + ':00 產生下週廠商訂貨單：' + yes(st.vendorTrigger, '已啟用', '未啟用') + '<br>' +
+      '每天 ' + st.digestHour + ':00 寄每日摘要：' + yes(st.digestTrigger, '已啟用', '未啟用') + '（沒有新訂單、沒有待審核時不寄）<br>' +
+      'Email 收件人：' + esc(st.emails.join('、') || '（無）') + '<br>' +
+      'LINE：' + yes(st.lineTokenSet, 'Token 已設定', 'Token 未設定') + '　' + yes(st.lineBound, '已綁定', '未綁定') + '<br>' +
+      (st.lastVendorUrl ? '上次產生的訂貨單：<a href="' + esc(st.lastVendorUrl) + '" target="_blank" rel="noopener">打開</a>（' + esc(st.lastVendorTime) + '）<br>' : '') +
+      '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾。';
+    $('aToggle').textContent = on ? '停用排程' : '啟用排程';
+  }
+  function loadAuto(keepMsg) {
+    if (keepMsg !== true) msg('autoMsg', '', '');
+    return call('adminGetAutomation', token).then(renderAuto)
+      .catch(function (e) { msg('autoMsg', 'error', '讀取失敗：' + e.message + '（第一次使用請先在 Apps Script 編輯器執行 setupAutomation 並授權）'); });
+  }
+  function autoCall(btn, fn, okText) {
+    var args = Array.prototype.slice.call(arguments, 3);
+    setBusy(btn, true, '處理中…');
+    msg('autoMsg', 'info', '處理中，產生訂貨單可能要十幾秒…');
+    return call.apply(null, [fn, token].concat(args)).then(function (res) {
+      msg('autoMsg', 'ok', okText(res));
+      return loadAuto(true);   // 保留上面的結果訊息
+    }).catch(function (e) { msg('autoMsg', 'error', e.message); })
+      .then(function () {
+        setBusy(btn, false);
+        btn._label = null;                  // 按鈕文字以最新狀態為準（例如啟用／停用排程）
+        if (autoState) renderAuto(autoState);
+      });
+  }
+  function notifyText(n) { return n ? '　Email：' + n.email + '；LINE：' + n.line : ''; }
+  $('aReload').addEventListener('click', function () { loadAuto(); });
+  $('aToggle').addEventListener('click', function () {
+    var enable = !(autoState && autoState.vendorTrigger && autoState.digestTrigger);
+    autoCall(this, 'adminSetAutomation', function () { return enable ? '排程已啟用。' : '排程已停用。'; }, enable);
+  });
+  $('aVendorNow').addEventListener('click', function () {
+    if (!confirm('現在就產生下週的廠商訂貨單並送出通知？')) return;
+    autoCall(this, 'adminRunVendorNow', function (r) {
+      return (r.url ? '已產生：' + r.vendors.join('、') : '下週沒有需要叫貨的品項，沒有產生訂貨單。') + notifyText(r.notify);
+    });
+  });
+  $('aDigestNow').addEventListener('click', function () {
+    autoCall(this, 'adminRunDigestNow', function (r) { return '摘要已送出。' + notifyText(r.notify); });
+  });
+  $('aTest').addEventListener('click', function () {
+    autoCall(this, 'adminTestNotify', function (r) { return '測試通知已送出。' + notifyText(r); });
+  });
+  $('aLineSave').addEventListener('click', function () {
+    var v = $('aLineToken').value.trim();
+    if (!v && !confirm('沒有填 token，要清除 LINE 設定嗎？')) return;
+    autoCall(this, 'adminSetLineToken', function () { $('aLineToken').value = ''; return v ? 'Channel access token 已儲存，接著按「產生綁定碼」。' : 'LINE 設定已清除。'; }, v);
+  });
+  $('aLineBind').addEventListener('click', function () {
+    var b = this;
+    setBusy(b, true);
+    call('adminLineBindCode', token).then(function (r) {
+      $('aBindInfo').innerHTML = '<div class="msg info">' +
+        '1. 到 LINE Developers 後台 → Messaging API 分頁 → <b>Webhook URL</b> 填：<br><code style="word-break:break-all">' + esc(r.webhookUrl || '（請先部署網站，再回來按一次）') + '</code><br>並打開「Use webhook」。<br>' +
+        '2. 用你的 LINE 傳這則訊息給官方帳號：<b style="font-size:18px">綁定 ' + esc(r.code) + '</b><br>' +
+        '3. 官方帳號回覆「綁定完成」後，按上面的「重新整理」確認。<br>綁定碼 ' + r.minutes + ' 分鐘內有效。</div>';
+    }).catch(function (e) { msg('autoMsg', 'error', e.message); })
+      .then(function () { setBusy(b, false); });
+  });
 
   // ------------------------------------------------------------------
   // 啟動

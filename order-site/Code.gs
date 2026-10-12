@@ -45,6 +45,13 @@ const ORDER_UNITS = ['斤', '兩', '公斤', 'g', '顆', '個', '粒', '條', '�
 const RECIPE_UNITS = ['T', 't', '杯', 'ml'];
 const UNIT_SYNONYMS = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'cc': 'ml', 'CC': 'ml', '毫升': 'ml', 'L': '公升' };
 const MAX_GROUPS = 99;
+
+// ---- 自動化（排程）----
+const NOTIFY_EMAILS = [];                    // 收通知的 Email；空白就寄給部署這個網站的帳號
+const AUTO_FOLDER_NAME = '三信家商餐飲科訂貨單';   // 自動產生的廠商訂貨單存在雲端硬碟這個資料夾
+const DIGEST_HOUR = 7;                       // 每日摘要信幾點寄
+const VENDOR_ORDER_HOUR = 12;                // 每週一幾點產生下週廠商訂貨單（配合 12:00 截止）
+const LINE_BIND_MINUTES = 30;                // LINE 綁定碼有效時間
 const PENDING_ID = '待審核';
 
 const SHEET = {
@@ -835,6 +842,367 @@ function deleteTemplateRows_(account, name) {
 }
 
 // =====================================================================
+// 自動化：截止後自動產生廠商訂貨單、每日摘要（Email＋LINE 通知）
+// =====================================================================
+//
+// 第一次使用：在 Apps Script 編輯器選函式「setupAutomation」按「執行」並授權，
+// 之後就會每週一中午、每天早上自動執行。也可以在網站「廠商訂貨單」頁管理。
+
+const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest'];
+
+/** 在編輯器執行一次：授權並建立排程。 */
+function setupAutomation() {
+  setTriggers_(true);
+  return automationStatus_();
+}
+
+function setTriggers_(enabled) {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (AUTO_HANDLERS.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
+  });
+  if (!enabled) return;
+  ScriptApp.newTrigger('autoVendorOrders').timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(VENDOR_ORDER_HOUR).inTimezone(tz_()).create();
+  ScriptApp.newTrigger('dailyDigest').timeBased()
+    .everyDays(1).atHour(DIGEST_HOUR).inTimezone(tz_()).create();
+}
+
+function automationStatus_() {
+  const handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+  const props = PropertiesService.getScriptProperties();
+  return {
+    vendorTrigger: handlers.indexOf('autoVendorOrders') >= 0,
+    digestTrigger: handlers.indexOf('dailyDigest') >= 0,
+    emails: notifyEmails_(),
+    lineTokenSet: !!props.getProperty('LINE_TOKEN'),
+    lineBound: !!props.getProperty('LINE_TO'),
+    webhookUrl: webAppUrl_(),
+    lastVendorUrl: props.getProperty('LAST_VENDOR_URL') || '',
+    lastVendorTime: props.getProperty('LAST_VENDOR_TIME') || '',
+    vendorHour: VENDOR_ORDER_HOUR,
+    digestHour: DIGEST_HOUR,
+  };
+}
+
+/** 排程呼叫的函式只接受真正的排程觸發，避免被網頁直接呼叫。 */
+function fromTrigger_(e) {
+  if (!e || !e.triggerUid) return false;
+  return ScriptApp.getProjectTriggers().some(function (t) { return t.getUniqueId() === String(e.triggerUid); });
+}
+
+// 排程：每週一中午產生下週的廠商訂貨單
+function autoVendorOrders(e) {
+  if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
+  runVendorOrders_();
+}
+
+// 排程：每天早上寄摘要（沒有新東西就不寄）
+function dailyDigest(e) {
+  if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
+  runDigest_(false);
+}
+
+// ---- 管理者在網站上操作 ----
+
+function adminGetAutomation(token) {
+  auth_(token, true);
+  return automationStatus_();
+}
+
+function adminSetAutomation(token, enabled) {
+  auth_(token, true);
+  setTriggers_(!!enabled);
+  return automationStatus_();
+}
+
+function adminRunVendorNow(token) {
+  auth_(token, true);
+  return runVendorOrders_();
+}
+
+function adminRunDigestNow(token) {
+  auth_(token, true);
+  return runDigest_(true);
+}
+
+/** 儲存 LINE 官方帳號的 Channel access token（先確認可以用） */
+function adminSetLineToken(token, lineToken) {
+  auth_(token, true);
+  lineToken = String(lineToken || '').trim();
+  const props = PropertiesService.getScriptProperties();
+  if (!lineToken) {
+    props.deleteProperty('LINE_TOKEN');
+    props.deleteProperty('LINE_TO');
+    return automationStatus_();
+  }
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+    headers: { Authorization: 'Bearer ' + lineToken }, muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) throw new Error('LINE 不接受這組 Channel access token，請確認複製完整（錯誤碼 ' + res.getResponseCode() + '）。');
+  props.setProperty('LINE_TOKEN', lineToken);
+  return automationStatus_();
+}
+
+/** 產生一次性綁定碼：用 LINE 傳「綁定 123456」給官方帳號 */
+function adminLineBindCode(token) {
+  auth_(token, true);
+  if (!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN')) throw new Error('請先儲存 Channel access token。');
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  CacheService.getScriptCache().put('lineBind', code, LINE_BIND_MINUTES * 60);
+  return { code: code, minutes: LINE_BIND_MINUTES, webhookUrl: webAppUrl_() };
+}
+
+function adminTestNotify(token) {
+  auth_(token, true);
+  return notify_('【測試】三信家商餐飲科訂貨系統通知',
+    '<p>這是測試通知。收到這封信表示 Email 通知設定正常。</p>',
+    '【測試】三信家商餐飲科訂貨系統：收到這則訊息表示 LINE 通知設定正常。');
+}
+
+// ---- LINE webhook：只處理綁定 ----
+// LINE Developers 後台的 Webhook URL 填這個網站的網址（網頁應用程式網址）。
+function doPost(e) {
+  try {
+    const body = JSON.parse(e && e.postData && e.postData.contents || '{}');
+    const props = PropertiesService.getScriptProperties();
+    const lineToken = props.getProperty('LINE_TOKEN');
+    (body.events || []).forEach(function (ev) {
+      if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !lineToken) return;
+      const m = String(ev.message.text).trim().match(/^綁定\s*(\d{6})$/);
+      if (!m) return;
+      const cache = CacheService.getScriptCache();
+      const code = cache.get('lineBind');
+      let reply;
+      if (code && code === m[1]) {
+        const to = ev.source && (ev.source.groupId || ev.source.roomId || ev.source.userId);
+        props.setProperty('LINE_TO', to);
+        cache.remove('lineBind');
+        reply = '綁定完成！之後訂貨系統的通知會傳到這裡。';
+      } else {
+        reply = '綁定碼不正確或已過期，請到網站重新產生。';
+      }
+      UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + lineToken },
+        payload: JSON.stringify({ replyToken: ev.replyToken, messages: [{ type: 'text', text: reply }] }),
+      });
+    });
+  } catch (err) {
+    console.error('LINE webhook：' + err.message);
+  }
+  return ContentService.createTextOutput('OK');
+}
+
+// ---- 通知 ----
+
+function notifyEmails_() {
+  if (NOTIFY_EMAILS.length) return NOTIFY_EMAILS.slice();
+  const me = Session.getEffectiveUser().getEmail();
+  return me ? [me] : [];
+}
+
+function webAppUrl_() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
+/** 寄 Email，並在有綁定 LINE 時推播。回傳各管道的結果。 */
+function notify_(subject, html, lineText) {
+  const out = { email: '', line: '' };
+  const to = notifyEmails_();
+  try {
+    if (to.length) {
+      MailApp.sendEmail({ to: to.join(','), subject: subject, htmlBody: html + '<p style="color:#888;font-size:12px">' + SITE_TITLE + ' 自動通知</p>' });
+      out.email = '已寄到 ' + to.join('、');
+    } else {
+      out.email = '沒有收件人';
+    }
+  } catch (e) {
+    out.email = 'Email 寄送失敗：' + e.message;
+  }
+  const props = PropertiesService.getScriptProperties();
+  const lineToken = props.getProperty('LINE_TOKEN'), lineTo = props.getProperty('LINE_TO');
+  if (lineToken && lineTo) {
+    try {
+      const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + lineToken },
+        payload: JSON.stringify({ to: lineTo, messages: [{ type: 'text', text: String(lineText).slice(0, 4900) }] }),
+      });
+      out.line = res.getResponseCode() === 200 ? '已傳到 LINE' : 'LINE 傳送失敗（錯誤碼 ' + res.getResponseCode() + '）';
+    } catch (e) {
+      out.line = 'LINE 傳送失敗：' + e.message;
+    }
+  } else {
+    out.line = '尚未綁定 LINE';
+  }
+  return out;
+}
+
+// ---- 廠商訂貨單 ----
+
+/** 「下週」：今天之後的第一個星期一到星期五（今天是星期一也算下週一） */
+function nextWeekRange_() {
+  const today = today_();
+  const monday = addDays_(today, ((8 - today.getDay()) % 7) || 7);
+  return { from: monday, to: addDays_(monday, 4) };
+}
+
+const GRAMS_ = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+function convertUnit_(qty, unit, vendor) {
+  if (!GRAMS_[unit]) return { qty: qty, unit: unit };
+  const target = /^[AB]/.test(vendor || '') ? '斤' : '公斤';
+  return { qty: Math.round(qty * GRAMS_[unit] / GRAMS_[target] * 100) / 100, unit: target };
+}
+
+function ordersBetween_(from, to) {
+  const rows = readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.filter(function (r) {
+    const d = toDate_(r['使用日期']);
+    return d && d >= from && d <= to;
+  });
+  return groupOrders_(rows, null);
+}
+
+/** 依廠商整理：{ 廠商: { totals: [...], lines: [...] } }（不含已取消、有貨、器具） */
+function vendorBook_(orders) {
+  const by = {};
+  orders.forEach(function (o) {
+    if (o.status === '已取消') return;
+    o.items.forEach(function (it) {
+      if (it.id === TOOL_ID || it.noOrder || it.status === '已取消') return;
+      const v = by[it.vendor] = by[it.vendor] || { totals: {}, lines: [] };
+      const cv = convertUnit_(it.qty, it.unit, it.vendor);
+      const k = it.name + '|' + cv.unit;
+      v.totals[k] = v.totals[k] || { name: it.name, unit: cv.unit, qty: 0 };
+      v.totals[k].qty = Math.round((v.totals[k].qty + cv.qty) * 100) / 100;
+      v.lines.push([o.useDate, it.group, o.className, it.name, it.qty, it.unit, o.onBehalfOf || o.teacher, it.note]);
+    });
+  });
+  Object.keys(by).forEach(function (v) {
+    by[v].totals = Object.keys(by[v].totals).sort().map(function (k) { return by[v].totals[k]; });
+    by[v].lines.sort(function (a, b) { return (a[0] + a[2] + a[3]).localeCompare(b[0] + b[2] + b[3]); });
+  });
+  return by;
+}
+
+function runVendorOrders_() {
+  const r = nextWeekRange_();
+  const range = shortDateTw_(r.from) + '～' + shortDateTw_(r.to);
+  const book = vendorBook_(ordersBetween_(r.from, r.to));
+  const vendors = Object.keys(book).sort();
+  if (!vendors.length) {
+    const n = notify_('【訂貨單】' + range + ' 沒有需要叫貨的品項',
+      '<p>' + range + ' 目前沒有需要跟廠商叫貨的品項，所以沒有產生訂貨單。</p>',
+      '【訂貨單】' + range + ' 沒有需要叫貨的品項，沒有產生訂貨單。');
+    return { url: '', vendors: [], notify: n };
+  }
+
+  const name = '廠商訂貨單 ' + dateStr_(r.from) + '～' + dateStr_(r.to);
+  const book_ss = SpreadsheetApp.create(name);
+  const first = book_ss.getSheets()[0];
+  vendors.forEach(function (v) {
+    const sh = book_ss.insertSheet(v.slice(0, 90));
+    const d = book[v];
+    const rows = [[v + ' 訂貨單', '', '', '', '', '', '', ''], [range, '', '', '', '', '', '', ''], ['', '', '', '', '', '', '', ''],
+      ['【食材合計】', '', '', '', '', '', '', ''], ['食材', '單位', '合計', '', '', '', '', '']];
+    d.totals.forEach(function (t) { rows.push([t.name, t.unit, t.qty, '', '', '', '', '']); });
+    rows.push(['', '', '', '', '', '', '', '']);
+    rows.push(['【明細】', '', '', '', '', '', '', '']);
+    const detailHead = rows.length + 1;
+    rows.push(['上課日期', '組別', '上課班級', '食材', '數量', '單位', '老師', '備註']);
+    d.lines.forEach(function (l) { rows.push(l); });
+    sh.getRange(1, 1, rows.length, 8).setNumberFormat('@').setValues(rows.map(function (row) {
+      return row.map(function (c) { return c === '' ? '' : String(c); });
+    }));
+    sh.getRange(1, 1).setFontSize(14).setFontWeight('bold');
+    sh.getRange(5, 1, 1, 3).setFontWeight('bold').setBackground('#eeeeee');
+    sh.getRange(detailHead, 1, 1, 8).setFontWeight('bold').setBackground('#eeeeee');
+    sh.setColumnWidth(1, 140); sh.setColumnWidth(4, 160); sh.setColumnWidth(8, 160);
+  });
+  book_ss.deleteSheet(first);
+
+  const file = DriveApp.getFileById(book_ss.getId());
+  const folders = DriveApp.getFoldersByName(AUTO_FOLDER_NAME);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(AUTO_FOLDER_NAME);
+  file.moveTo(folder);
+  const url = book_ss.getUrl();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('LAST_VENDOR_URL', url);
+  props.setProperty('LAST_VENDOR_TIME', fmtDateTime_(new Date()));
+
+  const summary = vendors.map(function (v) { return v + ' ' + book[v].totals.length + ' 項'; });
+  const n = notify_('【訂貨單】' + range + ' 廠商訂貨單已產生',
+    '<p>' + range + ' 的訂貨已截止，廠商訂貨單已經產生：</p><ul>' +
+      summary.map(function (x) { return '<li>' + escHtml_(x) + '</li>'; }).join('') + '</ul>' +
+      '<p><a href="' + url + '">打開廠商訂貨單（Google 試算表）</a></p>' +
+      '<p>每家廠商一個分頁，上面是食材合計、下面是各班明細。</p>',
+    '【訂貨單已產生】' + range + '\n' + summary.join('\n') + '\n\n' + url);
+  return { url: url, vendors: summary, notify: n };
+}
+
+// ---- 每日摘要 ----
+
+function runDigest_(force) {
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const since = props.getProperty('DIGEST_LAST') ? new Date(Number(props.getProperty('DIGEST_LAST'))) : new Date(now.getTime() - 24 * 3600 * 1000);
+  const all = groupOrders_(readTable_(SHEET.orders, ['訂單編號']).rows, null);
+  const newOrders = all.filter(function (o) {
+    const t = parseDateTime_(o.submitted);
+    return t && t > since;
+  });
+  const pendItems = readTable_(SHEET.pending, ['食材名稱', '審核狀態']).rows.filter(function (r) {
+    const s = String(r['審核狀態'] || '').trim(); return !s || s === '待審核';
+  }).length;
+  const pendUnits = readCustomUnits_().filter(function (r) { return r.status === '待審核'; }).length;
+  const r = nextWeekRange_();
+  const nextWeek = all.filter(function (o) {
+    const d = parseDate_(o.useDate);
+    return d && d >= r.from && d <= r.to && o.status !== '已取消';
+  });
+
+  if (!force && !newOrders.length && !pendItems && !pendUnits) {
+    props.setProperty('DIGEST_LAST', String(now.getTime()));
+    return { sent: false, reason: '沒有新訂單或待審核項目，今天不寄。' };
+  }
+
+  const day = shortDateTw_(today_());
+  const lineOrders = newOrders.slice(0, 15).map(function (o) {
+    return '・' + (o.onBehalfOf || o.teacher) + ' ' + o.className + ' ' + o.project + '（' + shortDateTw_(parseDate_(o.useDate)) + (o.status === '已取消' ? '，已取消' : '') + '）';
+  });
+  const lineText = '【訂貨每日摘要 ' + day + '】\n' +
+    '新訂單 ' + newOrders.length + ' 張' + (lineOrders.length ? '：\n' + lineOrders.join('\n') + (newOrders.length > 15 ? '\n…' : '') : '') + '\n' +
+    '待審核：新食材 ' + pendItems + '、新單位 ' + pendUnits + '\n' +
+    '下週（' + shortDateTw_(r.from) + '～' + shortDateTw_(r.to) + '）已收到 ' + nextWeek.length + ' 張訂單' +
+    (webAppUrl_() ? '\n\n' + webAppUrl_() : '');
+  const html = '<h3>訂貨每日摘要 ' + escHtml_(day) + '</h3>' +
+    '<p><b>新訂單 ' + newOrders.length + ' 張</b>（' + escHtml_(fmtDateTime_(since)) + ' 之後送出）</p>' +
+    (newOrders.length ? '<table border="1" cellpadding="4" style="border-collapse:collapse;font-size:14px"><tr><th>送出時間</th><th>老師</th><th>班級</th><th>實作項目</th><th>上課日期</th><th>品項</th><th>狀態</th></tr>' +
+      newOrders.map(function (o) {
+        return '<tr><td>' + escHtml_(o.submitted) + '</td><td>' + escHtml_(o.onBehalfOf || o.teacher) + '</td><td>' + escHtml_(o.className) + '</td><td>' +
+          escHtml_(o.project) + '</td><td>' + escHtml_(o.useDate) + '</td><td>' + o.items.length + '</td><td>' + escHtml_(o.status) + '</td></tr>';
+      }).join('') + '</table>' : '') +
+    '<p><b>待審核：</b>新食材 ' + pendItems + ' 項、新單位 ' + pendUnits + ' 個</p>' +
+    '<p><b>下週</b>（' + escHtml_(shortDateTw_(r.from) + '～' + shortDateTw_(r.to)) + '）已收到 ' + nextWeek.length + ' 張訂單；' + escHtml_(lockRuleText_()) + '。</p>' +
+    (webAppUrl_() ? '<p><a href="' + webAppUrl_() + '">打開訂貨網站</a></p>' : '');
+  const n = notify_('【訂貨每日摘要】' + day + '：新訂單 ' + newOrders.length + ' 張', html, lineText);
+  props.setProperty('DIGEST_LAST', String(now.getTime()));
+  return { sent: true, newOrders: newOrders.length, pendItems: pendItems, pendUnits: pendUnits, notify: n };
+}
+
+function shortDateTw_(d) {
+  return d ? (d.getMonth() + 1) + '/' + d.getDate() + '（' + WEEKDAY[d.getDay()] + '）' : '';
+}
+
+function parseDateTime_(s) {
+  const m = String(s || '').match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
+}
+
+function escHtml_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+}
+
+// =====================================================================
 // 共用：訂單
 // =====================================================================
 
@@ -916,8 +1284,31 @@ function updateOrderStatus_(orderNo, status, check, reviewer) {
 // 共用：試算表讀寫（依標題找欄位）
 // =====================================================================
 
+// 同一次執行只開一次試算表（重複 openById 容易出現「試算表服務無法正常運作」）
+let SS_CACHE_ = null;
 function ss_() {
-  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!SS_CACHE_) {
+    SS_CACHE_ = retry_(function () {
+      return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+    });
+  }
+  return SS_CACHE_;
+}
+
+/** Google 服務暫時忙碌時自動重試（最多 3 次） */
+function retry_(fn) {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try {
+      return fn();
+    } catch (e) {
+      lastErr = e;
+      const m = String(e && e.message || e);
+      if (!/Service|服務|無法正常運作|timed out|逾時|Internal error|內部錯誤|try again|稍後再試/i.test(m)) throw e;
+      Utilities.sleep(800 * (i + 1));
+    }
+  }
+  throw new Error('Google 試算表暫時沒有回應，請稍等一下再試一次。（' + (lastErr && lastErr.message) + '）');
 }
 
 function sheet_(name) {
@@ -931,7 +1322,7 @@ function readTable_(name, required) {
   const sh = sheet_(name);
   const lastRow = sh.getLastRow();
   const lastCol = Math.max(sh.getLastColumn(), 1);
-  const values = lastRow ? sh.getRange(1, 1, lastRow, lastCol).getValues() : [[]];
+  const values = lastRow ? retry_(function () { return sh.getRange(1, 1, lastRow, lastCol).getValues(); }) : [[]];
   const cols = {};
   values[0].forEach(function (h, i) {
     const k = String(h).trim();
@@ -976,7 +1367,7 @@ function appendRows_(name, objs, formats) {
     if (fmt) sh.getRange(start, i + 1, objs.length, 1).setNumberFormat(fmt);
     else if (isText) sh.getRange(start, i + 1, objs.length, 1).setNumberFormat('@');
   });
-  sh.getRange(start, 1, objs.length, headers.length).setValues(data);
+  retry_(function () { sh.getRange(start, 1, objs.length, headers.length).setValues(data); });
 }
 
 function setCell_(table, row, header, value) {
