@@ -209,6 +209,11 @@
   .sum-totals > summary .tog { color: var(--brand); font-size: 15px; font-weight: 600; white-space: nowrap; }
   .sum-totals > summary .tog::after { content: '▼ 展開'; }
   .sum-totals[open] > summary .tog::after { content: '▲ 收起'; }
+  .badge.edited { background: #fff4e5; color: #b45309; }
+  .edit-log { margin-top: 8px; border: 1px solid #f5d9b0; background: #fffaf2; border-radius: 10px; padding: 6px 12px; }
+  .edit-log summary { cursor: pointer; color: #b45309; font-weight: 600; }
+  .edit-log ul { margin: 6px 0 2px; padding-left: 18px; }
+  .edit-log li { margin-bottom: 6px; }
   .status-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .status-chips button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 12px; font-size: 15px; cursor: pointer; }
   .status-chips button.on { border-color: var(--brand); color: var(--brand); font-weight: 700; }
@@ -1535,6 +1540,11 @@
     var toolLine = tools.length ? '<div class="small" style="margin-top:6px"><b>使用器具：</b>' + esc(tools.map(function (t) {
       return t.name + ' ×' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : '');
     }).join('、')) + '</div>' : '';
+    var edits = opts.admin && o.edits ? o.edits : [];
+    var editLog = edits.length ? '<details class="edit-log"><summary>修改紀錄（' + edits.length + ' 次，最後 ' + esc(edits[edits.length - 1].time) + '）</summary><ul>' +
+      edits.slice().reverse().map(function (e) {
+        return '<li><b>' + esc(e.time) + '</b>　' + esc(e.who) + '<div>' + esc(e.text).replace(/；/g, '<br>') + '</div></li>';
+      }).join('') + '</ul></details>' : '';
     var buttons = '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
     if (opts.admin && !o.archived) buttons += '<button type="button" class="btn ghost small" data-act="edit" data-no="' + esc(o.orderNo) + '">修改明細</button>';
     if (opts.mine && o.locked && !o.archived && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
@@ -1549,10 +1559,11 @@
       }).join('') + (data.statuses.indexOf(o.status) < 0 ? '<option selected disabled>' + esc(o.status) + '</option>' : '') + '</select>';
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
-        (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') + statusBadge(o.status) + '</span></div>' +
+        (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
+        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + statusBadge(o.status) + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
-      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine +
+      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
 
@@ -1668,13 +1679,15 @@
     }).join('');
   }
   // 「訂單狀態」選單：顯示各狀態幾張（依目前選的老師），保留目前選的
+  var EDITED = '__edited';   // 「訂單狀態」選單裡的「有修改紀錄」
   function sumStatuses() { return data.statuses.concat(data.statuses.indexOf('已取消') < 0 ? ['已取消'] : []); }
   function fillStatusFilter(base) {
     var sel = $('sStatus'), cur = sel.value, count = {};
     base.forEach(function (o) { count[o.status] = (count[o.status] || 0) + 1; });
+    count[EDITED] = base.filter(function (o) { return o.edits && o.edits.length; }).length;
     sel.innerHTML = '<option value="">全部狀態（' + base.filter(function (o) { return !$('sHideCancel').checked || o.status !== '已取消'; }).length + '）</option>' +
-      sumStatuses().map(function (st) {
-        return '<option value="' + esc(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(st) + '（' + (count[st] || 0) + '）</option>';
+      sumStatuses().concat([EDITED]).map(function (st) {
+        return '<option value="' + esc(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(st === EDITED ? '有修改紀錄' : st) + '（' + (count[st] || 0) + '）</option>';
       }).join('');
     return count;
   }
@@ -1687,13 +1700,14 @@
     var count = fillStatusFilter(base);
     var st = $('sStatus').value;
     var list = base.filter(function (o) {
+      if (st === EDITED) return o.edits && o.edits.length;
       return st ? o.status === st : (!hideCancel || o.status !== '已取消');
     });
-    var chips = '<div class="status-chips">' + sumStatuses().filter(function (x) { return count[x] && (x !== '已取消' || !hideCancel || st === x); }).map(function (x) {
-      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + '">' + esc(x) + ' ' + count[x] + '</button>';
+    var chips = '<div class="status-chips">' + sumStatuses().concat([EDITED]).filter(function (x) { return count[x] && (x !== '已取消' || !hideCancel || st === x); }).map(function (x) {
+      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + '">' + esc(x === EDITED ? '有修改紀錄' : x) + ' ' + count[x] + '</button>';
     }).join('') + (st ? '<button type="button" data-status="">顯示全部</button>' : '') + '</div>';
     if (!list.length) {
-      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (st ? '「' + st + '」的' : '') + '訂單。');
+      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (st ? '「' + (st === EDITED ? '有修改紀錄' : st) + '」的' : '') + '訂單。');
       $('sumVendors').innerHTML = '';
       $('sumOrders').innerHTML = base.length ? '<div class="panel" style="padding:12px 16px">' + chips + '</div>' : '';
       return;
@@ -1754,7 +1768,7 @@
       $('sumVendors').innerHTML + '</details>';
     $('sumVendors').querySelector('details').addEventListener('toggle', function () { sumTotalsOpen = this.open; });
     $('sumVendors')._data = byVendor;
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + '</div>' +
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st === EDITED ? '有修改紀錄' : st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + '</div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);

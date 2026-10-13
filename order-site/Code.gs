@@ -91,7 +91,9 @@ const SHEET = {
   myLessons: '老師課表',
   skips: '不用訂貨',
   errors: '錯誤紀錄',
+  edits: '修改紀錄',
 };
+const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
 const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
 const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
 const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
@@ -426,13 +428,14 @@ function updateOrder(token, orderNo, payload) {
     lock.releaseLock();
   }
   try {
-    const lines = ['【訂單已修改】' + account + ' 修改了 ' + orderNo,
-      (before ? before.useDate + ' ' + before.className + '「' + before.project + '」' : '') + ' → ' + res.useDate,
-      '食材 ' + (before ? before.items.filter(function (i) { return i.id !== TOOL_ID; }).length : '?') + ' 項 → ' + res.count + ' 項'];
+    const changes = diffOrders_(before, orderOf_(orderNo));
+    if (!changes.length) return Object.assign(res, { updated: true });
+    const text = (before ? before.className + '「' + before.project + '」：' : '') + changes.join('、');
+    logOrderEdit_(orderNo, account, changes);
     // 不馬上傳 LINE（省則數），記下來寫進隔天的每日摘要
     const props = PropertiesService.getScriptProperties();
     const edits = JSON.parse(props.getProperty('ORDER_EDITS') || '[]');
-    edits.push({ t: fmtDateTime_(new Date()), who: account, text: lines.slice(1).join('，'), no: orderNo });
+    edits.push({ t: fmtDateTime_(new Date()), who: account, text: text, no: orderNo });
     props.setProperty('ORDER_EDITS', JSON.stringify(edits.slice(-50)));
   } catch (e) {
     console.error(e.message);
@@ -777,6 +780,12 @@ function classKeys_(s) {
 function cancelOrder(token, orderNo) {
   const account = auth_(token);
   const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
+  const res = cancelOrderChecked_(account, isAdmin, orderNo);
+  try { logOrderEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']); } catch (e) { console.error(e.message); }
+  return res;
+}
+
+function cancelOrderChecked_(account, isAdmin, orderNo) {
   return updateOrderStatus_(orderNo, '已取消', function (rows) {
     if (isAdmin) return;
     const r = rows[0];
@@ -807,9 +816,79 @@ function adminGetOrders(token, from, to) {
     const d = toDate_(r['使用日期']);
     return d && d >= start && d <= end;
   });
-  return groupOrders_(rows, null).sort(function (a, b) {
+  const list = groupOrders_(rows, null).sort(function (a, b) {
     return a.useDate === b.useDate ? (a.orderNo < b.orderNo ? -1 : 1) : (a.useDate < b.useDate ? -1 : 1);
   });
+  const edits = orderEditsFor_(list.map(function (o) { return o.orderNo; }));
+  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; });
+  return list;
+}
+
+// ---- 修改紀錄：老師修改／取消訂單、管理者修改明細，每次記一列（時間、修改人、改了什麼） ----
+
+/** 讀一張訂單（目前的訂單總表） */
+function orderOf_(orderNo) {
+  const rows = readTable_(SHEET.orders, ['訂單編號']).rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
+  return rows.length ? groupOrders_(rows, null)[0] : null;
+}
+
+/** 比對修改前後：上課資訊、刪除／新增的品項、數量、有貨。回傳每一項變更的文字。 */
+function diffOrders_(a, b) {
+  if (!a || !b) return [];
+  const lines = [];
+  const day = function (v) { const d = parseDate_(v); return d ? shortDateTw_(d) : String(v || ''); };
+  [['useDate', '日期', day], ['classTime', '上課時間'], ['className', '班級'], ['room', '教室'], ['project', '實作項目'], ['groups', '組數'], ['dept', '科別']]
+    .forEach(function (f) {
+      const x = String(a[f[0]] == null ? '' : a[f[0]]), y = String(b[f[0]] == null ? '' : b[f[0]]);
+      if (x !== y) lines.push(f[1] + ' ' + (f[2] ? f[2](x) : x || '（空白）') + ' → ' + (f[2] ? f[2](y) : y || '（空白）'));
+    });
+  const num = function (n) { return String(Math.round(n * 100) / 100); };
+  const q = function (e, n) { return e.tool ? '×' + num(n) : ' ' + num(n) + e.unit; };
+  const agg = function (o) {
+    const m = {};
+    o.items.forEach(function (it) {
+      if (it.status === '已取消') return;
+      const tool = it.id === TOOL_ID;
+      const k = (tool ? '器具|' : '') + it.name + '|' + (tool ? '' : it.unit);
+      const e = m[k] = m[k] || { label: (tool ? '器具「' + it.name + '」' : it.name), unit: tool ? '' : it.unit, tool: tool, qty: 0, noOrder: it.noOrder };
+      e.qty += it.qty;
+    });
+    return m;
+  };
+  const A = agg(a), B = agg(b);
+  Object.keys(A).forEach(function (k) {
+    const x = A[k], y = B[k];
+    if (!y) { lines.push('刪除 ' + x.label + q(x, x.qty)); return; }
+    if (x.qty !== y.qty) lines.push(x.label + q(x, x.qty) + ' →' + q(y, y.qty));
+    if (!x.noOrder !== !y.noOrder) lines.push(x.label + (y.noOrder ? ' 改成有貨' : ' 改成要叫貨'));
+  });
+  Object.keys(B).forEach(function (k) {
+    if (!A[k]) lines.push('新增 ' + B[k].label + q(B[k], B[k].qty));
+  });
+  return lines;
+}
+
+function logOrderEdit_(orderNo, who, changes) {
+  if (!changes.length) return;   // 按了儲存但沒改東西，不記
+  ensureSheet_(SHEET.edits, EDIT_HEADERS);
+  appendRows_(SHEET.edits, [{ '時間': new Date(), '訂單編號': orderNo, '修改人': who, '內容': changes.join('；') || '（內容沒有變）' }],
+    { '時間': 'yyyy/mm/dd hh:mm:ss' });
+}
+
+/** { 訂單編號: [{ time, who, text }] }，依時間排序 */
+function orderEditsFor_(orderNos) {
+  const out = {};
+  const sh = ss_().getSheetByName(SHEET.edits);
+  if (!sh || sh.getLastRow() < 2 || !orderNos.length) return out;
+  const want = {};
+  orderNos.forEach(function (n) { want[n] = true; });
+  readTable_(SHEET.edits, ['時間', '訂單編號']).rows.forEach(function (r) {
+    const no = String(r['訂單編號']).trim();
+    if (!want[no]) return;
+    (out[no] = out[no] || []).push({ time: fmtDateTime_(errTime_(r['時間'])), who: String(r['修改人'] || ''), text: String(r['內容'] || '') });
+  });
+  Object.keys(out).forEach(function (k) { out[k].sort(function (x, y) { return x.time < y.time ? -1 : 1; }); });
+  return out;
 }
 
 function adminSetStatus(token, orderNo, status) {
@@ -834,6 +913,7 @@ function adminUpdateOrder(token, orderNo, changes) {
     const byRow = {};
     t.rows.forEach(function (r) { if (String(r['訂單編號']).trim() === orderNo) byRow[r._row] = r; });
     if (!Object.keys(byRow).length) throw new Error('找不到訂單 ' + orderNo + '。');
+    const before = groupOrders_(Object.keys(byRow).map(function (k) { return byRow[k]; }), null)[0];
     let catalog = null, vendorGroups = null;
     // 食材總表沒有的食材：先新增到食材總表，再當一般食材處理
     changes.forEach(function (c) {
@@ -922,6 +1002,7 @@ function adminUpdateOrder(token, orderNo, changes) {
       Object.keys(byRow).forEach(function (row) { setCell_(t, Number(row), '審核人', admin); });
     }
     SpreadsheetApp.flush();
+    try { logOrderEdit_(orderNo, admin, diffOrders_(before, orderOf_(orderNo))); } catch (e) { console.error(e.message); }
     return true;
   } finally {
     lock.releaseLock();
