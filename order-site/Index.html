@@ -2655,9 +2655,18 @@
     var row = rows[hdr].map(function (c) { return String(c).replace(/\s+/g, ''); });
     var names = [];
     row.forEach(function (c, i) { if (isHeaderCell(c)) names.push(i); });
-    var above = function (from, to) {   // 標題列上面兩列、這一塊範圍內的字（例如「器具明細」「菜與水果類(A)」）
+    // 標題列上面兩列的字（例如「器具明細」「菜與水果類(A)」）屬於右邊最近的那個「品名」欄；
+    // 合併儲存格的字常寫在左邊一兩格，不能用欄位範圍切
+    var above = function (bi) {
       var s = '';
-      for (var r = Math.max(0, hdr - 2); r < hdr; r++) for (var i = from; i < to; i++) s += ' ' + (rows[r][i] || '');
+      for (var r = Math.max(0, hdr - 2); r < hdr; r++) {
+        rows[r].forEach(function (c, i) {
+          if (!String(c).trim()) return;
+          var owner = names.length - 1;
+          for (var k = 0; k < names.length; k++) if (names[k] >= i) { owner = k; break; }
+          if (owner === bi) s += ' ' + c;
+        });
+      }
       return s;
     };
     // 一列裡有幾個「品名」欄就有幾塊（例如左邊食材、右邊器具）
@@ -2675,7 +2684,7 @@
         else if (H_NOTE.test(c) && b.note < 0) b.note = i;
         else if (H_GROUP.test(c)) b.groups.push(i);
       }
-      var top = above(b.code >= 0 ? b.code : ni, end);
+      var top = above(bi);
       b.tool = /器具|用具|工具/.test(top);
       b.vendor = vendorHint(top);
       return b;
@@ -2714,15 +2723,18 @@
           qty = nameQ.qty; unit = unit || nameQ.unit; name = name.slice(0, nameQ.at).trim();
         }
         if (b.unit >= 0 && cell(b.unit)) unit = stdUnit(cell(b.unit));
-        var hit = tool ? null : (codeCell && !vendorHint(codeCell) && itemByName(codeCell) ? { it: itemByName(codeCell), approx: false } : findItem(name));
+        var hit = codeCell && !vendorHint(codeCell) && itemByName(codeCell) ? { it: itemByName(codeCell), approx: false } : findItem(name);
+        // 「特殊材料器具」區也會寫食材（例如香草莢醬）：跟食材總表名稱完全一樣的當食材，其他才是器具
+        var isTool = tool && !(hit && !hit.approx);
+        if (isTool) hit = null;
         var rowText = rows[r].slice(b.from, b.to).filter(function (c) { return String(c).trim(); }).join(' ');
         // 只有名稱、沒有數量、也對不到食材 → 當成段落標題（例如「麵糰」「內餡」）
-        if (!tool && isNaN(qty) && isNaN(perGroup) && !hit && name.length <= 12 && !/\d/.test(name) && filled.length === 1) { section = name; continue; }
+        if (!isTool && isNaN(qty) && isNaN(perGroup) && !hit && name.length <= 12 && !/\d/.test(name) && filled.length === 1) { section = name; continue; }
         if (isInfoCell(name) && !hit) continue;
         var row2 = makeRow(rowText, name, hit, qty, unit, cell(b.note), section, vendor);
         row2.perGroup = perGroup;
-        row2.tool = tool;
-        if (tool) { row2.on = !isNaN(qty) || !isNaN(perGroup); row2.name = name; }
+        row2.tool = isTool;
+        if (isTool) { row2.on = !isNaN(qty) || !isNaN(perGroup); row2.name = name; }
         out.push(row2);
       }
     });
