@@ -1746,13 +1746,48 @@ function deleteRows_(sh, rows) {
   }
 }
 
+/**
+ * 「歷史訂單」分頁裡上課日期在 since 之後的列。
+ * 歷史訂單是依封存順序往下加的，日期大致由舊到新：先只讀「使用日期」一欄，找到第一筆 since 之後的列，
+ * 再只讀那一列到最後，資料多的時候比整張讀快很多。
+ */
+function historyRowsSince_(sh, since) {
+  if (!since) return readTable_(SHEET.history, ['訂單編號']).rows;
+  const lastRow = sh.getLastRow(), lastCol = Math.max(sh.getLastColumn(), 1);
+  const header = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+  let dateIdx = header.indexOf('使用日期');
+  if (dateIdx < 0) dateIdx = header.indexOf(HEADER_ALIASES['使用日期']);
+  if (dateIdx < 0 || header.indexOf('訂單編號') < 0) return readTable_(SHEET.history, ['訂單編號']).rows;
+  const dates = retry_(function () { return sh.getRange(2, dateIdx + 1, lastRow - 1, 1).getValues(); });
+  let first = -1;
+  for (let i = 0; i < dates.length; i++) {
+    const d = toDate_(dates[i][0]);
+    if (!d || d >= since) { first = i; break; }
+  }
+  if (first < 0) return [];
+  const values = retry_(function () { return sh.getRange(2 + first, 1, lastRow - 1 - first, lastCol).getValues(); });
+  const cols = {};
+  header.forEach(function (k, i) { if (k && cols[k] === undefined) cols[k] = i; });
+  Object.keys(HEADER_ALIASES).forEach(function (k) {
+    if (cols[k] === undefined && cols[HEADER_ALIASES[k]] !== undefined) cols[k] = cols[HEADER_ALIASES[k]];
+  });
+  const out = [];
+  values.forEach(function (v, i) {
+    if (v.every(function (x) { return x === '' || x === null; })) return;
+    const o = { _row: 2 + first + i };
+    Object.keys(cols).forEach(function (k) { o[k] = v[cols[k]]; });
+    out.push(o);
+  });
+  return out;
+}
+
 /** 目前的訂單再加上「歷史訂單」裡上課日期在 since 之後的列（標記 _archived）。 */
 function withHistory_(rows, since) {
   const sh = ss_().getSheetByName(SHEET.history);
   if (!sh || sh.getLastRow() < 2) return rows;
   const current = {};
   rows.forEach(function (r) { current[String(r['訂單編號']).trim()] = true; });
-  const hist = readTable_(SHEET.history, ['訂單編號']).rows.filter(function (r) {
+  const hist = historyRowsSince_(sh, since).filter(function (r) {
     if (current[String(r['訂單編號']).trim()]) return false;
     const d = toDate_(r['使用日期']);
     return !since || !d || d >= since;

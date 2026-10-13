@@ -193,6 +193,25 @@
   .timepick select { flex: 1; min-width: 0; padding-left: 6px; padding-right: 2px; }
   .tools-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
   .tool-row { grid-template-columns: 1.6fr 90px 1.4fr 36px; }
+  /* 訂單彙整：字大一點 */
+  #viewSummary { font-size: 17px; }
+  #viewSummary table { font-size: 17px; }
+  #viewSummary th { font-size: 15px; }
+  #viewSummary .order .head b { font-size: 19px; }
+  #viewSummary .order .info { font-size: 16px; }
+  #viewSummary .badge { font-size: 15px; padding: 2px 10px; }
+  #viewSummary .small { font-size: 15px; }
+  #viewSummary .vendor-title { font-size: 16px; }
+  #viewSummary .edit-table input, #viewSummary .edit-table select { font-size: 16px; }
+  .sum-totals > summary { cursor: pointer; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px 16px; margin-bottom: 12px; font-weight: 700; font-size: 18px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sum-totals > summary::-webkit-details-marker { display: none; }
+  .sum-totals > summary .tog { color: var(--brand); font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .sum-totals > summary .tog::after { content: '▼ 展開'; }
+  .sum-totals[open] > summary .tog::after { content: '▲ 收起'; }
+  .status-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .status-chips button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 12px; font-size: 15px; cursor: pointer; }
+  .status-chips button.on { border-color: var(--brand); color: var(--brand); font-weight: 700; }
   .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
   .login .copyright { padding: 16px 0 0; text-align: left; border-top: 1px solid var(--line); margin-top: 16px; }
   #nav.forced button:not(#logoutBtn) { display: none; }
@@ -485,6 +504,7 @@
           <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
           <div><label for="sTeacher">查詢老師</label><select id="sTeacher"><option value="">全部老師</option></select></div>
+          <div><label for="sStatus">訂單狀態</label><select id="sStatus"><option value="">全部狀態</option></select></div>
           <div style="display:flex;align-items:flex-end;gap:8px">
             <label class="check" style="margin-bottom:10px"><input type="checkbox" id="sHideCancel" checked> 不含已取消</label>
             <button type="button" class="btn" id="sLoad">查詢</button>
@@ -1647,16 +1667,35 @@
       return '<option' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>';
     }).join('');
   }
+  // 「訂單狀態」選單：顯示各狀態幾張（依目前選的老師），保留目前選的
+  function sumStatuses() { return data.statuses.concat(data.statuses.indexOf('已取消') < 0 ? ['已取消'] : []); }
+  function fillStatusFilter(base) {
+    var sel = $('sStatus'), cur = sel.value, count = {};
+    base.forEach(function (o) { count[o.status] = (count[o.status] || 0) + 1; });
+    sel.innerHTML = '<option value="">全部狀態（' + base.filter(function (o) { return !$('sHideCancel').checked || o.status !== '已取消'; }).length + '）</option>' +
+      sumStatuses().map(function (st) {
+        return '<option value="' + esc(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(st) + '（' + (count[st] || 0) + '）</option>';
+      }).join('');
+    return count;
+  }
+  var sumTotalsOpen = false;   // 廠商合計預設收起來
   function renderSummary() {
     var hideCancel = $('sHideCancel').checked;
     fillTeacherFilter();
     var who = $('sTeacher').value;
-    var list = sumCache.filter(function (o) {
-      return (!hideCancel || o.status !== '已取消') && (!who || o.teacher === who || o.onBehalfOf === who);
+    var base = sumCache.filter(function (o) { return !who || o.teacher === who || o.onBehalfOf === who; });
+    var count = fillStatusFilter(base);
+    var st = $('sStatus').value;
+    var list = base.filter(function (o) {
+      return st ? o.status === st : (!hideCancel || o.status !== '已取消');
     });
+    var chips = '<div class="status-chips">' + sumStatuses().filter(function (x) { return count[x] && (x !== '已取消' || !hideCancel || st === x); }).map(function (x) {
+      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + '">' + esc(x) + ' ' + count[x] + '</button>';
+    }).join('') + (st ? '<button type="button" data-status="">顯示全部</button>' : '') + '</div>';
     if (!list.length) {
-      msg('sumMsg', 'info', who ? who + ' 老師這段期間沒有訂單。' : '這段期間沒有訂單。');
-      $('sumVendors').innerHTML = ''; $('sumOrders').innerHTML = '';
+      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (st ? '「' + st + '」的' : '') + '訂單。');
+      $('sumVendors').innerHTML = '';
+      $('sumOrders').innerHTML = base.length ? '<div class="panel" style="padding:12px 16px">' + chips + '</div>' : '';
       return;
     }
     msg('sumMsg', '', '');
@@ -1680,6 +1719,8 @@
       });
     });
     var vendors = Object.keys(byVendor).sort();
+    var foodCount = 0;
+    vendors.forEach(function (v) { Object.keys(byVendor[v]).forEach(function (dk) { foodCount += Object.keys(byVendor[v][dk]).length; }); });
     $('sumVendors').innerHTML = vendors.map(function (vName) {
       var days = Object.keys(byVendor[vName]).sort();
       var body = days.map(function (dk) {
@@ -1707,8 +1748,13 @@
             }).join('、')) + '</td></tr>';
         }).join('') + '</tbody></table></div></div>';
     }
+    // 廠商合計、器具收在可以展開的區塊裡
+    $('sumVendors').innerHTML = '<details class="sum-totals"' + (sumTotalsOpen ? ' open' : '') + '><summary><span>廠商叫貨合計　<span class="muted" style="font-weight:normal;font-size:15px">' +
+      vendors.length + ' 家廠商、' + foodCount + ' 項食材' + (toolOrders.length ? '、' + toolOrders.length + ' 張有器具' : '') + '</span></span><span class="tog"></span></summary>' +
+      $('sumVendors').innerHTML + '</details>';
+    $('sumVendors').querySelector('details').addEventListener('toggle', function () { sumTotalsOpen = this.open; });
     $('sumVendors')._data = byVendor;
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的訂單' : '各張訂單') + '（' + list.length + ' 張）</h2></div>' +
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + '</div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
@@ -1876,6 +1922,13 @@
   }
   $('sHideCancel').addEventListener('change', renderSummary);
   $('sTeacher').addEventListener('change', renderSummary);
+  $('sStatus').addEventListener('change', renderSummary);
+  $('sumOrders').addEventListener('click', function (e) {
+    var b = e.target.closest('.status-chips button[data-status]');
+    if (!b) return;
+    $('sStatus').value = b.getAttribute('data-status');
+    renderSummary();
+  });
 
   $('sumVendors').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-copy]');
