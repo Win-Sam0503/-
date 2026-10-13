@@ -61,6 +61,13 @@ const BACKUP_FOLDER_NAME = '三信家商餐飲科訂貨系統備份';
 const BACKUP_PREFIX = '訂貨表備份 ';
 const IMPORT_MAX_MB = 10;                    // 上傳檔案大小上限
 const PENDING_ID = '待審核';
+// 同一家廠商依訂單科別分開叫貨：食材總表照舊寫「E乾貨」「C蛋商」，
+// 烘焙科的訂單算「E烘焙乾貨」「C烘焙蛋」，其他科算「E中餐乾貨」「C中餐蛋」。
+const VENDOR_SPLIT = {
+  'E乾貨': { baking: 'E烘焙乾貨', other: 'E中餐乾貨' },
+  'C蛋商': { baking: 'C烘焙蛋', other: 'C中餐蛋' },
+};
+const BAKING_DEPTS = ['烘焙'];
 
 const SHEET = {
   accounts: '帳號設定',
@@ -219,6 +226,8 @@ function getBootstrap(token) {
     isAdmin: isAdmin,
     items: items,
     vendors: vendors,
+    vendorSplit: VENDOR_SPLIT,
+    bakingDepts: BAKING_DEPTS,
     teachers: teachers,
     departments: depts,
     minDate: dateStr_(isAdmin ? today_() : earliestClassDate_(now)),
@@ -349,7 +358,7 @@ function submitOrder(token, payload) {
 
     const pending = o.lines.filter(function (l) { return l.id === PENDING_ID; }).map(function (l) {
       return {
-        '新增時間': now, '提交老師': account, '食材名稱': l.name, '廠商': l.vendor,
+        '新增時間': now, '提交老師': account, '食材名稱': l.name, '廠商': l.catVendor || l.vendor,
         '單位': l.unit, '對應訂單編號': orderNo, '審核狀態': '待審核',
       };
     });
@@ -416,7 +425,7 @@ function validateOrder_(p, account, isAdmin) {
     const name = String(r['食材名稱']).trim();
     const vendor = String(r['廠商']).trim();
     lines.push({
-      id: id, name: name, vendor: vendor,
+      id: id, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, r['單位'], name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder, section: clean_(it.section, 20),
@@ -428,7 +437,7 @@ function validateOrder_(p, account, isAdmin) {
     if (!name) throw new Error('新增食材請填寫名稱。');
     if (!vendor) throw new Error('請選擇「' + name + '」的廠商。');
     lines.push({
-      id: PENDING_ID, name: name, vendor: vendor,
+      id: PENDING_ID, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, '', name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder, section: clean_(it.section, 20),
@@ -574,6 +583,13 @@ function readVendorGroups_() {
     console.error(e.message);
   }
   return map;
+}
+
+/** 訂單上要寫的廠商：E乾貨、C蛋商依科別分成烘焙／中餐兩種。 */
+function orderVendor_(vendor, dept) {
+  const split = VENDOR_SPLIT[String(vendor || '').trim()];
+  if (!split) return vendor;
+  return BAKING_DEPTS.indexOf(String(dept || '').trim()) >= 0 ? split.baking : split.other;
 }
 
 /** 依上課日期的星期決定送貨組別；廠商設定沒有列的廠商，週一二為「一二」、週三四五為「三四五」。 */
@@ -783,7 +799,7 @@ function fixOrderLines_(orderNo, origName, to) {
     setCell_(t, r._row, '食材ID', to.id);
     setCell_(t, r._row, '食材名稱', to.name);
     if (to.vendor && t.cols['廠商'] !== undefined) {
-      setCell_(t, r._row, '廠商', to.vendor);
+      setCell_(t, r._row, '廠商', orderVendor_(to.vendor, r['科別']));
       const d = toDate_(r['使用日期']);
       if (d && t.cols['送貨組別'] !== undefined) setCell_(t, r._row, '送貨組別', deliveryGroup_(to.vendor, d.getDay(), vendorGroups));
     }

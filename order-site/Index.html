@@ -340,7 +340,7 @@
             </div><input type="hidden" id="fTime"></div>
           <div><label for="fRoom">上課教室</label><input id="fRoom" type="text" maxlength="30"></div>
           <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"></div>
-          <div><label for="fGroups">組數</label><input id="fGroups" type="text" class="num-input" data-int="1" autocomplete="off" inputmode="numeric" maxlength="4" placeholder="例：6"></div>
+          <div><label for="fGroups">組數</label><input id="fGroups" type="text" class="num-input" data-int="1" autocomplete="off" maxlength="4" placeholder="例：6"></div>
           <div><label for="fFor">代訂對象老師</label><select id="fFor"></select></div>
           <div class="wide" style="grid-column:1/-1"><label for="fProject">實作項目 <span class="req">*</span></label><input id="fProject" type="text" maxlength="60" placeholder="例：戚風蛋糕、宮保雞丁"></div>
         </div>
@@ -361,7 +361,7 @@
             <div class="newform">
               <div><label for="nName">食材名稱</label><input id="nName" type="text" maxlength="40"></div>
               <div><label for="nVendor">廠商</label><select id="nVendor"></select></div>
-              <div><label for="nQty">數量</label><input id="nQty" type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10"></div>
+              <div><label for="nQty">數量</label><input id="nQty" type="text" class="num-input" autocomplete="off" maxlength="10"></div>
               <div><label for="nUnit">單位</label><input id="nUnit" type="text" class="unit-input" data-new="1" autocomplete="off" maxlength="10" placeholder="打字搜尋"></div>
               <button type="button" class="btn small" id="addNew">加入清單</button>
             </div>
@@ -725,7 +725,13 @@
         '。缺少的部分網站照常運作，只是對應的資料不會存進試算表（請參考 README 的設定說明）。</div>' : '';
     loadTemplates();
     startWatermark();
-    $('vVendor').innerHTML = '<option value="">全部廠商</option>' + data.vendors.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
+    // 訂單上的廠商：E乾貨、C蛋商會依科別分成烘焙／中餐（舊訂單仍是原名稱）
+    var orderVendors = data.vendors.slice();
+    Object.keys(data.vendorSplit || {}).forEach(function (v) {
+      [data.vendorSplit[v].baking, data.vendorSplit[v].other].forEach(function (x) { if (orderVendors.indexOf(x) < 0) orderVendors.push(x); });
+    });
+    orderVendors.sort();
+    $('vVendor').innerHTML = '<option value="">全部廠商</option>' + orderVendors.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
     $('fDate').min = data.minDate;
     $('fDate').max = data.maxDate;
     $('itemList').innerHTML = data.items.map(function (it) {
@@ -825,7 +831,7 @@
     $(INFO_FIELDS[k]).addEventListener('change', function () {
       saveDraft();
       if (k === 'useDate') updateDateHint();
-      if (k === 'dept') renderResults();
+      if (k === 'dept') { renderResults(); renderCart(); }   // 乾貨、蛋的廠商跟著科別變
     });
   });
 
@@ -1129,7 +1135,7 @@
     return g && p > 0 ? '全班 ' + round2(p * g) : (g ? '' : '請先填組數');
   }
   function qtyCell(c, label) {
-    var attrs = 'type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10"';
+    var attrs = 'type="text" class="num-input" autocomplete="off" maxlength="10"';
     if (draft.qtyMode === 'group') {
       return '<input ' + attrs + ' data-f="per" placeholder="一組" value="' + esc(c.per == null ? '' : c.per) + '" aria-label="' + esc(label) + ' 一組的數量">' +
         '<div class="tot">' + esc(totText(c)) + '</div>';
@@ -1187,7 +1193,7 @@
     var code = !c.isNew && itemById[c.id] && itemById[c.id].code ? '<span class="muted small">' + esc(itemById[c.id].code) + ' </span>' : '';
     return '<div class="cart-row" data-key="' + esc(c.key) + '">' +
       '<div class="c-nm">' + code + '<span class="nm">' + esc(c.name) + '</span> ' + (c.isNew ? '<span class="badge warn">待審核</span>' : '') +
-        '<div class="muted small">' + esc(c.vendor) + '</div>' + secSel + '</div>' +
+        '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div>' + secSel + '</div>' +
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
       '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
@@ -1195,6 +1201,12 @@
       '<button type="button" class="x" title="移除" aria-label="移除 ' + esc(c.name) + '">×</button></div>';
   }
 
+  // 訂購清單顯示送出後實際的廠商（E乾貨、C蛋商依科別分成烘焙／中餐）
+  function dispVendor(v) {
+    var split = data.vendorSplit && data.vendorSplit[v];
+    if (!split) return v;
+    return (data.bakingDepts || []).indexOf($('fDept').value) >= 0 ? split.baking : split.other;
+  }
   function renderCart() {
     var secOrder = [''].concat(draft.sections);
     var cart = draft.cart.slice().sort(function (a, b) {
@@ -1219,7 +1231,7 @@
         if (sec || draft.sections.length) html += '<div class="sec-title">' + (sec ? esc(sec) : '不分段') + '</div>';
         lastSec = sec; lastVendor = null;
       }
-      if (c.vendor !== lastVendor) { html += '<div class="vendor-title">' + esc(c.vendor) + '</div>'; lastVendor = c.vendor; }
+      if (dispVendor(c.vendor) !== lastVendor) { lastVendor = dispVendor(c.vendor); html += '<div class="vendor-title">' + esc(lastVendor) + '</div>'; }
       html += cartRowHtml(c);
     });
     $('cart').innerHTML = html;
@@ -1561,7 +1573,7 @@
     var rows = o.items.map(function (it) {
       var isTool = it.id === TOOL;
       return '<tr data-row="' + it.row + '"><td>' + esc(it.name) + (isTool ? ' <span class="badge">器具</span>' : '') + '<div class="muted small">' + esc(it.vendor) + '</div></td>' +
-        '<td><input type="text" class="num-input" autocomplete="off" inputmode="decimal" maxlength="10" data-f="qty" value="' + esc(it.qty) + '" style="width:80px"></td>' +
+        '<td><input type="text" class="num-input" autocomplete="off" maxlength="10" data-f="qty" value="' + esc(it.qty) + '" style="width:80px"></td>' +
         '<td>' + (isTool ? '' : unitInput(it.unit, it.name + ' 單位').replace('class="unit-input', 'style="width:80px" class="unit-input')) + '</td>' +
         '<td><input type="text" data-f="note" maxlength="100" value="' + esc(it.note) + '"></td>' +
         '<td class="c">' + (isTool ? '' : '<input type="checkbox" data-f="noOrder"' + (it.noOrder ? ' checked' : '') + '>') + '</td>' +
@@ -2863,7 +2875,7 @@
       return head + '<tr data-i="' + i + '"' + (r.on ? '' : ' class="off"') + '>' +
         '<td><input type="checkbox" data-f="on"' + (r.on ? ' checked' : '') + ' aria-label="加入"></td>' +
         '<td class="nm"><input type="text" data-f="name"' + (r.tool ? '' : ' list="impItems"') + ' maxlength="40" value="' + esc(r.name) + '" aria-label="' + (r.tool ? '器具' : '食材') + '">' + status + '</td>' +
-        '<td class="qc"><input type="text" class="num-input q" data-f="qty" inputmode="decimal" autocomplete="off" maxlength="10" value="' + (isNaN(r.qty) ? '' : esc(fmtQty(r.qty))) + '" aria-label="數量"></td>' +
+        '<td class="qc"><input type="text" class="num-input q" data-f="qty" autocomplete="off" maxlength="10" value="' + (isNaN(r.qty) ? '' : esc(fmtQty(r.qty))) + '" aria-label="數量"></td>' +
         '<td class="uc">' + (r.tool ? '' : unitInput(r.unit, '單位', true).replace('class="unit-input', 'class="unit-input u')) + '</td>' +
         '<td class="nt"><input type="text" data-f="note" maxlength="100" placeholder="備註" value="' + esc(r.note) + '" aria-label="備註"></td>' +
         '<td class="src">' + esc(r.src) + '</td></tr>';
