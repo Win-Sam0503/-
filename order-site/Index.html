@@ -307,6 +307,7 @@
     <!-- 訂貨 -->
     <section id="viewOrder">
       <div id="setupWarn"></div>
+      <div id="editBanner" class="msg info hidden" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"></div>
       <div class="msg info" id="lockBanner"></div>
       <div class="panel" id="tplPanel">
         <h2>我的範本 <span class="muted small" style="font-weight:normal">存一組的量，帶入時自動乘以組數</span></h2>
@@ -1208,6 +1209,7 @@
     return (data.bakingDepts || []).indexOf($('fDept').value) >= 0 ? split.baking : split.other;
   }
   function renderCart() {
+    renderEditBanner();
     var secOrder = [''].concat(draft.sections);
     var cart = draft.cart.slice().sort(function (a, b) {
       var sa = secOrder.indexOf(a.section || ''), sb = secOrder.indexOf(b.section || '');
@@ -1363,6 +1365,25 @@
       newUnits: draft.newUnits.filter(function (u) { return draft.cart.some(function (c) { return normUnit(c.unit) === u; }); })
     };
     var who = i.onBehalfOf ? '（代 ' + i.onBehalfOf + ' 老師訂）' : '';
+    if (draft.editing) {
+      var no = draft.editing.orderNo;
+      if (!confirm('確定儲存訂單 ' + no + ' 的修改？\n' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : ''))) return;
+      var ubtn = $('submitBtn');
+      setBusy(ubtn, true, '儲存中…');
+      msg('orderMsg', '', '');
+      call('updateOrder', token, no, payload).then(function () {
+        payload.newUnits.forEach(function (u) { if (data.pendingUnits.indexOf(u) < 0) data.pendingUnits.push(u); });
+        var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
+        draft = emptyDraft(); draft.info = keep; saveDraft();
+        writeInfo(); renderCart(); renderResults(); updateDateHint();
+        keepMine = true;   // 下一行自己載入，才能顯示「已修改」
+        show('viewMine');
+        loadMine('訂單 ' + no + ' 已修改。');
+      }).catch(function (e) {
+        msg('orderMsg', 'error', '儲存失敗：' + e.message);
+      }).then(function () { setBusy(ubtn, false); renderEditBanner(); });
+      return;
+    }
     if (!confirm('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？')) return;
 
     var btn = $('submitBtn');
@@ -1416,6 +1437,7 @@
     if (opts.mine && o.locked && !o.archived && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
+      if (o.canEdit) buttons += '<button type="button" class="btn secondary small" data-act="modify" data-no="' + esc(o.orderNo) + '">修改訂單</button>';
       if (o.canCancel) buttons += '<button type="button" class="btn danger small" data-act="cancel" data-no="' + esc(o.orderNo) + '">取消訂單</button>';
     }
     if (opts.admin && !o.archived) {
@@ -1431,6 +1453,41 @@
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
 
+  // 把一張訂單帶回訂貨畫面：edit = true 是修改這張訂單，false 是「再訂一次」
+  function orderToDraft(o, edit) {
+    draft = emptyDraft();
+    draft.info = { useDate: edit ? o.useDate : '', dept: o.dept, classTime: o.classTime, room: o.room, className: o.className, groups: o.groups ? String(o.groups) : '', project: o.project,
+      onBehalfOf: o.teacher === data.account ? o.onBehalfOf : '' };
+    draft.tools = o.items.filter(function (it) { return it.id === TOOL && it.status !== '已取消'; }).map(function (it, idx) {
+      return { key: 't' + Date.now() + idx, name: it.name, qty: it.qty, note: it.note };
+    });
+    draft.cart = o.items.filter(function (it) { return it.id !== TOOL && (it.status !== '已取消' || o.status === '已取消'); })
+      .filter(function (it) { return it.id === '待審核' || itemById[it.id]; }).map(function (it, idx) {
+      var isNew = it.id === '待審核';
+      var cat = isNew ? null : itemById[it.id];
+      return { key: 'c' + Date.now() + idx, id: isNew ? '' : it.id, name: it.name, vendor: cat ? cat.vendor : it.vendor, qty: it.qty, unit: validUnit(it.unit) || (isNew ? it.unit : ''),
+        note: it.note, isNew: isNew, noOrder: it.noOrder, section: it.section || '' };
+    });
+    if (edit) draft.cart.forEach(function (c) { if (c.isNew && c.unit && !validUnit(c.unit) && draft.newUnits.indexOf(c.unit) < 0) draft.newUnits.push(c.unit); });
+    draft.cart.forEach(function (c) { if (c.section && draft.sections.indexOf(c.section) < 0) draft.sections.push(c.section); });
+    draft.qtyMode = 'total';   // 訂單存的是全班數量
+    if (edit) draft.editing = { orderNo: o.orderNo, project: o.project };
+    writeInfo(); saveDraft(); renderCart(); renderResults(); updateDateHint();   // 先填畫面再存，saveDraft 會從畫面讀上課資訊
+    show('viewOrder');
+  }
+  function renderEditBanner() {
+    var e = draft.editing;
+    $('editBanner').classList.toggle('hidden', !e);
+    $('submitBtn').textContent = e ? '儲存修改' : '送出訂單';
+    if (e) $('editBanner').innerHTML = '<span>正在修改訂單 <b>' + esc(e.orderNo) + '</b>（' + esc(e.project) + '），改好按最下面的「儲存修改」。</span>' +
+      '<button type="button" class="btn ghost small" id="editQuit">放棄修改</button>';
+  }
+  $('editBanner').addEventListener('click', function (e) {
+    if (!e.target.closest('#editQuit')) return;
+    if (!confirm('放棄這次的修改？原本的訂單不會改變。')) return;
+    draft = emptyDraft(); saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
+    msg('orderMsg', '', '');
+  });
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
     $('mineList').innerHTML = '';
@@ -1458,23 +1515,14 @@
       }).catch(function (err) { msg('mineMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
     } else if (b.getAttribute('data-act') === 'copy') {
       if (draft.cart.length && !confirm('目前的訂購清單會被取代，確定要再訂一次這張訂單？')) return;
-      draft.info = { useDate: '', dept: o.dept, classTime: o.classTime, room: o.room, className: o.className, groups: o.groups ? String(o.groups) : '', project: o.project, onBehalfOf: o.teacher === data.account ? o.onBehalfOf : '' };
-      draft.tools = o.items.filter(function (it) { return it.id === TOOL; }).map(function (it, idx) {
-        return { key: 't' + Date.now() + idx, name: it.name, qty: it.qty, note: it.note };
-      });
-      draft.cart = o.items.filter(function (it) { return it.status !== '已取消' || o.status === '已取消'; })
-        .filter(function (it) { return it.id === '待審核' || itemById[it.id]; }).map(function (it, idx) {
-        var isNew = it.id === '待審核';
-        return { key: 'c' + Date.now() + idx, id: isNew ? '' : it.id, name: it.name, vendor: it.vendor, qty: it.qty, unit: validUnit(it.unit), note: it.note, isNew: isNew, noOrder: it.noOrder, section: it.section || '' };
-      });
-      draft.sections = [];
-      draft.cart.forEach(function (c) { if (c.section && draft.sections.indexOf(c.section) < 0) draft.sections.push(c.section); });
-      draft.activeSection = '';
-      draft.qtyMode = 'total';   // 舊訂單存的是全班數量
-      saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
-      show('viewOrder');
+      orderToDraft(o, false);
       msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材和器具，請選擇新的上課日期並確認數量後送出。');
       $('fDate').focus();
+    } else if (b.getAttribute('data-act') === 'modify') {
+      if ((draft.cart.length || draft.tools.length) && !draft.editing && !confirm('目前訂購清單裡還沒送出的內容會被取代，確定要修改這張訂單？')) return;
+      orderToDraft(o, true);
+      msg('orderMsg', 'info', '改好後按最下面的「儲存修改」。訂單編號不變。');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
 

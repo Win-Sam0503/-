@@ -330,46 +330,108 @@ function submitOrder(token, payload) {
   lock.waitLock(20000);
   try {
     const orderNo = nextOrderNo_();
-    const now = new Date();
-    registerUnits_(o.newUnits, account);
-    const base = {
-      '訂單編號': orderNo,
-      '送出時間': now,
-      '使用日期': o.useDate,
-      '星期': '星期' + WEEKDAY[o.useDate.getDay()],
-      '操作老師': account,
-      '代訂對象老師': o.onBehalfOf,
-      '科別': o.dept,
-      '上課時間': o.classTime,
-      '上課教室': o.room,
-      '上課班級': o.className,
-      '實作項目': o.project,
-      '組數': o.groups || '',
-      '狀態': '待處理',
-    };
-    const rows = o.lines.map(function (l) {
-      return Object.assign({}, base, {
-        '食材ID': l.id, '食材名稱': l.name, '廠商': l.vendor, '送貨組別': l.group,
-        '數量': l.qty, '單位': l.unit, '備註': l.note,
-        '不叫貨': l.noOrder ? true : '', '段落': l.section || '',
-      });
-    });
-    appendRows_(SHEET.orders, rows, { '送出時間': 'yyyy/mm/dd hh:mm:ss', '使用日期': 'yyyy-mm-dd' });
-
-    const pending = o.lines.filter(function (l) { return l.id === PENDING_ID; }).map(function (l) {
-      return {
-        '新增時間': now, '提交老師': account, '食材名稱': l.name, '廠商': l.catVendor || l.vendor,
-        '單位': l.unit, '對應訂單編號': orderNo, '審核狀態': '待審核',
-      };
-    });
-    if (pending.length) appendRows_(SHEET.pending, pending, { '新增時間': 'yyyy/mm/dd hh:mm:ss' });
-
+    const res = writeOrder_(o, orderNo, new Date(), account, account, {});
     SpreadsheetApp.flush();
-    const tools = o.lines.filter(function (l) { return l.id === TOOL_ID; }).length;
-    return { orderNo: orderNo, useDate: dateStr_(o.useDate), count: o.lines.length - tools, tools: tools, pending: pending.length };
+    return res;
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 老師修改自己還沒截止、還是「待處理」的訂單（整張重寫，訂單編號不變），並用 LINE 通知管理者。
+ * payload 跟 submitOrder 一樣。
+ */
+function updateOrder(token, orderNo, payload) {
+  const account = auth_(token);
+  const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
+  orderNo = String(orderNo || '').trim();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  let res, before;
+  try {
+    const t = readTable_(SHEET.orders, ['訂單編號', '狀態']);
+    const rows = t.rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
+    if (!rows.length) throw new Error('找不到訂單 ' + orderNo + '，可能已被封存或刪除。');
+    const r0 = rows[0];
+    const operator = String(r0['操作老師'] || '').trim();
+    const forWho = String(r0['代訂對象老師'] || '').trim();
+    if (!isAdmin && operator !== account && forWho !== account) throw new Error('只能修改自己的訂單。');
+    const active = rows.filter(function (r) { return String(r['狀態']).trim() !== '已取消'; });
+    if (!active.length) throw new Error('這張訂單已取消，請重新訂一張。');
+    if (active.some(function (r) { return String(r['狀態']).trim() !== '待處理'; })) {
+      throw new Error('這張訂單已經在處理，無法修改，請聯絡管理者。');
+    }
+    if (!isAdmin && isLocked_(toDate_(r0['使用日期']))) throw new Error('這張訂單的上課週已過訂貨截止時間，無法修改，請聯絡管理者。');
+
+    // 代訂對象老師自己改的時候，保留原本的操作老師和代訂對象
+    const p = Object.assign({}, payload);
+    if (operator !== account && !isAdmin) p.onBehalfOf = '';
+    const o = validateOrder_(p, operator === account || isAdmin ? account : operator, isAdmin);
+    if (operator !== account && !isAdmin) o.onBehalfOf = forWho;
+
+    before = groupOrders_(rows, null)[0];
+    const pendingNames = {};
+    readTable_(SHEET.pending, ['食材名稱']).rows.forEach(function (x) {
+      if (String(x['對應訂單編號'] || '').trim() === orderNo) pendingNames[String(x['食材名稱']).trim()] = true;
+    });
+    deleteRows_(t.sheet, rows.map(function (r) { return r._row; }));
+    const submitted = r0['送出時間'] instanceof Date ? r0['送出時間'] : new Date();
+    res = writeOrder_(o, orderNo, submitted, operator || account, account, pendingNames);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  try {
+    const lines = ['【訂單已修改】' + account + ' 修改了 ' + orderNo,
+      (before ? before.useDate + ' ' + before.className + '「' + before.project + '」' : '') + ' → ' + res.useDate,
+      '食材 ' + (before ? before.items.filter(function (i) { return i.id !== TOOL_ID; }).length : '?') + ' 項 → ' + res.count + ' 項'];
+    notifyLine_(lines.join('\n'));
+  } catch (e) {
+    console.error(e.message);
+  }
+  res.updated = true;
+  return res;
+}
+
+/** 寫入一張訂單的各列（新訂單和修改共用）。skipPending：已經在待審核清單裡的新食材名稱。 */
+function writeOrder_(o, orderNo, submittedAt, operator, account, skipPending) {
+  const now = new Date();
+  registerUnits_(o.newUnits, account);
+  const base = {
+    '訂單編號': orderNo,
+    '送出時間': submittedAt,
+    '使用日期': o.useDate,
+    '星期': '星期' + WEEKDAY[o.useDate.getDay()],
+    '操作老師': operator,
+    '代訂對象老師': o.onBehalfOf,
+    '科別': o.dept,
+    '上課時間': o.classTime,
+    '上課教室': o.room,
+    '上課班級': o.className,
+    '實作項目': o.project,
+    '組數': o.groups || '',
+    '狀態': '待處理',
+  };
+  const rows = o.lines.map(function (l) {
+    return Object.assign({}, base, {
+      '食材ID': l.id, '食材名稱': l.name, '廠商': l.vendor, '送貨組別': l.group,
+      '數量': l.qty, '單位': l.unit, '備註': l.note,
+      '不叫貨': l.noOrder ? true : '', '段落': l.section || '',
+    });
+  });
+  appendRows_(SHEET.orders, rows, { '送出時間': 'yyyy/mm/dd hh:mm:ss', '使用日期': 'yyyy-mm-dd' });
+
+  const newOnes = o.lines.filter(function (l) { return l.id === PENDING_ID; });
+  const pending = newOnes.filter(function (l) { return !skipPending[l.name]; }).map(function (l) {
+    return {
+      '新增時間': now, '提交老師': account, '食材名稱': l.name, '廠商': l.catVendor || l.vendor,
+      '單位': l.unit, '對應訂單編號': orderNo, '審核狀態': '待審核',
+    };
+  });
+  if (pending.length) appendRows_(SHEET.pending, pending, { '新增時間': 'yyyy/mm/dd hh:mm:ss' });
+  const tools = o.lines.filter(function (l) { return l.id === TOOL_ID; }).length;
+  return { orderNo: orderNo, useDate: dateStr_(o.useDate), count: o.lines.length - tools, tools: tools, pending: newOnes.length };
 }
 
 function validateOrder_(p, account, isAdmin) {
@@ -1381,6 +1443,19 @@ function readConvertedDoc_(id, ocr) {
   return { kind: ocr ? 'ocr' : 'doc', tables: tables, text: lines.slice(0, 600).join('\n') };
 }
 
+/** 只傳 LINE（沒綁定就不傳）。 */
+function notifyLine_(text) {
+  const props = PropertiesService.getScriptProperties();
+  const lineToken = props.getProperty('LINE_TOKEN'), lineTo = props.getProperty('LINE_TO');
+  if (!lineToken || !lineTo) return '尚未綁定 LINE';
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + lineToken },
+    payload: JSON.stringify({ to: lineTo, messages: [{ type: 'text', text: String(text).slice(0, 4900) }] }),
+  });
+  return res.getResponseCode() === 200 ? '已傳到 LINE' : 'LINE 傳送失敗（錯誤碼 ' + res.getResponseCode() + '）';
+}
+
 // ---- 廠商訂貨單 ----
 
 /** 「下週」：今天之後的第一個星期一到星期五（今天是星期一也算下週一） */
@@ -1598,6 +1673,7 @@ function groupOrders_(rows, account) {
     o.archived = !!o.archived;
     o.locked = o.archived || isLocked_(parseDate_(o.useDate));
     o.canCancel = !!account && o.status === '待處理' && !o.locked;
+    o.canEdit = o.canCancel;
   });
   return list;
 }
