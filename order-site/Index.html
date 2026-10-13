@@ -138,6 +138,7 @@
   .order { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
   .order .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .order .head b { font-size: 16px; }
+  #autoMsg .msg { white-space: pre-line; }
   .file-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   .file-btn { cursor: pointer; margin: 0; }
   .imp-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; margin: 8px 0; }
@@ -499,6 +500,8 @@
           <button type="button" class="btn ghost small" id="aVendorNow">立即產生下週訂貨單</button>
           <button type="button" class="btn ghost small" id="aDigestNow">立即寄每日摘要</button>
           <button type="button" class="btn ghost small" id="aMaintNow">立即備份＋封存</button>
+          <button type="button" class="btn ghost small" id="aRemindPreview">預覽訂貨提醒</button>
+          <button type="button" class="btn ghost small" id="aRemindNow">立即傳訂貨提醒</button>
           <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
         </div>
         <h3 style="font-size:16px;margin:18px 0 6px">LINE 官方帳號通知</h3>
@@ -2361,7 +2364,7 @@
   var autoState = null;
   function renderAuto(st) {
     autoState = st;
-    var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger;
+    var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger && st.remindTrigger;
     var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
     $('autoStatus').innerHTML =
       '每週一 ' + st.vendorHour + ':00 產生下週廠商訂貨單：' + yes(st.vendorTrigger, '已啟用', '未啟用') + '<br>' +
@@ -2369,11 +2372,14 @@
       '每週日 ' + st.maintHour + ':00 備份試算表＋封存舊訂單：' + yes(st.maintTrigger, '已啟用', '未啟用') +
         '（備份保留 ' + st.backupKeep + ' 份；上課日期過了 ' + st.archiveDays + ' 天的訂單搬到「歷史訂單」分頁）<br>' +
       (st.lastMaintTime ? '上次維護：' + esc(st.lastMaintTime) + '　' + esc(st.lastMaintText) + '<br>' : '') +
+      '每週五 ' + st.remindHour + ':00 在 LINE 群組提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
+        '（課表 ' + st.scheduleCount + ' 堂課；老師群組 ' + (st.lineGroupBound ? '<span style="color:var(--ok)">已綁定</span>' : '<span style="color:var(--bad)">未綁定，會先傳給你</span>') + '）' +
+        (st.lastRemindTime ? '　上次提醒：' + esc(st.lastRemindTime) : '') + '<br>' +
       'Email 收件人：' + esc(st.emails.join('、') || '（無）') + '<br>' +
       'LINE：' + yes(st.lineTokenSet, 'Token 已設定', 'Token 未設定') + '　' + yes(st.lineBound, '已綁定', '未綁定') + '<br>' +
       (st.lastVendorUrl ? '上次產生的訂貨單：<a href="' + esc(st.lastVendorUrl) + '" target="_blank" rel="noopener">打開</a>（' + esc(st.lastVendorTime) + '）<br>' : '') +
       '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾，備份在「三信家商餐飲科訂貨系統備份」資料夾。' +
-      (st.vendorTrigger && st.digestTrigger && !st.maintTrigger ? '<br><b style="color:var(--bad)">每週維護是新功能，請按一下「啟用排程」，才會建立週日的排程。</b>' : '');
+      (st.vendorTrigger && st.digestTrigger && (!st.maintTrigger || !st.remindTrigger) ? '<br><b style="color:var(--bad)">有新的排程，請按一下「啟用排程」才會建立。</b>' : '');
     $('aToggle').textContent = on ? '停用排程' : '啟用排程';
   }
   function loadAuto(keepMsg) {
@@ -2398,7 +2404,7 @@
   function notifyText(n) { return n ? '　Email：' + n.email + '；LINE：' + n.line : ''; }
   $('aReload').addEventListener('click', function () { loadAuto(); });
   $('aToggle').addEventListener('click', function () {
-    var enable = !(autoState && autoState.vendorTrigger && autoState.digestTrigger && autoState.maintTrigger);
+    var enable = !(autoState && autoState.vendorTrigger && autoState.digestTrigger && autoState.maintTrigger && autoState.remindTrigger);
     autoCall(this, 'adminSetAutomation', function () { return enable ? '排程已啟用。' : '排程已停用。'; }, enable);
   });
   $('aVendorNow').addEventListener('click', function () {
@@ -2413,6 +2419,15 @@
   $('aMaintNow').addEventListener('click', function () {
     if (!confirm('現在就備份試算表，並把上課日期過了 2 週的訂單搬到「歷史訂單」？')) return;
     autoCall(this, 'adminRunMaintenanceNow', function (r) { return (r.error ? '⚠ ' : '') + r.text + notifyText(r.notify); });
+  });
+  $('aRemindPreview').addEventListener('click', function () {
+    autoCall(this, 'adminRunReminderNow', function (r) {
+      return '（預覽，還沒傳送）\n' + r.text;
+    }, false);
+  });
+  $('aRemindNow').addEventListener('click', function () {
+    if (!confirm('現在就把訂貨提醒傳到 LINE？')) return;
+    autoCall(this, 'adminRunReminderNow', function (r) { return '已傳到' + r.to + '：' + r.teachers + ' 位老師、' + r.lessons + ' 堂課還沒訂。'; }, true);
   });
   $('aTest').addEventListener('click', function () {
     autoCall(this, 'adminTestNotify', function (r) { return '測試通知已送出。' + notifyText(r); });
@@ -2429,7 +2444,9 @@
       $('aBindInfo').innerHTML = '<div class="msg info">' +
         '1. 到 LINE Developers 後台 → Messaging API 分頁 → <b>Webhook URL</b> 填：<br><code style="word-break:break-all">' + esc(r.webhookUrl || '（請先部署網站，再回來按一次）') + '</code><br>並打開「Use webhook」。<br>' +
         '2. 用你的 LINE 傳這則訊息給官方帳號：<b style="font-size:18px">綁定 ' + esc(r.code) + '</b><br>' +
-        '3. 官方帳號回覆「綁定完成」後，按上面的「重新整理」確認。<br>綁定碼 ' + r.minutes + ' 分鐘內有效。</div>';
+        '3. 官方帳號回覆「綁定完成」後，按上面的「重新整理」確認。<br>' +
+        '<b>綁定老師群組（訂貨提醒用）</b>：先把官方帳號邀請進老師的 LINE 群組，在群組裡傳 <b style="font-size:18px">綁定群組 ' + esc(r.code) + '</b>。<br>' +
+        '綁定碼 ' + r.minutes + ' 分鐘內有效，一次只能綁一個（個人或群組），要兩個都綁就再產生一次。</div>';
     }).catch(function (e) { msg('autoMsg', 'error', e.message); })
       .then(function () { setBusy(b, false); });
   });

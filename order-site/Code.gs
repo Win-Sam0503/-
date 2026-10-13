@@ -54,6 +54,7 @@ const AUTO_FOLDER_NAME = '三信家商餐飲科訂貨單';   // 自動產生的�
 const DIGEST_HOUR = 7;                       // 每日摘要信幾點寄
 const VENDOR_ORDER_HOUR = 12;                // 每週一幾點產生下週廠商訂貨單（配合 12:00 截止）
 const LINE_BIND_MINUTES = 30;                // LINE 綁定碼有效時間
+const REMIND_HOUR = 15;                     // 每週五幾點在 LINE 群組提醒還沒訂貨的老師
 const MAINT_HOUR = 23;                       // 每週日幾點做每週維護（先備份、再封存舊訂單）
 const ARCHIVE_AFTER_DAYS = 14;               // 上課日期過了幾天的訂單搬到「歷史訂單」
 const BACKUP_KEEP = 4;                       // 試算表備份保留幾份（每週一份）
@@ -79,6 +80,7 @@ const SHEET = {
   templates: '範本',
   units: '單位',
   history: '歷史訂單',
+  schedule: '課表',
 };
 
 // 需要你在試算表手動新增的欄位（沒有的話網站照常運作，只是對應功能不會存檔）
@@ -1069,7 +1071,7 @@ function deleteTemplateRows_(account, name) {
 // 第一次使用：在 Apps Script 編輯器選函式「setupAutomation」按「執行」並授權，
 // 之後就會每週一中午、每天早上自動執行。也可以在網站「廠商訂貨單」頁管理。
 
-const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance'];
+const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance', 'remindTeachers'];
 
 /** 在編輯器執行一次：授權並建立排程。 */
 function setupAutomation() {
@@ -1088,6 +1090,8 @@ function setTriggers_(enabled) {
     .everyDays(1).atHour(DIGEST_HOUR).inTimezone(tz_()).create();
   ScriptApp.newTrigger('weeklyMaintenance').timeBased()
     .onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(MAINT_HOUR).inTimezone(tz_()).create();
+  ScriptApp.newTrigger('remindTeachers').timeBased()
+    .onWeekDay(ScriptApp.WeekDay.FRIDAY).atHour(REMIND_HOUR).inTimezone(tz_()).create();
 }
 
 function automationStatus_() {
@@ -1097,6 +1101,11 @@ function automationStatus_() {
     vendorTrigger: handlers.indexOf('autoVendorOrders') >= 0,
     digestTrigger: handlers.indexOf('dailyDigest') >= 0,
     maintTrigger: handlers.indexOf('weeklyMaintenance') >= 0,
+    remindTrigger: handlers.indexOf('remindTeachers') >= 0,
+    remindHour: REMIND_HOUR,
+    lineGroupBound: !!props.getProperty('LINE_GROUP'),
+    scheduleCount: scheduleCount_(),
+    lastRemindTime: props.getProperty('LAST_REMIND_TIME') || '',
     lastMaintTime: props.getProperty('LAST_MAINT_TIME') || '',
     lastMaintText: props.getProperty('LAST_MAINT_TEXT') || '',
     maintHour: MAINT_HOUR,
@@ -1137,6 +1146,12 @@ function weeklyMaintenance(e) {
   runMaintenance_();
 }
 
+// 排程：每週五下午在老師的 LINE 群組提醒下週還沒訂貨的課
+function remindTeachers(e) {
+  if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
+  runReminder_(true);
+}
+
 // ---- 管理者在網站上操作 ----
 
 function adminGetAutomation(token) {
@@ -1158,6 +1173,12 @@ function adminRunVendorNow(token) {
 function adminRunMaintenanceNow(token) {
   auth_(token, true);
   return runMaintenance_();
+}
+
+/** send = false 只預覽提醒內容，不傳送 */
+function adminRunReminderNow(token, send) {
+  auth_(token, true);
+  return runReminder_(!!send);
 }
 
 function adminRunDigestNow(token) {
@@ -1208,12 +1229,22 @@ function doPost(e) {
     const lineToken = props.getProperty('LINE_TOKEN');
     (body.events || []).forEach(function (ev) {
       if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !lineToken) return;
-      const m = String(ev.message.text).trim().match(/^綁定\s*(\d{6})$/);
+      const m = String(ev.message.text).trim().match(/^綁定\s*(群組)?\s*(\d{6})$/);
       if (!m) return;
       const cache = CacheService.getScriptCache();
       const code = cache.get('lineBind');
       let reply;
-      if (code && code === m[1]) {
+      const group = ev.source && (ev.source.groupId || ev.source.roomId);
+      if (code && code === m[2] && m[1]) {
+        // 「綁定群組 123456」：在老師的 LINE 群組裡傳，之後訂貨提醒會傳到這個群組
+        if (!group) {
+          reply = '「綁定群組」要在老師的 LINE 群組裡傳。傳給我個人請用「綁定 ' + m[2] + '」。';
+        } else {
+          props.setProperty('LINE_GROUP', group);
+          cache.remove('lineBind');
+          reply = '群組綁定完成！每週五下午會在這裡提醒還沒訂貨的老師。';
+        }
+      } else if (code && code === m[2]) {
         const to = ev.source && (ev.source.groupId || ev.source.roomId || ev.source.userId);
         props.setProperty('LINE_TO', to);
         cache.remove('lineBind');
@@ -1500,6 +1531,85 @@ function readConvertedDoc_(id, ocr) {
     }
   }
   return { kind: ocr ? 'ocr' : 'doc', tables: tables, text: lines.slice(0, 600).join('\n') };
+}
+
+// ---- 訂貨提醒（依「課表」分頁） ----
+
+/** 讀課表：[{ day: 0~4（週一~週五）, session: '上午'|'下午', room, course, periods, className, teacher, note }]，只取要訂貨、有老師的課 */
+function readSchedule_() {
+  const sh = ss_().getSheetByName(SHEET.schedule);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return readTable_(SHEET.schedule, ['星期', '時段', '老師']).rows.map(function (r) {
+    return {
+      day: '一二三四五'.indexOf(String(r['星期']).replace(/星期|週/g, '').trim()),
+      session: String(r['時段']).trim(),
+      room: String(r['教室'] || '').trim(),
+      course: String(r['課程'] || '').trim(),
+      className: String(r['班級'] || '').trim(),
+      teacher: String(r['老師']).trim(),
+      need: r['需要訂貨'] === undefined || r['需要訂貨'] === '' || isTrue_(r['需要訂貨']),
+    };
+  }).filter(function (x) {
+    return x.need && x.teacher && x.day >= 0 && (x.session === '上午' || x.session === '下午') && !/國技|預留/.test(x.course);
+  });
+}
+
+function scheduleCount_() {
+  try { return readSchedule_().length; } catch (e) { return 0; }
+}
+
+/**
+ * 找出下週（週一～週五）課表上有課、但還沒有訂單的老師。
+ * 有訂單 = 同一位老師（代訂的算被代訂的老師）、同一天、同一個上午／下午，而且沒有取消。
+ */
+function runReminder_(send) {
+  const sched = readSchedule_();
+  if (!sched.length) throw new Error('「課表」分頁沒有資料。');
+  // 提醒的是「下一個截止」管的那一週：例如週五 10/16 提醒的是 10/26～10/30（10/19 週一中午截止）
+  const now = new Date();
+  const from = earliestClassDate_(now);
+  const r = { from: from, to: addDays_(from, 4) };
+  const deadline = addDays_(from, -7 + (LOCK_WEEKDAY - 1));
+  const have = {};
+  ordersBetween_(r.from, r.to).forEach(function (o) {
+    if (o.status === '已取消') return;
+    const who = o.onBehalfOf || o.teacher;
+    const ses = String(o.classTime).indexOf('下午') === 0 ? '下午' : '上午';
+    have[who + '|' + o.useDate + '|' + ses] = true;
+  });
+  const missing = {};
+  let total = 0;
+  sched.forEach(function (x) {
+    const d = addDays_(r.from, x.day);
+    if (have[x.teacher + '|' + dateStr_(d) + '|' + x.session]) return;
+    (missing[x.teacher] = missing[x.teacher] || []).push('週' + '一二三四五'.charAt(x.day) + x.session + ' ' + x.course + (x.className ? ' ' + x.className : ''));
+    total++;
+  });
+  const range = shortDateTw_(r.from) + '～' + shortDateTw_(r.to);
+  const teachers = Object.keys(missing);
+  const text = teachers.length
+    ? '【訂貨提醒】' + range + ' 還沒訂貨的課（共 ' + total + ' 堂）：\n' +
+      teachers.map(function (t) { return '・' + t + '：' + missing[t].join('、'); }).join('\n') +
+      '\n\n請在 ' + shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 前上網訂貨，不用訂貨的課可以忽略。' + (webAppUrl_() ? '\n' + webAppUrl_() : '')
+    : '【訂貨提醒】' + range + ' 課表上的課都已經訂貨了，謝謝各位老師！';
+  const out = { text: text, teachers: teachers.length, lessons: total, sent: false, to: '' };
+  if (!send) return out;
+
+  const props = PropertiesService.getScriptProperties();
+  const lineToken = props.getProperty('LINE_TOKEN');
+  const group = props.getProperty('LINE_GROUP');
+  const to = group || props.getProperty('LINE_TO');
+  if (!lineToken || !to) throw new Error('還沒設定 LINE，請先在「自動化」設定並綁定群組。');
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + lineToken },
+    payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: (group ? '' : '（還沒綁定老師群組，先傳給你）\n') + text.slice(0, 4800) }] }),
+  });
+  if (res.getResponseCode() !== 200) throw new Error('LINE 傳送失敗（錯誤碼 ' + res.getResponseCode() + '）。');
+  props.setProperty('LAST_REMIND_TIME', fmtDateTime_(new Date()));
+  out.sent = true;
+  out.to = group ? '老師群組' : '你的 LINE（還沒綁定群組）';
+  return out;
 }
 
 /** 只傳 LINE（沒綁定就不傳）。 */
