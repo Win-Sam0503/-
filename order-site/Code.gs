@@ -105,10 +105,9 @@ function doGet() {
     .evaluate()
     .setTitle(SITE_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    // 「加到主畫面」後像 App 一樣全螢幕打開，圖示下的名字用短的
+    // 「加到主畫面」後像 App 一樣全螢幕打開（Apps Script 不允許設定主畫面名稱，加的時候可以自己改）
     .addMetaTag('mobile-web-app-capable', 'yes')
-    .addMetaTag('apple-mobile-web-app-capable', 'yes')
-    .addMetaTag('apple-mobile-web-app-title', '餐飲科訂貨');
+    .addMetaTag('apple-mobile-web-app-capable', 'yes');
 }
 
 // =====================================================================
