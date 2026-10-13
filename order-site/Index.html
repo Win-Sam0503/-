@@ -425,7 +425,8 @@
     <section id="viewLessons" class="hidden">
       <div class="panel">
         <h2 style="margin:0">我的課 <button type="button" class="btn ghost small" id="reloadLessons">重新整理</button></h2>
-        <div class="muted small">依學校課表和你自己新增的課列出接下來的課。沒訂貨的課會在每週五的 LINE 群組提醒；不用訂貨的課按「不用訂貨」就不會再被提醒。</div>
+        <div class="muted small">依學校課表和你自己新增的課列出接下來的課。沒訂貨的課會在每週五下午用 LINE 私訊提醒你；不用訂貨的課按「不用訂貨」就不會再被提醒。</div>
+        <div id="lessonsLine" class="small" style="margin-top:8px"></div>
       </div>
       <div id="lessonsMsg"></div>
       <div id="lessonsList"></div>
@@ -546,6 +547,7 @@
           <div><label for="aLineToken">Channel access token</label><input id="aLineToken" type="password" autocomplete="off" placeholder="貼上後按儲存（不會顯示在畫面上）"></div>
           <button type="button" class="btn secondary small" id="aLineSave">儲存</button>
           <button type="button" class="btn ghost small" id="aLineBind">產生綁定碼</button>
+          <button type="button" class="btn ghost small" id="aRichMenu">設定官方帳號選單</button>
         </div>
         <div id="aBindInfo" class="small" style="margin-top:8px"></div>
       </div>
@@ -2416,6 +2418,7 @@
   var autoState = null;
   function renderAuto(st) {
     autoState = st;
+    var ln = st.line || { teachersBound: [], quota: null, richMenu: '' };
     var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger && st.remindTrigger;
     var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
     $('autoStatus').innerHTML =
@@ -2424,11 +2427,15 @@
       '每週日 ' + st.maintHour + ':00 備份試算表＋封存舊訂單：' + yes(st.maintTrigger, '已啟用', '未啟用') +
         '（備份保留 ' + st.backupKeep + ' 份；上課日期過了 ' + st.archiveDays + ' 天的訂單搬到「歷史訂單」分頁）<br>' +
       (st.lastMaintTime ? '上次維護：' + esc(st.lastMaintTime) + '　' + esc(st.lastMaintText) + '<br>' : '') +
-      '每週五 ' + st.remindHour + ':00 在 LINE 群組提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
-        '（課表 ' + st.scheduleCount + ' 堂課；老師群組 ' + (st.lineGroupBound ? '<span style="color:var(--ok)">已綁定</span>' : '<span style="color:var(--bad)">未綁定，會先傳給你</span>') + '）' +
+      '每週五 ' + st.remindHour + ':00 用 LINE 私訊提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
+        '（課表 ' + st.scheduleCount + ' 堂課）' +
         (st.lastRemindTime ? '　上次提醒：' + esc(st.lastRemindTime) : '') + '<br>' +
+      '已綁定 LINE 的老師（' + ln.teachersBound.length + ' 位）：' + esc(ln.teachersBound.join('、') || '（還沒有）') + '<br>' +
+      '本月 LINE 則數：' + (ln.quota ? (ln.quota.limit ? '已用 ' + ln.quota.used + '／' + ln.quota.limit + ' 則' +
+        (ln.quota.limit - ln.quota.used < 40 ? ' <b style="color:var(--bad)">快用完了</b>' : '') + '（剩不到 ' + st.lineReserve + ' 則時自動停止私訊老師）' : '已用 ' + ln.quota.used + ' 則（無上限）') : '查不到（Token 未設定）') + '<br>' +
+      '官方帳號選單：' + yes(!!ln.richMenu, '已設定', '未設定') + '<br>' +
       'Email 收件人：' + esc(st.emails.join('、') || '（無）') + '<br>' +
-      'LINE：' + yes(st.lineTokenSet, 'Token 已設定', 'Token 未設定') + '　' + yes(st.lineBound, '已綁定', '未綁定') + '<br>' +
+      'LINE（你自己收通知）：' + yes(st.lineTokenSet, 'Token 已設定', 'Token 未設定') + '　' + yes(st.lineBound, '已綁定', '未綁定') + '<br>' +
       (st.lastVendorUrl ? '上次產生的訂貨單：<a href="' + esc(st.lastVendorUrl) + '" target="_blank" rel="noopener">打開</a>（' + esc(st.lastVendorTime) + '）<br>' : '') +
       '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾，備份在「三信家商餐飲科訂貨系統備份」資料夾。' +
       (st.vendorTrigger && st.digestTrigger && (!st.maintTrigger || !st.remindTrigger) ? '<br><b style="color:var(--bad)">有新的排程，請按一下「啟用排程」才會建立。</b>' : '');
@@ -2474,12 +2481,17 @@
   });
   $('aRemindPreview').addEventListener('click', function () {
     autoCall(this, 'adminRunReminderNow', function (r) {
-      return '（預覽，還沒傳送）\n' + r.text;
+      return '（預覽，還沒傳送）\n' + r.text + (r.preview ? '\n\n老師會收到像這樣的私訊：\n' + r.preview : '') +
+        (r.bound.length ? '\n\n會用掉 ' + (r.bound.length + 1) + ' 則（' + r.bound.length + ' 位老師＋給你的總結）。' : '');
     }, false);
   });
   $('aRemindNow').addEventListener('click', function () {
-    if (!confirm('現在就把訂貨提醒傳到 LINE？')) return;
-    autoCall(this, 'adminRunReminderNow', function (r) { return '已傳到' + r.to + '：' + r.teachers + ' 位老師、' + r.lessons + ' 堂課還沒訂。'; }, true);
+    if (!confirm('現在就用 LINE 私訊提醒還沒訂貨的老師？（每位老師算 1 則）')) return;
+    autoCall(this, 'adminRunReminderNow', function (r) {
+      return '已私訊 ' + r.to + '：' + r.teachers + ' 位老師、' + r.lessons + ' 堂課還沒訂。' +
+        (r.unbound.length ? '\n沒綁定 LINE（沒收到）：' + r.unbound.join('、') : '') +
+        (r.skipped.length ? '\n⚠ 則數不夠或傳送失敗，沒私訊：' + r.skipped.join('、') : '');
+    }, true);
   });
   $('aTest').addEventListener('click', function () {
     autoCall(this, 'adminTestNotify', function (r) { return '測試通知已送出。' + notifyText(r); });
@@ -2497,10 +2509,15 @@
         '1. 到 LINE Developers 後台 → Messaging API 分頁 → <b>Webhook URL</b> 填：<br><code style="word-break:break-all">' + esc(r.webhookUrl || '（請先部署網站，再回來按一次）') + '</code><br>並打開「Use webhook」。<br>' +
         '2. 用你的 LINE 傳這則訊息給官方帳號：<b style="font-size:18px">綁定 ' + esc(r.code) + '</b><br>' +
         '3. 官方帳號回覆「綁定完成」後，按上面的「重新整理」確認。<br>' +
-        '<b>綁定老師群組（訂貨提醒用）</b>：先把官方帳號邀請進老師的 LINE 群組，在群組裡傳 <b style="font-size:18px">綁定群組 ' + esc(r.code) + '</b>。<br>' +
-        '綁定碼 ' + r.minutes + ' 分鐘內有效，一次只能綁一個（個人或群組），要兩個都綁就再產生一次。</div>';
+        '這是<b>你自己</b>收通知（每日摘要、訂貨單）用的；老師請他們登入網站 →「我的課」→「綁定我的 LINE」自己綁。<br>' +
+        '綁定碼 ' + r.minutes + ' 分鐘內有效。</div>';
     }).catch(function (e) { msg('autoMsg', 'error', e.message); })
       .then(function () { setBusy(b, false); });
+  });
+
+  $('aRichMenu').addEventListener('click', function () {
+    if (!confirm('在官方帳號建立 4 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明）？\n這個不會用到則數。')) return;
+    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。'; });
   });
 
   // ------------------------------------------------------------------
@@ -3231,6 +3248,32 @@
     return call('getMyLessons', token).then(function (r) { renderLessons(r, note); })
       .catch(function (e) { msg('lessonsMsg', 'error', '載入失敗：' + e.message); });
   }
+  function renderLessonLine(line) {
+    var box = $('lessonsLine');
+    if (!line || !line.enabled) { box.innerHTML = ''; return; }
+    box.innerHTML = line.bound
+      ? '<span style="color:var(--ok)">✓ 已綁定 LINE</span>，週五下午會私訊提醒你沒訂貨的課。 ' +
+        '<button type="button" class="btn ghost small" id="lineUnbind">解除綁定</button>'
+      : '<span style="color:var(--muted)">還沒綁定 LINE</span>，綁定後週五下午會私訊提醒你沒訂貨的課。 ' +
+        '<button type="button" class="btn secondary small" id="lineBindMe">綁定我的 LINE</button>';
+    var bind = $('lineBindMe'), unbind = $('lineUnbind');
+    if (bind) bind.addEventListener('click', function () {
+      setBusy(bind, true);
+      call('myLineBindCode', token).then(function (c) {
+        box.innerHTML = '<div class="msg info">' +
+          '1. 先加官方帳號好友：' + (c.friendUrl ? '<a href="' + esc(c.friendUrl) + '" target="_blank" rel="noopener">點這裡加好友</a>' : '請向管理者索取官方帳號 QR code') + '<br>' +
+          '2. 在官方帳號的聊天室傳：<b style="font-size:20px">綁定 ' + esc(c.code) + '</b><br>' +
+          '3. 收到「綁定完成」後，按上面的「重新整理」。<br>' +
+          '<span class="muted">綁定碼 ' + c.minutes + ' 分鐘內有效。</span></div>';
+      }).catch(function (e) { msg('lessonsMsg', 'error', e.message); setBusy(bind, false); });
+    });
+    if (unbind) unbind.addEventListener('click', function () {
+      if (!confirm('解除後就不會收到 LINE 提醒了，確定？')) return;
+      setBusy(unbind, true);
+      call('myLineUnbind', token).then(function () { renderLessonLine({ enabled: true, bound: false }); })
+        .catch(function (e) { msg('lessonsMsg', 'error', e.message); setBusy(unbind, false); });
+    });
+  }
   function renderLessons(r, note) {
     lessonsCache = r;
     setLessonCount(r.nextWeek.todo);
@@ -3239,6 +3282,7 @@
       ? '下一個截止是 ' + nw.deadline + '：' + shortDate(nw.from) + '～' + shortDate(nw.to) + ' 還有 ' + nw.todo + ' 堂課未訂貨。'
       : shortDate(nw.from) + '～' + shortDate(nw.to) + ' 的課都處理好了（截止 ' + nw.deadline + '）。';
     msg('lessonsMsg', nw.todo ? 'info' : 'ok', (note ? note + '　' : '') + head);
+    renderLessonLine(r.line);
     if (!r.lessons.length) {
       $('lessonsList').innerHTML = '<div class="panel muted">接下來 30 天沒有找到你的課。如果有夜間部或其他課，請在下面「我自己新增的課」加上去。</div>';
     } else {
