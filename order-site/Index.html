@@ -483,6 +483,7 @@
         <div class="grid2">
           <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
+          <div><label for="sTeacher">查詢老師</label><select id="sTeacher"><option value="">全部老師</option></select></div>
           <div style="display:flex;align-items:flex-end;gap:8px">
             <label class="check" style="margin-bottom:10px"><input type="checkbox" id="sHideCancel" checked> 不含已取消</label>
             <button type="button" class="btn" id="sLoad">查詢</button>
@@ -1608,11 +1609,25 @@
     }).catch(function (e) { msg('sumMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
   }
+  // 「查詢老師」選單：列出這段期間有訂單的老師（上課老師和操作老師都算），保留目前選的
+  function fillTeacherFilter() {
+    var sel = $('sTeacher'), cur = sel.value, names = {};
+    sumCache.forEach(function (o) { names[teacherOf(o)] = 1; if (o.teacher) names[o.teacher] = 1; });
+    if (cur) names[cur] = 1;
+    var list = Object.keys(names).filter(Boolean).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+    sel.innerHTML = '<option value="">全部老師</option>' + list.map(function (n) {
+      return '<option' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>';
+    }).join('');
+  }
   function renderSummary() {
     var hideCancel = $('sHideCancel').checked;
-    var list = sumCache.filter(function (o) { return !hideCancel || o.status !== '已取消'; });
+    fillTeacherFilter();
+    var who = $('sTeacher').value;
+    var list = sumCache.filter(function (o) {
+      return (!hideCancel || o.status !== '已取消') && (!who || o.teacher === who || o.onBehalfOf === who);
+    });
     if (!list.length) {
-      msg('sumMsg', 'info', '這段期間沒有訂單。');
+      msg('sumMsg', 'info', who ? who + ' 老師這段期間沒有訂單。' : '這段期間沒有訂單。');
       $('sumVendors').innerHTML = ''; $('sumOrders').innerHTML = '';
       return;
     }
@@ -1665,7 +1680,7 @@
         }).join('') + '</tbody></table></div></div>';
     }
     $('sumVendors')._data = byVendor;
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">各張訂單（' + list.length + ' 張）</h2></div>' +
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的訂單' : '各張訂單') + '（' + list.length + ' 張）</h2></div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
@@ -1832,6 +1847,7 @@
     });
   }
   $('sHideCancel').addEventListener('change', renderSummary);
+  $('sTeacher').addEventListener('change', renderSummary);
 
   $('sumVendors').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-copy]');
