@@ -97,7 +97,11 @@ function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle(SITE_TITLE)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    // 「加到主畫面」後像 App 一樣全螢幕打開，圖示下的名字用短的
+    .addMetaTag('mobile-web-app-capable', 'yes')
+    .addMetaTag('apple-mobile-web-app-capable', 'yes')
+    .addMetaTag('apple-mobile-web-app-title', '餐飲科訂貨');
 }
 
 // =====================================================================
@@ -751,7 +755,35 @@ function adminUpdateOrder(token, orderNo, changes) {
     t.rows.forEach(function (r) { if (String(r['訂單編號']).trim() === orderNo) byRow[r._row] = r; });
     if (!Object.keys(byRow).length) throw new Error('找不到訂單 ' + orderNo + '。');
     let catalog = null, vendorGroups = null;
+    // 食材總表沒有的食材：先新增到食材總表，再當一般食材處理
     changes.forEach(function (c) {
+      if (c.kind === 'food' && !c.itemId && c.newItem && !c.cancel) c.itemId = createItem_(c.newItem);
+    });
+    // 新增的品項：先用這張訂單的上課資訊新增一列，再跟其他列一樣套用修改
+    const adds = changes.filter(function (c) { return c.add && !c.cancel; });
+    if (adds.length) {
+      const any = t.rows.find(function (r) { return String(r['訂單編號']).trim() === orderNo; });
+      const keep = ['訂單編號', '送出時間', '使用日期', '星期', '操作老師', '代訂對象老師', '科別', '上課時間', '上課教室', '上課班級', '實作項目', '組數', '狀態'];
+      const status = ['已取消'].indexOf(String(any['狀態']).trim()) >= 0 ? '待處理' : String(any['狀態']).trim();
+      const rowsToAdd = adds.map(function (c) {
+        const o = {};
+        keep.forEach(function (k) { o[k] = any[k]; });
+        o['狀態'] = status;
+        o['食材ID'] = TOOL_ID; o['食材名稱'] = clean_(c.name, 40) || '新品項'; o['廠商'] = TOOL_ID; o['數量'] = 1;
+        return o;
+      });
+      const start = t.sheet.getLastRow() + 1;
+      appendRows_(SHEET.orders, rowsToAdd, { '送出時間': 'yyyy/mm/dd hh:mm:ss', '使用日期': 'yyyy-mm-dd' });
+      SpreadsheetApp.flush();
+      const t2 = readTable_(SHEET.orders, ['訂單編號', '數量', '單位', '狀態']);
+      adds.forEach(function (c, i) {
+        const r = t2.rows.find(function (x) { return x._row === start + i; });
+        byRow[r._row] = r; c.row = r._row;
+      });
+      t.sheet = t2.sheet; t.cols = t2.cols;
+    }
+    changes.forEach(function (c) {
+      if (c.add && c.cancel) return;
       const r = byRow[Number(c.row)];
       if (!r) throw new Error('訂單明細已變動，請重新整理後再改。');
       let name = String(r['食材名稱'] || '');
@@ -830,6 +862,46 @@ function adminGetPending(token) {
  * decision: 'approve' 加入食材總表；'map' 對應到既有食材（edits.existingId）；'reject' 退回。
  * edits: { name, vendor, unit, existingId }
  */
+/** 新增一筆食材到食材總表，回傳新的 I 編號。名稱重複時丟出 dupMessage。 */
+function createItem_(it, dupMessage) {
+  const name = clean_(it.name, 40);
+  const vendor = clean_(it.vendor, 20);
+  if (!name) throw new Error('請填寫食材名稱。');
+  if (!vendor) throw new Error('請選擇「' + name + '」的廠商。');
+  const items = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+  if (items.rows.some(function (r) { return String(r['食材名稱']).trim() === name; })) {
+    throw new Error(dupMessage || '食材總表已經有「' + name + '」。');
+  }
+  let max = 0;
+  items.rows.forEach(function (r) {
+    const m = String(r['食材ID']).match(/^I(\d+)$/);
+    if (m) max = Math.max(max, Number(m[1]));
+  });
+  const id = 'I' + ('0000' + (max + 1)).slice(-4);
+  const unit = it.unit ? normUnit_(clean_(it.unit, 10)) : '';
+  appendRows_(SHEET.items, [{
+    '食材ID': id, '食材名稱': name, '別名': clean_(it.alias, 100), '廠商': vendor,
+    '科別': clean_(it.dept, 20) || '通用', '單位': unit, '適用組別': '全部', '啟用': true,
+  }]);
+  clearItemsCache_();
+  return id;
+}
+
+/** 管理者在網站上新增食材（不用打開試算表）。item: { name, alias, vendor, dept, unit } */
+function adminAddItem(token, item) {
+  auth_(token, true);
+  item = item || {};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const id = createItem_(item);
+    SpreadsheetApp.flush();
+    return cachedItems_().find(function (x) { return x.id === id; }) || { id: id, name: clean_(item.name, 40) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function adminReviewItem(token, row, decision, edits) {
   auth_(token, true);
   edits = edits || {};
@@ -852,21 +924,8 @@ function adminReviewItem(token, row, decision, edits) {
       const vendor = clean_(edits.vendor, 20) || String(rec['廠商'] || '').trim();
       const unit = clean_(edits.unit, 10) || String(rec['單位'] || '').trim();
       if (!vendor) throw new Error('請選擇廠商。');
-      const items = readTable_(SHEET.items, ['食材ID', '食材名稱']);
-      if (items.rows.some(function (r) { return String(r['食材名稱']).trim() === name; })) {
-        throw new Error('食材總表已經有「' + name + '」，請改用「對應既有食材」。');
-      }
-      let max = 0;
-      items.rows.forEach(function (r) {
-        const m = String(r['食材ID']).match(/^I(\d+)$/);
-        if (m) max = Math.max(max, Number(m[1]));
-      });
-      const id = 'I' + ('0000' + (max + 1)).slice(-4);
-      appendRows_(SHEET.items, [{
-        '食材ID': id, '食材名稱': name, '別名': name === origName ? '' : origName, '廠商': vendor,
-        '科別': '通用', '單位': unit, '適用組別': '全部', '啟用': true,
-      }]);
-      clearItemsCache_();
+      const id = createItem_({ name: name, alias: name === origName ? '' : origName, vendor: vendor, unit: unit },
+        '食材總表已經有「' + name + '」，請改用「對應既有食材」。');
       fixOrderLines_(orderNo, origName, { id: id, name: name, vendor: vendor });
       result = '已核准（' + id + '）';
     } else if (decision === 'map') {

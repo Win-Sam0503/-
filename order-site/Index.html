@@ -519,6 +519,18 @@
         <div class="muted small">核准會把食材加入食材總表並給新的食材 ID；如果其實已有這個食材，請用「對應既有食材」。兩種方式都會更新原訂單的食材資料。</div>
       </div>
       <div id="pendMsg"></div>
+      <div class="panel" id="addItemPanel">
+        <h2>新增食材到食材總表 <span class="muted small" style="font-weight:normal">只有管理者看得到</span></h2>
+        <div class="newform">
+          <div><label for="aiName">食材名稱 <span class="req">*</span></label><input id="aiName" type="text" maxlength="40"></div>
+          <div><label for="aiAlias">別名（逗號分隔）</label><input id="aiAlias" type="text" maxlength="100" placeholder="例：番薯粉"></div>
+          <div><label for="aiVendor">廠商 <span class="req">*</span></label><select id="aiVendor"></select></div>
+          <div><label for="aiDept">科別</label><select id="aiDept"></select></div>
+          <div><label for="aiUnit">預設單位</label><input id="aiUnit" type="text" class="unit-input" autocomplete="off" maxlength="10" placeholder="選填"></div>
+          <button type="button" class="btn small" id="aiSave">新增</button>
+        </div>
+        <div id="aiMsg" class="small" style="margin-top:6px"></div>
+      </div>
       <div id="pendUnits"></div>
       <div id="pendList"></div>
     </section>
@@ -765,7 +777,7 @@
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
-    if (view === 'viewPending') loadPending(note);
+    if (view === 'viewPending') { fillAddItemForm(); loadPending(note); }
     if (view === 'viewPassword') resetPwForm();
     if (view === 'viewVendor') loadAuto();
     if (view === 'viewVendor' && !$('vFrom').value) {
@@ -1614,14 +1626,20 @@
     else if (act === 'edit') openEditor(o, b.closest('.order'));
     else if (act === 'edit-cancel') renderSummary();
     else if (act === 'edit-save') saveEditor(o, b);
+    else if (act === 'edit-add') {
+      var tbody = b.closest('.order').querySelector('.edit-table tbody');
+      tbody.insertAdjacentHTML('beforeend', editRowHtml({ id: '', name: '', qty: '', unit: '', note: '', noOrder: false, status: '', vendor: '' }, true));
+      var tr = tbody.lastElementChild;
+      syncEditRow(tr);
+      tr.querySelector('[data-f="name"]').focus();
+    }
   });
 
   // 管理者修改訂單明細
-  function openEditor(o, card) {
-    var rows = o.items.map(function (it) {
+  function editRowHtml(it, isNew) {
       var isTool = it.id === TOOL;
       // 品項可以改名（從食材總表選）或在「食材／器具」之間切換
-      return '<tr data-row="' + it.row + '" data-kind="' + (isTool ? 'tool' : 'food') + '"><td>' +
+      return '<tr data-row="' + (isNew ? 'new' : it.row) + '"' + (isNew ? ' data-new="1"' : '') + '><td>' +
         '<div style="display:flex;gap:4px;align-items:center"><select data-f="kind" aria-label="食材或器具" style="width:auto;padding:4px 6px">' +
           '<option value="food"' + (isTool ? '' : ' selected') + '>食材</option><option value="tool"' + (isTool ? ' selected' : '') + '>器具</option></select>' +
           '<input type="text" data-f="name" maxlength="40" value="' + esc(it.name) + '" aria-label="品項名稱"' + (isTool ? '' : ' list="editItems"') + ' style="min-width:120px"></div>' +
@@ -1631,15 +1649,47 @@
         '<td><input type="text" data-f="note" maxlength="100" value="' + esc(it.note) + '"></td>' +
         '<td class="c food-only"><input type="checkbox" data-f="noOrder"' + (it.noOrder ? ' checked' : '') + '></td>' +
         '<td class="c"><input type="checkbox" data-f="cancel"' + (it.status === '已取消' ? ' checked disabled' : '') + '></td></tr>';
-    }).join('');
+  }
+  function openEditor(o, card) {
+    var rows = o.items.map(function (it) { return editRowHtml(it, false); }).join('');
     card.innerHTML = '<div class="head"><b>修改明細：' + esc(o.project) + '</b><span class="muted small">' + esc(o.orderNo) + '</span></div>' +
       '<datalist id="editItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>' +
       '<div class="tablewrap"><table class="edit-table" data-dept="' + esc(o.dept) + '"><thead><tr><th>品項（食材／器具）</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱。</div>' +
+      '<button type="button" class="btn ghost small" data-act="edit-add" data-no="' + esc(o.orderNo) + '" style="margin-top:6px">＋ 新增品項</button>' +
+      '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱；食材總表沒有的，選好廠商後會自動加入食材總表。</div>' +
       '<div class="actions"><button type="button" class="btn ghost small" data-act="edit-cancel" data-no="' + esc(o.orderNo) + '">取消</button>' +
       '<button type="button" class="btn small" data-act="edit-save" data-no="' + esc(o.orderNo) + '">儲存修改</button></div>';
     Array.prototype.forEach.call(card.querySelectorAll('.edit-table tr[data-row]'), syncEditRow);
   }
+  // 食材總表有新增時，重新取得食材清單（搜尋、帶入檔案都會用到）
+  function refreshItems() {
+    return call('getBootstrap', token).then(function (d) {
+      data.items = d.items; data.vendors = d.vendors;
+      itemById = {}; data.items.forEach(function (it) { itemById[it.id] = it; });
+      catKeys = null;
+      renderResults();
+    }).catch(function () {});
+  }
+  function fillAddItemForm() {
+    $('aiVendor').innerHTML = '<option value="">請選擇</option>' + data.vendors.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
+    $('aiDept').innerHTML = ['通用'].concat(data.departments).map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('');
+  }
+  $('aiSave').addEventListener('click', function () {
+    var name = $('aiName').value.trim();
+    if (!name) { $('aiMsg').innerHTML = '<span style="color:var(--bad)">請填寫食材名稱。</span>'; return; }
+    if (itemByNameExact(name)) { $('aiMsg').innerHTML = '<span style="color:var(--bad)">食材總表已經有「' + esc(name) + '」。</span>'; return; }
+    if (!$('aiVendor').value) { $('aiMsg').innerHTML = '<span style="color:var(--bad)">請選擇廠商。</span>'; return; }
+    var unit = $('aiUnit').value.trim();
+    if (unit && !validUnit(unit)) { $('aiMsg').innerHTML = '<span style="color:var(--bad)">單位請從清單選擇，或留空。</span>'; return; }
+    var b = this;
+    setBusy(b, true, '新增中…');
+    call('adminAddItem', token, { name: name, alias: $('aiAlias').value.trim(), vendor: $('aiVendor').value, dept: $('aiDept').value, unit: validUnit(unit) }).then(function (it) {
+      $('aiMsg').innerHTML = '<span style="color:var(--ok)">已新增「' + esc(name) + '」（' + esc(it.id) + '），老師現在就搜尋得到。</span>';
+      $('aiName').value = ''; $('aiAlias').value = ''; $('aiUnit').value = '';
+      refreshItems();
+    }).catch(function (e) { $('aiMsg').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>'; })
+      .then(function () { setBusy(b, false); });
+  });
   function itemByNameExact(name) {
     name = String(name || '').trim();
     return name ? data.items.find(function (it) { return it.name === name; }) || null : null;
@@ -1651,10 +1701,19 @@
     if (tool) nameEl.removeAttribute('list'); else nameEl.setAttribute('list', 'editItems');
     Array.prototype.forEach.call(tr.querySelectorAll('.food-only'), function (td) { td.style.visibility = tool ? 'hidden' : ''; });
     var cat = tool ? null : itemByNameExact(nameEl.value);
+    var unknown = !tool && !cat && nameEl.value.trim();
+    var vn = tr.querySelector('[data-f="vendorNote"]');
+    if (unknown) {
+      var cur = tr.querySelector('[data-f="newVendor"]');
+      var picked = cur ? cur.value : '';
+      vn.innerHTML = '<span style="color:var(--warn)">食材總表沒有，儲存時會新增。廠商：</span><select data-f="newVendor" style="width:auto;padding:3px 6px"><option value="">請選擇</option>' +
+        data.vendors.map(function (v) { return '<option' + (v === picked ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') + '</select>';
+      return;
+    }
     var dept = tr.closest('table').getAttribute('data-dept');
     var split = cat && data.vendorSplit && data.vendorSplit[cat.vendor];
     var vendor = !cat ? '' : !split ? cat.vendor : (data.bakingDepts || []).indexOf(dept) >= 0 ? split.baking : split.other;
-    tr.querySelector('[data-f="vendorNote"]').textContent = tool ? '' : cat ? vendor : '請從清單選擇食材';
+    vn.textContent = tool ? '' : cat ? vendor : '請從清單選擇或輸入食材名稱';
   }
   document.addEventListener('change', function (e) {
     var tr = e.target.closest && e.target.closest('.edit-table tr[data-row]');
@@ -1665,14 +1724,17 @@
     var changes = [];
     var err = '';
     Array.prototype.forEach.call(card.querySelectorAll('tr[data-row]'), function (tr) {
-      var it = o.items.find(function (x) { return String(x.row) === tr.getAttribute('data-row'); });
+      var isAdd = tr.hasAttribute('data-new');
+      var it = isAdd ? { id: TOOL, name: '', qty: NaN, unit: '', note: '', noOrder: false, status: '' }
+        : o.items.find(function (x) { return String(x.row) === tr.getAttribute('data-row'); });
       var get = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return el ? (el.type === 'checkbox' ? el.checked : el.value) : null; };
       if (it.status === '已取消') return;
+      if (isAdd && (get('cancel') || (!String(get('name') || '').trim() && !String(get('qty') || '').trim()))) return;   // 空白或打勾刪除的新列不存
       var wasTool = it.id === TOOL;
       var kind = get('kind') || (wasTool ? 'tool' : 'food');
       var isTool = kind === 'tool';
       var name = String(get('name') || '').trim();
-      var c = { row: it.row, qty: toNum(get('qty')), unit: isTool ? '' : validUnit(get('unit')), note: get('note'), noOrder: !isTool && !!get('noOrder'), cancel: !!get('cancel'), kind: kind };
+      var c = { row: isAdd ? null : it.row, add: isAdd, qty: toNum(get('qty')), unit: isTool ? '' : validUnit(get('unit')), note: get('note'), noOrder: !isTool && !!get('noOrder'), cancel: !!get('cancel'), kind: kind };
       var changedItem = false;
       if (isTool) {
         if (!name) err = err || '請填寫器具名稱。';
@@ -1681,19 +1743,28 @@
       } else {
         var cat = itemByNameExact(name);
         if (cat) { c.itemId = cat.id; changedItem = cat.id !== it.id; }
-        else if (wasTool || name !== it.name) err = err || '「' + (name || it.name) + '」不在食材總表，請從清單選擇食材名稱。';
+        else if (!name) err = err || '請填寫食材名稱。';
+        else if (wasTool || name !== it.name) {
+          var nv = get('newVendor');
+          if (!nv) err = err || '「' + name + '」食材總表沒有，請選擇廠商（儲存時會加入食材總表）。';
+          c.newItem = { name: name, vendor: nv, unit: validUnit(get('unit')) };
+          changedItem = true;
+        }
       }
       if (!c.cancel && !(c.qty > 0)) err = err || '「' + (name || it.name) + '」的數量需大於 0。';
       if (!c.cancel && !isTool && !c.unit) err = err || '「' + (name || it.name) + '」的單位要從清單選擇。';
       if (isTool) c.unit = '';
+      if (isAdd) changedItem = true;
       var same = !c.cancel && !changedItem && c.qty === it.qty && (isTool || c.unit === it.unit) && c.note === it.note && c.noOrder === !!it.noOrder;
       if (!same) changes.push(c);
     });
     if (err) { msg('sumMsg', 'error', err); return; }
     if (!changes.length) { renderSummary(); return; }
     setBusy(btn, true, '儲存中…');
+    var created = changes.filter(function (c) { return c.newItem; }).map(function (c) { return c.newItem.name; });
     call('adminUpdateOrder', token, o.orderNo, changes).then(function () {
-      msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已修改 ' + changes.length + ' 項。');
+      msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已修改 ' + changes.length + ' 項。' + (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));
+      if (created.length) refreshItems();
       loadSummaryKeepMsg();
     }).catch(function (e2) { msg('sumMsg', 'error', '儲存失敗：' + e2.message); setBusy(btn, false); });
   }
