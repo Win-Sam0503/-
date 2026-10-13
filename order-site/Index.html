@@ -139,6 +139,16 @@
   .order .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .order .head b { font-size: 16px; }
   #autoMsg .msg { white-space: pre-line; }
+  .lesson-table td { vertical-align: middle; }
+  @media (max-width: 640px) {
+    .lesson-table, .lesson-table tbody { display: block; }
+    .lesson-table tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .lesson-table td { border: 0; padding: 0; }
+    .lesson-table td.lt-date { grid-row: 1; grid-column: 1; }
+    .lesson-table td.lt-status { grid-row: 1; grid-column: 2; text-align: right; }
+    .lesson-table td.lt-course, .lesson-table td.lt-act { grid-column: 1 / -1; }
+    .lesson-table td.lt-act .actions { justify-content: flex-start !important; }
+  }
   .file-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   .file-btn { cursor: pointer; margin: 0; }
   .imp-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; margin: 8px 0; }
@@ -293,6 +303,7 @@
       <nav id="nav">
         <button type="button" data-view="viewOrder" class="active">訂貨</button>
         <button type="button" data-view="viewMine">我的訂單</button>
+        <button type="button" data-view="viewLessons">我的課<span id="lessonCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
@@ -336,7 +347,7 @@
           <div><label for="fDept">科別 <span class="req">*</span></label><select id="fDept"></select></div>
           <div><label for="fAmpm">上課時間 <span class="req">*</span></label>
             <div class="timepick">
-              <select id="fAmpm" aria-label="上午或下午"><option value="">上／下午</option><option>上午</option><option>下午</option></select>
+              <select id="fAmpm" aria-label="上午、下午或晚上"><option value="">時段</option><option>上午</option><option>下午</option><option>晚上</option></select>
               <select id="fHour" aria-label="幾點"></select>
               <select id="fMin" aria-label="幾分"></select>
             </div><input type="hidden" id="fTime"></div>
@@ -411,6 +422,31 @@
     </section>
 
     <!-- 我的訂單 -->
+    <section id="viewLessons" class="hidden">
+      <div class="panel">
+        <h2 style="margin:0">我的課 <button type="button" class="btn ghost small" id="reloadLessons">重新整理</button></h2>
+        <div class="muted small">依學校課表和你自己新增的課列出接下來的課。沒訂貨的課會在每週五的 LINE 群組提醒；不用訂貨的課按「不用訂貨」就不會再被提醒。</div>
+      </div>
+      <div id="lessonsMsg"></div>
+      <div id="lessonsList"></div>
+      <div class="panel">
+        <h2>我的課表</h2>
+        <div id="lessonsSchool" class="small"></div>
+        <h3 style="font-size:16px;margin:14px 0 6px">我自己新增的課 <span class="muted small" style="font-weight:normal">夜間部、代課、補課等學校課表沒有的課</span></h3>
+        <div id="lessonsMine"></div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="mlType">類型</label><select id="mlType"><option value="每週">每週固定</option><option value="單次">只有一次</option></select></div>
+          <div id="mlWeekdayBox"><label for="mlWeekday">星期</label><select id="mlWeekday"><option value="">請選擇</option><option>一</option><option>二</option><option>三</option><option>四</option><option>五</option></select></div>
+          <div id="mlDateBox" class="hidden"><label for="mlDate">日期</label><input id="mlDate" type="date"></div>
+          <div><label for="mlSession">時段</label><select id="mlSession"><option value="">請選擇</option><option>上午</option><option>下午</option><option>晚上</option></select></div>
+          <div><label for="mlCourse">課程／實習項目</label><input id="mlCourse" type="text" maxlength="30" placeholder="例：中餐烹調"></div>
+          <div><label for="mlClass">班級</label><input id="mlClass" type="text" maxlength="30" placeholder="例：夜202"></div>
+          <div><label for="mlRoom">教室</label><input id="mlRoom" type="text" maxlength="20" placeholder="例：中六"></div>
+          <button type="button" class="btn small" id="mlAdd">新增</button>
+        </div>
+      </div>
+    </section>
+
     <section id="viewMine" class="hidden">
       <div class="panel" style="padding:12px 16px">
         <h2 style="margin:0">我的訂單 <button type="button" class="btn ghost small" id="reloadMine">重新整理</button></h2>
@@ -711,6 +747,11 @@
   // ------------------------------------------------------------------
   // 主畫面
   // ------------------------------------------------------------------
+  // LINE 提醒的連結（?page=lessons）：登入後直接打開「我的課」
+  var startPage = '';
+  try {
+    if (window.google && google.script && google.script.url) google.script.url.getLocation(function (loc) { startPage = (loc.parameter && loc.parameter.page) || ''; });
+  } catch (e) {}
   function setupApp() {
     $('who').textContent = data.account + (data.isAdmin ? '（管理者）' : '') + ' 已登入';
     Array.prototype.forEach.call(document.querySelectorAll('.admin-only'), function (el) {
@@ -760,13 +801,15 @@
     renderResults();
     renderCart();
     updateDateHint();
-    show('viewOrder');
+    show(startPage === 'lessons' ? 'viewLessons' : 'viewOrder');
+    if (startPage !== 'lessons') refreshLessonCount();
+    startPage = '';
     if (data.isAdmin) refreshPendingCount();
   }
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewSummary', 'viewVendor', 'viewPending', 'viewPrint', 'viewPassword'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewPending', 'viewPrint', 'viewPassword'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -776,6 +819,7 @@
     msg('globalMsg', '', '');
     window.scrollTo(0, 0);
     if (view === 'viewMine' && !keepMine) loadMine();
+    if (view === 'viewLessons') loadLessons();
     keepMine = false;
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
@@ -815,7 +859,7 @@
     if (!TIME_RE.test(draft.info.classTime || '')) $('fTime').value = '';
     timeToSelects();
   }
-  var TIME_RE = /^(上午|下午) (1[0-2]|[1-9]):([0-5][05])$/;
+  var TIME_RE = /^(上午|下午|晚上) (1[0-2]|[1-9]):([0-5][05])$/;
   function timeToSelects() {
     var m = $('fTime').value.match(TIME_RE);
     $('fAmpm').value = m ? m[1] : ''; $('fHour').value = m ? m[2] : ''; $('fMin').value = m ? m[3] : '';
@@ -1340,7 +1384,7 @@
       : i.useDate > data.maxDate ? '上課日期最晚只能選 ' + shortDate(data.maxDate) + '。'
       : (d.getDay() === 0 || d.getDay() === 6) ? '上課日期是週末，廠商不送貨，請改選平日。'
       : !i.dept ? '請選擇科別。'
-      : !i.classTime ? '請選擇上課時間。'
+      : !i.classTime ? '請選擇上課時間（上午／下午／晚上、幾點、幾分）。'
       : !i.className ? '請填寫上課班級。'
       : (i.groups && !(/^\d+$/.test(i.groups) && +i.groups >= 1 && +i.groups <= 99)) ? '組數需為 1 到 99 的整數。'
       : !i.project ? '請填寫實作項目。'
@@ -1394,6 +1438,7 @@
         keepMine = true;   // 下一行自己載入，才能顯示「已修改」
         show('viewMine');
         loadMine('訂單 ' + no + ' 已修改。');
+        refreshLessonCount();
       }).catch(function (e) {
         msg('orderMsg', 'error', '儲存失敗：' + e.message);
       }).then(function () { setBusy(ubtn, false); renderEditBanner(); });
@@ -1419,6 +1464,7 @@
       saveDraft();
       writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewDone');
+      refreshLessonCount();
     }).catch(function (e) {
       msg('orderMsg', 'error', '送出失敗：' + e.message);
     }).then(function () { setBusy(btn, false); });
@@ -2051,7 +2097,7 @@
     return d ? { m: d.getMonth() + 1, d: d.getDate(), w: WEEK[d.getDay()] } : { m: '', d: '', w: '' };
   }
   function timeParts(o) {
-    var m = String(o.classTime || '').match(/^(上午|下午) (\d+):(\d+)$/);
+    var m = String(o.classTime || '').match(/^(上午|下午|晚上) (\d+):(\d+)$/);
     return m ? { ap: m[1], h: Number(m[2]), mi: Number(m[3]) } : null;
   }
   function blank(w) { return '<span class="blank" style="min-width:' + (w || 9) + 'mm"></span>'; }
@@ -2736,7 +2782,7 @@
       var h = +m[2], pm = m[1] === '下' || m[1] === '晚' || (m[1] === '中' && h < 6) || h > 12 || (!m[1] && h >= 12);
       info.classTime = timeStr(pm ? 'pm' : 'am', h > 12 ? h - 12 : h, +(m[3] || 0));
     } else if ((m = t.match(/(上午|下午|早上|晚上)\s*(\d{1,2})\s*[:：點時]\s*(\d{1,2})?/))) {
-      info.classTime = timeStr(m[1] === '下午' || m[1] === '晚上' ? 'pm' : 'am', +m[2], +(m[3] || 0));
+      info.classTime = timeStr(m[1] === '晚上' ? 'night' : m[1] === '下午' ? 'pm' : 'am', +m[2], +(m[3] || 0));
     } else if ((m = t.match(/時間\s*[:：]?\s*(\d{1,2})\s*[:：]\s*(\d{2})/))) {
       info.classTime = timeStr(+m[1] >= 12 ? 'pm' : 'am', +m[1] > 12 ? +m[1] - 12 : +m[1], +m[2]);
     }
@@ -2803,7 +2849,7 @@
   function timeStr(ap, h, mi) {
     if (!(h >= 1 && h <= 12)) return '';
     mi = Math.round(mi / 5) * 5; if (mi >= 60) mi = 55;
-    return (ap === 'pm' ? '下午' : '上午') + ' ' + h + ':' + ('0' + mi).slice(-2);
+    return (ap === 'night' ? '晚上' : ap === 'pm' ? '下午' : '上午') + ' ' + h + ':' + ('0' + mi).slice(-2);
   }
 
   // ---- 表格 ----
@@ -3160,6 +3206,122 @@
       (newUnits.length ? '（新單位「' + newUnits.join('、') + '」會送管理者審核）' : '') +
       (outDate ? '（檔案上的日期 ' + fileDate + ' 不在可訂貨的範圍，請重新選上課日期）' : ''));
     $('cartPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // ------------------------------------------------------------------
+  // 我的課：未訂貨的課、不用訂貨、自訂上課時間
+  // ------------------------------------------------------------------
+  var lessonsCache = null;
+  var LESSON_STATUS = { ordered: '<span class="badge ok">已訂貨</span>', skipped: '<span class="badge">不用訂貨</span>', todo: '<span class="badge warn">未訂貨</span>' };
+  function setLessonCount(n) {
+    $('lessonCount').textContent = n;
+    $('lessonCount').classList.toggle('hidden', !n);
+  }
+  function refreshLessonCount() {
+    call('getMyLessons', token).then(function (r) { lessonsCache = r; setLessonCount(r.nextWeek.todo); }).catch(function () {});
+  }
+  function loadLessons(note) {
+    if (!note) msg('lessonsMsg', 'info', '載入中…');
+    return call('getMyLessons', token).then(function (r) { renderLessons(r, note); })
+      .catch(function (e) { msg('lessonsMsg', 'error', '載入失敗：' + e.message); });
+  }
+  function renderLessons(r, note) {
+    lessonsCache = r;
+    setLessonCount(r.nextWeek.todo);
+    var nw = r.nextWeek;
+    var head = nw.todo
+      ? '下一個截止是 ' + nw.deadline + '：' + shortDate(nw.from) + '～' + shortDate(nw.to) + ' 還有 ' + nw.todo + ' 堂課未訂貨。'
+      : shortDate(nw.from) + '～' + shortDate(nw.to) + ' 的課都處理好了（截止 ' + nw.deadline + '）。';
+    msg('lessonsMsg', nw.todo ? 'info' : 'ok', (note ? note + '　' : '') + head);
+    if (!r.lessons.length) {
+      $('lessonsList').innerHTML = '<div class="panel muted">接下來 30 天沒有找到你的課。如果有夜間部或其他課，請在下面「我自己新增的課」加上去。</div>';
+    } else {
+      var byWeek = {}, weeks = [];
+      r.lessons.forEach(function (x) {
+        var d = parseDate(x.date), mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+        var k = isoDate(mon);
+        if (!byWeek[k]) { byWeek[k] = []; weeks.push(k); }
+        byWeek[k].push(x);
+      });
+      $('lessonsList').innerHTML = weeks.map(function (k) {
+        var list = byWeek[k], todo = list.filter(function (x) { return x.status === 'todo'; }).length;
+        var fri = parseDate(k); fri = isoDate(new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 4));
+        return '<div class="panel"><h2>' + esc(shortDate(k) + '～' + shortDate(fri)) + ' <span class="muted small" style="font-weight:normal">' + (todo ? '還有 ' + todo + ' 堂未訂貨' : '都處理好了') + '</span></h2>' +
+          '<div class="tablewrap"><table class="lesson-table"><tbody>' + list.map(function (x) {
+            var btns = x.status === 'todo'
+              ? '<button type="button" class="btn small" data-lact="order">去訂貨</button><button type="button" class="btn ghost small" data-lact="skip">不用訂貨</button>'
+              : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>' : '';
+            return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
+              '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
+              '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : '') + '</div></td>' +
+              '<td class="lt-status">' + LESSON_STATUS[x.status] + '</td>' +
+              '<td class="lt-act"><div class="actions" style="margin:0;justify-content:flex-end">' + btns + '</div></td></tr>';
+          }).join('') + '</tbody></table></div></div>';
+      }).join('');
+    }
+    $('lessonsSchool').innerHTML = r.school.length
+      ? '<b>學校課表：</b>' + r.school.map(function (x) { return '週' + '一二三四五'.charAt(x.day) + x.session + ' ' + esc(x.course) + (x.className ? ' ' + esc(x.className) : ''); }).join('、') +
+        '<div class="muted">學校課表有錯請告訴管理者。</div>'
+      : '<span class="muted">學校課表上沒有你的課（或名字不一致），可以在下面自己新增。</span>';
+    $('lessonsMine').innerHTML = r.mine.length
+      ? '<div class="tablewrap"><table><tbody>' + r.mine.map(function (x) {
+          return '<tr data-mrow="' + x.row + '"><td>' + (x.type === '單次' ? esc(shortDate(x.date)) : '每週' + '一二三四五'.charAt(x.day)) + ' ' + esc(x.session) + '</td>' +
+            '<td>' + esc(x.course) + '<div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + '</div></td>' +
+            '<td style="text-align:right"><button type="button" class="btn danger small" data-mact="del">刪除</button></td></tr>';
+        }).join('') + '</tbody></table></div>'
+      : '<div class="muted small">還沒有。</div>';
+  }
+  $('reloadLessons').addEventListener('click', function () { loadLessons(); });
+  $('lessonsList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-lact]');
+    if (!b) return;
+    var tr = b.closest('tr'), act = b.getAttribute('data-lact');
+    var x = { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
+    if (act === 'order') {
+      if (draft.editing) { alert('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
+      if ((draft.cart.length || draft.tools.length) && !confirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
+      readInfo();
+      var keepTime = TIME_RE.test(draft.info.classTime || '') && draft.info.classTime.indexOf(x.session) === 0;
+      draft.info.useDate = x.date;
+      draft.info.className = x.className || draft.info.className;
+      draft.info.room = x.room || draft.info.room;
+      draft.info.project = x.course;
+      if (!keepTime) draft.info.classTime = '';
+      writeInfo(); saveDraft();
+      if (!keepTime) $('fAmpm').value = x.session;
+      updateDateHint(); renderResults();
+      show('viewOrder');
+      msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請選擇幾點幾分、科別，再選食材。');
+      return;
+    }
+    setBusy(b, true, '處理中…');
+    call('setNoOrder', token, x.date, x.session, x.course, act === 'skip').then(function (r) {
+      renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨。' : '已改回要訂貨。');
+    }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+  });
+  $('mlType').addEventListener('change', function () {
+    var once = this.value === '單次';
+    $('mlWeekdayBox').classList.toggle('hidden', once);
+    $('mlDateBox').classList.toggle('hidden', !once);
+  });
+  $('mlAdd').addEventListener('click', function () {
+    var l = { type: $('mlType').value, weekday: $('mlWeekday').value, date: $('mlDate').value, session: $('mlSession').value,
+      course: $('mlCourse').value.trim(), className: $('mlClass').value.trim(), room: $('mlRoom').value.trim() };
+    var err = l.type === '每週' && !l.weekday ? '請選擇星期幾。' : l.type === '單次' && !l.date ? '請選擇日期。' : !l.session ? '請選擇時段。' : !l.course ? '請填寫課程。' : '';
+    if (err) { msg('lessonsMsg', 'error', err); return; }
+    var b = this;
+    setBusy(b, true, '新增中…');
+    call('addMyLesson', token, l).then(function (r) {
+      $('mlCourse').value = ''; $('mlClass').value = ''; $('mlRoom').value = '';
+      renderLessons(r, '已新增「' + l.course + '」。');
+    }).catch(function (e) { msg('lessonsMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('lessonsMine').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-mact="del"]');
+    if (!b || !confirm('刪除這堂自訂的課？')) return;
+    setBusy(b, true, '刪除中…');
+    call('deleteMyLesson', token, Number(b.closest('tr').getAttribute('data-mrow'))).then(function (r) { renderLessons(r, '已刪除。'); })
+      .catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
   });
 
   // ------------------------------------------------------------------

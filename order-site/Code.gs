@@ -27,7 +27,8 @@ const SITE_TITLE = '三信家商餐飲科訂貨系統';
 const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能
 const DEPARTMENTS = ['中餐', '西餐', '烘焙', '飲調', '果雕', '刀功'];
 // 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
-const CLASS_TIME_PATTERN = /^(上午|下午) (1[0-2]|[1-9]):[0-5][05]$/;
+const CLASS_TIME_PATTERN = /^(上午|下午|晚上) (1[0-2]|[1-9]):[0-5][05]$/;
+const SESSIONS = ['上午', '下午', '晚上'];
 // 鎖單：每週一 12:00 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
 const LOCK_WEEKDAY = 1;                     // 截止星期（1 = 星期一 … 5 = 星期五）
 const LOCK_HOUR = 12;
@@ -81,7 +82,11 @@ const SHEET = {
   units: '單位',
   history: '歷史訂單',
   schedule: '課表',
+  myLessons: '老師課表',
+  skips: '不用訂貨',
 };
+const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
+const SKIP_HEADERS = ['老師', '日期', '時段', '課程', '標記時間'];
 
 // 需要你在試算表手動新增的欄位（沒有的話網站照常運作，只是對應功能不會存檔）
 const OPTIONAL_COLUMNS = {
@@ -459,7 +464,7 @@ function validateOrder_(p, account, isAdmin) {
   const className = clean_(p.className, 30);
   const project = clean_(p.project, 60);
   if (!dept) throw new Error('請選擇科別。');
-  if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午、幾點、幾分）。');
+  if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午／晚上、幾點、幾分）。');
   if (!className) throw new Error('請填寫上課班級。');
   if (!project) throw new Error('請填寫實作項目。');
   let groups = '';
@@ -1550,8 +1555,187 @@ function readSchedule_() {
       need: r['需要訂貨'] === undefined || r['需要訂貨'] === '' || isTrue_(r['需要訂貨']),
     };
   }).filter(function (x) {
-    return x.need && x.teacher && x.day >= 0 && (x.session === '上午' || x.session === '下午') && !/國技|預留/.test(x.course);
+    return x.need && x.teacher && x.day >= 0 && SESSIONS.indexOf(x.session) >= 0 && !/國技|預留/.test(x.course);
   });
+}
+
+/** 自動建立需要的分頁（第一次使用時） */
+function ensureSheet_(name, headers) {
+  let sh = ss_().getSheetByName(name);
+  if (!sh) {
+    sh = ss_().insertSheet(name);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function readMyLessonRows_() {
+  const sh = ss_().getSheetByName(SHEET.myLessons);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return readTable_(SHEET.myLessons, ['老師', '類型', '時段', '課程']).rows.map(function (r) {
+    const d = toDate_(r['日期']);
+    return {
+      row: r._row, teacher: String(r['老師']).trim(), type: String(r['類型']).trim() === '單次' ? '單次' : '每週',
+      day: '一二三四五'.indexOf(String(r['星期'] || '').replace(/星期|週/g, '').trim()), date: d ? dateStr_(d) : '',
+      session: String(r['時段']).trim(), course: String(r['課程'] || '').trim(),
+      className: String(r['班級'] || '').trim(), room: String(r['教室'] || '').trim(),
+    };
+  }).filter(function (x) { return x.teacher && SESSIONS.indexOf(x.session) >= 0; });
+}
+
+/** from～to 之間每一天的課（學校課表＋老師自訂），teacher = null 是全部老師 */
+function lessonsBetween_(from, to, teacher) {
+  const sched = readSchedule_(), mine = readMyLessonRows_();
+  const out = [];
+  for (let d = new Date(from); d <= to; d = addDays_(d, 1)) {
+    const idx = d.getDay() - 1;   // 週一 = 0
+    if (idx < 0 || idx > 4) continue;
+    const ds = dateStr_(d);
+    sched.forEach(function (x) {
+      if (x.day === idx && (!teacher || x.teacher === teacher)) {
+        out.push({ teacher: x.teacher, date: ds, session: x.session, course: x.course, className: x.className, room: x.room, source: '課表' });
+      }
+    });
+    mine.forEach(function (x) {
+      if (teacher && x.teacher !== teacher) return;
+      if ((x.type === '每週' && x.day === idx) || (x.type === '單次' && x.date === ds)) {
+        out.push({ teacher: x.teacher, date: ds, session: x.session, course: x.course, className: x.className, room: x.room, source: '自訂', row: x.row });
+      }
+    });
+  }
+  return out;
+}
+
+function sessionOf_(classTime) {
+  const t = String(classTime || '');
+  return t.indexOf('晚上') === 0 ? '晚上' : t.indexOf('下午') === 0 ? '下午' : '上午';
+}
+
+/** 每堂課加上 status：ordered（同老師、同一天、同時段有訂單）／skipped（按了不用訂貨）／todo */
+function lessonsWithStatus_(from, to, teacher) {
+  const lessons = lessonsBetween_(from, to, teacher);
+  const have = {}, skip = {};
+  ordersBetween_(from, to).forEach(function (o) {
+    if (o.status === '已取消') return;
+    have[(o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime)] = true;
+  });
+  const sh = ss_().getSheetByName(SHEET.skips);
+  if (sh && sh.getLastRow() >= 2) {
+    readTable_(SHEET.skips, ['老師', '日期', '時段']).rows.forEach(function (r) {
+      const d = toDate_(r['日期']);
+      if (d) skip[String(r['老師']).trim() + '|' + dateStr_(d) + '|' + String(r['時段']).trim()] = true;
+    });
+  }
+  // 同一位老師同一天同時段有兩堂課時，只要一張訂單（也只算一次）
+  const seen = {};
+  return lessons.filter(function (x) {
+    const k = x.teacher + '|' + x.date + '|' + x.session + '|' + x.course;
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  }).map(function (x) {
+    const k = x.teacher + '|' + x.date + '|' + x.session;
+    x.status = have[k] ? 'ordered' : skip[k] ? 'skipped' : 'todo';
+    return x;
+  });
+}
+
+// ---- 老師：我的課（未訂貨課程、不用訂貨、自訂上課時間） ----
+
+/** 我接下來可以訂貨的課（最早可訂日期～30 天內）、學校課表、我自訂的課 */
+function getMyLessons(token) {
+  const account = auth_(token);
+  const now = new Date();
+  const from = earliestClassDate_(now);
+  const to = addDays_(today_(), MAX_DAYS_AHEAD);
+  const firstWeekEnd = addDays_(from, 4);
+  const deadline = addDays_(from, -7 + (LOCK_WEEKDAY - 1));
+  const lessons = lessonsWithStatus_(from, to, account).sort(function (a, b) {
+    return a.date === b.date ? SESSIONS.indexOf(a.session) - SESSIONS.indexOf(b.session) : (a.date < b.date ? -1 : 1);
+  });
+  const todoNext = lessons.filter(function (x) { return x.status === 'todo' && parseDate_(x.date) <= firstWeekEnd; }).length;
+  return {
+    lessons: lessons,
+    nextWeek: { from: dateStr_(from), to: dateStr_(firstWeekEnd), deadline: shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2), todo: todoNext },
+    school: readSchedule_().filter(function (x) { return x.teacher === account; }),
+    mine: readMyLessonRows_().filter(function (x) { return x.teacher === account; }),
+  };
+}
+
+/** 標記／取消「不用訂貨」：date = yyyy-mm-dd，session = 上午／下午／晚上 */
+function setNoOrder(token, date, session, course, skip) {
+  const account = auth_(token);
+  const d = parseDate_(date);
+  if (!d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(SHEET.skips, SKIP_HEADERS);
+    const t = readTable_(SHEET.skips, ['老師', '日期', '時段']);
+    const same = t.rows.filter(function (r) {
+      const rd = toDate_(r['日期']);
+      return String(r['老師']).trim() === account && rd && dateStr_(rd) === dateStr_(d) && String(r['時段']).trim() === session;
+    });
+    if (skip && !same.length) {
+      appendRows_(SHEET.skips, [{ '老師': account, '日期': d, '時段': session, '課程': clean_(course, 40), '標記時間': new Date() }],
+        { '日期': 'yyyy-mm-dd', '標記時間': 'yyyy/mm/dd hh:mm' });
+    }
+    if (!skip && same.length) deleteRows_(sh, same.map(function (r) { return r._row; }));
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyLessons(token);
+}
+
+/** 老師自己新增上課時間（例如夜間部）。l: { type: '每週'|'單次', weekday: '一'~'五', date, session, course, className, room } */
+function addMyLesson(token, l) {
+  const account = auth_(token);
+  l = l || {};
+  const type = l.type === '單次' ? '單次' : '每週';
+  const session = String(l.session || '').trim();
+  const course = clean_(l.course, 30);
+  if (SESSIONS.indexOf(session) < 0) throw new Error('請選擇上課時段（上午／下午／晚上）。');
+  if (!course) throw new Error('請填寫課程或實習項目。');
+  let weekday = '', date = '';
+  if (type === '每週') {
+    weekday = String(l.weekday || '').trim();
+    if ('一二三四五'.indexOf(weekday) < 0 || weekday.length !== 1) throw new Error('請選擇星期幾（週一～週五）。');
+  } else {
+    date = parseDate_(l.date);
+    if (!date) throw new Error('請選擇日期。');
+    if (date.getDay() === 0 || date.getDay() === 6) throw new Error('日期是週末，廠商不送貨，請改選平日。');
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.myLessons, MY_LESSON_HEADERS);
+    appendRows_(SHEET.myLessons, [{
+      '老師': account, '類型': type, '星期': weekday, '日期': date || '', '時段': session,
+      '課程': course, '班級': clean_(l.className, 30), '教室': clean_(l.room, 20), '建立時間': new Date(),
+    }], { '日期': 'yyyy-mm-dd', '建立時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyLessons(token);
+}
+
+function deleteMyLesson(token, row) {
+  const account = auth_(token);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.myLessons, ['老師']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    if (!r || String(r['老師']).trim() !== account) throw new Error('找不到這堂課，請重新整理。');
+    deleteRows_(t.sheet, [r._row]);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyLessons(token);
 }
 
 function scheduleCount_() {
@@ -1563,26 +1747,18 @@ function scheduleCount_() {
  * 有訂單 = 同一位老師（代訂的算被代訂的老師）、同一天、同一個上午／下午，而且沒有取消。
  */
 function runReminder_(send) {
-  const sched = readSchedule_();
-  if (!sched.length) throw new Error('「課表」分頁沒有資料。');
+  if (!readSchedule_().length && !readMyLessonRows_().length) throw new Error('「課表」分頁沒有資料。');
   // 提醒的是「下一個截止」管的那一週：例如週五 10/16 提醒的是 10/26～10/30（10/19 週一中午截止）
   const now = new Date();
   const from = earliestClassDate_(now);
   const r = { from: from, to: addDays_(from, 4) };
   const deadline = addDays_(from, -7 + (LOCK_WEEKDAY - 1));
-  const have = {};
-  ordersBetween_(r.from, r.to).forEach(function (o) {
-    if (o.status === '已取消') return;
-    const who = o.onBehalfOf || o.teacher;
-    const ses = String(o.classTime).indexOf('下午') === 0 ? '下午' : '上午';
-    have[who + '|' + o.useDate + '|' + ses] = true;
-  });
+  const lessons = lessonsWithStatus_(r.from, r.to, null);
   const missing = {};
   let total = 0;
-  sched.forEach(function (x) {
-    const d = addDays_(r.from, x.day);
-    if (have[x.teacher + '|' + dateStr_(d) + '|' + x.session]) return;
-    (missing[x.teacher] = missing[x.teacher] || []).push('週' + '一二三四五'.charAt(x.day) + x.session + ' ' + x.course + (x.className ? ' ' + x.className : ''));
+  lessons.forEach(function (x) {
+    if (x.status !== 'todo') return;
+    (missing[x.teacher] = missing[x.teacher] || []).push('週' + WEEKDAY[parseDate_(x.date).getDay()] + x.session + ' ' + x.course + (x.className ? ' ' + x.className : ''));
     total++;
   });
   const range = shortDateTw_(r.from) + '～' + shortDateTw_(r.to);
@@ -1590,7 +1766,8 @@ function runReminder_(send) {
   const text = teachers.length
     ? '【訂貨提醒】' + range + ' 還沒訂貨的課（共 ' + total + ' 堂）：\n' +
       teachers.map(function (t) { return '・' + t + '：' + missing[t].join('、'); }).join('\n') +
-      '\n\n請在 ' + shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 前上網訂貨，不用訂貨的課可以忽略。' + (webAppUrl_() ? '\n' + webAppUrl_() : '')
+      '\n\n請在 ' + shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 前上網訂貨；不用訂貨的課，請在網站「我的課」按「不用訂貨」，就不會再被提醒。' +
+      (webAppUrl_() ? '\n查看自己還沒訂的課：' + webAppUrl_() + '?page=lessons' : '')
     : '【訂貨提醒】' + range + ' 課表上的課都已經訂貨了，謝謝各位老師！';
   const out = { text: text, teachers: teachers.length, lessons: total, sent: false, to: '' };
   if (!send) return out;
