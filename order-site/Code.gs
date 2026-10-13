@@ -63,6 +63,8 @@ const BACKUP_FOLDER_NAME = '三信家商餐飲科訂貨系統備份';
 const BACKUP_PREFIX = '訂貨表備份 ';
 const IMPORT_MAX_MB = 10;                    // 上傳檔案大小上限
 const PENDING_ID = '待審核';
+// 廠商寫「自備」的食材（例如水、冰塊）：學校自己有，不跟廠商叫貨，但請料單上一定要印出來
+const SELF_VENDOR = '自備';
 // 同一家廠商依訂單科別分開叫貨：食材總表照舊寫「E乾貨」「C蛋商」，
 // 烘焙科的訂單算「E烘焙乾貨」「C烘焙蛋」，其他科算「E中餐乾貨」「C中餐蛋」。
 const VENDOR_SPLIT = {
@@ -237,6 +239,7 @@ function getBootstrap(token) {
     items: items,
     vendors: vendors,
     vendorSplit: VENDOR_SPLIT,
+    selfVendor: SELF_VENDOR,
     bakingDepts: BAKING_DEPTS,
     teachers: teachers,
     departments: depts,
@@ -500,7 +503,7 @@ function validateOrder_(p, account, isAdmin) {
       id: id, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, r['單位'], name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
-      noOrder: !!it.noOrder, section: clean_(it.section, 20),
+      noOrder: !!it.noOrder || vendor === SELF_VENDOR, section: clean_(it.section, 20),
     });
   });
   (Array.isArray(p.newItems) ? p.newItems : []).forEach(function (it) {
@@ -512,7 +515,7 @@ function validateOrder_(p, account, isAdmin) {
       id: PENDING_ID, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, '', name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
-      noOrder: !!it.noOrder, section: clean_(it.section, 20),
+      noOrder: !!it.noOrder || vendor === SELF_VENDOR, section: clean_(it.section, 20),
     });
   });
 
@@ -797,6 +800,13 @@ function adminUpdateOrder(token, orderNo, changes) {
         setCell_(t, r._row, '狀態', '已取消');
         return;
       }
+      if (c.restore) {
+        // 復原誤刪的品項：狀態改回這張訂單其他品項的狀態
+        const other = Object.keys(byRow).map(function (k) { return String(byRow[k]['狀態']).trim(); })
+          .find(function (st) { return st && st !== '已取消'; });
+        setCell_(t, r._row, '狀態', other || '待處理');
+        return;
+      }
       let isTool = String(r['食材ID']).trim() === TOOL_ID;
       let catUnit = r['單位'];
       // 食材、器具互換，或換成另一樣食材（例如檔案帶入時對錯）
@@ -828,6 +838,7 @@ function adminUpdateOrder(token, orderNo, changes) {
         setCell_(t, r._row, '食材ID', String(c.itemId).trim());
         setCell_(t, r._row, '食材名稱', name);
         if (t.cols['廠商'] !== undefined) setCell_(t, r._row, '廠商', orderVendor_(vendor, r['科別']));
+        if (vendor === SELF_VENDOR) c.noOrder = true;
         if (t.cols['送貨組別'] !== undefined && d) setCell_(t, r._row, '送貨組別', deliveryGroup_(vendor, d.getDay(), vendorGroups));
         isTool = false; catUnit = it['單位'] || '';
       }

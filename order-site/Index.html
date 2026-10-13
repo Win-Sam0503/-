@@ -1257,7 +1257,8 @@
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
       '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
-      '<div class="c-s"><label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label></div>' +
+      '<div class="c-s">' + (c.vendor === data.selfVendor ? '<span class="muted small" title="學校自備，不跟廠商叫貨，但會印在請料單上">自備</span>'
+        : '<label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label>') + '</div>' +
       '<button type="button" class="x" title="移除" aria-label="移除 ' + esc(c.name) + '">×</button></div>';
   }
 
@@ -1484,7 +1485,7 @@
       if (it.section && it.section !== lastSec) head = '<tr><td colspan="4" class="small" style="color:var(--info);font-weight:700;border-bottom:0">' + esc(it.section) + '</td></tr>';
       lastSec = it.section;
       return head + '<tr' + (it.status === '已取消' && o.status !== '已取消' ? ' style="text-decoration:line-through;color:var(--muted)"' : '') + '><td>' + esc(it.name) +
-        (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">有貨</span>' : '') +
+        (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
         (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
         '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td>' +
         '<td class="muted small">' + esc(it.vendor) + '</td>' +
@@ -1621,7 +1622,7 @@
       o.items.forEach(function (it) {
         if (hideCancel && it.status === '已取消') return;
         if (it.id === TOOL) return;   // 器具另外列
-        if (it.noOrder) { stockCount++; return; }   // 現有庫存不叫貨
+        if (it.noOrder) { if (it.vendor !== data.selfVendor) stockCount++; return; }   // 現有庫存、自備的不叫貨
         if (it.status === '已取消') return;
         var v = byVendor[it.vendor] = byVendor[it.vendor] || {};
         var dkey = o.useDate + '|' + (it.group || '');
@@ -1688,7 +1689,7 @@
   function editRowHtml(it, isNew) {
       var isTool = it.id === TOOL;
       // 品項可以改名（從食材總表選）或在「食材／器具」之間切換
-      return '<tr data-row="' + (isNew ? 'new' : it.row) + '"' + (isNew ? ' data-new="1"' : '') + '><td>' +
+      return '<tr data-row="' + (isNew ? 'new' : it.row) + '"' + (isNew ? ' data-new="1"' : '') + (it.status === '已取消' ? ' style="opacity:.55"' : '') + '><td>' +
         '<div style="display:flex;gap:4px;align-items:center"><select data-f="kind" aria-label="食材或器具" style="width:auto;padding:4px 6px">' +
           '<option value="food"' + (isTool ? '' : ' selected') + '>食材</option><option value="tool"' + (isTool ? ' selected' : '') + '>器具</option></select>' +
           '<input type="text" data-f="name" maxlength="40" value="' + esc(it.name) + '" aria-label="品項名稱"' + (isTool ? '' : ' list="editItems"') + ' style="min-width:120px"></div>' +
@@ -1697,7 +1698,9 @@
         '<td class="food-only">' + unitInput(isTool ? '' : it.unit, it.name + ' 單位').replace('class="unit-input', 'style="width:80px" class="unit-input') + '</td>' +
         '<td><input type="text" data-f="note" maxlength="100" value="' + esc(it.note) + '"></td>' +
         '<td class="c food-only"><input type="checkbox" data-f="noOrder"' + (it.noOrder ? ' checked' : '') + '></td>' +
-        '<td class="c"><input type="checkbox" data-f="cancel"' + (it.status === '已取消' ? ' checked disabled' : '') + '></td></tr>';
+        '<td class="c">' + (it.status === '已取消'
+          ? '<label class="small" style="white-space:nowrap;color:var(--bad)" title="這項已刪除，勾選後儲存就會復原"><input type="checkbox" data-f="restore"> 復原</label>'
+          : '<input type="checkbox" data-f="cancel">') + '</td></tr>';
   }
   function openEditor(o, card) {
     var rows = o.items.map(function (it) { return editRowHtml(it, false); }).join('');
@@ -1705,7 +1708,7 @@
       '<datalist id="editItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>' +
       '<div class="tablewrap"><table class="edit-table" data-dept="' + esc(o.dept) + '"><thead><tr><th>品項（食材／器具）</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<button type="button" class="btn ghost small" data-act="edit-add" data-no="' + esc(o.orderNo) + '" style="margin-top:6px">＋ 新增品項</button>' +
-      '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱；食材總表沒有的，選好廠商後會自動加入食材總表。</div>' +
+      '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消，刪錯了可以勾「復原」再儲存。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱；食材總表沒有的，選好廠商後會自動加入食材總表。</div>' +
       '<div class="actions"><button type="button" class="btn ghost small" data-act="edit-cancel" data-no="' + esc(o.orderNo) + '">取消</button>' +
       '<button type="button" class="btn small" data-act="edit-save" data-no="' + esc(o.orderNo) + '">儲存修改</button></div>';
     Array.prototype.forEach.call(card.querySelectorAll('.edit-table tr[data-row]'), syncEditRow);
@@ -1777,7 +1780,10 @@
       var it = isAdd ? { id: TOOL, name: '', qty: NaN, unit: '', note: '', noOrder: false, status: '' }
         : o.items.find(function (x) { return String(x.row) === tr.getAttribute('data-row'); });
       var get = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return el ? (el.type === 'checkbox' ? el.checked : el.value) : null; };
-      if (it.status === '已取消') return;
+      if (it.status === '已取消') {
+        if (get('restore')) changes.push({ row: it.row, restore: true });
+        return;
+      }
       if (isAdd && (get('cancel') || (!String(get('name') || '').trim() && !String(get('qty') || '').trim()))) return;   // 空白或打勾刪除的新列不存
       var wasTool = it.id === TOOL;
       var kind = get('kind') || (wasTool ? 'tool' : 'food');
@@ -2102,7 +2108,7 @@
   }
   function blank(w) { return '<span class="blank" style="min-width:' + (w || 9) + 'mm"></span>'; }
   function cell(v, cls, attrs) { return '<td' + (cls ? ' class="' + cls + '"' : '') + (attrs || '') + '>' + v + '</td>'; }
-  function qtyText(it) { return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : '') + (it.noOrder ? '<span class="note">（有貨）</span>' : ''); }
+  function qtyText(it) { return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : '') + (it.noOrder && it.vendor !== data.selfVendor ? '<span class="note">（有貨）</span>' : ''); }
   function nameText(it) { return esc(it.name) + (it.note ? ' <span class="note">（' + esc(it.note) + '）</span>' : ''); }
   function codeOf(it) { return itemById[it.id] && itemById[it.id].code ? itemById[it.id].code : ''; }
   // 一組的量＝全班 ÷ 組數（有填組數才算），最多兩位小數
@@ -2203,7 +2209,7 @@
     groups.forEach(function (g) { groupAt[g.start] = g; });
     for (var i = 0; i < N; i++) {
       var it = foods[i], t = tools[i];
-      var note = it ? [it.section ? '【' + it.section + '】' : '', it.noOrder ? '有貨' : '', it.note].filter(Boolean).join(' ') : '';
+      var note = it ? [it.section ? '【' + it.section + '】' : '', it.noOrder && it.vendor !== data.selfVendor ? '有貨' : '', it.note].filter(Boolean).join(' ') : '';
       html += '<tr>';
       if (groupAt[i]) html += '<td rowspan="' + groupAt[i].n + '" class="vtext">' + esc(groupAt[i].v) + '</td>';
       else if (i >= foods.length) html += cell('');
