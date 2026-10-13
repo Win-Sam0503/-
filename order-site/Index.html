@@ -539,6 +539,7 @@
           <button type="button" class="btn ghost small" id="aVendorNow">立即產生下週訂貨單</button>
           <button type="button" class="btn ghost small" id="aDigestNow">立即寄每日摘要</button>
           <button type="button" class="btn ghost small" id="aMaintNow">立即備份＋封存</button>
+          <button type="button" class="btn ghost small" id="aHistNow">立即整理歷史訂單</button>
           <button type="button" class="btn ghost small" id="aRemindPreview">預覽訂貨提醒</button>
           <button type="button" class="btn ghost small" id="aRemindNow">立即傳訂貨提醒</button>
           <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
@@ -2470,6 +2471,9 @@
       '每週日 ' + st.maintHour + ':00 備份試算表＋封存舊訂單：' + yes(st.maintTrigger, '已啟用', '未啟用') +
         '（備份保留 ' + st.backupKeep + ' 份；上課日期過了 ' + st.archiveDays + ' 天的訂單搬到「歷史訂單」分頁）<br>' +
       (st.lastMaintTime ? '上次維護：' + esc(st.lastMaintTime) + '　' + esc(st.lastMaintText) + '<br>' : '') +
+      '歷史訂單：每個月存成一個檔案（已存 ' + st.historyMonths + ' 個月）' +
+        (st.historyFolderUrl ? '　<a href="' + esc(st.historyFolderUrl) + '" target="_blank" rel="noopener">打開資料夾</a>' : '') +
+        '，試算表「歷史訂單」分頁只留最近約 13 個月<br>' +
       '每週五 ' + st.remindHour + ':00 用 LINE 私訊提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
         '（課表 ' + st.scheduleCount + ' 堂課）' +
         (st.lastRemindTime ? '　上次提醒：' + esc(st.lastRemindTime) : '') + '<br>' +
@@ -2522,6 +2526,10 @@
   $('aMaintNow').addEventListener('click', function () {
     if (!confirm('現在就備份試算表，並把上課日期過了 2 週的訂單搬到「歷史訂單」？')) return;
     autoCall(this, 'adminRunMaintenanceNow', function (r) { return (r.error ? '⚠ ' : '') + r.text + notifyText(r.notify); });
+  });
+  $('aHistNow').addEventListener('click', function () {
+    if (!confirm('現在就把已經結束的月份存成檔案，放到雲端硬碟「三信家商餐飲科歷史訂單」資料夾？')) return;
+    autoCall(this, 'adminRunHistoryExport', function (r) { return r.text; });
   });
   $('aRemindPreview').addEventListener('click', function () {
     autoCall(this, 'adminRunReminderNow', function (r) {

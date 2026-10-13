@@ -63,6 +63,8 @@ const ARCHIVE_AFTER_DAYS = 14;               // 上課日期過了幾天的訂�
 const BACKUP_KEEP = 4;                       // 試算表備份保留幾份（每週一份）
 const BACKUP_FOLDER_NAME = '三信家商餐飲科訂貨系統備份';
 const BACKUP_PREFIX = '訂貨表備份 ';
+const HISTORY_FOLDER_NAME = '三信家商餐飲科歷史訂單';   // 每個月一個檔案
+const HISTORY_KEEP_DAYS = 400;               // 「歷史訂單」分頁保留約 13 個月（更早的已存在資料夾的月份檔案）
 const IMPORT_MAX_MB = 10;                    // 上傳檔案大小上限
 const PENDING_ID = '待審核';
 // 廠商寫「自備」的食材（例如水、冰塊）：學校自己有，不跟廠商叫貨，但請料單上一定要印出來
@@ -1189,6 +1191,9 @@ function automationStatus_() {
     line: lineStatus_(),
     remindHour: REMIND_HOUR,
     lineReserve: LINE_RESERVE,
+    historyFolderUrl: props.getProperty('HIST_FOLDER_URL') || '',
+    historyMonths: Object.keys(JSON.parse(props.getProperty('HIST_MONTHS') || '{}')).length,
+    lastHistText: props.getProperty('LAST_HIST_TEXT') || '',
     errors7d: recentSystemErrors_(addDays_(new Date(), -7)).length,
     scheduleCount: scheduleCount_(),
     lastRemindTime: props.getProperty('LAST_REMIND_TIME') || '',
@@ -1490,19 +1495,155 @@ function runMaintenance_() {
       out.error = '封存舊訂單失敗：' + e.message;
     }
   }
+  if (!out.error) {
+    try {
+      out.history = exportHistoryMonths_();
+    } catch (e) {
+      out.error = '歷史訂單存檔失敗：' + e.message;
+    }
+  }
   const lines = [];
   if (out.backup) lines.push('已備份試算表（保留最近 ' + BACKUP_KEEP + ' 份' + (out.backup.removed ? '，刪除 ' + out.backup.removed + ' 份舊備份' : '') + '）');
   if (!out.error) lines.push(out.orders ? '已把 ' + out.orders + ' 張舊訂單（上課日期 ' + out.before + ' 以前）搬到「' + SHEET.history + '」' : '沒有需要封存的舊訂單');
+  if (out.history) lines.push.apply(lines, historyLines_(out.history));
   if (out.error) lines.push('⚠ ' + out.error);
   const text = lines.join('；');
   props.setProperty('LAST_MAINT_TIME', fmtDateTime_(new Date()));
   props.setProperty('LAST_MAINT_TEXT', text);
   out.notify = notify_('【每週維護】' + (out.error ? '有問題，請查看' : '完成'),
     '<ul>' + lines.map(function (l) { return '<li>' + escHtml_(l) + '</li>'; }).join('') + '</ul>' +
-      (out.backup ? '<p><a href="' + out.backup.url + '">打開這週的備份</a>（雲端硬碟資料夾「' + escHtml_(BACKUP_FOLDER_NAME) + '」）</p>' : ''),
+      (out.backup ? '<p><a href="' + out.backup.url + '">打開這週的備份</a>（雲端硬碟資料夾「' + escHtml_(BACKUP_FOLDER_NAME) + '」）</p>' : '') +
+      (out.history && out.history.files.length ? '<p><a href="' + out.history.folderUrl + '">打開歷史訂單資料夾</a></p>' : ''),
     '【每週維護】\n' + lines.join('\n'));
   out.text = text;
   return out;
+}
+
+// ---- 歷史訂單：每個月存成一個試算表，放在雲端硬碟「三信家商餐飲科歷史訂單」資料夾 ----
+
+function folderNamed_(name) {
+  const it = DriveApp.getFoldersByName(name);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
+}
+
+/**
+ * 1. 「歷史訂單」分頁裡已經全部封存的月份（月底過了 ARCHIVE_AFTER_DAYS 天），每個月存成一個檔案「歷史訂單 2026年10月」。
+ * 2. 上課日期早於 HISTORY_KEEP_DAYS 天、而且已經存檔的列，從「歷史訂單」分頁刪掉（刪之前先核對月份檔案，缺的補進去）。
+ * 已存檔的月份記在 HIST_MONTHS（{ '2026-10': 檔案ID }），不會重複建檔。
+ */
+function exportHistoryMonths_() {
+  const props = PropertiesService.getScriptProperties();
+  const folder = folderNamed_(HISTORY_FOLDER_NAME);
+  props.setProperty('HIST_FOLDER_URL', folder.getUrl());
+  const out = { files: [], removed: 0, folderUrl: folder.getUrl() };
+  const sh = ss_().getSheetByName(SHEET.history);
+  if (!sh || sh.getLastRow() < 2) return out;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const t = readTable_(SHEET.history, ['訂單編號', '使用日期']);
+    const lastCol = sh.getLastColumn();
+    const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    const raw = sh.getRange(1, 1, sh.getLastRow(), lastCol).getValues();
+    const byMonth = {};
+    t.rows.forEach(function (r) {
+      const d = toDate_(r['使用日期']);
+      if (!d) return;   // 沒有上課日期的列不動
+      const key = Utilities.formatDate(d, tz_(), 'yyyy-MM');
+      (byMonth[key] = byMonth[key] || []).push({ no: String(r['訂單編號']).trim(), d: d, row: r._row, values: raw[r._row - 1] });
+    });
+    const done = JSON.parse(props.getProperty('HIST_MONTHS') || '{}');
+    const today = today_();
+
+    Object.keys(byMonth).sort().forEach(function (key) {
+      if (done[key]) return;
+      const ym = key.split('-').map(Number);
+      const monthEnd = new Date(ym[0], ym[1], 0);
+      if (addDays_(monthEnd, ARCHIVE_AFTER_DAYS + 1) > today) return;   // 這個月還有訂單沒封存完
+      const file = newHistoryFile_(ym[0], ym[1], header, byMonth[key].map(function (x) { return x.values; }), folder);
+      done[key] = file.getId();
+      props.setProperty('HIST_MONTHS', JSON.stringify(done));   // 每存完一個月就記下來，中途失敗也不會重複建檔
+      out.files.push({ month: ym[0] + '年' + ym[1] + '月', orders: countOrders_(byMonth[key]), url: file.getUrl() });
+    });
+
+    const cutoff = addDays_(today, -HISTORY_KEEP_DAYS);
+    const del = [];
+    Object.keys(byMonth).forEach(function (key) {
+      const old = byMonth[key].filter(function (x) { return x.d < cutoff; });
+      if (!done[key] || !old.length) return;
+      // 刪之前核對：月份檔案裡沒有的訂單先補進去（檔案被刪掉就重建）
+      let ss2 = null;
+      try { ss2 = SpreadsheetApp.openById(done[key]); } catch (e) { ss2 = null; }
+      if (!ss2) {
+        const ym = key.split('-').map(Number);
+        const f = newHistoryFile_(ym[0], ym[1], header, byMonth[key].map(function (x) { return x.values; }), folder);
+        done[key] = f.getId();
+        props.setProperty('HIST_MONTHS', JSON.stringify(done));
+      } else {
+        const s2 = ss2.getSheets()[0];
+        const head2 = s2.getRange(1, 1, 1, Math.max(s2.getLastColumn(), 1)).getValues()[0].map(function (h) { return String(h).trim(); });
+        const noCol = head2.indexOf('訂單編號');
+        const have = {};
+        if (noCol >= 0 && s2.getLastRow() > 1) {
+          s2.getRange(2, noCol + 1, s2.getLastRow() - 1, 1).getValues().forEach(function (v) { have[String(v[0]).trim()] = true; });
+        }
+        const missing = old.filter(function (x) { return !have[x.no]; });
+        if (missing.length) {
+          s2.getRange(s2.getLastRow() + 1, 1, missing.length, lastCol).setValues(missing.map(function (x) { return x.values; }));
+        }
+      }
+      old.forEach(function (x) { del.push(x.row); });
+    });
+    if (del.length) {
+      SpreadsheetApp.flush();
+      deleteRows_(sh, del);
+      SpreadsheetApp.flush();
+    }
+    out.removed = del.length;
+  } finally {
+    lock.releaseLock();
+  }
+  props.setProperty('LAST_HIST_TEXT', historyLines_(out).join('；'));
+  return out;
+}
+
+function newHistoryFile_(year, month, header, rows, folder) {
+  const file = SpreadsheetApp.create('歷史訂單 ' + year + '年' + month + '月');
+  const s = file.getSheets()[0];
+  s.setName('訂單');
+  const all = [header].concat(rows);
+  s.getRange(1, 1, all.length, header.length).setValues(all);
+  s.getRange(1, 1, 1, header.length).setFontWeight('bold');
+  s.setFrozenRows(1);
+  header.forEach(function (h, i) {
+    h = String(h).trim();
+    if (rows.length && /日期$/.test(h)) s.getRange(2, i + 1, rows.length, 1).setNumberFormat('yyyy-mm-dd');
+    if (rows.length && /時間$/.test(h) && h !== '上課時間') s.getRange(2, i + 1, rows.length, 1).setNumberFormat('yyyy/mm/dd hh:mm');
+  });
+  DriveApp.getFileById(file.getId()).moveTo(folder);
+  return file;
+}
+
+function countOrders_(list) {
+  const seen = {};
+  list.forEach(function (x) { seen[x.no] = true; });
+  return Object.keys(seen).length;
+}
+
+function historyLines_(h) {
+  const lines = [];
+  if (h.files.length) lines.push('已存檔 ' + h.files.map(function (f) { return f.month + '（' + f.orders + ' 張）'; }).join('、') + ' 到雲端硬碟「' + HISTORY_FOLDER_NAME + '」');
+  if (h.removed) lines.push('「' + SHEET.history + '」分頁刪除 ' + h.removed + ' 列超過 ' + HISTORY_KEEP_DAYS + ' 天、已存檔的資料');
+  if (!lines.length) lines.push('沒有需要存檔的月份（每個月結束約 2 週後才會存檔）');
+  return lines;
+}
+
+/** 管理者：立即整理歷史訂單 */
+function adminRunHistoryExport(token) {
+  auth_(token, true);
+  const h = exportHistoryMonths_();
+  return { text: historyLines_(h).join('；'), folderUrl: h.folderUrl, files: h.files, removed: h.removed };
 }
 
 /** 複製整份試算表到備份資料夾，只留最近 BACKUP_KEEP 份。 */
