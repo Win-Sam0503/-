@@ -2488,7 +2488,7 @@
 
   // ---- 數量、單位 ----
   var UNIT_WORDS = null;
-  var UNIT_MAP = { '湯匙': 'T', '茶匙': 't', '千克': '公斤', '升': '公升', '副': '付', '大朵': '朵' };
+  var UNIT_MAP = { '湯匙': 'T', '茶匙': 't', '千克': '公斤', '升': '公升', '副': '付', '大朵': '朵', '棵': '顆' };
   function unitWords() {
     if (UNIT_WORDS) return UNIT_WORDS;
     var w = data.orderUnits.concat(data.recipeUnits, pendingUnits(), Object.keys(UNIT_MAP),
@@ -2538,12 +2538,12 @@
       if (x < new Date(today.getFullYear(), today.getMonth(), today.getDate() - 60)) x.setFullYear(x.getFullYear() + 1);
       return x.getMonth() === mo - 1 ? isoDate(x) : '';
     };
-    if ((m = t.match(/(\d{2,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})/))) {
-      var y = +m[1]; if (y < 1000) y += 1911;
-      info.useDate = y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
-    } else if ((m = t.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/)) || (m = t.match(/日\s*期\s*[:：]?\s*(\d{1,2})\s*[\/.\-]\s*(\d{1,2})/))) {
-      info.useDate = md(+m[1], +m[2]);
-    }
+    var ymd = function (y, mo, d) { y = +y; if (y < 1000) y += 1911; return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2); };
+    // 「日期：」後面的優先（照片常拍到旁邊其他單子的日期）
+    if ((m = t.match(/日\s*期\s*[:：]?[ \t]*(\d{2,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})/))) info.useDate = ymd(m[1], m[2], m[3]);
+    else if ((m = t.match(/日\s*期\s*[:：]?[ \t]*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})/))) info.useDate = md(+m[1], +m[2]);
+    else if ((m = t.match(/(\d{2,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})/))) info.useDate = ymd(m[1], m[2], m[3]);
+    else if ((m = t.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/))) info.useDate = md(+m[1], +m[2]);
     if ((m = t.match(/(上|下|早|中|晚)?\s*午\s*(\d{1,2})\s*[:：點時]\s*(\d{1,2})?/))) {
       var h = +m[2], pm = m[1] === '下' || m[1] === '晚' || (m[1] === '中' && h < 6) || h > 12 || (!m[1] && h >= 12);
       info.classTime = timeStr(pm ? 'pm' : 'am', h > 12 ? h - 12 : h, +(m[3] || 0));
@@ -2552,19 +2552,22 @@
     } else if ((m = t.match(/時間\s*[:：]?\s*(\d{1,2})\s*[:：]\s*(\d{2})/))) {
       info.classTime = timeStr(+m[1] >= 12 ? 'pm' : 'am', +m[1] > 12 ? +m[1] - 12 : +m[1], +m[2]);
     }
-    if ((m = t.match(/班\s*級\s*[:：]?\s*(\d)\s*年\s*(\d{1,2})\s*班/))) info.className = m[1] + ('0' + m[2]).slice(-2);
-    else if ((m = t.match(/班\s*級\s*[:：]?\s*([A-Za-z一-鿿]{0,2}\d[\d\/\-]*)/))) info.className = m[1];
+    if ((m = t.match(/班\s*級\s*[:：]?[ \t]*(\d)[ \t]*年[ \t]*(\d{1,2})[ \t]*班/))) info.className = m[1] + ('0' + m[2]).slice(-2);
+    else if ((m = t.match(/班\s*級\s*[:：]?[ \t]*([A-Za-z\u4e00-\u9fff]{0,2}\d[\d\-]*(?:[ \t]*\/[ \t]*\d+)*)/))) info.className = m[1].replace(/\s+/g, '');
     else if ((m = t.match(/(?:^|[^\d])(\d{3})\s*班/))) info.className = m[1];
-    if ((m = t.match(/共\s*(\d{1,2})\s*組/)) || (m = t.match(/組\s*數\s*[:：]?\s*(\d{1,2})(?!\d)/))) {
-      if (+m[1] >= 1 && +m[1] <= 99) info.groups = String(+m[1]);
-    }
-    if ((m = t.match(/教\s*室\s*[:：]?\s*(\(?[^\s()]{1,15}\)?)(\s*\()?/)) && !m[2]) {   // 「(中一)(中二)…」是空白範本，不算
+    var cellGroups = groupsFromCells(tables || []);
+    var textGroups = (m = t.match(/共[ \t]*(\d{1,2})[ \t]*組/)) || (m = t.match(/組\s*數\s*[:：]?[ \t]*(\d{1,2})(?!\d)/)) ? +m[1] : 0;
+    var gNum = cellGroups || textGroups;
+    if (gNum >= 1 && gNum <= 99) info.groups = String(gNum);
+    // 「組數」格是算「全班」用的；跟「共 X 組」不一樣時提醒老師
+    if (cellGroups && textGroups && cellGroups !== textGroups) info.groupsNote = '檔案上另寫「共 ' + textGroups + ' 組」，全班數量是用 ' + cellGroups + ' 組算的';
+    if ((m = t.match(/教\s*室\s*[:：]?[ \t]*(\(?[^\s()：:]{1,15}\)?)([ \t]*\()?/)) && !m[2]) {   // 「(中一)(中二)…」是空白範本，不算
       var room = m[1].replace(/[()]/g, '');
       if (room && !/^(上課|日期|時間)/.test(room)) info.room = room;
     }
     var proj = projectFromCells(tables || []);
-    if (!proj && (m = t.match(/(?:實作項目|實習項目|實習內容|實作內容|實習課程|課程名稱|菜\s*名|產品名稱)\s*[:：]?\s*([^\n]{1,60})/))) {
-      proj = m[1].split(/\s{2,}|\t|(?=上課|日期|班級|組數|教室|老師|時間)/)[0].trim();
+    if (!proj && (m = t.match(/(?:實作項目|實習項目|實習內容|實作內容|實習課程|課程名稱|菜\s*名|產品名稱)\s*[:：]?[ \t]*([^\n]{1,60})/))) {
+      proj = m[1].split(/\s{2,}|\t|(?=上課|日期|班級|組數|教室|老師|時間)/)[0].replace(/^[:：\s]+/, '').trim();
       if (/^\d*$/.test(proj)) proj = '';
     }
     if (proj) info.project = proj.slice(0, 60);
@@ -2590,6 +2593,21 @@
       }
     }
     return '';
+  }
+  // 「組數」標題格右邊或下面的數字
+  function groupsFromCells(tables) {
+    for (var ti = 0; ti < tables.length; ti++) {
+      var rows = tables[ti].rows;
+      for (var r = 0; r < Math.min(rows.length, 15); r++) {
+        for (var c = 0; c < rows[r].length; c++) {
+          if (!/^\s*組\s*數\s*[:：]?\s*$/.test(rows[r][c] || '')) continue;
+          var num = function (v) { v = String(v == null ? '' : v).trim(); return /^\d{1,2}$/.test(v) ? +v : 0; };
+          if (num(rows[r][c + 1])) return num(rows[r][c + 1]);
+          if (rows[r + 1] && num(rows[r + 1][c])) return num(rows[r + 1][c]);
+        }
+      }
+    }
+    return 0;
   }
   function tidyProject(v) {
     return String(v).split(/[\n\t]+/).map(function (s) { return s.trim(); }).filter(Boolean).join('、');
@@ -2666,7 +2684,7 @@
         if (isHeaderCell(name)) continue;                       // 又出現一次標題列
         var codeCell = cell(b.code);
         if (codeCell && vendorHint(codeCell) && !/\d/.test(codeCell)) vendor = vendorHint(codeCell);   // Excel 左邊的「菜商」「肉商」
-        if (!name || !/[A-Za-z一-鿿]/.test(name) || /^(總價|總計|合計|小計)$/.test(name.replace(/\s+/g, ''))) continue;
+        if (!name || !/[A-Za-z\u4e00-\u9fff]/.test(name) || /^(總價|總計|合計|小計)$/.test(name.replace(/\s+/g, ''))) continue;
         var tq = findQty(cell(b.total)), pq = findQty(cell(b.qty));
         var qty = tq && !isNaN(tq.qty) ? tq.qty : NaN, unit = tq ? tq.unit : '', perGroup = NaN;
         if (pq && !isNaN(pq.qty)) {
@@ -2700,35 +2718,56 @@
   }
 
   // ---- 文字（照片辨識、Word 段落、沒有標題列的表格）----
-  var NOT_SECTION = /單|表|學校|家商|科|老師|簽|日期|合計|總計|食材|品名|數量|單位|備註/;
-  function parseLines(lines) {
+  var NOT_SECTION = /單|表|學校|家商|科|老師|簽|日期|星期|合計|總計|食材|品名|數量|單位|備註|編號|價格|器具|明細/;
+  var NOT_ITEM = /料單|請料|丙級|乙級|家商|學校|已修改|總價/;
+  var HEADER_WORDS = /^(編號|品名|名稱|數量|單位|備註|需求量|單價|全班|價格)(\s+(編號|品名|名稱|數量|單位|備註|需求量|單價|全班|價格))*$/;
+  var VENDOR_LABEL = /^(銘哲|菜商|肉商|蛋商|海鮮|乾貨|飲調)\s+/;
+  // allowSections：照片會拍到旁邊的字（人名、菜名），所以照片不判斷段落
+  function parseLines(lines, allowSections) {
     var out = [], cur = null, section = '', vendor = '', tool = false;
+    var run = [], colMode = false;   // 連續出現、還沒有數量的品名（照片辨識有時先列整欄品名、再列整欄數量）
+    var hasTotal = lines.some(function (l) { return /全\s*班/.test(l); });
+    var UNIT_THEN_NUM = new RegExp('(?:\\d+(?:\\.\\d+)?\\s+)+(' + unitWords() + ')\\s+(\\d+(?:\\.\\d+)?)');
     lines.forEach(function (line) {
       halfWidth(line).split(/\t|\s{2,}|[|｜]/).forEach(function (seg) {
         seg = seg.trim();
         if (!seg) return;
         if (/^[^\d]{0,12}類\s*\(\s*[A-Za-z]\s*\)$/.test(seg)) { vendor = vendorHint(seg); tool = false; cur = null; return; }
         if (/器具|用具/.test(seg) && seg.length <= 10) { tool = true; cur = null; return; }
+        if (HEADER_WORDS.test(seg) || NOT_ITEM.test(seg)) return;
+        var lab = seg.match(VENDOR_LABEL);   // 「銘哲 番茄醬 …」「菜商 蔥 …」：前面是廠商分類
+        if (lab) { vendor = vendorHint(lab[1]) || vendor; seg = seg.slice(lab[0].length); }
         var noCode = seg.replace(/[A-Za-z]+\d{2,}/g, ' ');   // 編號（例如 A85）不是數量
         var q = findQty(noCode);
         var pureQty = !!q && q.at === 0 && q.len >= noCode.trim().length;
-        var hit = tool || pureQty ? null : findItem(noCode.slice(0, q ? q.at : noCode.length).trim() || seg);
-        if (pureQty && cur && (isNaN(cur.qty) || !cur.fileUnit)) {   // 名稱和數量被拆成兩行
-          if (isNaN(cur.qty) && !isNaN(q.qty)) { cur.qty = q.qty; cur.on = cur.tool || !!cur.id && q.qty > 0; }
-          if (q.unit && !cur.fileUnit) { cur.unit = q.unit; cur.fileUnit = true; }
-          cur.src += ' ' + seg;
-          return;
+        // 中餐請料單「需求量 單價 單位 全班 價格」：單位後面那個數字才是全班的量
+        var tm = hasTotal && !tool && !pureQty ? noCode.match(UNIT_THEN_NUM) : null;
+        var nameEnd = tm ? tm.index : q ? q.at : noCode.length;
+        if (tm) q = { qty: +tm[2], unit: stdUnit(tm[1]), at: tm.index };
+        var hit = tool || pureQty ? null : findItem(noCode.slice(0, nameEnd).trim() || seg);
+        if (pureQty) {   // 名稱和數量被拆成兩行
+          if (run.length >= 3) colMode = true;
+          var target = colMode && run.length ? run.shift() : (cur && (isNaN(cur.qty) || !cur.fileUnit) ? cur : null);
+          if (!run.length) colMode = false;
+          if (target) {
+            if (isNaN(target.qty) && !isNaN(q.qty)) { target.qty = q.qty; target.on = target.tool || !!target.id && q.qty > 0; }
+            if (q.unit && !target.fileUnit) { target.unit = q.unit; target.fileUnit = true; }
+            target.src += ' ' + seg;
+            if (target === cur && !colMode) run = [];
+            return;
+          }
         }
         if (pureQty || /^[A-Za-z]+\d{2,}$/.test(seg)) return;
-        var name = noCode.slice(0, q ? q.at : noCode.length).replace(/[:：]\s*$/, '').trim();
-        if (hit || tool || (q && name && /^[一-鿿A-Za-z()]{1,15}$/.test(name) && !isInfoCell(name) && !/^(第|共)/.test(name))) {
+        var name = noCode.slice(0, nameEnd).replace(/[:：]\s*$/, '').trim();
+        if (hit || tool || (q && name && /^[\u4e00-\u9fffA-Za-z()]{1,15}$/.test(name) && !isInfoCell(name) && !/^(第|共)/.test(name))) {
           cur = makeRow(seg, name || seg, hit, q ? q.qty : NaN, q ? q.unit : '', '', section, vendor);
           cur.tool = tool;
           if (tool) cur.on = !isNaN(cur.qty);
           out.push(cur);
+          if (isNaN(cur.qty)) run.push(cur); else run = [];
           return;
         }
-        if (!q && seg.length <= 8 && /^[一-鿿]+[:：]?$/.test(seg) && !isInfoCell(seg) && !NOT_SECTION.test(seg)) {
+        if (allowSections && !q && seg.length <= 8 && /^[\u4e00-\u9fff]+[:：]?$/.test(seg) && !isInfoCell(seg) && !NOT_SECTION.test(seg)) {
           section = seg.replace(/[:：]$/, ''); cur = null;
         }
       });
@@ -2777,7 +2816,7 @@
       });
     });
     if (res.kind !== 'doc' || !rows.length) lineInput = lineInput.concat(text);   // Word 有表格時，段落只是上課資訊
-    rows = rows.concat(parseLines(lineInput));
+    rows = rows.concat(parseLines(lineInput, res.kind !== 'ocr'));
     // 只有「一組的量」時用組數算全班
     var g = Number(imp.info.groups) || Number(normNum($('fGroups').value)) || 0;
     rows.forEach(function (r) {
@@ -2806,7 +2845,8 @@
     var dl = '<datalist id="impItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
     var infoHtml = infoKeys.length
       ? '<div class="imp-info"><b>上課資訊（會覆蓋目前填的）：</b>' + infoKeys.map(function (k) {
-          return '<label class="check" style="color:inherit"><input type="checkbox" data-info="' + k + '" checked> ' + INFO_LABEL[k] + '：' + esc(imp.info[k]) + '</label>';
+          return '<label class="check" style="color:inherit"><input type="checkbox" data-info="' + k + '" checked> ' + INFO_LABEL[k] + '：' + esc(imp.info[k]) +
+            (k === 'groups' && imp.info.groupsNote ? ' <span style="color:var(--warn)">（' + esc(imp.info.groupsNote) + '）</span>' : '') + '</label>';
         }).join('') + '</div>'
       : '<div class="muted small" style="margin:8px 0">檔案裡沒有讀到上課資訊，請自己填。</div>';
     var lastSec = null, toolHead = false;
