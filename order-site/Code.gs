@@ -35,6 +35,7 @@ const LOCK_HOUR = 12;
 const LOCK_MINUTE = 0;
 const TOOL_ID = '器具';                     // 使用器具在訂單總表的「食材ID」與「廠商」
 const ITEMS_CACHE_MINUTES = 10;             // 食材清單暫存時間（加快登入）；核准新食材時會立即更新
+const MINE_DAYS = 60;                       // 「我的訂單」預設顯示最近幾天
 const MAX_DAYS_AHEAD = 30;                  // 上課日期最晚可選幾天後
 const MAX_ITEMS_PER_ORDER = 80;
 const SESSION_HOURS = 6;                    // 登入有效時間
@@ -87,7 +88,10 @@ const SHEET = {
   schedule: '課表',
   myLessons: '老師課表',
   skips: '不用訂貨',
+  errors: '錯誤紀錄',
 };
+const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
+const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
 const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
 const SKIP_HEADERS = ['老師', '日期', '時段', '課程', '標記時間'];
 
@@ -129,14 +133,23 @@ function login(account, password) {
     throw new Error('密碼錯誤次數過多，請 ' + LOCK_MINUTES + ' 分鐘後再試。');
   }
 
-  const acc = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']).rows
-    .find(function (r) { return String(r['帳號']).trim() === account; });
+  const accRows = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']).rows;
+  let acc = accRows.find(function (r) { return String(r['帳號']).trim() === account; });
+  if (!acc) {
+    // 打字差一點也找得到：異體字（尙／尚）、空白、全形字
+    const key = accountKey_(account);
+    const same = accRows.filter(function (r) { return isTrue_(r['啟用']) && accountKey_(r['帳號']) === key; });
+    if (same.length === 1) acc = same[0];
+  }
+  if (acc) account = String(acc['帳號']).trim();   // 之後一律用試算表上的寫法
   const ok = acc && isTrue_(acc['啟用']) && String(acc['密碼']) === password;
   logLogin_(account, ok ? '成功' : '失敗');
 
   if (!ok) {
     cache.put(failKey, String(fails + 1), LOCK_MINUTES * 60);
-    throw new Error('帳號或密碼不正確，或帳號未啟用。');
+    throw new Error(acc && isTrue_(acc['啟用'])
+      ? '密碼不正確（有分大小寫）。忘記密碼請找管理者重設。'
+      : '找不到這個帳號，或帳號未啟用。帳號是你的名字，請確認有沒有打錯字或異體字（例如「尚／尙」「黃／黄」）。');
   }
   cache.remove(failKey);
   const token = Utilities.getUuid();
@@ -144,6 +157,20 @@ function login(account, password) {
   const mustChange = password === DEFAULT_PASSWORD;
   if (mustChange) cache.put('mustchange:' + token, '1', SESSION_HOURS * 3600);
   return { token: token, account: account, isAdmin: ADMIN_ACCOUNTS.indexOf(account) >= 0, mustChange: mustChange };
+}
+
+// 常見的異體字、簡體字 → 台灣常用寫法（只用來比對帳號，不會改試算表）
+const NAME_VARIANTS_ = {
+  '尙': '尚', '黄': '黃', '吴': '吳', '吕': '呂', '温': '溫', '峯': '峰', '啓': '啟', '眞': '真', '淸': '清', '靑': '青',
+  '姸': '妍', '羣': '群', '綫': '線', '着': '著', '裏': '裡', '敎': '教', '衞': '衛', '册': '冊', '爲': '為', '恒': '恆',
+  '晋': '晉', '凉': '涼', '叙': '敘', '庄': '莊', '甯': '寧', '邨': '村', '鄕': '鄉', '冲': '沖', '刘': '劉', '陈': '陳',
+  '张': '張', '杨': '楊', '赵': '趙', '许': '許', '郑': '鄭', '谢': '謝', '叶': '葉', '苏': '蘇',
+};
+function accountKey_(name) {
+  return String(name == null ? '' : name)
+    .replace(/[\uFF01-\uFF5E]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })   // 全形英數 → 半形
+    .replace(/[\s\u3000]+/g, '').toLowerCase()
+    .replace(/./g, function (c) { return NAME_VARIANTS_[c] || c; });
 }
 
 /**
@@ -696,16 +723,53 @@ function nextOrderNo_() {
   return no;
 }
 
-/** 我送出的、或別人代我訂的訂單（最近 60 天的上課日期起）。 */
-function getMyOrders(token) {
+/** 我送出的、或別人代我訂的訂單（預設最近 60 天的上課日期起；days 最多 400，「顯示更早的訂單」用）。 */
+function getMyOrders(token, days) {
   const account = auth_(token);
-  const since = addDays_(today_(), -60);
+  days = Math.min(Math.max(Number(days) || MINE_DAYS, MINE_DAYS), 400);
+  const since = addDays_(today_(), -days);
   const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows, since).filter(function (r) {
     if (String(r['操作老師']).trim() !== account && String(r['代訂對象老師'] || '').trim() !== account) return false;
     const d = toDate_(r['使用日期']);
     return !d || d >= since;
   });
   return groupOrders_(rows, account).sort(function (a, b) { return a.orderNo < b.orderNo ? 1 : -1; });
+}
+
+/**
+ * 「上次這堂課訂了什麼」：同一位老師、同一個班級、同一個時段，上課日期在 date 之前最近的一張訂單（含歷史訂單、一年內）。
+ * 同一個星期幾的優先。找不到回傳 null。
+ */
+function findLastLessonOrder(token, date, session, className) {
+  const account = auth_(token);
+  const before = parseDate_(date);
+  if (!before || SESSIONS.indexOf(session) < 0) return null;
+  const classes = classKeys_(className);
+  if (!classes.length) return null;
+  const since = addDays_(before, -365);
+  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows, since).filter(function (r) {
+    if (String(r['操作老師']).trim() !== account && String(r['代訂對象老師'] || '').trim() !== account) return false;
+    const d = toDate_(r['使用日期']);
+    return d && d >= since && d < before;
+  });
+  const cands = groupOrders_(rows, account).filter(function (o) {
+    if (o.status === '已取消' || sessionOf_(o.classTime) !== session) return false;
+    if (!o.items.some(function (it) { return it.status !== '已取消'; })) return false;
+    return classKeys_(o.className).some(function (c) { return classes.indexOf(c) >= 0; });
+  });
+  if (!cands.length) return null;
+  const wd = before.getDay();
+  cands.sort(function (a, b) {
+    const sa = parseDate_(a.useDate).getDay() === wd ? 1 : 0, sb = parseDate_(b.useDate).getDay() === wd ? 1 : 0;
+    return sa !== sb ? sb - sa : (a.useDate < b.useDate ? 1 : -1);
+  });
+  return cands[0];
+}
+
+/** 班級「109/110」「109、110」→ ['109','110']（全形數字轉半形） */
+function classKeys_(s) {
+  return String(s || '').replace(/[\uFF10-\uFF19]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .split(/[\/、,，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
 }
 
 function cancelOrder(token, orderNo) {
@@ -1125,6 +1189,7 @@ function automationStatus_() {
     line: lineStatus_(),
     remindHour: REMIND_HOUR,
     lineReserve: LINE_RESERVE,
+    errors7d: recentSystemErrors_(addDays_(new Date(), -7)).length,
     scheduleCount: scheduleCount_(),
     lastRemindTime: props.getProperty('LAST_REMIND_TIME') || '',
     lastMaintTime: props.getProperty('LAST_MAINT_TIME') || '',
@@ -1152,25 +1217,87 @@ function fromTrigger_(e) {
 // 排程：每週一中午產生下週的廠商訂貨單
 function autoVendorOrders(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
-  runVendorOrders_();
+  logged_('每週訂貨單', function () { runVendorOrders_(); });
 }
 
 // 排程：每天早上寄摘要（沒有新東西就不寄）
 function dailyDigest(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
-  runDigest_(false);
+  logged_('每日摘要', function () { runDigest_(false); });
 }
 
 // 排程：每週日晚上先備份試算表、再把舊訂單搬到「歷史訂單」
 function weeklyMaintenance(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
-  runMaintenance_();
+  logged_('每週備份封存', function () { runMaintenance_(); });
 }
 
-// 排程：每週五下午在老師的 LINE 群組提醒下週還沒訂貨的課
+// 排程：每週五下午用 LINE 私訊提醒下週還沒訂貨的老師
 function remindTeachers(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
-  runReminder_(true);
+  logged_('週五訂貨提醒', function () { runReminder_(true); });
+}
+
+// ---- 錯誤紀錄：老師在網站上遇到的錯誤、排程失敗，記到「錯誤紀錄」分頁，系統錯誤會放進每日摘要 ----
+
+/** 排程執行失敗時記下來（再丟出去，Apps Script 的執行紀錄也看得到） */
+function logged_(what, fn) {
+  try {
+    return fn();
+  } catch (err) {
+    logError_('（排程）', what, '系統錯誤', err && err.message ? err.message : String(err), '');
+    throw err;
+  }
+}
+
+/** 系統錯誤＝程式或 Google 服務出問題；操作提示＝給老師看的中文說明（例如「請選擇日期」） */
+function errorType_(message) {
+  const m = String(message || '');
+  if (/TypeError|ReferenceError|RangeError|SyntaxError|is not defined|is not a function|Cannot read|Cannot set|undefined|Exception|Service|服務|逾時|timed? ?out|權限|permission|authori[sz]|Too many|quota|配額|伺服器|NetworkError|網路|網頁錯誤|failed|無法連線/i.test(m)) return '系統錯誤';
+  return /[\u4e00-\u9fff]/.test(m) ? '操作提示' : '系統錯誤';
+}
+
+function logError_(account, fn, type, message, view) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const key = 'err:' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, account + '|' + fn + '|' + message, Utilities.Charset.UTF_8));
+    if (cache.get(key)) return;   // 同一個人、同一個錯誤 10 分鐘內只記一次
+    cache.put(key, '1', 600);
+    const sh = ensureSheet_(SHEET.errors, ERROR_HEADERS);
+    appendRows_(SHEET.errors, [{ '時間': new Date(), '帳號': clean_(account, 30), '功能': clean_(fn, 40), '類型': type,
+      '訊息': clean_(message, 300), '畫面': clean_(view, 100) }], { '時間': 'yyyy/mm/dd hh:mm:ss' });
+    const extra = sh.getLastRow() - 1 - ERROR_KEEP;
+    if (extra > 200) sh.deleteRows(2, extra);
+  } catch (e) {
+    console.error('錯誤紀錄寫入失敗：' + e.message);
+  }
+}
+
+/** 網頁回報錯誤（google.script.run 失敗、網頁程式錯誤）。沒登入也可以回報。 */
+function logClientError(token, fn, message, view) {
+  const account = (token && CacheService.getScriptCache().get('session:' + token)) || '（未登入）';
+  const msg = String(message || '');
+  if (!msg || /SESSION_EXPIRED|MUST_CHANGE_PASSWORD/.test(msg)) return false;
+  logError_(account, String(fn || ''), errorType_(msg), msg, String(view || ''));
+  return true;
+}
+
+function errTime_(v) {
+  if (v instanceof Date) return v;
+  const d = parseDateTime_(String(v || '').replace(/-/g, '/'));
+  return d || toDate_(v);
+}
+
+/** since 之後的系統錯誤（每日摘要、自動化畫面用） */
+function recentSystemErrors_(since) {
+  const sh = ss_().getSheetByName(SHEET.errors);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return readTable_(SHEET.errors, ['時間', '類型']).rows.filter(function (r) {
+    const t = errTime_(r['時間']);
+    return String(r['類型']).trim() === '系統錯誤' && t && t > since;
+  }).map(function (r) {
+    return { time: fmtDateTime_(errTime_(r['時間'])), account: String(r['帳號'] || ''), fn: String(r['功能'] || ''), message: String(r['訊息'] || '') };
+  });
 }
 
 // ---- 管理者在網站上操作 ----
@@ -1295,6 +1422,7 @@ function doPost(e) {
     });
   } catch (err) {
     console.error('LINE webhook：' + err.message);
+    logError_('（LINE）', 'LINE 回覆', '系統錯誤', err.message, '');
   }
   return ContentService.createTextOutput('OK');
 }
@@ -2128,7 +2256,8 @@ function runDigest_(force) {
   });
 
   const edits = JSON.parse(props.getProperty('ORDER_EDITS') || '[]');
-  if (!force && !newOrders.length && !pendItems && !pendUnits && !edits.length) {
+  const errors = recentSystemErrors_(since);
+  if (!force && !newOrders.length && !pendItems && !pendUnits && !edits.length && !errors.length) {
     props.setProperty('DIGEST_LAST', String(now.getTime()));
     return { sent: false, reason: '沒有新訂單或待審核項目，今天不寄。' };
   }
@@ -2143,6 +2272,9 @@ function runDigest_(force) {
     '新訂單 ' + newOrders.length + ' 張' + (lineOrders.length ? '：\n' + lineOrders.join('\n') + (newOrders.length > 15 ? '\n…' : '') : '') + '\n' +
     '待審核：新食材 ' + pendItems + '、新單位 ' + pendUnits + '\n' +
     '下週（' + shortDateTw_(r.from) + '～' + shortDateTw_(r.to) + '）已收到 ' + nextWeek.length + ' 張訂單' +
+    (errors.length ? '\n⚠ 系統錯誤 ' + errors.length + ' 筆（詳見試算表「錯誤紀錄」分頁）：\n' + errors.slice(-3).map(function (e) {
+      return '・' + e.account + ' ' + e.fn + '：' + e.message.slice(0, 60);
+    }).join('\n') : '') +
     (webAppUrl_() ? '\n\n' + webAppUrl_() : '');
   const html = '<h3>訂貨每日摘要 ' + escHtml_(day) + '</h3>' +
     '<p><b>新訂單 ' + newOrders.length + ' 張</b>（' + escHtml_(fmtDateTime_(since)) + ' 之後送出）</p>' +
@@ -2156,10 +2288,12 @@ function runDigest_(force) {
     (webAppUrl_() ? '<p><a href="' + webAppUrl_() + '">打開訂貨網站</a></p>' : '');
   const editHtml = edits.length ? '<p><b>老師修改的訂單 ' + edits.length + ' 張</b></p><ul>' +
     edits.map(function (e) { return '<li>' + escHtml_(e.t + ' ' + e.who + ' 修改 ' + e.no + '：' + e.text) + '</li>'; }).join('') + '</ul>' : '';
-  const n = notify_('【訂貨每日摘要】' + day + '：新訂單 ' + newOrders.length + ' 張' + (edits.length ? '、修改 ' + edits.length + ' 張' : ''), html + editHtml, lineText);
+  const errHtml = errors.length ? '<p><b style="color:#b91c1c">系統錯誤 ' + errors.length + ' 筆</b>（試算表「錯誤紀錄」分頁有完整紀錄）</p><ul>' +
+    errors.slice(-20).map(function (e) { return '<li>' + escHtml_(e.time + ' ' + e.account + ' ' + e.fn + '：' + e.message) + '</li>'; }).join('') + '</ul>' : '';
+  const n = notify_('【訂貨每日摘要】' + day + '：新訂單 ' + newOrders.length + ' 張' + (edits.length ? '、修改 ' + edits.length + ' 張' : '') + (errors.length ? '、系統錯誤 ' + errors.length + ' 筆' : ''), html + editHtml + errHtml, lineText);
   props.setProperty('DIGEST_LAST', String(now.getTime()));
   props.deleteProperty('ORDER_EDITS');
-  return { sent: true, newOrders: newOrders.length, pendItems: pendItems, pendUnits: pendUnits, notify: n };
+  return { sent: true, newOrders: newOrders.length, pendItems: pendItems, pendUnits: pendUnits, errors: errors.length, notify: n };
 }
 
 function shortDateTw_(d) {

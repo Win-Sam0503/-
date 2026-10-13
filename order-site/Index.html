@@ -321,6 +321,7 @@
       <div id="setupWarn"></div>
       <div id="editBanner" class="msg info hidden" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"></div>
       <div class="msg info" id="lockBanner"></div>
+      <div id="lastBox"></div>
       <div class="panel" id="tplPanel">
         <h2>我的範本 <span class="muted small" style="font-weight:normal">存一組的量，帶入時自動乘以組數</span></h2>
         <div class="tpl-row">
@@ -612,6 +613,7 @@
             reject(new Error('登入已逾時'));
             return;
           }
+          reportError(fn, msg);
           reject(new Error(msg.replace(/^Error:\s*/, '').replace(/^Exception:\s*/, '')));
         });
       if (typeof runner[fn] !== 'function') {
@@ -622,6 +624,20 @@
       runner[fn].apply(runner, args);
     });
   }
+
+  // 錯誤回報：記到試算表「錯誤紀錄」分頁（系統錯誤會出現在管理者的每日摘要）。回報失敗就算了，不影響畫面。
+  var reported = {};
+  function reportError(fn, message) {
+    try {
+      if (fn === 'logClientError' || !message || reported[fn + message]) return;
+      reported[fn + message] = 1;
+      var view = (document.querySelector('main section:not(.hidden)') || {}).id || '';
+      google.script.run.withFailureHandler(function () {}).logClientError(token, fn, String(message).slice(0, 300), view + '｜' + navigator.userAgent.slice(0, 60));
+    } catch (e) {}
+  }
+  window.addEventListener('error', function (e) {
+    reportError('網頁', '網頁錯誤：' + (e.message || '') + (e.lineno ? '（第 ' + e.lineno + ' 行）' : ''));
+  });
 
   // ------------------------------------------------------------------
   // 小工具
@@ -1378,6 +1394,7 @@
   // 送出訂單
   // ------------------------------------------------------------------
   $('submitBtn').addEventListener('click', function () {
+    msg('lastBox', '', '');
     readInfo();
     recalcTotals();
     var i = draft.info;
@@ -1520,6 +1537,7 @@
 
   // 把一張訂單帶回訂貨畫面：edit = true 是修改這張訂單，false 是「再訂一次」
   function orderToDraft(o, edit) {
+    msg('lastBox', '', '');
     draft = emptyDraft();
     draft.info = { useDate: edit ? o.useDate : '', dept: o.dept, classTime: o.classTime, room: o.room, className: o.className, groups: o.groups ? String(o.groups) : '', project: o.project,
       onBehalfOf: o.teacher === data.account ? o.onBehalfOf : '' };
@@ -1553,16 +1571,25 @@
     draft = emptyDraft(); saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
     msg('orderMsg', '', '');
   });
+  var mineDays = 60;   // 按「顯示更早的訂單」後改成一年
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
     $('mineList').innerHTML = '';
-    call('getMyOrders', token).then(function (list) {
+    call('getMyOrders', token, mineDays).then(function (list) {
       mineCache = list;
       if (note) msg('mineMsg', 'ok', note);
-      else msg('mineMsg', list.length ? '' : 'info', list.length ? '' : '目前沒有訂單。');
-      $('mineList').innerHTML = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
+      else msg('mineMsg', list.length ? '' : 'info', list.length ? '' : (mineDays > 60 ? '最近一年沒有訂單。' : '最近 60 天沒有訂單。'));
+      $('mineList').innerHTML = list.map(function (o) { return orderCard(o, { mine: true }); }).join('') +
+        '<div class="actions" style="justify-content:center">' + (mineDays > 60
+          ? '<span class="muted small">已顯示最近一年的訂單（上課日期過了 2 週的訂單只能查看、列印、再訂一次）。更早的請找管理者。</span>'
+          : '<button type="button" class="btn ghost small" id="mineMore">顯示更早的訂單（最近一年）</button>') + '</div>';
     }).catch(function (e) { msg('mineMsg', 'error', '載入失敗：' + e.message); });
   }
+  $('mineList').addEventListener('click', function (e) {
+    if (!e.target.closest('#mineMore')) return;
+    mineDays = 400;
+    loadMine();
+  });
   $('reloadMine').addEventListener('click', function () { loadMine(); });
 
   $('mineList').addEventListener('click', function (e) {
@@ -2450,6 +2477,7 @@
       '本月 LINE 則數：' + (ln.quota ? (ln.quota.limit ? '已用 ' + ln.quota.used + '／' + ln.quota.limit + ' 則' +
         (ln.quota.limit - ln.quota.used < 40 ? ' <b style="color:var(--bad)">快用完了</b>' : '') + '（剩不到 ' + st.lineReserve + ' 則時自動停止私訊老師）' : '已用 ' + ln.quota.used + ' 則（無上限）') : '查不到（Token 未設定）') + '<br>' +
       '官方帳號選單：' + yes(!!ln.richMenu, '已設定', '未設定') + '<br>' +
+      '最近 7 天系統錯誤：' + (st.errors7d ? '<b style="color:var(--bad)">' + st.errors7d + ' 筆</b>，請看試算表「錯誤紀錄」分頁' : '<span style="color:var(--ok)">0 筆</span>') + '<br>' +
       'Email 收件人：' + esc(st.emails.join('、') || '（無）') + '<br>' +
       'LINE（你自己收通知）：' + yes(st.lineTokenSet, 'Token 已設定', 'Token 未設定') + '　' + yes(st.lineBound, '已綁定', '未綁定') + '<br>' +
       (st.lastVendorUrl ? '上次產生的訂貨單：<a href="' + esc(st.lastVendorUrl) + '" target="_blank" rel="noopener">打開</a>（' + esc(st.lastVendorTime) + '）<br>' : '') +
@@ -3358,12 +3386,46 @@
       updateDateHint(); renderResults();
       show('viewOrder');
       msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請選擇幾點幾分、科別，再選食材。');
+      msg('lastBox', '', '');
+      if (!draft.cart.length && !draft.tools.length) suggestLastOrder(x);
       return;
     }
     setBusy(b, true, '處理中…');
     call('setNoOrder', token, x.date, x.session, x.course, act === 'skip').then(function (r) {
       renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨。' : '已改回要訂貨。');
     }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+  });
+  // 「上次這堂課訂了什麼」：同班級、同時段最近的一張訂單，一鍵帶入
+  var lastSuggest = null;
+  function suggestLastOrder(x) {
+    lastSuggest = null;
+    msg('lastBox', '', '');
+    call('findLastLessonOrder', token, x.date, x.session, x.className).then(function (o) {
+      if (!o || draft.cart.length || draft.tools.length || draft.info.useDate !== x.date) return;
+      lastSuggest = { o: o, x: x };
+      var foods = o.items.filter(function (it) { return it.id !== TOOL && it.status !== '已取消'; }).length;
+      var tools = o.items.filter(function (it) { return it.id === TOOL && it.status !== '已取消'; }).length;
+      $('lastBox').innerHTML = '<div class="msg info" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<span>上次這堂課（' + esc(shortDate(o.useDate) + ' ' + o.className) + '「' + esc(o.project) + '」）訂了 ' + foods + ' 項食材' + (tools ? '、' + tools + ' 項器具' : '') + '，要帶入嗎？</span>' +
+        '<span class="actions" style="margin:0"><button type="button" class="btn ghost small" data-last="no">不用</button><button type="button" class="btn small" data-last="yes">帶入上次的內容</button></span></div>';
+    }).catch(function () {});
+  }
+  $('lastBox').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-last]');
+    if (!b) return;
+    if (b.getAttribute('data-last') === 'no' || !lastSuggest) { lastSuggest = null; msg('lastBox', '', ''); return; }
+    var o = lastSuggest.o, x = lastSuggest.x;
+    lastSuggest = null;
+    readInfo();
+    var keep = { useDate: draft.info.useDate, className: draft.info.className, room: draft.info.room, classTime: draft.info.classTime };
+    orderToDraft(o, false);
+    draft.info.useDate = keep.useDate;
+    draft.info.className = keep.className || o.className;
+    draft.info.room = keep.room || o.room;
+    if (keep.classTime) draft.info.classTime = keep.classTime;
+    writeInfo(); saveDraft(); updateDateHint(); renderResults();
+    msg('orderMsg', '', '');
+    msg('lastBox', 'ok', '已帶入上次（' + shortDate(o.useDate) + '「' + o.project + '」）的內容，請確認實作項目、組數和數量再送出。');
   });
   $('mlType').addEventListener('change', function () {
     var once = this.value === '單次';
