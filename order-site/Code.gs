@@ -674,7 +674,8 @@ function adminSetStatus(token, orderNo, status) {
 
 /**
  * 管理者修改訂單明細。
- * changes: [{ row, qty, unit, note, noOrder, cancel }]，row 是訂單總表的列號（由 adminGetOrders 提供）
+ * changes: [{ row, qty, unit, note, noOrder, cancel, kind, itemId, name }]，row 是訂單總表的列號（由 adminGetOrders 提供）
+ *   kind = 'tool'：改成使用器具（name = 器具名稱）；kind = 'food' + itemId：改成食材總表的這樣食材
  */
 function adminUpdateOrder(token, orderNo, changes) {
   const admin = auth_(token, true);
@@ -687,18 +688,53 @@ function adminUpdateOrder(token, orderNo, changes) {
     const byRow = {};
     t.rows.forEach(function (r) { if (String(r['訂單編號']).trim() === orderNo) byRow[r._row] = r; });
     if (!Object.keys(byRow).length) throw new Error('找不到訂單 ' + orderNo + '。');
+    let catalog = null, vendorGroups = null;
     changes.forEach(function (c) {
       const r = byRow[Number(c.row)];
       if (!r) throw new Error('訂單明細已變動，請重新整理後再改。');
-      const name = String(r['食材名稱'] || '');
+      let name = String(r['食材名稱'] || '');
       if (c.cancel) {
         setCell_(t, r._row, '狀態', '已取消');
         return;
       }
+      let isTool = String(r['食材ID']).trim() === TOOL_ID;
+      let catUnit = r['單位'];
+      // 食材、器具互換，或換成另一樣食材（例如檔案帶入時對錯）
+      if (c.kind === 'tool') {
+        const toolName = clean_(c.name, 40) || name;
+        if (!isTool || toolName !== name) {
+          setCell_(t, r._row, '食材ID', TOOL_ID);
+          setCell_(t, r._row, '食材名稱', toolName);
+          if (t.cols['廠商'] !== undefined) setCell_(t, r._row, '廠商', TOOL_ID);
+          if (t.cols['送貨組別'] !== undefined) setCell_(t, r._row, '送貨組別', '');
+          if (t.cols['單位'] !== undefined) setCell_(t, r._row, '單位', '');
+          if (t.cols['不叫貨'] !== undefined) setCell_(t, r._row, '不叫貨', '');
+        }
+        isTool = true; name = toolName;
+      } else if (c.kind === 'food' && c.itemId && String(c.itemId).trim() !== String(r['食材ID']).trim()) {
+        if (!catalog) {
+          catalog = {};
+          readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']).rows.forEach(function (x) {
+            const id = String(x['食材ID']).trim();
+            if (id && (x['啟用'] === undefined || isTrue_(x['啟用']))) catalog[id] = x;
+          });
+          vendorGroups = readVendorGroups_();
+        }
+        const it = catalog[String(c.itemId).trim()];
+        if (!it) throw new Error('食材「' + c.itemId + '」已停用或不存在。');
+        const vendor = String(it['廠商']).trim();
+        const d = toDate_(r['使用日期']);
+        name = String(it['食材名稱']).trim();
+        setCell_(t, r._row, '食材ID', String(c.itemId).trim());
+        setCell_(t, r._row, '食材名稱', name);
+        if (t.cols['廠商'] !== undefined) setCell_(t, r._row, '廠商', orderVendor_(vendor, r['科別']));
+        if (t.cols['送貨組別'] !== undefined && d) setCell_(t, r._row, '送貨組別', deliveryGroup_(vendor, d.getDay(), vendorGroups));
+        isTool = false; catUnit = it['單位'] || '';
+      }
       setCell_(t, r._row, '數量', qty_(c.qty, name));
-      if (String(r['食材ID']).trim() !== TOOL_ID) setCell_(t, r._row, '單位', unit_(c.unit, r['單位'], name));
+      if (!isTool) setCell_(t, r._row, '單位', unit_(c.unit, catUnit, name));
       if (t.cols['備註'] !== undefined) setCell_(t, r._row, '備註', clean_(c.note, 100));
-      if (t.cols['不叫貨'] !== undefined) setCell_(t, r._row, '不叫貨', c.noOrder ? true : '');
+      if (t.cols['不叫貨'] !== undefined) setCell_(t, r._row, '不叫貨', c.noOrder && !isTool ? true : '');
     });
     if (t.cols['審核人'] !== undefined) {
       Object.keys(byRow).forEach(function (row) { setCell_(t, Number(row), '審核人', admin); });

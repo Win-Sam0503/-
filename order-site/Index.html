@@ -1572,19 +1572,46 @@
   function openEditor(o, card) {
     var rows = o.items.map(function (it) {
       var isTool = it.id === TOOL;
-      return '<tr data-row="' + it.row + '"><td>' + esc(it.name) + (isTool ? ' <span class="badge">器具</span>' : '') + '<div class="muted small">' + esc(it.vendor) + '</div></td>' +
+      // 品項可以改名（從食材總表選）或在「食材／器具」之間切換
+      return '<tr data-row="' + it.row + '" data-kind="' + (isTool ? 'tool' : 'food') + '"><td>' +
+        '<div style="display:flex;gap:4px;align-items:center"><select data-f="kind" aria-label="食材或器具" style="width:auto;padding:4px 6px">' +
+          '<option value="food"' + (isTool ? '' : ' selected') + '>食材</option><option value="tool"' + (isTool ? ' selected' : '') + '>器具</option></select>' +
+          '<input type="text" data-f="name" maxlength="40" value="' + esc(it.name) + '" aria-label="品項名稱"' + (isTool ? '' : ' list="editItems"') + ' style="min-width:120px"></div>' +
+        '<div class="muted small" data-f="vendorNote">' + esc(isTool ? '' : it.vendor) + '</div></td>' +
         '<td><input type="text" class="num-input" autocomplete="off" maxlength="10" data-f="qty" value="' + esc(it.qty) + '" style="width:80px"></td>' +
-        '<td>' + (isTool ? '' : unitInput(it.unit, it.name + ' 單位').replace('class="unit-input', 'style="width:80px" class="unit-input')) + '</td>' +
+        '<td class="food-only">' + unitInput(isTool ? '' : it.unit, it.name + ' 單位').replace('class="unit-input', 'style="width:80px" class="unit-input') + '</td>' +
         '<td><input type="text" data-f="note" maxlength="100" value="' + esc(it.note) + '"></td>' +
-        '<td class="c">' + (isTool ? '' : '<input type="checkbox" data-f="noOrder"' + (it.noOrder ? ' checked' : '') + '>') + '</td>' +
+        '<td class="c food-only"><input type="checkbox" data-f="noOrder"' + (it.noOrder ? ' checked' : '') + '></td>' +
         '<td class="c"><input type="checkbox" data-f="cancel"' + (it.status === '已取消' ? ' checked disabled' : '') + '></td></tr>';
     }).join('');
     card.innerHTML = '<div class="head"><b>修改明細：' + esc(o.project) + '</b><span class="muted small">' + esc(o.orderNo) + '</span></div>' +
-      '<div class="tablewrap"><table class="edit-table"><thead><tr><th>品項</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消。</div>' +
+      '<datalist id="editItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>' +
+      '<div class="tablewrap"><table class="edit-table" data-dept="' + esc(o.dept) + '"><thead><tr><th>品項（食材／器具）</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱。</div>' +
       '<div class="actions"><button type="button" class="btn ghost small" data-act="edit-cancel" data-no="' + esc(o.orderNo) + '">取消</button>' +
       '<button type="button" class="btn small" data-act="edit-save" data-no="' + esc(o.orderNo) + '">儲存修改</button></div>';
+    Array.prototype.forEach.call(card.querySelectorAll('.edit-table tr[data-row]'), syncEditRow);
   }
+  function itemByNameExact(name) {
+    name = String(name || '').trim();
+    return name ? data.items.find(function (it) { return it.name === name; }) || null : null;
+  }
+  // 修改明細：切換食材／器具時，單位、有貨欄跟著顯示或隱藏；選了食材就顯示它的廠商
+  function syncEditRow(tr) {
+    var tool = tr.querySelector('[data-f="kind"]').value === 'tool';
+    var nameEl = tr.querySelector('[data-f="name"]');
+    if (tool) nameEl.removeAttribute('list'); else nameEl.setAttribute('list', 'editItems');
+    Array.prototype.forEach.call(tr.querySelectorAll('.food-only'), function (td) { td.style.visibility = tool ? 'hidden' : ''; });
+    var cat = tool ? null : itemByNameExact(nameEl.value);
+    var dept = tr.closest('table').getAttribute('data-dept');
+    var split = cat && data.vendorSplit && data.vendorSplit[cat.vendor];
+    var vendor = !cat ? '' : !split ? cat.vendor : (data.bakingDepts || []).indexOf(dept) >= 0 ? split.baking : split.other;
+    tr.querySelector('[data-f="vendorNote"]').textContent = tool ? '' : cat ? vendor : '請從清單選擇食材';
+  }
+  document.addEventListener('change', function (e) {
+    var tr = e.target.closest && e.target.closest('.edit-table tr[data-row]');
+    if (tr && (e.target.getAttribute('data-f') === 'kind' || e.target.getAttribute('data-f') === 'name')) syncEditRow(tr);
+  });
   function saveEditor(o, btn) {
     var card = btn.closest('.order');
     var changes = [];
@@ -1593,12 +1620,25 @@
       var it = o.items.find(function (x) { return String(x.row) === tr.getAttribute('data-row'); });
       var get = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return el ? (el.type === 'checkbox' ? el.checked : el.value) : null; };
       if (it.status === '已取消') return;
-      var isTool = it.id === TOOL;
-      var c = { row: it.row, qty: toNum(get('qty')), unit: isTool ? '' : validUnit(get('unit')), note: get('note'), noOrder: !!get('noOrder'), cancel: !!get('cancel') };
-      if (!c.cancel && !(c.qty > 0)) err = '「' + it.name + '」的數量需大於 0。';
-      if (!c.cancel && !isTool && !c.unit) err = '「' + it.name + '」的單位要從清單選擇。';
-      if (isTool) c.unit = it.unit;
-      var same = !c.cancel && c.qty === it.qty && c.unit === it.unit && c.note === it.note && c.noOrder === !!it.noOrder;
+      var wasTool = it.id === TOOL;
+      var kind = get('kind') || (wasTool ? 'tool' : 'food');
+      var isTool = kind === 'tool';
+      var name = String(get('name') || '').trim();
+      var c = { row: it.row, qty: toNum(get('qty')), unit: isTool ? '' : validUnit(get('unit')), note: get('note'), noOrder: !isTool && !!get('noOrder'), cancel: !!get('cancel'), kind: kind };
+      var changedItem = false;
+      if (isTool) {
+        if (!name) err = err || '請填寫器具名稱。';
+        c.name = name;
+        changedItem = !wasTool || name !== it.name;
+      } else {
+        var cat = itemByNameExact(name);
+        if (cat) { c.itemId = cat.id; changedItem = cat.id !== it.id; }
+        else if (wasTool || name !== it.name) err = err || '「' + (name || it.name) + '」不在食材總表，請從清單選擇食材名稱。';
+      }
+      if (!c.cancel && !(c.qty > 0)) err = err || '「' + (name || it.name) + '」的數量需大於 0。';
+      if (!c.cancel && !isTool && !c.unit) err = err || '「' + (name || it.name) + '」的單位要從清單選擇。';
+      if (isTool) c.unit = '';
+      var same = !c.cancel && !changedItem && c.qty === it.qty && (isTool || c.unit === it.unit) && c.note === it.note && c.noOrder === !!it.noOrder;
       if (!same) changes.push(c);
     });
     if (err) { msg('sumMsg', 'error', err); return; }
