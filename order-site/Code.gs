@@ -635,8 +635,8 @@ function checkNewUnits_(list) {
     if (!u || out.indexOf(u) >= 0) return;
     if (/[0-9０-９]/.test(u)) throw new Error('新增的單位「' + u + '」不能包含數字。');
     if (unitLists_().all.indexOf(u) >= 0) return;   // 已經有了
-    if (readCustomUnits_().some(function (r) { return r.unit === u && r.status === '退回'; })) {
-      throw new Error('單位「' + u + '」已被管理者退回，請改用清單中的單位。');
+    if (readCustomUnits_().some(function (r) { return r.unit === u && (r.status === '退回' || r.status === '停用'); })) {
+      throw new Error('單位「' + u + '」已被管理者退回或停用，請改用清單中的單位。');
     }
     out.push(u);
   });
@@ -681,6 +681,71 @@ function adminReviewUnit(token, row, decision, type) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** 管理者：所有單位（內建＋自訂，含停用的），給「單位管理」用 */
+function adminListUnits(token) {
+  auth_(token, true);
+  return { order: ORDER_UNITS.slice(), recipe: RECIPE_UNITS.slice(),
+    custom: readCustomUnits_().filter(function (r) { return r.status !== '待審核'; }) };
+}
+
+/** 管理者直接新增單位（不用審核）。type: '叫貨' | '配方' */
+function adminAddUnit(token, unit, type) {
+  const admin = auth_(token, true);
+  const u = normUnit_(clean_(unit, 10));
+  if (!u) throw new Error('請輸入單位。');
+  if (/[0-9０-９]/.test(u)) throw new Error('單位不能包含數字。');
+  if (u.length > 4) throw new Error('單位最多 4 個字。');
+  type = type === '配方' ? '配方' : '叫貨';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    UNIT_CACHE_ = null;
+    const typed = clean_(unit, 10);
+    if (ORDER_UNITS.indexOf(u) >= 0 || RECIPE_UNITS.indexOf(u) >= 0) {
+      throw new Error(typed !== u ? '「' + typed + '」就是系統內建的「' + u + '」，老師打「' + typed + '」會自動換成「' + u + '」，不用新增。' : '「' + u + '」是系統內建的單位，已經可以用了。');
+    }
+    const sh = ensureSheet_(SHEET.units, UNIT_HEADERS);
+    const t = readTable_(SHEET.units, ['單位', '狀態']);
+    const same = t.rows.filter(function (r) { return normUnit_(r['單位']) === u; });
+    if (same.some(function (r) { return String(r['狀態']).trim() === '核准'; })) throw new Error('「' + u + '」已經在單位清單裡了。');
+    if (same.length) {
+      // 老師提交過（待審核／退回／停用）：直接改成核准
+      const r = same[0];
+      setCell_(t, r._row, '類型', type);
+      setCell_(t, r._row, '狀態', '核准');
+      if (t.cols['審核人'] !== undefined) setCell_(t, r._row, '審核人', admin);
+    } else {
+      appendRows_(SHEET.units, [{ '單位': u, '類型': type, '狀態': '核准', '提交老師': admin, '提交時間': new Date(), '審核人': admin }],
+        { '提交時間': 'yyyy/mm/dd hh:mm' });
+    }
+    SpreadsheetApp.flush();
+    UNIT_CACHE_ = null;
+  } finally {
+    lock.releaseLock();
+  }
+  return { unit: u, type: type };
+}
+
+/** 管理者停用／恢復自訂單位（內建單位不能停用）。舊訂單不受影響。 */
+function adminSetUnitActive(token, row, active) {
+  const admin = auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.units, ['單位', '狀態']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    if (!r) throw new Error('找不到這個單位，請重新整理。');
+    setCell_(t, r._row, '狀態', active ? '核准' : '停用');
+    if (active && !String(r['類型'] || '').trim()) setCell_(t, r._row, '類型', '叫貨');
+    if (t.cols['審核人'] !== undefined) setCell_(t, r._row, '審核人', admin);
+    SpreadsheetApp.flush();
+    UNIT_CACHE_ = null;
+  } finally {
+    lock.releaseLock();
+  }
+  return adminListUnits(token);
 }
 
 /** 讀「廠商設定」：{ 廠商: [星期代碼, ...] } */

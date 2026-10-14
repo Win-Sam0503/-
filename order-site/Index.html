@@ -642,6 +642,16 @@
         </div>
         <div id="aiMsg" class="small" style="margin-top:6px"></div>
       </div>
+      <div class="panel" id="unitPanel">
+        <h2>單位管理 <span class="muted small" style="font-weight:normal">管理者新增的單位不用審核，老師馬上可以用</span></h2>
+        <div class="newform">
+          <div><label for="unNew">新單位</label><input id="unNew" type="text" maxlength="4" placeholder="例：串、捆、份"></div>
+          <div><label for="unType">類型</label><select id="unType"><option value="叫貨">叫貨單位</option><option value="配方">配方單位（T、杯…）</option></select></div>
+          <button type="button" class="btn small" id="unAdd">新增</button>
+        </div>
+        <div id="unMsg" class="small" style="margin-top:6px"></div>
+        <div id="unList" class="small" style="margin-top:8px;line-height:2"></div>
+      </div>
       <div id="pendUnits"></div>
       <div id="pendList"></div>
     </section>
@@ -2124,6 +2134,56 @@
     }).catch(function () {});
   }
   var pendUnitCount = 0;
+  // 單位管理：內建單位（不能停用）＋自訂單位（可以停用／恢復）
+  function renderUnitList(r) {
+    var chip = function (u, extra) { return '<span class="badge" style="font-size:14px;margin:0 4px 4px 0">' + esc(u) + (extra || '') + '</span>'; };
+    var custom = function (type) {
+      return r.custom.filter(function (c) { return (c.type === '配方' ? '配方' : '叫貨') === type; }).map(function (c) {
+        return c.status === '核准'
+          ? chip(c.unit, ' <a href="#" data-unrow="' + c.row + '" data-unact="off" title="停用" style="color:var(--bad);text-decoration:none">×</a>')
+          : '<span class="badge" style="font-size:14px;margin:0 4px 4px 0;text-decoration:line-through;opacity:.6">' + esc(c.unit) + '</span>' +
+            '<a href="#" data-unrow="' + c.row + '" data-unact="on" style="margin-right:8px">恢復</a>';
+      }).join('');
+    };
+    $('unList').innerHTML = '<div><b>叫貨單位：</b>' + r.order.map(function (u) { return chip(u); }).join('') + custom('叫貨') + '</div>' +
+      '<div><b>配方單位：</b>' + r.recipe.map(function (u) { return chip(u); }).join('') + custom('配方') + '</div>' +
+      '<div class="muted">有 × 的是後來新增的，可以停用（舊訂單不受影響）；其他是系統內建的。</div>';
+  }
+  function loadUnitPanel() {
+    return call('adminListUnits', token).then(renderUnitList).catch(function (e) { $('unList').textContent = '單位載入失敗：' + e.message; });
+  }
+  function syncLocalUnits(unit, type, active) {
+    ['orderUnits', 'recipeUnits'].forEach(function (k) { data[k] = data[k].filter(function (u) { return u !== unit; }); });
+    data.pendingUnits = data.pendingUnits.filter(function (u) { return u !== unit; });
+    if (active) (type === '配方' ? data.recipeUnits : data.orderUnits).push(unit);
+  }
+  $('unAdd').addEventListener('click', function () {
+    var u = $('unNew').value.trim(), type = $('unType').value, b = this;
+    if (!u) { $('unMsg').innerHTML = '<span style="color:var(--bad)">請輸入單位。</span>'; return; }
+    setBusy(b, true, '新增中…');
+    call('adminAddUnit', token, u, type).then(function (r) {
+      syncLocalUnits(r.unit, r.type, true);
+      $('unNew').value = '';
+      $('unMsg').innerHTML = '<span style="color:var(--ok)">已新增「' + esc(r.unit) + '」（' + esc(r.type) + '單位），老師重新整理網頁後就能用。</span>';
+      loadUnitPanel(); loadPendingUnits().then(function () { refreshPendingCount(); });
+    }).catch(function (e) { $('unMsg').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>'; })
+      .then(function () { setBusy(b, false); });
+  });
+  $('unList').addEventListener('click', function (e) {
+    var a = e.target.closest('[data-unact]');
+    if (!a) return;
+    e.preventDefault();
+    var on = a.getAttribute('data-unact') === 'on';
+    var unit = (a.closest('span') || a.previousElementSibling || {}).textContent || '';
+    unit = unit.replace(/\s*×\s*$/, '');
+    if (!on && !safeConfirm('停用單位「' + unit + '」？老師之後就不能選這個單位（舊訂單不受影響）。')) return;
+    call('adminSetUnitActive', token, Number(a.getAttribute('data-unrow')), on).then(function (r) {
+      var c = r.custom.find(function (x) { return x.row === Number(a.getAttribute('data-unrow')); });
+      if (c) syncLocalUnits(c.unit, c.type === '配方' ? '配方' : '叫貨', on);
+      $('unMsg').innerHTML = '<span style="color:var(--ok)">已' + (on ? '恢復' : '停用') + '「' + esc(unit) + '」。</span>';
+      renderUnitList(r);
+    }).catch(function (err) { $('unMsg').innerHTML = '<span style="color:var(--bad)">' + esc(err.message) + '</span>'; });
+  });
   function loadPendingUnits() {
     return call('adminGetPendingUnits', token).then(function (list) {
       pendUnitCount = list.length;
@@ -2159,6 +2219,7 @@
     msg('pendMsg', 'info', '載入中…');
     $('pendList').innerHTML = '';
     loadPendingUnits();
+    loadUnitPanel();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));
