@@ -60,6 +60,7 @@
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
   .panel h2 { margin: 0 0 12px; font-size: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .grid2 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .grid2 > .span2 { grid-column: 1 / -1; }
   .grid2 .wide { grid-column: span 2; }
   label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
   .req { color: var(--bad); }
@@ -554,6 +555,13 @@
         <div class="grid2">
           <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
+          <div class="span2">
+            <div class="status-chips" id="sRanges" style="margin-top:0">
+              <button type="button" data-range="lastWeek">上週</button><button type="button" data-range="thisWeek">本週</button><button type="button" data-range="nextWeek">下週</button><button type="button" data-range="lastMonth">上個月</button><button type="button" data-range="thisMonth">本月</button><button type="button" data-range="last3">近 3 個月</button><button type="button" data-range="term">本學期</button><button type="button" data-range="lastTerm">上學期</button>
+            </div>
+            <div class="muted small" style="margin-top:4px">點一下直接查詢；試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div>
+          </div>
+          <div class="span2"><label for="sKeyword">關鍵字（實作項目、班級、食材、訂單編號）</label><input id="sKeyword" type="search" placeholder="例如：泡芙、217、奶油" autocomplete="off"></div>
           <div><label for="sTeacher">查詢老師</label><select id="sTeacher"><option value="">全部老師</option></select></div>
           <div><label for="sStatus">訂單狀態</label><select id="sStatus"><option value="">全部狀態</option></select></div>
           <div style="display:flex;align-items:flex-end;gap:8px">
@@ -1808,6 +1816,7 @@
     var from = $('sFrom').value, to = $('sTo').value || from;
     if (!from) { msg('sumMsg', 'error', '請選擇日期。'); return; }
     if (to < from) { msg('sumMsg', 'error', '迄日不能早於起日。'); return; }
+    markRange();
     msg('sumMsg', 'info', '載入中…');
     $('sumVendors').innerHTML = ''; $('sumOrders').innerHTML = '';
     var btn = $('sLoad');
@@ -1846,7 +1855,13 @@
     var hideCancel = $('sHideCancel').checked;
     fillTeacherFilter();
     var who = $('sTeacher').value;
-    var base = sumCache.filter(function (o) { return !who || o.teacher === who || o.onBehalfOf === who; });
+    var kw = $('sKeyword').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    var base = sumCache.filter(function (o) {
+      if (who && o.teacher !== who && o.onBehalfOf !== who) return false;
+      if (!kw.length) return true;
+      var hay = [o.project, o.className, o.room, o.orderNo, o.teacher, o.onBehalfOf || ''].concat(o.items.map(function (it) { return it.name; })).join(' ').toLowerCase();
+      return kw.every(function (w) { return hay.indexOf(w) >= 0; });
+    });
     var count = fillStatusFilter(base);
     var st = $('sStatus').value;
     var list = base.filter(function (o) {
@@ -1857,7 +1872,7 @@
       return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + '">' + esc(x === EDITED ? '有修改紀錄' : x) + ' ' + count[x] + '</button>';
     }).join('') + (st ? '<button type="button" data-status="">顯示全部</button>' : '') + '</div>';
     if (!list.length) {
-      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (st ? '「' + (st === EDITED ? '有修改紀錄' : st) + '」的' : '') + '訂單。');
+      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (kw.length ? '符合「' + kw.join(' ') + '」的' : '') + (st ? '「' + (st === EDITED ? '有修改紀錄' : st) + '」的' : '') + '訂單。');
       $('sumVendors').innerHTML = '';
       $('sumOrders').innerHTML = base.length ? '<div class="panel" style="padding:12px 16px">' + chips + '</div>' : '';
       return;
@@ -2132,6 +2147,45 @@
   }
   $('sHideCancel').addEventListener('change', renderSummary);
   $('sTeacher').addEventListener('change', renderSummary);
+  var kwTimer = null;
+  $('sKeyword').addEventListener('input', function () { clearTimeout(kwTimer); kwTimer = setTimeout(renderSummary, 250); });
+  // 快速時間：週一到週日；學期 8/1–1/31、2/1–7/31
+  function rangeOf(key) {
+    var t = new Date(); t.setHours(0, 0, 0, 0);
+    var add = function (d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; };
+    var mon = add(t, -((t.getDay() + 6) % 7));
+    var y = t.getFullYear(), m = t.getMonth();
+    var termStart = m >= 7 ? new Date(y, 7, 1) : (m === 0 ? new Date(y - 1, 7, 1) : new Date(y, 1, 1));
+    var termEnd = termStart.getMonth() === 7 ? new Date(termStart.getFullYear() + 1, 0, 31) : new Date(termStart.getFullYear(), 6, 31);
+    switch (key) {
+      case 'lastWeek': return [add(mon, -7), add(mon, -1)];
+      case 'thisWeek': return [mon, add(mon, 6)];
+      case 'nextWeek': return [add(mon, 7), add(mon, 13)];
+      case 'lastMonth': return [new Date(y, m - 1, 1), new Date(y, m, 0)];
+      case 'thisMonth': return [new Date(y, m, 1), new Date(y, m + 1, 0)];
+      case 'last3': return [new Date(y, m - 2, 1), t];
+      case 'term': return [termStart, termEnd];
+      case 'lastTerm':
+        return termStart.getMonth() === 7 ? [new Date(termStart.getFullYear(), 1, 1), new Date(termStart.getFullYear(), 6, 31)]
+          : [new Date(termStart.getFullYear() - 1, 7, 1), new Date(termStart.getFullYear(), 0, 31)];
+    }
+  }
+  function markRange() {
+    Array.prototype.forEach.call($('sRanges').querySelectorAll('button'), function (b) {
+      var r = rangeOf(b.getAttribute('data-range'));
+      b.classList.toggle('on', isoDate(r[0]) === $('sFrom').value && isoDate(r[1]) === ($('sTo').value || $('sFrom').value));
+    });
+  }
+  $('sRanges').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-range]');
+    if (!b) return;
+    var r = rangeOf(b.getAttribute('data-range'));
+    $('sFrom').value = isoDate(r[0]); $('sTo').value = isoDate(r[1]);
+    markRange();
+    loadSummary();
+  });
+  $('sFrom').addEventListener('change', markRange);
+  $('sTo').addEventListener('change', markRange);
   $('sStatus').addEventListener('change', renderSummary);
   $('sumOrders').addEventListener('click', function (e) {
     var b = e.target.closest('.status-chips button[data-status]');
