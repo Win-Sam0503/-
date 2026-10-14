@@ -824,6 +824,32 @@ function adminGetOrders(token, from, to) {
   return list;
 }
 
+/** 管理者改上課資訊：{ className, room, project, groups }，只改有給的欄位。沒有要改的回傳 null。 */
+function orderInfoSet_(info) {
+  if (!info || typeof info !== 'object') return null;
+  const set = {};
+  if (info.className !== undefined) {
+    const v = clean_(info.className, 30);
+    if (!v) throw new Error('上課班級不能空白。');
+    set['上課班級'] = v;
+  }
+  if (info.room !== undefined) set['上課教室'] = clean_(info.room, 20);
+  if (info.project !== undefined) {
+    const v = clean_(info.project, 60);
+    if (!v) throw new Error('實作項目不能空白。');
+    set['實作項目'] = v;
+  }
+  if (info.groups !== undefined) {
+    if (info.groups === '' || info.groups === null) set['組數'] = '';
+    else {
+      const g = Number(info.groups);
+      if (!Number.isInteger(g) || g < 1 || g > MAX_GROUPS) throw new Error('組數需為 1 到 ' + MAX_GROUPS + ' 的整數。');
+      set['組數'] = g;
+    }
+  }
+  return Object.keys(set).length ? set : null;
+}
+
 // ---- 修改紀錄：老師修改／取消訂單、管理者修改明細，每次記一列（時間、修改人、改了什麼） ----
 
 /** 讀一張訂單（目前的訂單總表） */
@@ -902,10 +928,12 @@ function adminSetStatus(token, orderNo, status) {
  * changes: [{ row, qty, unit, note, noOrder, cancel, kind, itemId, name }]，row 是訂單總表的列號（由 adminGetOrders 提供）
  *   kind = 'tool'：改成使用器具（name = 器具名稱）；kind = 'food' + itemId：改成食材總表的這樣食材
  */
-function adminUpdateOrder(token, orderNo, changes) {
+function adminUpdateOrder(token, orderNo, changes, info) {
   const admin = auth_(token, true);
   orderNo = String(orderNo || '').trim();
-  if (!Array.isArray(changes) || !changes.length) throw new Error('沒有要修改的內容。');
+  if (!Array.isArray(changes)) changes = [];
+  const infoSet = orderInfoSet_(info);
+  if (!changes.length && !infoSet) throw new Error('沒有要修改的內容。');
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -1000,6 +1028,15 @@ function adminUpdateOrder(token, orderNo, changes) {
     });
     if (t.cols['審核人'] !== undefined) {
       Object.keys(byRow).forEach(function (row) { setCell_(t, Number(row), '審核人', admin); });
+    }
+    if (infoSet) {
+      // 上課資訊（班級、教室、實作項目、組數）整張訂單每一列都改，包含剛新增的品項
+      SpreadsheetApp.flush();
+      const t2 = readTable_(SHEET.orders, ['訂單編號']);
+      t2.rows.forEach(function (r) {
+        if (String(r['訂單編號']).trim() !== orderNo) return;
+        Object.keys(infoSet).forEach(function (k) { if (t2.cols[k] !== undefined) setCell_(t2, r._row, k, infoSet[k]); });
+      });
     }
     SpreadsheetApp.flush();
     try { logOrderEdit_(orderNo, admin, diffOrders_(before, orderOf_(orderNo))); } catch (e) { console.error(e.message); }

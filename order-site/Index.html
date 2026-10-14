@@ -209,6 +209,8 @@
   .sum-totals > summary .tog { color: var(--brand); font-size: 15px; font-weight: 600; white-space: nowrap; }
   .sum-totals > summary .tog::after { content: '▼ 展開'; }
   .sum-totals[open] > summary .tog::after { content: '▲ 收起'; }
+  .edit-info { display: grid; grid-template-columns: 1fr 1fr 2fr 80px; gap: 8px; margin: 8px 0 10px; }
+  @media (max-width: 640px) { .edit-info { grid-template-columns: 1fr 1fr; } }
   .badge.edited { background: #fff4e5; color: #b45309; }
   .edit-log { margin-top: 8px; border: 1px solid #f5d9b0; background: #fffaf2; border-radius: 10px; padding: 6px 12px; }
   .edit-log summary { cursor: pointer; color: #b45309; font-weight: 600; }
@@ -1811,6 +1813,12 @@
     var rows = o.items.map(function (it) { return editRowHtml(it, false); }).join('');
     card.innerHTML = '<div class="head"><b>修改明細：' + esc(o.project) + '</b><span class="muted small">' + esc(o.orderNo) + '</span></div>' +
       '<datalist id="editItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>' +
+      '<div class="edit-info">' +
+        '<div><label>上課班級</label><input type="text" data-info="className" maxlength="30" value="' + esc(o.className) + '"></div>' +
+        '<div><label>上課教室</label><input type="text" data-info="room" maxlength="20" value="' + esc(o.room) + '"></div>' +
+        '<div><label>實作項目</label><input type="text" data-info="project" maxlength="60" value="' + esc(o.project) + '"></div>' +
+        '<div><label>組數</label><input type="text" data-info="groups" maxlength="2" value="' + esc(o.groups) + '"></div>' +
+      '</div>' +
       '<div class="tablewrap"><table class="edit-table" data-dept="' + esc(o.dept) + '"><thead><tr><th>品項（食材／器具）</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<button type="button" class="btn ghost small" data-act="edit-add" data-no="' + esc(o.orderNo) + '" style="margin-top:6px">＋ 新增品項</button>' +
       '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消，刪錯了可以勾「復原」再儲存。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱；食材總表沒有的，選好廠商後會自動加入食材總表。</div>' +
@@ -1918,12 +1926,22 @@
       var same = !c.cancel && !changedItem && c.qty === it.qty && (isTool || c.unit === it.unit) && c.note === it.note && c.noOrder === !!it.noOrder;
       if (!same) changes.push(c);
     });
+    // 上課資訊：只送有改的欄位
+    var info = null;
+    Array.prototype.forEach.call(card.querySelectorAll('[data-info]'), function (el) {
+      var k = el.getAttribute('data-info'), v = el.value.trim();
+      if (v === String(o[k] == null ? '' : o[k]).trim()) return;
+      if ((k === 'className' || k === 'project') && !v) err = err || (k === 'className' ? '上課班級不能空白。' : '實作項目不能空白。');
+      if (k === 'groups' && v && !/^\d{1,2}$/.test(v)) err = err || '組數請填 1 到 99 的整數。';
+      (info = info || {})[k] = v;
+    });
     if (err) { msg('sumMsg', 'error', err); return; }
-    if (!changes.length) { renderSummary(); return; }
+    if (!changes.length && !info) { renderSummary(); return; }
     setBusy(btn, true, '儲存中…');
     var created = changes.filter(function (c) { return c.newItem; }).map(function (c) { return c.newItem.name; });
-    call('adminUpdateOrder', token, o.orderNo, changes).then(function () {
-      msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已修改 ' + changes.length + ' 項。' + (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));
+    call('adminUpdateOrder', token, o.orderNo, changes, info).then(function () {
+      msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已儲存：' + [changes.length ? '修改 ' + changes.length + ' 個品項' : '', info ? '上課資訊已更新' : ''].filter(Boolean).join('、') + '。' +
+        (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));
       if (created.length) refreshItems();
       loadSummaryKeepMsg();
     }).catch(function (e2) { msg('sumMsg', 'error', '儲存失敗：' + e2.message); setBusy(btn, false); });
