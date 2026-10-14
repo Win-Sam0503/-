@@ -805,7 +805,13 @@ function getMyOrders(token, days) {
     const d = toDate_(r['使用日期']);
     return !d || d >= since;
   });
-  return groupOrders_(rows, account).sort(function (a, b) { return a.orderNo < b.orderNo ? 1 : -1; });
+  const list = groupOrders_(rows, account).sort(function (a, b) { return a.orderNo < b.orderNo ? 1 : -1; });
+  // 管理者改過、退單的紀錄（含原因），給老師看
+  const edits = orderEditsFor_(list.map(function (o) { return o.orderNo; }));
+  list.forEach(function (o) {
+    o.adminNotes = (edits[o.orderNo] || []).filter(function (e) { return ADMIN_ACCOUNTS.indexOf(e.who) >= 0; });
+  });
+  return list;
 }
 
 /**
@@ -950,22 +956,29 @@ function diffOrders_(a, b) {
     return m;
   };
   const A = agg(a), B = agg(b);
+  const removed = [], added = [];
   Object.keys(A).forEach(function (k) {
     const x = A[k], y = B[k];
-    if (!y) { lines.push('刪除 ' + x.label + q(x, x.qty)); return; }
+    if (!y) { removed.push(x); return; }
     if (x.qty !== y.qty) lines.push(x.label + q(x, x.qty) + ' →' + q(y, y.qty));
     if (!x.noOrder !== !y.noOrder) lines.push(x.label + (y.noOrder ? ' 改成有貨' : ' 改成要叫貨'));
   });
-  Object.keys(B).forEach(function (k) {
-    if (!A[k]) lines.push('新增 ' + B[k].label + q(B[k], B[k].qty));
+  Object.keys(B).forEach(function (k) { if (!A[k]) added.push(B[k]); });
+  // 同一樣食材只換了單位：寫成「洋蔥 3斤 → 3公斤」
+  removed.forEach(function (x) {
+    const i = added.findIndex(function (y) { return !x.tool && !y.tool && y.label === x.label; });
+    if (i >= 0) { lines.push(x.label + q(x, x.qty) + ' → ' + q(added[i], added[i].qty).trim()); added.splice(i, 1); }
+    else lines.push('刪除 ' + x.label + q(x, x.qty));
   });
+  added.forEach(function (y) { lines.push('新增 ' + y.label + q(y, y.qty)); });
   return lines;
 }
 
-function logOrderEdit_(orderNo, who, changes) {
+function logOrderEdit_(orderNo, who, changes, reason) {
   if (!changes.length) return;   // 按了儲存但沒改東西，不記
+  reason = clean_(reason, 100);
   ensureSheet_(SHEET.edits, EDIT_HEADERS);
-  appendRows_(SHEET.edits, [{ '時間': new Date(), '訂單編號': orderNo, '修改人': who, '內容': changes.join('；') || '（內容沒有變）' }],
+  appendRows_(SHEET.edits, [{ '時間': new Date(), '訂單編號': orderNo, '修改人': who, '內容': (reason ? '原因：' + reason + '；' : '') + changes.join('；') }],
     { '時間': 'yyyy/mm/dd hh:mm:ss' });
 }
 
@@ -996,13 +1009,27 @@ function adminSetStatus(token, orderNo, status) {
   return { result: res, notify: '' };
 }
 
+/** 管理者退單給老師：整張取消，LINE 告訴老師退單原因，請老師用「再訂一次」修改後重新送出 */
+function adminReturnOrder(token, orderNo, reason) {
+  const admin = auth_(token, true);
+  orderNo = String(orderNo || '').trim();
+  reason = clean_(reason, 100);
+  if (!reason) throw new Error('請填寫退單原因，老師才知道要改什麼。');
+  updateOrderStatus_(orderNo, '已取消', function (rows) {
+    if (rows.every(function (r) { return String(r['狀態']).trim() === '已取消'; })) throw new Error('這張訂單已經取消了。');
+  }, null);
+  try { logOrderEdit_(orderNo, admin, ['退單'], reason); } catch (e) { console.error(e.message); }
+  return { ok: true, notify: notifyTeacherOfEdit_(orderNo, admin, ['退單'], reason, 'return') };
+}
+
 /**
  * 管理者改到老師的訂單（修改明細、取消）時，LINE 私訊那位老師（代訂的話傳給被代訂的老師）。
  * 老師沒綁定 LINE、管理者改自己的單、本月則數快用完時不傳。回傳結果文字（給畫面顯示）。
  */
-function notifyTeacherOfEdit_(orderNo, admin, changes) {
+function notifyTeacherOfEdit_(orderNo, admin, changes, reason, kind) {
   try {
-    if (!changes || !changes.length) return '';
+    if ((!changes || !changes.length) && !reason) return '';
+    changes = changes || [];
     let o = orderOf_(orderNo);
     if (!o) {
       const rows = withHistory_([], null).filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
@@ -1016,10 +1043,13 @@ function notifyTeacherOfEdit_(orderNo, admin, changes) {
     const q = lineQuota_();
     if (q && q.limit && q.limit - q.used - 1 < LINE_RESERVE) return '本月 LINE 則數快用完，沒有通知 ' + teacher + ' 老師。';
     const d = parseDate_(o.useDate);
-    const text = '【訂單修改通知】' + teacher + ' 老師您好，管理者修改了您的訂單：\n' +
+    const ret = kind === 'return';
+    const text = (ret ? '【退單通知】' + teacher + ' 老師您好，管理者退回了您的訂單：\n' : '【訂單修改通知】' + teacher + ' 老師您好，管理者修改了您的訂單：\n') +
       (d ? shortDateTw_(d) + ' ' : '') + o.className + '「' + o.project + '」\n' +
-      changes.map(function (c) { return '・' + c; }).join('\n') +
-      '\n\n有問題請找管理者。' + (webAppUrl_() ? '\n' + webAppUrl_() : '');
+      (reason ? (ret ? '退單原因：' : '修改原因：') + reason + '\n' : '') +
+      (ret ? '' : changes.map(function (c) { return '・' + c; }).join('\n') + '\n') +
+      (ret ? '\n請到「我的訂單」找到這張，按「再訂一次」修改後重新送出（已過截止的話請找管理者）。' : '\n有問題請找管理者。') +
+      (webAppUrl_() ? '\n' + webAppUrl_() + '?page=mine' : '');
     return linePush_(uid, text) ? '已用 LINE 通知 ' + teacher + ' 老師。' : 'LINE 通知 ' + teacher + ' 老師失敗。';
   } catch (e) {
     console.error('通知老師失敗：' + e.message);
@@ -1032,7 +1062,7 @@ function notifyTeacherOfEdit_(orderNo, admin, changes) {
  * changes: [{ row, qty, unit, note, noOrder, cancel, kind, itemId, name }]，row 是訂單總表的列號（由 adminGetOrders 提供）
  *   kind = 'tool'：改成使用器具（name = 器具名稱）；kind = 'food' + itemId：改成食材總表的這樣食材
  */
-function adminUpdateOrder(token, orderNo, changes, info) {
+function adminUpdateOrder(token, orderNo, changes, info, reason) {
   const admin = auth_(token, true);
   orderNo = String(orderNo || '').trim();
   if (!Array.isArray(changes)) changes = [];
@@ -1144,11 +1174,11 @@ function adminUpdateOrder(token, orderNo, changes, info) {
       });
     }
     SpreadsheetApp.flush();
-    try { changesDone = diffOrders_(before, orderOf_(orderNo)); logOrderEdit_(orderNo, admin, changesDone); } catch (e) { console.error(e.message); }
+    try { changesDone = diffOrders_(before, orderOf_(orderNo)); logOrderEdit_(orderNo, admin, changesDone, reason); } catch (e) { console.error(e.message); }
   } finally {
     lock.releaseLock();
   }
-  return { ok: true, notify: notifyTeacherOfEdit_(orderNo, admin, changesDone) };   // 傳 LINE 放在鎖外面，不讓別人等
+  return { ok: true, notify: changesDone.length ? notifyTeacherOfEdit_(orderNo, admin, changesDone, clean_(reason, 100)) : '' };   // 傳 LINE 放在鎖外面，不讓別人等
 }
 
 function adminGetPending(token) {

@@ -238,6 +238,10 @@
     .sched-table tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
     .sched-table td { border: 0; padding: 2px 0; }
   }
+  .reason-box { display: grid; grid-template-columns: 1fr 1.4fr; gap: 6px; margin-top: 10px; }
+  .reason-box label { grid-column: 1 / -1; margin: 0; }
+  @media (max-width: 640px) { .reason-box { grid-template-columns: 1fr; } }
+  .admin-note { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: #fff4e5; border: 1px solid #f5d9b0; font-size: 15px; }
   .edit-info { display: grid; grid-template-columns: 1fr 1fr 2fr 80px; gap: 8px; margin: 8px 0 10px; }
   @media (max-width: 640px) { .edit-info { grid-template-columns: 1fr 1fr; } }
   .badge.edited { background: #fff4e5; color: #b45309; }
@@ -939,7 +943,7 @@
     renderResults();
     renderCart();
     updateDateHint();
-    show(startPage === 'lessons' ? 'viewLessons' : 'viewOrder');
+    show(startPage === 'lessons' ? 'viewLessons' : startPage === 'mine' ? 'viewMine' : 'viewOrder');
     if (startPage !== 'lessons') refreshLessonCount();
     startPage = '';
     if (data.isAdmin) refreshPendingCount();
@@ -1650,12 +1654,17 @@
       return t.name + ' ×' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : '');
     }).join('、')) + '</div>' : '';
     var edits = opts.admin && o.edits ? o.edits : [];
+    var notes = opts.mine && o.adminNotes && o.adminNotes.length ? '<div class="admin-note">' + o.adminNotes.slice(-3).reverse().map(function (e) {
+      var ret = /退單/.test(e.text);
+      return '<div><b>' + (ret ? '管理者退單' : '管理者修改') + '</b>（' + esc(e.time) + '）：' + esc(e.text.replace(/^原因：/, '').replace(/；退單$/, '')).replace(/；/g, '<br>') + '</div>';
+    }).join('') + '</div>' : '';
     var editLog = edits.length ? '<details class="edit-log"><summary>修改紀錄（' + edits.length + ' 次，最後 ' + esc(edits[edits.length - 1].time) + '）</summary><ul>' +
       edits.slice().reverse().map(function (e) {
         return '<li><b>' + esc(e.time) + '</b>　' + esc(e.who) + '<div>' + esc(e.text).replace(/；/g, '<br>') + '</div></li>';
       }).join('') + '</ul></details>' : '';
     var buttons = '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
     if (opts.admin && !o.archived) buttons += '<button type="button" class="btn ghost small" data-act="edit" data-no="' + esc(o.orderNo) + '">修改明細</button>';
+    if (opts.admin && !o.archived && o.status !== '已取消') buttons += '<button type="button" class="btn danger small" data-act="return" data-no="' + esc(o.orderNo) + '">退單給老師</button>';
     if (opts.mine && o.locked && !o.archived && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
@@ -1672,7 +1681,7 @@
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + statusBadge(o.status) + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
-      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog +
+      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
 
@@ -1888,6 +1897,21 @@
     var act = b.getAttribute('data-act');
     if (act === 'print') printOrder(o, 'viewSummary');
     else if (act === 'edit') openEditor(o, b.closest('.order'));
+    else if (act === 'return') {
+      var who = o.onBehalfOf || o.teacher;
+      ask('', '退單', { noText: '取消', html: '<div class="info-check"><h3>退單給 ' + esc(who) + ' 老師</h3>' +
+        '<div class="muted small" style="margin-bottom:8px">' + esc(shortDate(o.useDate) + ' ' + o.className + '「' + o.project + '」') + '：整張訂單會取消，系統用 LINE 告訴老師原因，請他用「再訂一次」修改後重新送出。</div>' +
+        reasonHtml(RETURN_REASONS, '退單原因（必填）') + '</div>' }).then(function (ok) {
+        if (!ok) return;
+        var reason = readReason($('askText'));
+        if (!reason) { msg('sumMsg', 'error', '請選擇或填寫退單原因。'); return; }
+        setBusy(b, true, '退單中…');
+        call('adminReturnOrder', token, o.orderNo, reason).then(function (r) {
+          msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已退單給 ' + who + ' 老師（原因：' + reason + '）。' + (r && r.notify ? r.notify : ''));
+          loadSummaryKeepMsg();
+        }).catch(function (err) { msg('sumMsg', 'error', err.message); setBusy(b, false); });
+      });
+    }
     else if (act === 'edit-cancel') renderSummary();
     else if (act === 'edit-save') saveEditor(o, b);
     else if (act === 'edit-add') {
@@ -1899,6 +1923,19 @@
     }
   });
 
+  // 修改原因／退單原因（會一起用 LINE 告訴老師）
+  var EDIT_REASONS = ['單位錯誤，已修正', '數量異常，已修正', '品項錯誤，已修正', '食材和器具放錯，已修正', '上課資訊錯誤，已修正'];
+  var RETURN_REASONS = ['數量或單位有誤，請修改', '食材內容有誤，請修改', '上課日期或班級有誤，請修改', '重複訂單', '請改用其他方式處理'];
+  function reasonHtml(list, label) {
+    return '<div class="reason-box"><label>' + label + '</label><select data-reason><option value="">（不寫原因）</option>' +
+      list.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '<option value="其他">其他（自己寫）</option></select>' +
+      '<input type="text" data-reason-text maxlength="80" placeholder="補充說明（選填），例如：雞蛋改成 30 顆"></div>';
+  }
+  function readReason(box) {
+    var sel = box.querySelector('[data-reason]'), txt = box.querySelector('[data-reason-text]');
+    var a = sel && sel.value !== '其他' ? sel.value : '', b = txt ? txt.value.trim() : '';
+    return [a, b].filter(Boolean).join('：');
+  }
   // 管理者修改訂單明細
   function editRowHtml(it, isNew) {
       var isTool = it.id === TOOL;
@@ -1929,6 +1966,7 @@
       '<div class="tablewrap"><table class="edit-table" data-dept="' + esc(o.dept) + '"><thead><tr><th>品項（食材／器具）</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<button type="button" class="btn ghost small" data-act="edit-add" data-no="' + esc(o.orderNo) + '" style="margin-top:6px">＋ 新增品項</button>' +
       '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消，刪錯了可以勾「復原」再儲存。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱；食材總表沒有的，選好廠商後會自動加入食材總表。</div>' +
+      reasonHtml(EDIT_REASONS, '修改原因（會跟改了什麼一起用 LINE 告訴老師）') +
       '<div class="actions"><button type="button" class="btn ghost small" data-act="edit-cancel" data-no="' + esc(o.orderNo) + '">取消</button>' +
       '<button type="button" class="btn small" data-act="edit-save" data-no="' + esc(o.orderNo) + '">儲存修改</button></div>';
     Array.prototype.forEach.call(card.querySelectorAll('.edit-table tr[data-row]'), syncEditRow);
@@ -2046,7 +2084,7 @@
     if (!changes.length && !info) { renderSummary(); return; }
     setBusy(btn, true, '儲存中…');
     var created = changes.filter(function (c) { return c.newItem; }).map(function (c) { return c.newItem.name; });
-    call('adminUpdateOrder', token, o.orderNo, changes, info).then(function (r) {
+    call('adminUpdateOrder', token, o.orderNo, changes, info, readReason(card)).then(function (r) {
       msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已儲存：' + [changes.length ? '修改 ' + changes.length + ' 個品項' : '', info ? '上課資訊已更新' : ''].filter(Boolean).join('、') + '。' +
         (r && r.notify ? r.notify : '') +
         (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));
