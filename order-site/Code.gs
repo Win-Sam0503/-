@@ -1459,6 +1459,8 @@ function automationStatus_() {
     lineTokenSet: !!props.getProperty('LINE_TOKEN'),
     lineBound: !!props.getProperty('LINE_TO'),
     webhookUrl: webAppUrl_(),
+    siteUrlSaved: !!props.getProperty('SITE_URL'),
+    autoUrl: autoUrl_(),
     lastVendorUrl: props.getProperty('LAST_VENDOR_URL') || '',
     lastVendorTime: props.getProperty('LAST_VENDOR_TIME') || '',
     vendorHour: VENDOR_ORDER_HOUR,
@@ -1702,8 +1704,31 @@ function lineUrl_(page) {
   return u ? u + '?' + (page ? 'page=' + page + '&' : '') + 'openExternalBrowser=1' : '';
 }
 
+/** 網站網址：優先用管理者在「自動化」設定的網址（部署很多個時，Apps Script 自己回報的可能是舊的） */
 function webAppUrl_() {
+  const saved = PropertiesService.getScriptProperties().getProperty('SITE_URL');
+  if (saved) return saved;
+  return autoUrl_();
+}
+
+function autoUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
+/** 管理者設定網站網址（LINE 通知、選單、摘要裡的連結都用這個）；空白 = 改回自動判斷 */
+function adminSetSiteUrl(token, url) {
+  auth_(token, true);
+  url = String(url || '').trim().replace(/[?#].*$/, '');
+  const props = PropertiesService.getScriptProperties();
+  if (!url) {
+    props.deleteProperty('SITE_URL');
+  } else {
+    if (!/^https:\/\/script\.google\.com\/(a\/macros\/[^\/]+|macros)\/s\/[\w-]+\/exec$/.test(url)) {
+      throw new Error('網址格式不對，請貼上「管理部署」裡的網頁應用程式網址（https://script.google.com/macros/s/…/exec）。');
+    }
+    props.setProperty('SITE_URL', url);
+  }
+  return automationStatus_();
 }
 
 /** 寄 Email，並在有綁定 LINE 時推播。回傳各管道的結果。 */

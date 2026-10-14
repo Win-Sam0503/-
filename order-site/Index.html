@@ -615,6 +615,13 @@
           <button type="button" class="btn ghost small" id="aRemindNow">立即傳訂貨提醒</button>
           <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
         </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">網站網址</h3>
+        <div class="muted small">LINE 通知、官方帳號選單、每日摘要裡的連結都會用這個網址。請貼上「部署 → 管理部署」裡<b>正在使用</b>的網頁應用程式網址（結尾是 /exec），存好後再按一次「設定官方帳號選單」。</div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="aSiteUrl">網頁應用程式網址</label><input id="aSiteUrl" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></div>
+          <button type="button" class="btn secondary small" id="aSiteSave">儲存網址</button>
+        </div>
+        <div id="aSiteInfo" class="small" style="margin-top:4px"></div>
         <h3 style="font-size:16px;margin:18px 0 6px">LINE 官方帳號通知</h3>
         <div class="muted small">到 LINE Developers 後台 → 你的 Messaging API channel → 「Messaging API」分頁最下面，按 Issue 取得 <b>Channel access token</b>，貼在這裡。</div>
         <div class="tpl-row" style="margin-top:6px">
@@ -2795,6 +2802,10 @@
       '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾，備份在「三信家商餐飲科訂貨系統備份」資料夾。' +
       (st.vendorTrigger && st.digestTrigger && (!st.maintTrigger || !st.remindTrigger) ? '<br><b style="color:var(--bad)">有新的排程，請按一下「啟用排程」才會建立。</b>' : '');
     $('aToggle').textContent = on ? '停用排程' : '啟用排程';
+    if (document.activeElement !== $('aSiteUrl')) $('aSiteUrl').value = st.webhookUrl || '';
+    $('aSiteInfo').innerHTML = st.siteUrlSaved
+      ? '<span style="color:var(--ok)">✓ 已指定網址</span>' + (st.autoUrl && st.autoUrl !== st.webhookUrl ? '<span class="muted">（系統自動判斷的是另一個舊網址，已改用你指定的）</span>' : '')
+      : '<span style="color:var(--bad)">尚未指定，目前用系統自動判斷的網址；部署很多個時可能是舊的，建議貼上正確網址後儲存。</span>';
   }
   function loadAuto(keepMsg) {
     if (keepMsg !== true) msg('autoMsg', '', '');
@@ -2854,6 +2865,11 @@
   });
   $('aTest').addEventListener('click', function () {
     autoCall(this, 'adminTestNotify', function (r) { return '測試通知已送出。' + notifyText(r); });
+  });
+  $('aSiteSave').addEventListener('click', function () {
+    var v = $('aSiteUrl').value.trim();
+    if (!v && !safeConfirm('沒有填網址，要改回系統自動判斷嗎？')) return;
+    autoCall(this, 'adminSetSiteUrl', function () { return v ? '網址已儲存。請再按一次下面的「設定官方帳號選單」，LINE 選單才會換成這個網址。' : '已改回自動判斷。'; }, v);
   });
   $('aLineSave').addEventListener('click', function () {
     var v = $('aLineToken').value.trim();
