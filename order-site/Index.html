@@ -203,6 +203,12 @@
   #viewSummary .badge { font-size: 15px; padding: 2px 10px; }
   #viewSummary .small { font-size: 15px; }
   #viewSummary .vendor-title { font-size: 16px; }
+  #viewSummary .sum-totals table.sum-vt { font-size: var(--sfs, 17px); }
+  #viewSummary .sum-totals table.sum-vt th { font-size: inherit; }
+  #viewSummary .sum-totals .vendor-title { font-size: calc(var(--sfs, 17px) - 1px); }
+  .sum-detail { padding-left: 20px !important; }
+  .sum-detail div { line-height: 1.5; }
+  .sum-detail div + div { border-top: 1px dashed var(--line); }
   #viewSummary .edit-table input, #viewSummary .edit-table select { font-size: 16px; }
   .sum-totals > summary { cursor: pointer; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 12px 16px; margin-bottom: 12px; font-weight: 700; font-size: 18px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1817,6 +1823,8 @@
   // 管理者：訂單彙整
   // ------------------------------------------------------------------
   var sumCache = [];
+  var sumSize = 17;   // 廠商叫貨合計的字體大小，記在這台電腦
+  try { sumSize = [15, 17, 20, 24].indexOf(Number(localStorage.getItem('ckOrder.sumSize'))) >= 0 ? Number(localStorage.getItem('ckOrder.sumSize')) : 17; } catch (e) {}
   function loadSummary() {
     var from = $('sFrom').value, to = $('sTo').value || from;
     if (!from) { msg('sumMsg', 'error', '請選擇日期。'); return; }
@@ -1899,7 +1907,7 @@
         var k = it.name + '|' + cv.unit;
         var agg = day[k] = day[k] || { name: it.name, unit: cv.unit, qty: 0, detail: [], pending: it.id === '待審核' };
         agg.qty += cv.qty;
-        agg.detail.push((o.className || o.teacher) + ' ' + fmtQty(it.qty) + it.unit + (it.note ? '（' + it.note + '）' : ''));
+        agg.detail.push({ who: o.className || o.teacher, qty: fmtQty(it.qty) + ' ' + it.unit, note: it.note });
       });
     });
     var vendors = Object.keys(byVendor).sort();
@@ -1911,11 +1919,13 @@
         var parts = dk.split('|');
         var rows = Object.keys(byVendor[vName][dk]).sort().map(function (k) { return byVendor[vName][dk][k]; });
         return '<div class="vendor-title" style="color:var(--text)">' + esc(shortDate(parts[0])) + (parts[1] ? '・送貨組別 ' + esc(parts[1]) : '') + '</div>' +
-          '<div class="tablewrap"><table><thead><tr><th>食材</th><th class="num">合計</th><th>明細（班級 數量）</th></tr></thead><tbody>' +
+          '<div class="tablewrap"><table class="sum-vt"><thead><tr><th>食材</th><th class="num">合計</th><th>明細（班級 數量）</th></tr></thead><tbody>' +
           rows.map(function (r) {
             return '<tr><td>' + esc(r.name) + (r.pending ? ' <span class="badge warn">待審核</span>' : '') + '</td>' +
-              '<td class="num"><b>' + esc(fmtQty(r.qty)) + '</b> ' + esc(r.unit) + '</td>' +
-              '<td class="muted small">' + esc(r.detail.join('、')) + '</td></tr>';
+              '<td class="num"><b>' + esc(fmtQty(r.qty)) + ' ' + esc(r.unit) + '</b></td>' +
+              '<td class="sum-detail">' + r.detail.map(function (d) {
+                return '<div>' + esc(d.who) + '　<b>' + esc(d.qty) + '</b>' + (d.note ? '<span class="muted">（' + esc(d.note) + '）</span>' : '') + '</div>';
+              }).join('') + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }).join('');
       return '<div class="panel"><h2>' + esc(vName) + ' <button type="button" class="btn secondary small" data-copy="' + esc(vName) + '">複製叫貨文字</button></h2>' + body + '</div>';
@@ -1935,7 +1945,12 @@
     // 廠商合計、器具收在可以展開的區塊裡
     $('sumVendors').innerHTML = '<details class="sum-totals"' + (sumTotalsOpen ? ' open' : '') + '><summary><span>廠商叫貨合計　<span class="muted" style="font-weight:normal;font-size:15px">' +
       vendors.length + ' 家廠商、' + foodCount + ' 項食材' + (toolOrders.length ? '、' + toolOrders.length + ' 張有器具' : '') + '</span></span><span class="tog"></span></summary>' +
+      '<div class="status-chips sum-size" style="margin:0 0 10px;padding-left:4px;align-items:center"><span class="muted small">字體大小：</span>' +
+      [['15', '小'], ['17', '中'], ['20', '大'], ['24', '特大']].map(function (x) {
+        return '<button type="button" data-ssize="' + x[0] + '"' + (String(sumSize) === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>';
+      }).join('') + '</div>' +
       $('sumVendors').innerHTML + '</details>';
+    $('sumVendors').style.setProperty('--sfs', sumSize + 'px');
     $('sumVendors').querySelector('details').addEventListener('toggle', function () { sumTotalsOpen = this.open; });
     $('sumVendors')._data = byVendor;
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st === EDITED ? '有修改紀錄' : st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + '</div>' +
@@ -2200,6 +2215,14 @@
   });
 
   $('sumVendors').addEventListener('click', function (e) {
+    var sz = e.target.closest('button[data-ssize]');
+    if (sz) {
+      sumSize = Number(sz.getAttribute('data-ssize'));
+      try { localStorage.setItem('ckOrder.sumSize', String(sumSize)); } catch (e2) {}
+      $('sumVendors').style.setProperty('--sfs', sumSize + 'px');
+      Array.prototype.forEach.call($('sumVendors').querySelectorAll('button[data-ssize]'), function (x) { x.classList.toggle('on', x === sz); });
+      return;
+    }
     var b = e.target.closest('button[data-copy]');
     if (!b) return;
     var vName = b.getAttribute('data-copy');
