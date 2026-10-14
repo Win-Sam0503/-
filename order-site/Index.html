@@ -292,6 +292,7 @@
   .printbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .printbar select { width: auto; }
   .print-scroll { overflow-x: auto; padding-bottom: 16px; }
+  .print-scroll .sheet + .sheet { margin-top: 16px; }
 
   /* 請料單（A4 直式） */
   .sheet {
@@ -328,7 +329,8 @@
     .vpage:last-child { page-break-after: auto; }
     main { padding: 0 !important; max-width: none !important; }
     .print-scroll { overflow: visible; padding: 0; }
-    .sheet { box-shadow: none; margin: 0; }
+    .sheet { box-shadow: none; margin: 0; page-break-after: always; break-after: page; }
+    .sheet:last-child { page-break-after: auto; break-after: auto; }
   }
 
   @media (max-width: 700px) {
@@ -542,10 +544,11 @@
     <!-- 列印 -->
     <section id="viewPrint" class="hidden">
       <div class="panel noprint">
-        <h2>列印請料單</h2>
+        <h2>列印請料單 <span class="muted small" id="pCount" style="font-weight:normal"></span></h2>
         <div class="printbar">
           <label for="pFormat" style="margin:0">格式</label>
           <select id="pFormat">
+            <option value="auto">依科別自動選格式</option>
             <option value="bake">實習專用請料單（材料＋特殊器具）</option>
             <option value="chinese">實習專用請料單（依廠商分類）</option>
             <option value="teacher">教師料單（A～F 分類）</option>
@@ -1852,6 +1855,15 @@
   }
   // 「訂單狀態」選單：顯示各狀態幾張（依目前選的老師），保留目前選的
   var EDITED = '__edited';   // 「訂單狀態」選單裡的「有修改紀錄」
+  // 一鍵列印：已審核＝已審核、已叫貨、已到貨；未審核＝待處理。照上課日期、班級排序
+  var sumBase = [];
+  function bulkList(base, kind) {
+    return base.filter(function (o) {
+      return kind === 'wait' ? o.status === '待處理' : ['已審核', '已叫貨', '已到貨'].indexOf(o.status) >= 0;
+    }).sort(function (a, b) {
+      return a.useDate !== b.useDate ? (a.useDate < b.useDate ? -1 : 1) : String(a.className).localeCompare(String(b.className), 'zh-Hant');
+    });
+  }
   function sumStatuses() { return data.statuses.concat(data.statuses.indexOf('已取消') < 0 ? ['已取消'] : []); }
   function fillStatusFilter(base) {
     var sel = $('sStatus'), cur = sel.value, count = {};
@@ -1875,6 +1887,7 @@
       var hay = [o.project, o.className, o.room, o.orderNo, o.teacher, o.onBehalfOf || ''].concat(o.items.map(function (it) { return it.name; })).join(' ').toLowerCase();
       return kw.every(function (w) { return hay.indexOf(w) >= 0; });
     });
+    sumBase = base;
     var count = fillStatusFilter(base);
     var st = $('sStatus').value;
     var list = base.filter(function (o) {
@@ -1953,11 +1966,21 @@
     $('sumVendors').style.setProperty('--sfs', sumSize + 'px');
     $('sumVendors').querySelector('details').addEventListener('toggle', function () { sumTotalsOpen = this.open; });
     $('sumVendors')._data = byVendor;
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st === EDITED ? '有修改紀錄' : st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + '</div>' +
+    var nOk = bulkList(base, 'ok').length, nWait = bulkList(base, 'wait').length;
+    var bulk = '<div class="actions" style="justify-content:flex-start;margin-top:10px">' +
+      '<button type="button" class="btn secondary small" data-bulk="ok"' + (nOk ? '' : ' disabled') + '>🖨 一鍵列印：已審核（' + nOk + ' 張）</button>' +
+      '<button type="button" class="btn ghost small" data-bulk="wait"' + (nWait ? '' : ' disabled') + '>🖨 一鍵列印：未審核（' + nWait + ' 張）</button></div>';
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st === EDITED ? '有修改紀錄' : st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + bulk + '</div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
   $('sumOrders').addEventListener('click', function (e) {
+    var bk = e.target.closest('button[data-bulk]');
+    if (bk) {
+      var kind = bk.getAttribute('data-bulk');
+      printOrders(bulkList(sumBase, kind), 'viewSummary', kind === 'ok' ? '已審核訂單 ' : '未審核訂單 ');
+      return;
+    }
     var b = e.target.closest('button[data-act]');
     if (!b) return;
     var o = sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); });
@@ -2512,13 +2535,22 @@
   // ------------------------------------------------------------------
   var TOOL = '器具';
   var lastSubmitted = null;
-  var printing = null, printBack = 'viewMine';
+  var printing = [], printBack = 'viewMine', printScroll = 0;
+  function formatOf(o) { return o.dept === '烘焙' ? 'bake' : o.dept === '中餐' || o.dept === '日料' ? 'chinese' : 'teacher'; }
 
   function printOrder(o, back) {
     if (!o) return;
-    printing = o;
+    printOrders([o], back);
+  }
+  // 一次列印多張：每張一頁 A4；格式預設「依科別自動」
+  function printOrders(list, back, title) {
+    if (!list.length) return;
+    printing = list;
     printBack = back;
-    $('pFormat').value = o.dept === '烘焙' ? 'bake' : o.dept === '中餐' || o.dept === '日料' ? 'chinese' : 'teacher';
+    printScroll = window.pageYOffset || document.documentElement.scrollTop || 0;   // 返回時回到原本的位置
+    $('pFormat').querySelector('option[value="auto"]').hidden = list.length === 1;
+    $('pFormat').value = list.length === 1 ? formatOf(list[0]) : 'auto';
+    $('pCount').textContent = list.length > 1 ? (title || '') + '共 ' + list.length + ' 張，每張一頁' : '';
     renderPrint();
     show('viewPrint');
   }
@@ -2528,6 +2560,9 @@
     // 從「我的訂單」來的就不重新載入；從「送出成功」來的要載入
     keepMine = printBack === 'viewMine' && $('mineList').children.length > 0;
     show(printBack);
+    var y = printScroll;
+    window.scrollTo(0, y);
+    setTimeout(function () { window.scrollTo(0, y); }, 50);   // 等畫面排好再捲一次
   });
   $('printNew').addEventListener('click', function () {
     var b = this;
@@ -2575,13 +2610,15 @@
   }
 
   function renderPrint() {
-    var o = printing;
-    var live = o.items.filter(function (it) { return it.status !== '已取消' || o.status === '已取消'; });
-    var foods = live.filter(function (it) { return it.id !== TOOL; });
-    var tools = live.filter(function (it) { return it.id === TOOL; });
-    var f = $('pFormat').value;
-    $('printArea').innerHTML = f === 'bake' ? sheetBake(o, foods, tools)
-      : f === 'chinese' ? sheetChinese(o, foods, tools) : sheetTeacher(o, foods, tools);
+    var pick = $('pFormat').value;
+    $('printArea').innerHTML = printing.map(function (o) {
+      var live = o.items.filter(function (it) { return it.status !== '已取消' || o.status === '已取消'; });
+      var foods = live.filter(function (it) { return it.id !== TOOL; });
+      var tools = live.filter(function (it) { return it.id === TOOL; });
+      var f = pick === 'auto' ? formatOf(o) : pick;
+      return f === 'bake' ? sheetBake(o, foods, tools)
+        : f === 'chinese' ? sheetChinese(o, foods, tools) : sheetTeacher(o, foods, tools);
+    }).join('');
   }
 
   // 格式一：實習專用請料單（左：共同材料採購明細；右：特殊器具申請明細＋備註）
