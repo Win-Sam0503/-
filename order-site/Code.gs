@@ -2864,14 +2864,29 @@ function vendorBook_(orders) {
       const k = it.name + '|' + cv.unit;
       v.totals[k] = v.totals[k] || { name: it.name, unit: cv.unit, qty: 0 };
       v.totals[k].qty = Math.round((v.totals[k].qty + cv.qty) * 100) / 100;
-      v.lines.push([o.useDate, it.group, o.className, it.name, it.qty, it.unit, o.onBehalfOf || o.teacher, it.note]);
+      const line = [o.useDate, it.group, o.className, it.name, it.qty, it.unit, o.onBehalfOf || o.teacher, it.note];
+      line.block = [o.useDate, o.className, o.orderNo, it.group].join('|');   // 同一張訂單、同一送貨組別 = 明細合併成一塊
+      v.lines.push(line);
     });
   });
   Object.keys(by).forEach(function (v) {
     by[v].totals = Object.keys(by[v].totals).sort().map(function (k) { return by[v].totals[k]; });
-    by[v].lines.sort(function (a, b) { return (a[0] + a[2] + a[3]).localeCompare(b[0] + b[2] + b[3]); });
+    by[v].lines.sort(function (a, b) { return a.block === b.block ? String(a[3]).localeCompare(String(b[3])) : (a.block < b.block ? -1 : 1); });
   });
   return by;
+}
+
+/** 明細：同一張訂單的上課日期、組別、班級、老師合併成一格，訂單和訂單之間畫粗線 */
+function mergeDetailBlocks_(sh, firstRow, lines) {
+  let start = 0;
+  for (let i = 1; i <= lines.length; i++) {
+    if (i < lines.length && lines[i].block === lines[start].block) continue;
+    const row = firstRow + start, n = i - start;
+    sh.getRange(row, 1, 1, 8).setBorder(true, null, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    if (n > 1) [1, 2, 3, 7].forEach(function (c) { sh.getRange(row, c, n, 1).merge(); });
+    start = i;
+  }
+  if (lines.length) sh.getRange(firstRow, 1, lines.length, 8).setVerticalAlignment('middle');
 }
 
 function runVendorOrders_() {
@@ -2907,6 +2922,7 @@ function runVendorOrders_() {
     sh.getRange(5, 1, 1, 3).setFontWeight('bold').setBackground('#eeeeee');
     sh.getRange(detailHead, 1, 1, 8).setFontWeight('bold').setBackground('#eeeeee');
     sh.setColumnWidth(1, 140); sh.setColumnWidth(4, 160); sh.setColumnWidth(8, 160);
+    mergeDetailBlocks_(sh, detailHead + 1, d.lines);
   });
   book_ss.deleteSheet(first);
 

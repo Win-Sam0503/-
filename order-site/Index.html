@@ -269,6 +269,9 @@
   .vpage table { border-collapse: collapse; width: 100%; font-size: 14px; }
   .vpage th, .vpage td { border: 1px solid #999; padding: 4px 6px; }
   .vpage th { background: #f2f2f2; color: #000; }
+  .vpage td.vm { vertical-align: middle; }
+  .vpage tr.vfirst td { border-top: 2.5px solid #000; }
+  .vpage tr { page-break-inside: avoid; }
   .unit-input.invalid, .num-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
   .unit-pop {
     position: absolute; z-index: 50; background: #fff; border: 1px solid var(--line); border-radius: 10px;
@@ -2750,20 +2753,27 @@
         sum[k].qty += cv.qty;
       });
       keys.sort();
+      // 同一張訂單、同一送貨組別排在一起，明細合併成一塊（不同訂單就算內容一樣也分開）
+      lines.forEach(function (x) { x.block = [x.o.useDate, x.o.className, x.o.orderNo, x.it.group || ''].join('|'); });
       lines.sort(function (a, b) {
-        return a.o.useDate < b.o.useDate ? -1 : a.o.useDate > b.o.useDate ? 1
-          : (a.o.className + a.it.name).localeCompare(b.o.className + b.it.name, 'zh-Hant');
+        return a.block !== b.block ? (a.block < b.block ? -1 : 1) : a.it.name.localeCompare(b.it.name, 'zh-Hant');
       });
+      var span = {};
+      lines.forEach(function (x) { span[x.block] = (span[x.block] || 0) + 1; });
       return '<div class="vpage"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(range) + '</div>' +
         '<h3>【食材合計】</h3><table><thead><tr><th>食材</th><th style="width:20%">單位</th><th style="width:20%">合計</th></tr></thead><tbody>' +
         keys.map(function (k) {
           return '<tr><td>' + esc(sum[k].name) + '</td><td>' + esc(sum[k].unit) + '</td><td style="text-align:right">' + esc(fmtQty(sum[k].qty)) + '</td></tr>';
         }).join('') + '</tbody></table>' +
         '<h3>【明細】</h3><table><thead><tr><th>上課日期</th><th>組別</th><th>上課班級</th><th>食材</th><th>數量</th><th>單位</th><th>老師</th></tr></thead><tbody>' +
-        lines.map(function (x) {
-          return '<tr><td>' + esc(shortDate(x.o.useDate)) + '</td><td>' + esc(x.it.group) + '</td><td>' + esc(x.o.className) + '</td>' +
+        lines.map(function (x, i) {
+          var first = i === 0 || lines[i - 1].block !== x.block;
+          var rs = ' class="vm" rowspan="' + span[x.block] + '"';
+          return '<tr' + (first ? ' class="vfirst"' : '') + '>' +
+            (first ? '<td' + rs + '>' + esc(shortDate(x.o.useDate)) + '</td><td' + rs + '>' + esc(x.it.group) + '</td><td' + rs + '>' + esc(x.o.className) + '</td>' : '') +
             '<td>' + esc(x.it.name) + (x.it.note ? '<span style="color:#555">（' + esc(x.it.note) + '）</span>' : '') + '</td>' +
-            '<td style="text-align:right">' + esc(fmtQty(x.it.qty)) + '</td><td>' + esc(x.it.unit) + '</td><td>' + esc(x.o.onBehalfOf || x.o.teacher) + '</td></tr>';
+            '<td style="text-align:right">' + esc(fmtQty(x.it.qty)) + '</td><td>' + esc(x.it.unit) + '</td>' +
+            (first ? '<td' + rs + '>' + esc(x.o.onBehalfOf || x.o.teacher) + '</td>' : '') + '</tr>';
         }).join('') + '</tbody></table></div>';
     }).join('');
   }
