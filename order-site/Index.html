@@ -1171,7 +1171,7 @@
 
   // 單位選單
   function normUnit(u) {
-    var SYN = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'cc': 'ml', 'CC': 'ml', '毫升': 'ml', 'L': '公升' };
+    var SYN = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'cc', '毫升': 'ml', 'L': '公升' };
     u = String(u == null ? '' : u).trim();
     return SYN[u] || u;
   }
@@ -1191,7 +1191,7 @@
   }
 
   // 單位搜尋選單：可以用中文輸入法打字搜尋（下拉選單在 Windows 會強制切成英文輸入法）
-  var UNIT_HINT = { 'g': '公克、克', '公斤': 'kg、千克', '斤': '台斤', 'T': '大匙、湯匙', 't': '小匙、茶匙', 'ml': '毫升、cc', '公升': 'L、升' };
+  var UNIT_HINT = { 'g': '公克、克', '公斤': 'kg、千克', '斤': '台斤', 'T': '大匙、湯匙', 't': '小匙、茶匙', 'ml': '毫升', 'cc': 'CC', '公升': 'L、升' };
   var unitPop = $('unitPop'), unitTarget = null, unitHi = 0, unitList = [];
   function unitMatches(q) {
     q = String(q || '').trim().toLowerCase();
