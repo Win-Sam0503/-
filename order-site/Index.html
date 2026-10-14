@@ -209,6 +209,16 @@
   .sum-totals > summary .tog { color: var(--brand); font-size: 15px; font-weight: 600; white-space: nowrap; }
   .sum-totals > summary .tog::after { content: '▼ 展開'; }
   .sum-totals[open] > summary .tog::after { content: '▲ 收起'; }
+  /* 網頁內的確認視窗（不用瀏覽器的 confirm，LINE 內建瀏覽器有時會擋掉） */
+  .ask-back { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .ask-back.hidden { display: none; }
+  .ask-card { background: #fff; border-radius: 14px; padding: 18px; max-width: 440px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,.25); font-size: 17px; line-height: 1.6; }
+  #askText { white-space: pre-wrap; }
+  .ask-card .actions { margin-top: 14px; justify-content: flex-end; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1001; background: #b42318; color: #fff; padding: 12px 18px; border-radius: 12px;
+    font-size: 16px; font-weight: 600; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(0,0,0,.25); text-align: center; }
+  .toast.hidden { display: none; }
+  .field-err { outline: 3px solid #f04438 !important; outline-offset: 2px; }
   .lessons-as { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); max-width: 420px; }
   .sched-table td { vertical-align: middle; }
   .sched-table tr.off td { color: var(--muted); }
@@ -630,6 +640,11 @@
 <div id="watermark" class="hidden" aria-hidden="true"></div>
 
 <div id="unitPop" class="unit-pop hidden" role="listbox"></div>
+<div id="askBox" class="ask-back hidden" role="dialog" aria-modal="true">
+  <div class="ask-card"><div id="askText"></div>
+    <div class="actions"><button type="button" class="btn ghost" id="askNo">取消</button><button type="button" class="btn" id="askYes">確定</button></div></div>
+</div>
+<div id="toast" class="toast hidden" role="alert"></div>
 <datalist id="itemList"></datalist>
 
 <script>
@@ -698,6 +713,40 @@
   function msg(el, type, text) {
     el = typeof el === 'string' ? $(el) : el;
     el.innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : '';
+  }
+  // 網頁內的確認視窗：回傳 Promise<boolean>
+  function ask(text, yesText) {
+    return new Promise(function (resolve) {
+      $('toast').classList.add('hidden');
+      $('askText').textContent = text;
+      $('askYes').textContent = yesText || '確定';
+      $('askBox').classList.remove('hidden');
+      var done = function (v) {
+        $('askBox').classList.add('hidden');
+        $('askYes').onclick = $('askNo').onclick = null;
+        resolve(v);
+      };
+      $('askYes').onclick = function () { done(true); };
+      $('askNo').onclick = function () { done(false); };
+      setTimeout(function () { $('askYes').focus(); }, 0);
+    });
+  }
+  // 瀏覽器的確認視窗：LINE 內建瀏覽器、或勾過「不要再顯示對話框」時會直接回傳「取消」，按鈕就像沒反應。
+  // 偵測到被擋（一瞬間就回傳）時提示老師。
+  function safeConfirm(text) {
+    var t0 = Date.now();
+    var r = window.confirm(text);
+    if (!r && Date.now() - t0 < 80) toast('瀏覽器擋掉了確認視窗。請點右上角「…」→ 用 Safari／Chrome 開啟網站，或重新整理後再試。');
+    return r;
+  }
+  // 畫面下方浮出的提示（捲到哪裡都看得到）
+  var toastTimer = null;
+  function toast(text) {
+    var t = $('toast');
+    t.textContent = text;
+    t.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.add('hidden'); }, 6000);
   }
   function fmtQty(n) { return (Math.round(n * 100) / 100).toString(); }
   var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -1168,7 +1217,7 @@
     var input = unitTarget;
     if (!input) return;
     if (isNew) {
-      if (!confirm('新增單位「' + u + '」？\n可以先用在這張訂單，管理者核准後大家都選得到。')) return;
+      if (!safeConfirm('新增單位「' + u + '」？\n可以先用在這張訂單，管理者核准後大家都選得到。')) return;
       if (draft.newUnits.indexOf(u) < 0) draft.newUnits.push(u);
       saveDraft();
     }
@@ -1395,7 +1444,7 @@
     saveDraft(); renderCart(); renderResults();
   });
   $('clearCart').addEventListener('click', function () {
-    if ((!draft.cart.length && !draft.tools.length) || !confirm('確定要清空訂購清單（食材和器具）？')) return;
+    if ((!draft.cart.length && !draft.tools.length) || !safeConfirm('確定要清空訂購清單（食材和器具）？')) return;
     draft.cart = [];
     draft.tools = [];
     draft.sections = [];
@@ -1475,7 +1524,17 @@
     if (!err && !draft.cart.length && !tools.length) err = '請至少選擇一項食材或器具。';
     if (err) {
       msg('orderMsg', 'error', err);
-      if (/日期|截止|科別|上課時間|班級|實作/.test(err)) window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast(err);
+      reportError('送出訂單（沒填完整）', err);
+      // 捲到要補的欄位，框紅色
+      var field = /日期|截止|週末/.test(err) ? 'fDate' : /科別/.test(err) ? 'fDept' : /上課時間/.test(err) ? 'fAmpm'
+        : /班級/.test(err) ? 'fClass' : /組數/.test(err) ? 'fGroups' : /實作/.test(err) ? 'fProject' : '';
+      if (field) {
+        var el = $(field);
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('field-err');
+        setTimeout(function () { el.classList.remove('field-err'); }, 4000);
+      }
       return;
     }
 
@@ -1494,7 +1553,8 @@
     var who = i.onBehalfOf ? '（代 ' + i.onBehalfOf + ' 老師訂）' : '';
     if (draft.editing) {
       var no = draft.editing.orderNo;
-      if (!confirm('確定儲存訂單 ' + no + ' 的修改？\n' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : ''))) return;
+      ask('確定儲存訂單 ' + no + ' 的修改？\n' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : ''), '儲存修改').then(function (ok) {
+      if (!ok) return;
       var ubtn = $('submitBtn');
       setBusy(ubtn, true, '儲存中…');
       msg('orderMsg', '', '');
@@ -1510,13 +1570,14 @@
       }).catch(function (e) {
         msg('orderMsg', 'error', '儲存失敗：' + e.message);
       }).then(function () { setBusy(ubtn, false); renderEditBanner(); });
+      });
       return;
     }
-    if (!confirm('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？')) return;
-
+    ask('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？', '送出訂單').then(function (ok) {
+    if (!ok) return;
     var btn = $('submitBtn');
     setBusy(btn, true, '送出中…');
-    msg('orderMsg', '', '');
+    msg('orderMsg', 'info', '送出中，請稍候（大約 5～10 秒），不要關掉網頁…');
     call('submitOrder', token, payload).then(function (res) {
       $('doneNo').textContent = res.orderNo;
       $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
@@ -1534,8 +1595,12 @@
       show('viewDone');
       refreshLessonCount();
     }).catch(function (e) {
-      msg('orderMsg', 'error', '送出失敗：' + e.message);
+      var net = /NetworkError|連線失敗|HTTP 0/.test(e.message);
+      var text = net ? '網路斷線，訂單可能沒有送出。請先到「我的訂單」看有沒有這張，沒有再重新送出（清單還在）。' : '送出失敗：' + e.message;
+      msg('orderMsg', 'error', text);
+      toast(text);
     }).then(function () { setBusy(btn, false); });
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1620,7 +1685,7 @@
   }
   $('editBanner').addEventListener('click', function (e) {
     if (!e.target.closest('#editQuit')) return;
-    if (!confirm('放棄這次的修改？原本的訂單不會改變。')) return;
+    if (!safeConfirm('放棄這次的修改？原本的訂單不會改變。')) return;
     draft = emptyDraft(); saveDraft(); writeInfo(); renderCart(); renderResults(); updateDateHint();
     msg('orderMsg', '', '');
   });
@@ -1653,18 +1718,18 @@
     if (b.getAttribute('data-act') === 'print') {
       printOrder(o, 'viewMine');
     } else if (b.getAttribute('data-act') === 'cancel') {
-      if (!confirm('確定取消訂單 ' + no + '（' + o.project + '）？')) return;
+      if (!safeConfirm('確定取消訂單 ' + no + '（' + o.project + '）？')) return;
       setBusy(b, true, '取消中…');
       call('cancelOrder', token, no).then(function () {
         loadMine('訂單 ' + no + ' 已取消。');
       }).catch(function (err) { msg('mineMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
     } else if (b.getAttribute('data-act') === 'copy') {
-      if (draft.cart.length && !confirm('目前的訂購清單會被取代，確定要再訂一次這張訂單？')) return;
+      if (draft.cart.length && !safeConfirm('目前的訂購清單會被取代，確定要再訂一次這張訂單？')) return;
       orderToDraft(o, false);
       msg('orderMsg', 'info', '已帶入「' + o.project + '」的食材和器具，請選擇新的上課日期並確認數量後送出。');
       $('fDate').focus();
     } else if (b.getAttribute('data-act') === 'modify') {
-      if ((draft.cart.length || draft.tools.length) && !draft.editing && !confirm('目前訂購清單裡還沒送出的內容會被取代，確定要修改這張訂單？')) return;
+      if ((draft.cart.length || draft.tools.length) && !draft.editing && !safeConfirm('目前訂購清單裡還沒送出的內容會被取代，確定要修改這張訂單？')) return;
       orderToDraft(o, true);
       msg('orderMsg', 'info', '改好後按最下面的「儲存修改」。訂單編號不變。');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2066,7 +2131,7 @@
     var act = b.getAttribute('data-uact');
     var unit = card.querySelector('b').textContent;
     var type = card.querySelector('[data-f="utype"]').value;
-    if (act === 'reject' && !confirm('確定退回單位「' + unit + '」？之後老師就不能再用這個單位。')) return;
+    if (act === 'reject' && !safeConfirm('確定退回單位「' + unit + '」？之後老師就不能再用這個單位。')) return;
     setBusy(b, true);
     call('adminReviewUnit', token, Number(card.getAttribute('data-urow')), act, type).then(function (res) {
       // 更新本機的單位清單
@@ -2118,7 +2183,7 @@
       if (!id || !itemById[id]) { alert('請從清單選擇既有食材。'); return; }
       edits.existingId = id;
     }
-    if (act === 'reject' && !confirm('確定退回「' + val('name') + '」？訂單中的這項食材會保持「待審核」。')) return;
+    if (act === 'reject' && !safeConfirm('確定退回「' + val('name') + '」？訂單中的這項食材會保持「待審核」。')) return;
     setBusy(b, true);
     call('adminReviewItem', token, Number(card.getAttribute('data-row')), act, edits).then(function (res) {
       var note = '「' + edits.name + '」' + res + '。';
@@ -2161,7 +2226,7 @@
       if (!an || !/^\d+$/.test(an) || +an < 1 || +an > 99) { alert('組數需為 1 到 99 的整數。'); return; }
       g = +an; $('fGroups').value = g;
     }
-    if ((draft.cart.length || draft.tools.length) && !confirm('目前的訂購清單會被範本取代，確定嗎？')) return;
+    if ((draft.cart.length || draft.tools.length) && !safeConfirm('目前的訂購清單會被範本取代，確定嗎？')) return;
     var skipped = [];
     var round = function (n) { return Math.round(n * 100) / 100; };
     draft.cart = []; draft.tools = []; draft.sections = []; draft.activeSection = '';
@@ -2182,7 +2247,7 @@
   });
   $('tplDelete').addEventListener('click', function () {
     var name = $('tplSelect').value;
-    if (!name || !confirm('確定刪除範本「' + name + '」？')) return;
+    if (!name || !safeConfirm('確定刪除範本「' + name + '」？')) return;
     call('deleteTemplate', token, name).then(function () {
       $('tplMsg').textContent = '已刪除範本「' + name + '」。';
       loadTemplates();
@@ -2619,7 +2684,7 @@
     autoCall(this, 'adminSetAutomation', function () { return enable ? '排程已啟用。' : '排程已停用。'; }, enable);
   });
   $('aVendorNow').addEventListener('click', function () {
-    if (!confirm('現在就產生下週的廠商訂貨單並送出通知？')) return;
+    if (!safeConfirm('現在就產生下週的廠商訂貨單並送出通知？')) return;
     autoCall(this, 'adminRunVendorNow', function (r) {
       return (r.url ? '已產生：' + r.vendors.join('、') : '下週沒有需要叫貨的品項，沒有產生訂貨單。') + notifyText(r.notify);
     });
@@ -2628,11 +2693,11 @@
     autoCall(this, 'adminRunDigestNow', function (r) { return '摘要已送出。' + notifyText(r.notify); });
   });
   $('aMaintNow').addEventListener('click', function () {
-    if (!confirm('現在就備份試算表，並把上課日期過了 2 週的訂單搬到「歷史訂單」？')) return;
+    if (!safeConfirm('現在就備份試算表，並把上課日期過了 2 週的訂單搬到「歷史訂單」？')) return;
     autoCall(this, 'adminRunMaintenanceNow', function (r) { return (r.error ? '⚠ ' : '') + r.text + notifyText(r.notify); });
   });
   $('aHistNow').addEventListener('click', function () {
-    if (!confirm('現在就把已經結束的月份存成檔案，放到雲端硬碟「三信家商餐飲科歷史訂單」資料夾？')) return;
+    if (!safeConfirm('現在就把已經結束的月份存成檔案，放到雲端硬碟「三信家商餐飲科歷史訂單」資料夾？')) return;
     autoCall(this, 'adminRunHistoryExport', function (r) { return r.text; });
   });
   $('aRemindPreview').addEventListener('click', function () {
@@ -2642,7 +2707,7 @@
     }, false);
   });
   $('aRemindNow').addEventListener('click', function () {
-    if (!confirm('現在就用 LINE 私訊提醒還沒訂貨的老師？（每位老師算 1 則）')) return;
+    if (!safeConfirm('現在就用 LINE 私訊提醒還沒訂貨的老師？（每位老師算 1 則）')) return;
     autoCall(this, 'adminRunReminderNow', function (r) {
       return '已私訊 ' + r.to + '：' + r.teachers + ' 位老師、' + r.lessons + ' 堂課還沒訂。' +
         (r.unbound.length ? '\n沒綁定 LINE（沒收到）：' + r.unbound.join('、') : '') +
@@ -2654,7 +2719,7 @@
   });
   $('aLineSave').addEventListener('click', function () {
     var v = $('aLineToken').value.trim();
-    if (!v && !confirm('沒有填 token，要清除 LINE 設定嗎？')) return;
+    if (!v && !safeConfirm('沒有填 token，要清除 LINE 設定嗎？')) return;
     autoCall(this, 'adminSetLineToken', function () { $('aLineToken').value = ''; return v ? 'Channel access token 已儲存，接著按「產生綁定碼」。' : 'LINE 設定已清除。'; }, v);
   });
   $('aLineBind').addEventListener('click', function () {
@@ -2672,7 +2737,7 @@
   });
 
   $('aRichMenu').addEventListener('click', function () {
-    if (!confirm('在官方帳號建立 4 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明）？\n這個不會用到則數。')) return;
+    if (!safeConfirm('在官方帳號建立 4 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明）？\n這個不會用到則數。')) return;
     autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。'; });
   });
 
@@ -3456,7 +3521,7 @@
       }).catch(function (e) { msg('lessonsMsg', 'error', e.message); setBusy(bind, false); });
     });
     if (unbind) unbind.addEventListener('click', function () {
-      if (!confirm('解除後就不會收到 LINE 提醒了，確定？')) return;
+      if (!safeConfirm('解除後就不會收到 LINE 提醒了，確定？')) return;
       setBusy(unbind, true);
       call('myLineUnbind', token).then(function () { renderLessonLine({ enabled: true, bound: false }); })
         .catch(function (e) { msg('lessonsMsg', 'error', e.message); setBusy(unbind, false); });
@@ -3577,7 +3642,7 @@
       call('adminUpdateSchedule', token, row, expect, 'edit', readSchedForm(tr), lessonAs).then(done('課表已修改。')).catch(fail);
       return;
     }
-    if (act === 'cancel' && !confirm('永久取消「週' + x.weekday + x.session + ' ' + x.course + '」？\n之後不會再出現在我的課，也不會提醒（可以再按「恢復」）。')) return;
+    if (act === 'cancel' && !safeConfirm('永久取消「週' + x.weekday + x.session + ' ' + x.course + '」？\n之後不會再出現在我的課，也不會提醒（可以再按「恢復」）。')) return;
     setBusy(b, true, '處理中…');
     call('adminUpdateSchedule', token, row, expect, act, null, lessonAs)
       .then(done(act === 'cancel' ? '已永久取消「' + x.course + '」。' : '已恢復「' + x.course + '」。')).catch(fail);
@@ -3590,7 +3655,7 @@
     var x = { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
     if (act === 'order') {
       if (draft.editing) { alert('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
-      if ((draft.cart.length || draft.tools.length) && !confirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
+      if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
       readInfo();
       var keepTime = TIME_RE.test(draft.info.classTime || '') && draft.info.classTime.indexOf(x.session) === 0;
       draft.info.useDate = x.date;
@@ -3665,7 +3730,7 @@
   });
   $('lessonsMine').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-mact="del"]');
-    if (!b || !confirm('刪除這堂自訂的課？')) return;
+    if (!b || !safeConfirm('刪除這堂自訂的課？')) return;
     setBusy(b, true, '刪除中…');
     call('deleteMyLesson', token, Number(b.closest('tr').getAttribute('data-mrow')), lessonAs).then(function (r) { renderLessons(r, '已刪除。'); })
       .catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
