@@ -482,6 +482,12 @@
           <label for="lessonsAs">管理者：查看老師的課</label>
           <select id="lessonsAs"><option value="">我自己</option></select>
           <div class="muted small">選一位老師，可以幫他標記「不用訂貨」、修改或永久取消學校課表上的課、代訂。</div>
+          <div style="margin-top:10px">
+            <label class="btn ghost small" for="gjFile" style="display:inline-block;margin:0">上傳國技排班表（Excel）</label>
+            <input id="gjFile" type="file" accept=".xlsx,.xls" class="hidden">
+            <span class="muted small">每個國技班一個分頁（例如「國技10班(三)」），輪到的老師那週會出現在他的我的課並提醒。</span>
+          </div>
+          <div id="gjBox"></div>
         </div>
       </div>
       <div id="lessonsMsg"></div>
@@ -3499,6 +3505,95 @@
     call('adminScheduleTeachers', token).then(opts).catch(function () {});
   }
   $('lessonsAs').addEventListener('change', function () { lessonAs = this.value; loadLessons(); });
+
+  // ---- 國技排班表：每個國技班一個分頁，一列一週（日期、星期、時段、核心主題、實作名稱、教師、教室、備註） ----
+  var gjRows = null;
+  function excelDate(v) {
+    if (typeof v === 'number' && v > 20000 && v < 80000) {
+      var d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 864e5);
+      return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+    }
+    var m = String(v || '').match(/(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+    return m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : '';
+  }
+  function parseGuoji(wb) {
+    var rows = [], skipped = {}, classes = {};
+    wb.SheetNames.forEach(function (name) {
+      var cm = name.match(/國技\s*(\d+)\s*班/);
+      if (!cm) return;
+      var cls = '國技' + cm[1];
+      var aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });
+      var hi = -1, col = {};
+      for (var r = 0; r < Math.min(aoa.length, 6) && hi < 0; r++) {
+        var h = aoa[r].map(function (x) { return String(x).replace(/\s+/g, ''); });
+        if (h.indexOf('日期') >= 0 && h.some(function (x) { return /教師|老師/.test(x); })) {
+          hi = r;
+          h.forEach(function (x, i) {
+            if (x === '日期') col.date = i; else if (x === '星期') col.wd = i; else if (x === '時段') col.time = i;
+            else if (x === '核心主題') col.topic = i; else if (/實作/.test(x)) col.unit = i;
+            else if (/^(教師|老師)$/.test(x)) col.teacher = i; else if (x === '教室') col.room = i; else if (x === '備註') col.note = i;
+          });
+        }
+      }
+      if (hi < 0 || col.date === undefined || col.teacher === undefined) return;
+      classes[cls] = classes[cls] || { name: cls, weeks: 0, teachers: {} };
+      aoa.slice(hi + 1).forEach(function (a) {
+        var date = excelDate(a[col.date]);
+        if (!date) return;
+        var g = function (k) { return col[k] === undefined ? '' : String(a[col[k]] == null ? '' : a[col[k]]).trim(); };
+        var topic = g('topic').split(/\n/)[0].trim(), teacher = g('teacher');
+        var why = !teacher ? (/國定假日/.test(topic) ? '國定假日' : /停課/.test(topic) ? '停課' : /預備週/.test(topic) ? '預備週' : '沒有老師')
+          : /停課|國定假日|預備週/.test(topic) ? topic : /職群概論/.test(topic) || /[\/\n:]/.test(teacher) ? '職群概論' : /請假|併/.test(topic) ? '併班' : '';
+        if (why) { skipped[why] = (skipped[why] || 0) + 1; return; }
+        var wd = g('wd'), t = g('time'), hour = +(t.match(/(\d{1,2})[:：]/) || [0, 0])[1];
+        var session = /上/.test(wd) ? '上午' : /下/.test(wd) ? '下午' : hour >= 18 ? '晚上' : hour >= 12 ? '下午' : '上午';
+        var pm = g('unit').match(/[（(]([^（()）]+)[)）]\s*$/) || g('unit').match(/[（(]([^（()）]+)[)）][^（(]*$/);
+        rows.push({ date: date, session: session, className: cls, topic: topic.replace(/\(.*$/, '').trim(), practice: pm ? pm[1].trim() : '',
+          teacher: teacher.replace(/\s+/g, ''), room: g('room'), note: g('note').replace(/\n/g, ' ') });
+        classes[cls].weeks++;
+        classes[cls].teachers[teacher] = (classes[cls].teachers[teacher] || 0) + 1;
+      });
+    });
+    return { rows: rows, skipped: skipped, classes: classes };
+  }
+  $('gjFile').addEventListener('change', function () {
+    var f = this.files[0];
+    this.value = '';
+    if (!f) return;
+    $('gjBox').innerHTML = '<div class="msg info">讀取中…</div>';
+    loadSheetJs().then(function () { return f.arrayBuffer(); }).then(function (buf) {
+      var res = parseGuoji(XLSX.read(new Uint8Array(buf), { type: 'array' }));
+      gjRows = res.rows;
+      var cls = Object.keys(res.classes).sort(function (a, b) { return +a.replace(/\D/g, '') - +b.replace(/\D/g, ''); });
+      if (!res.rows.length) { $('gjBox').innerHTML = '<div class="msg error">檔案裡找不到國技班的排班（分頁名稱要像「國技10班(三)」，第一列要有「日期」「教師」）。</div>'; return; }
+      var known = {};
+      data.teachers.forEach(function (n) { known[n] = true; });
+      var noAcc = {};
+      res.rows.forEach(function (x) { if (!known[x.teacher]) noAcc[x.teacher] = true; });
+      var sk = Object.keys(res.skipped).map(function (k) { return k + ' ' + res.skipped[k]; }).join('、');
+      $('gjBox').innerHTML = '<div class="msg info" style="margin-top:8px"><b>' + esc(f.name) + '</b>：' + cls.length + ' 個國技班、' + res.rows.length + ' 週有上課' +
+        (sk ? '（不列入：' + esc(sk) + ' 週）' : '') + '<ul style="margin:6px 0;padding-left:20px">' + cls.map(function (c) {
+          var t = res.classes[c].teachers;
+          return '<li>' + esc(c) + '：' + res.classes[c].weeks + ' 週　' + esc(Object.keys(t).map(function (n) { return n + ' ' + t[n]; }).join('、')) + '</li>';
+        }).join('') + '</ul>' +
+        (Object.keys(noAcc).length ? '<div style="color:var(--bad)">帳號設定沒有：' + esc(Object.keys(noAcc).join('、')) + '（匯入後他們的課不會有人收到提醒，請先新增帳號）</div>' : '') +
+        '<div class="actions" style="justify-content:flex-start"><button type="button" class="btn small" id="gjImport">匯入（取代這 ' + cls.length + ' 個班原本的排班）</button>' +
+        '<button type="button" class="btn ghost small" id="gjClose">取消</button></div></div>';
+    }).catch(function (e) { $('gjBox').innerHTML = '<div class="msg error">讀取失敗：' + esc(e.message) + '</div>'; });
+  });
+  $('gjBox').addEventListener('click', function (e) {
+    if (e.target.closest('#gjClose')) { gjRows = null; $('gjBox').innerHTML = ''; return; }
+    var b = e.target.closest('#gjImport');
+    if (!b || !gjRows) return;
+    setBusy(b, true, '匯入中…');
+    call('adminImportGuoji', token, gjRows).then(function (r) {
+      gjRows = null;
+      $('gjBox').innerHTML = '<div class="msg ok" style="margin-top:8px">已匯入 ' + r.added + ' 週（' + r.classes + ' 個國技班' + (r.removed ? '，取代原本 ' + r.removed + ' 週' : '') + '）。' +
+        (r.noAccount.length ? '<br>帳號設定沒有：' + esc(r.noAccount.join('、')) + '。' : '') + '</div>';
+      $('lessonsAs')._filled = false;
+      loadLessons();
+    }).catch(function (err) { setBusy(b, false); msg('gjBox', 'error', err.message); });
+  });
   function viewingOther() { return !!lessonAs && lessonAs !== data.account; }
   function renderLessonLine(line) {
     var box = $('lessonsLine');
@@ -3557,7 +3652,7 @@
               : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>' : '';
             return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
-              '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : '') + '</div></td>' +
+              '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div></td>' +
               '<td class="lt-status">' + LESSON_STATUS[x.status] + '</td>' +
               '<td class="lt-act"><div class="actions" style="margin:0;justify-content:flex-end">' + btns + '</div></td></tr>';
           }).join('') + '</tbody></table></div></div>';
@@ -3616,7 +3711,42 @@
         '<div id="schedAdd" style="margin-top:6px">' + schedForm(null, r.teacher) +
         '<div class="actions" style="justify-content:flex-start"><button type="button" class="btn small" data-sact="add">新增到課表</button></div></div></details>';
     $('lessonsSchool')._rows = rows;
+    var g = r.guojiRows || [];
+    if (g.length) {
+      $('lessonsSchool').innerHTML += '<h3 style="font-size:16px;margin:14px 0 6px">國技排班 <span class="muted small" style="font-weight:normal">這位老師接下來輪到的國技課（來自上傳的國技排班表）</span></h3>' +
+        '<div class="tablewrap"><table class="sched-table"><tbody>' + g.map(function (x) {
+          return '<tr data-grow="' + x.row + '" data-gd="' + esc(x.date) + '" data-gc="' + esc(x.className) + '" class="' + (x.need ? '' : 'off') + '">' +
+            '<td style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
+            '<td class="sc-course"><b>' + esc(x.practice || x.topic) + '</b><div class="muted small">' + esc([x.className, x.room, x.topic].filter(Boolean).join('・')) + '</div></td>' +
+            '<td class="small">' + (x.need ? '<span style="color:var(--ok)">上課</span>' : '<span style="color:var(--bad)">已取消</span>') + (x.note ? '<div class="muted">' + esc(x.note) + '</div>' : '') + '</td>' +
+            '<td><div class="actions" style="margin:0;justify-content:flex-end">' +
+              '<button type="button" class="btn ghost small" data-gact="swap">換老師</button>' +
+              (x.need ? '<button type="button" class="btn danger small" data-gact="cancel">取消這週</button>' : '<button type="button" class="btn secondary small" data-gact="restore">恢復</button>') +
+            '</div></td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
   }
+  $('lessonsSchool').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-gact]');
+    if (!b) return;
+    var tr = b.closest('tr'), act = b.getAttribute('data-gact');
+    var row = Number(tr.getAttribute('data-grow')), expect = { date: tr.getAttribute('data-gd'), className: tr.getAttribute('data-gc') };
+    var fail = function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); };
+    if (act === 'swap') {
+      var cell = tr.querySelector('td:last-child');
+      cell.innerHTML = '<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><select data-gt style="width:auto">' +
+        data.teachers.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('') + '</select>' +
+        '<button type="button" class="btn small" data-gact="swapsave">換</button><button type="button" class="btn ghost small" data-gact="swapcancel">取消</button></div>';
+      return;
+    }
+    if (act === 'swapcancel') { loadLessons(); return; }
+    var name = act === 'swapsave' ? tr.querySelector('[data-gt]').value : '';
+    if (act === 'cancel' && !safeConfirm('取消 ' + shortDate(expect.date) + ' ' + expect.className + ' 這一週的國技課？')) return;
+    setBusy(b, true, '處理中…');
+    call('adminUpdateGuoji', token, row, expect, act === 'swapsave' ? 'teacher' : act, name, lessonAs).then(function (r) {
+      renderLessons(r, act === 'swapsave' ? '已換成「' + name + '」老師。' : act === 'cancel' ? '已取消這週的國技課。' : '已恢復。');
+    }).catch(fail);
+  });
   $('lessonsSchool').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-sact]');
     if (!b) return;

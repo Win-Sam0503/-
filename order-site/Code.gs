@@ -92,7 +92,9 @@ const SHEET = {
   skips: '不用訂貨',
   errors: '錯誤紀錄',
   edits: '修改紀錄',
+  guoji: '國技排班',
 };
+const GUOJI_HEADERS = ['日期', '時段', '班級', '核心主題', '實作名稱', '老師', '教室', '備註', '需要訂貨', '匯入時間'];
 const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
 const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
 const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
@@ -2040,6 +2042,13 @@ function readMyLessonRows_() {
 function lessonsBetween_(from, to, teacher) {
   const sched = readSchedule_(), mine = readMyLessonRows_();
   const out = [];
+  // 國技班：每週輪流的老師，照「國技排班」分頁的日期
+  readGuoji_().forEach(function (g) {
+    if (!g.need || !g.teacher || (teacher && g.teacher !== teacher)) return;
+    const d = parseDate_(g.date);
+    if (!d || d < from || d > to || d.getDay() === 0 || d.getDay() === 6) return;
+    out.push({ teacher: g.teacher, date: g.date, session: g.session, course: g.practice || g.topic || '國技實作', className: g.className, room: g.room, source: '國技', row: g.row });
+  });
   for (let d = new Date(from); d <= to; d = addDays_(d, 1)) {
     const idx = d.getDay() - 1;   // 週一 = 0
     if (idx < 0 || idx > 4) continue;
@@ -2123,6 +2132,7 @@ function getMyLessons(token, as) {
     mine: readMyLessonRows_().filter(function (x) { return x.teacher === account; }),
     teacher: account,
     schoolRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? scheduleRowsOf_(account) : null,
+    guojiRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? guojiRowsOf_(account) : null,
     line: { enabled: !!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN'), bound: !!lineUserOf_(account) },
   };
 }
@@ -2204,6 +2214,106 @@ function deleteMyLesson(token, row, as) {
 
 // ---- 管理者：修改學校課表（「課表」分頁） ----
 
+// ---- 國技排班（國技班每週輪流上課的老師、實作名稱） ----
+
+function readGuoji_() {
+  const sh = ss_().getSheetByName(SHEET.guoji);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return readTable_(SHEET.guoji, ['日期', '時段', '班級', '老師']).rows.map(function (r) {
+    const d = toDate_(r['日期']);
+    return {
+      row: r._row, date: d ? dateStr_(d) : '', session: String(r['時段']).trim(), className: String(r['班級']).trim(),
+      topic: String(r['核心主題'] || '').trim(), practice: String(r['實作名稱'] || '').trim(), teacher: String(r['老師']).trim(),
+      room: String(r['教室'] || '').trim(), note: String(r['備註'] || '').trim(),
+      need: r['需要訂貨'] === undefined || r['需要訂貨'] === '' || isTrue_(r['需要訂貨']),
+    };
+  }).filter(function (g) { return g.date && SESSIONS.indexOf(g.session) >= 0; });
+}
+
+/** 管理者：某位老師接下來的國技排班（含已取消的） */
+function guojiRowsOf_(teacher) {
+  const from = addDays_(today_(), -7);
+  return readGuoji_().filter(function (g) { return g.teacher === teacher && parseDate_(g.date) >= from; })
+    .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+}
+
+/**
+ * 管理者匯入國技排班表。rows: [{ date, session, className, topic, practice, teacher, room, note }]
+ * 檔案裡有的班級，原本的排班整個換成新的（其他班級不動）。
+ */
+function adminImportGuoji(token, rows) {
+  auth_(token, true);
+  if (!Array.isArray(rows) || !rows.length) throw new Error('沒有可以匯入的排班。');
+  if (rows.length > 3000) throw new Error('一次最多匯入 3000 週。');
+  const clean = rows.map(function (x, i) {
+    const d = parseDate_(x.date);
+    if (!d) throw new Error('第 ' + (i + 1) + ' 筆的日期不正確。');
+    const session = String(x.session || '').trim();
+    if (SESSIONS.indexOf(session) < 0) throw new Error('第 ' + (i + 1) + ' 筆的時段不正確。');
+    const className = clean_(x.className, 30), teacher = clean_(x.teacher, 30);
+    if (!className || !teacher) throw new Error('第 ' + (i + 1) + ' 筆缺少班級或老師。');
+    return { '日期': d, '時段': session, '班級': className, '核心主題': clean_(x.topic, 30), '實作名稱': clean_(x.practice, 60),
+      '老師': teacher, '教室': clean_(x.room, 20), '備註': clean_(x.note, 100), '需要訂貨': true, '匯入時間': new Date() };
+  });
+  const classes = {};
+  clean.forEach(function (r) { classes[r['班級']] = true; });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let removed = 0;
+  try {
+    const sh = ensureSheet_(SHEET.guoji, GUOJI_HEADERS);
+    if (sh.getLastRow() >= 2) {
+      const old = readTable_(SHEET.guoji, ['班級']).rows.filter(function (r) { return classes[String(r['班級']).trim()]; });
+      removed = old.length;
+      if (old.length) deleteRows_(sh, old.map(function (r) { return r._row; }));
+    }
+    appendRows_(SHEET.guoji, clean, { '日期': 'yyyy-mm-dd', '匯入時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  const accounts = {};
+  readTable_(SHEET.accounts, ['帳號']).rows.forEach(function (r) { accounts[String(r['帳號']).trim()] = true; });
+  const noAccount = {};
+  clean.forEach(function (r) { if (!accounts[r['老師']]) noAccount[r['老師']] = true; });
+  return { added: clean.length, removed: removed, classes: Object.keys(classes).length, noAccount: Object.keys(noAccount) };
+}
+
+/** 管理者：某一週的國技課換老師、取消或恢復。action: 'teacher' | 'cancel' | 'restore' */
+function adminUpdateGuoji(token, row, expect, action, teacherName, as) {
+  const admin = auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.guoji, ['日期', '班級', '老師']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    const d = r ? toDate_(r['日期']) : null;
+    if (!r || !expect || !d || dateStr_(d) !== expect.date || String(r['班級']).trim() !== expect.className) {
+      throw new Error('排班已經被改過，請重新整理再試一次。');
+    }
+    const stamp = Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd');
+    const note = String(r['備註'] || '').trim();
+    if (action === 'teacher') {
+      const nt = clean_(teacherName, 30);
+      if (!nt) throw new Error('請選擇老師。');
+      setCell_(t, r._row, '老師', nt);
+      setCell_(t, r._row, '備註', (admin + ' ' + stamp + ' 由' + String(r['老師']).trim() + '換成' + nt + (note ? '；' + note : '')).slice(0, 100));
+    } else if (action === 'cancel') {
+      setCell_(t, r._row, '需要訂貨', false);
+      setCell_(t, r._row, '備註', (admin + ' ' + stamp + ' 取消' + (note ? '；' + note : '')).slice(0, 100));
+    } else if (action === 'restore') {
+      setCell_(t, r._row, '需要訂貨', true);
+      setCell_(t, r._row, '備註', note.replace(/^\S+ \d{4}\/\d{2}\/\d{2} 取消；?/, ''));
+    } else {
+      throw new Error('不支援的操作。');
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyLessons(token, as);
+}
+
 /** 某位老師在「課表」分頁的所有列（包含已取消的），給管理者修改用 */
 function scheduleRowsOf_(teacher) {
   const sh = ss_().getSheetByName(SHEET.schedule);
@@ -2237,6 +2347,7 @@ function scheduleOnlyTeachers_() {
     const n = String(r['老師']).trim();
     if (n && !accounts[n]) names[n] = true;
   });
+  readGuoji_().forEach(function (g) { if (g.teacher && !accounts[g.teacher]) names[g.teacher] = true; });
   return Object.keys(names).sort();
 }
 
