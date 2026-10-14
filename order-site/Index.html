@@ -265,10 +265,11 @@
   .vpage { background: #fff; color: #000; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
   .vpage h1 { font-size: 20px; margin: 0; text-align: center; }
   .vpage .vsub { text-align: center; color: #444; margin: 2px 0 12px; }
-  .vpage h3 { font-size: 15px; margin: 14px 0 6px; }
-  .vpage table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .vpage h3 { font-size: calc(var(--vfs, 14px) + 1px); margin: 14px 0 6px; }
+  .vpage table { border-collapse: collapse; width: 100%; font-size: var(--vfs, 14px); }
+  .vpage td.vq { font-weight: 700; }
   .vpage th, .vpage td { border: 1px solid #999; padding: 4px 6px; }
-  .vpage th { background: #f2f2f2; color: #000; }
+  .vpage th { background: #f2f2f2; color: #000; font-size: inherit; }
   .vpage td.vm { vertical-align: middle; }
   .vpage tr.vfirst td { border-top: 2.5px solid #000; }
   .vpage tr { page-break-inside: avoid; }
@@ -607,6 +608,7 @@
           <button type="button" class="btn secondary" id="vLoad">產生訂貨單</button>
           <button type="button" class="btn" id="vPrint" disabled>列印</button>
         </div>
+        <div class="status-chips" id="vSize" style="margin:0 0 8px;align-items:center"><span class="muted small">字體大小：</span><button type="button" data-size="13">小</button><button type="button" data-size="14">中</button><button type="button" data-size="17">大</button><button type="button" data-size="20">特大</button></div>
         <div class="muted small">每家廠商一頁：上面是食材合計（重量換算成同一種單位），下面是各班明細。不含已取消、勾選「有貨」的品項，也不含器具。</div>
       </div>
       <div id="vendorMsg" class="noprint"></div>
@@ -2730,6 +2732,21 @@
       .then(function () { setBusy(btn, false); });
   });
   $('vPrint').addEventListener('click', function () { window.print(); });
+  // 字體大小：畫面和列印都跟著變，記在這台電腦
+  function setVendorSize(px) {
+    $('vendorSheets').style.setProperty('--vfs', px + 'px');
+    Array.prototype.forEach.call($('vSize').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-size') === String(px)); });
+    try { localStorage.setItem('ckOrder.vendorSize', String(px)); } catch (e) {}
+  }
+  $('vSize').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-size]');
+    if (b) setVendorSize(Number(b.getAttribute('data-size')));
+  });
+  (function () {
+    var px = 14;
+    try { px = Number(localStorage.getItem('ckOrder.vendorSize')) || 14; } catch (e) {}
+    setVendorSize([13, 14, 17, 20].indexOf(px) >= 0 ? px : 14);
+  })();
 
   function vendorSheets(orders, from, to, only) {
     var by = {};
@@ -2763,7 +2780,7 @@
       return '<div class="vpage"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(range) + '</div>' +
         '<h3>【食材合計】</h3><table><thead><tr><th>食材</th><th style="width:20%">單位</th><th style="width:20%">合計</th></tr></thead><tbody>' +
         keys.map(function (k) {
-          return '<tr><td>' + esc(sum[k].name) + '</td><td>' + esc(sum[k].unit) + '</td><td style="text-align:right">' + esc(fmtQty(sum[k].qty)) + '</td></tr>';
+          return '<tr><td>' + esc(sum[k].name) + '</td><td class="vq">' + esc(sum[k].unit) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(sum[k].qty)) + '</td></tr>';
         }).join('') + '</tbody></table>' +
         '<h3>【明細】</h3><table><thead><tr><th>上課日期</th><th>組別</th><th>上課班級</th><th>食材</th><th>數量</th><th>單位</th><th>老師</th></tr></thead><tbody>' +
         lines.map(function (x, i) {
@@ -2772,7 +2789,7 @@
           return '<tr' + (first ? ' class="vfirst"' : '') + '>' +
             (first ? '<td' + rs + '>' + esc(shortDate(x.o.useDate)) + '</td><td' + rs + '>' + esc(x.it.group) + '</td><td' + rs + '>' + esc(x.o.className) + '</td>' : '') +
             '<td>' + esc(x.it.name) + (x.it.note ? '<span style="color:#555">（' + esc(x.it.note) + '）</span>' : '') + '</td>' +
-            '<td style="text-align:right">' + esc(fmtQty(x.it.qty)) + '</td><td>' + esc(x.it.unit) + '</td>' +
+            '<td class="vq" style="text-align:right">' + esc(fmtQty(x.it.qty)) + '</td><td class="vq">' + esc(x.it.unit) + '</td>' +
             (first ? '<td' + rs + '>' + esc(x.o.onBehalfOf || x.o.teacher) + '</td>' : '') + '</tr>';
         }).join('') + '</tbody></table></div>';
     }).join('');
