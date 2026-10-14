@@ -2905,6 +2905,22 @@
     return u ? { qty: NaN, unit: stdUnit(u[1]), at: 0, len: t.length } : null;
   }
 
+  // 上課班級：「2 年 8 班」→ 208；「年 班 共 8 組 國技班11」（年、班空白，班級寫在後面）→ 國技班11；「夜202」「208/209」照寫
+  function classFromText(t) {
+    var m = t.match(/班\s*級\s*[:：]?([^\n]*)/);
+    if (m) {
+      var line = m[1], c;
+      if ((c = line.match(/^[ \t]*(\d)[ \t]*年[ \t]*(\d{1,2})[ \t]*班/))) return c[1] + ('0' + c[2]).slice(-2);
+      line = line.replace(/共[ \t]*\d{1,2}[ \t]*組/g, ' ').replace(/組\s*數\s*[:：]?[ \t]*\d{1,2}/g, ' ')
+        .replace(/(?:指導)?老\s*師.*$|教\s*室.*$|日\s*期.*$|時\s*間.*$/, ' ');
+      if ((c = line.match(/[A-Za-z\u4e00-\u9fff]{0,4}[ \t\u3000]*\d[\d\-]*(?:[ \t]*[\/、,，][ \t]*\d+)*(?:[ \t]*班)?/))) {
+        return c[0].replace(/[\s\u3000]+/g, '').replace(/^(?:年|班)+/, '').replace(/[、,，]/g, '/').replace(/^(\d[\d\-\/]*)班$/, '$1');
+      }
+    }
+    m = t.match(/(?:^|[^\d])(\d{3})\s*班/);
+    return m ? m[1] : undefined;
+  }
+
   // ---- 上課資訊 ----
   function parseInfo(text, tables) {
     var t = halfWidth(text), info = {}, m;
@@ -2928,9 +2944,7 @@
     } else if ((m = t.match(/時間\s*[:：]?\s*(\d{1,2})\s*[:：]\s*(\d{2})/))) {
       info.classTime = timeStr(+m[1] >= 12 ? 'pm' : 'am', +m[1] > 12 ? +m[1] - 12 : +m[1], +m[2]);
     }
-    if ((m = t.match(/班\s*級\s*[:：]?[ \t]*(\d)[ \t]*年[ \t]*(\d{1,2})[ \t]*班/))) info.className = m[1] + ('0' + m[2]).slice(-2);
-    else if ((m = t.match(/班\s*級\s*[:：]?[ \t]*([A-Za-z\u4e00-\u9fff]{0,2}\d[\d\-]*(?:[ \t]*\/[ \t]*\d+)*)/))) info.className = m[1].replace(/\s+/g, '');
-    else if ((m = t.match(/(?:^|[^\d])(\d{3})\s*班/))) info.className = m[1];
+    info.className = classFromText(t);
     var cellGroups = groupsFromCells(tables || []);
     var textGroups = (m = t.match(/共[ \t]*(\d{1,2})[ \t]*組/)) || (m = t.match(/組\s*數\s*[:：]?[ \t]*(\d{1,2})(?!\d)/)) ? +m[1] : 0;
     var gNum = cellGroups || textGroups;
