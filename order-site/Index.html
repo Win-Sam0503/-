@@ -214,6 +214,11 @@
   .ask-back.hidden { display: none; }
   .ask-card { background: #fff; border-radius: 14px; padding: 18px; max-width: 440px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,.25); font-size: 17px; line-height: 1.6; }
   #askText { white-space: pre-wrap; }
+  .info-check { white-space: normal; }
+  .info-check h3 { margin: 0 0 8px; font-size: 19px; }
+  .info-check table { width: 100%; font-size: 16px; }
+  .info-check th { width: 6em; color: var(--muted); font-weight: 500; font-size: 15px; white-space: nowrap; }
+  .info-check td.bad { color: #b42318; font-weight: 700; }
   .ask-card .actions { margin-top: 14px; justify-content: flex-end; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1001; background: #b42318; color: #fff; padding: 12px 18px; border-radius: 12px;
     font-size: 16px; font-weight: 600; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(0,0,0,.25); text-align: center; }
@@ -721,11 +726,13 @@
     el.innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : '';
   }
   // 網頁內的確認視窗：回傳 Promise<boolean>
-  function ask(text, yesText) {
+  function ask(text, yesText, opts) {
+    opts = opts || {};
     return new Promise(function (resolve) {
       $('toast').classList.add('hidden');
-      $('askText').textContent = text;
+      if (opts.html) $('askText').innerHTML = opts.html; else $('askText').textContent = text;
       $('askYes').textContent = yesText || '確定';
+      $('askNo').textContent = opts.noText || '取消';
       $('askBox').classList.remove('hidden');
       var done = function (v) {
         $('askBox').classList.add('hidden');
@@ -3470,8 +3477,43 @@
     msg('impMsg', 'ok', '已' + (act === 'replace' ? '帶入' : '加入') + ' ' + nFood + ' 項食材' + (nTool ? '、' + nTool + ' 項器具' : '') + '。請檢查訂購清單和上課資訊後再送出。' +
       (newUnits.length ? '（新單位「' + newUnits.join('、') + '」會送管理者審核）' : '') +
       (outDate ? '（檔案上的日期 ' + fileDate + ' 不在可訂貨的範圍，請重新選上課日期）' : ''));
-    $('cartPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    confirmImportedInfo(outDate ? fileDate : '');
   });
+
+  // 檔案帶入後跳出「請確認上課資訊」：列出讀到的上課資訊，沒填或不對的標紅色
+  function confirmImportedInfo(badFileDate) {
+    readInfo();
+    var i = draft.info, d = parseDate(i.useDate);
+    var dateErr = badFileDate ? '檔案上是 ' + badFileDate + '，不在可訂貨的範圍，請重新選'
+      : !d ? '' : i.useDate < data.minDate ? '已過訂貨截止，請重新選' : i.useDate > data.maxDate ? '超過 30 天，請重新選'
+      : (d.getDay() === 0 || d.getDay() === 6) ? '是週末，請重新選' : '';
+    var rows = [
+      ['上課日期', d && !dateErr ? shortDate(i.useDate) : '', dateErr, 'fDate'],
+      ['科別', i.dept, '', 'fDept'],
+      ['上課時間', i.classTime, '', 'fAmpm'],
+      ['上課教室', i.room, '', 'fRoom', true],
+      ['上課班級', i.className, '', 'fClass'],
+      ['組數', i.groups, '', 'fGroups', true],
+      ['實作項目', i.project, '', 'fProject'],
+    ];
+    if (i.onBehalfOf) rows.push(['代訂老師', i.onBehalfOf, '', 'fFor', true]);
+    var firstBad = '';
+    var html = '<div class="info-check"><h3>請確認上課資訊是否正確</h3><table><tbody>' + rows.map(function (r) {
+      var bad = r[2] || (!r[1] && !r[4]);
+      if (bad && !firstBad) firstBad = r[3];
+      return '<tr><th>' + r[0] + '</th><td class="' + (bad ? 'bad' : '') + '">' +
+        esc(r[2] || r[1] || (r[4] ? '（沒有填）' : '（沒有讀到，請補上）')) + '</td></tr>';
+    }).join('') + '</tbody></table>' +
+      '<div class="muted small" style="margin-top:8px">' + (firstBad ? '紅色的欄位要補上或修改才能送出。' : '這些是從檔案讀到的，日期、班級最常讀錯，請再看一次。') + '</div></div>';
+    ask('', firstBad ? '先看訂購清單' : '正確', { html: html, noText: '我要修改' }).then(function (ok) {
+      if (ok) { $('cartPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+      var el = $(firstBad || 'fDate');
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('field-err');
+      setTimeout(function () { el.classList.remove('field-err'); }, 4000);
+      setTimeout(function () { try { el.focus(); } catch (e) {} }, 400);
+    });
+  }
 
   // ------------------------------------------------------------------
   // 我的課：未訂貨的課、不用訂貨、自訂上課時間
