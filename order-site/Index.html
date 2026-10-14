@@ -2297,7 +2297,7 @@
     if (!o) return;
     printing = o;
     printBack = back;
-    $('pFormat').value = o.dept === '烘焙' ? 'bake' : o.dept === '中餐' ? 'chinese' : 'teacher';
+    $('pFormat').value = o.dept === '烘焙' ? 'bake' : o.dept === '中餐' || o.dept === '日料' ? 'chinese' : 'teacher';
     renderPrint();
     show('viewPrint');
   }
@@ -3069,8 +3069,9 @@
       if (/^\d*$/.test(proj)) proj = '';
     }
     if (proj) info.project = proj.slice(0, 60);
-    var depts = data.departments.filter(function (d) { return t.indexOf(d) >= 0; });
-    if (depts.length) info.dept = depts.sort(function (a, b) { return t.indexOf(a) - t.indexOf(b); })[0];
+    var deptPos = function (d) { var i = t.indexOf(d); return i < 0 && d === '日料' ? t.indexOf('日本料理') : i; };   // 「日本料理」也算日料
+    var depts = data.departments.filter(function (d) { return deptPos(d) >= 0; });
+    if (depts.length) info.dept = depts.sort(function (a, b) { return deptPos(a) - deptPos(b); })[0];
     var who = data.teachers.filter(function (n) { return n && n !== data.account && t.indexOf(n) >= 0; });
     if (who.length === 1 && t.indexOf(data.account) < 0 && Array.prototype.some.call($('fFor').options, function (o) { return o.value === who[0]; })) info.onBehalfOf = who[0];
     return info;

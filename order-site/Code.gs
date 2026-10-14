@@ -25,7 +25,7 @@ const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';
 
 const SITE_TITLE = '三信家商餐飲科訂貨系統';
 const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能
-const DEPARTMENTS = ['中餐', '西餐', '烘焙', '飲調', '果雕', '刀功'];
+const DEPARTMENTS = ['中餐', '西餐', '日料', '烘焙', '飲調', '果雕', '刀功'];
 // 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
 const CLASS_TIME_PATTERN = /^(上午|下午|晚上) (1[0-2]|[1-9]):[0-5][05]$/;
 const SESSIONS = ['上午', '下午', '晚上'];
