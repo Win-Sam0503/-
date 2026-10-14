@@ -209,6 +209,20 @@
   .sum-totals > summary .tog { color: var(--brand); font-size: 15px; font-weight: 600; white-space: nowrap; }
   .sum-totals > summary .tog::after { content: '▼ 展開'; }
   .sum-totals[open] > summary .tog::after { content: '▲ 收起'; }
+  .lessons-as { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); max-width: 420px; }
+  .sched-table td { vertical-align: middle; }
+  .sched-table tr.off td { color: var(--muted); }
+  .sched-table tr.off td.sc-course { text-decoration: line-through; }
+  .sched-form { display: grid; grid-template-columns: 80px 90px 1fr 2fr 80px 1fr 1fr; gap: 6px; align-items: end; }
+  .sched-form input, .sched-form select { padding: 6px 8px; font-size: 15px; }
+  .sched-form > div { min-width: 0; }
+  .sched-form input, .sched-form select { width: 100%; min-width: 0; box-sizing: border-box; }
+  @media (max-width: 760px) { .sched-form { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 640px) {
+    .sched-table, .sched-table tbody, .sched-table tr, .sched-table td { display: block; width: auto; }
+    .sched-table tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+    .sched-table td { border: 0; padding: 2px 0; }
+  }
   .edit-info { display: grid; grid-template-columns: 1fr 1fr 2fr 80px; gap: 8px; margin: 8px 0 10px; }
   @media (max-width: 640px) { .edit-info { grid-template-columns: 1fr 1fr; } }
   .badge.edited { background: #fff4e5; color: #b45309; }
@@ -454,6 +468,11 @@
         <h2 style="margin:0">我的課 <button type="button" class="btn ghost small" id="reloadLessons">重新整理</button></h2>
         <div class="muted small">依學校課表和你自己新增的課列出接下來的課。沒訂貨的課會在每週五下午用 LINE 私訊提醒你；不用訂貨的課按「不用訂貨」就不會再被提醒。</div>
         <div id="lessonsLine" class="small" style="margin-top:8px"></div>
+        <div class="admin-only hidden lessons-as">
+          <label for="lessonsAs">管理者：查看老師的課</label>
+          <select id="lessonsAs"><option value="">我自己</option></select>
+          <div class="muted small">選一位老師，可以幫他標記「不用訂貨」、修改或永久取消學校課表上的課、代訂。</div>
+        </div>
       </div>
       <div id="lessonsMsg"></div>
       <div id="lessonsList"></div>
@@ -3394,13 +3413,31 @@
   function refreshLessonCount() {
     call('getMyLessons', token).then(function (r) { lessonsCache = r; setLessonCount(r.nextWeek.todo); }).catch(function () {});
   }
+  var lessonAs = '';   // 管理者正在查看的老師（空白 = 自己）
   function loadLessons(note) {
     if (!note) msg('lessonsMsg', 'info', '載入中…');
-    return call('getMyLessons', token).then(function (r) { renderLessons(r, note); })
+    if (data.isAdmin && !$('lessonsAs')._filled) fillLessonsAs();
+    return call('getMyLessons', token, lessonAs).then(function (r) { renderLessons(r, note); })
       .catch(function (e) { msg('lessonsMsg', 'error', '載入失敗：' + e.message); });
   }
+  function fillLessonsAs() {
+    var sel = $('lessonsAs');
+    sel._filled = true;
+    var opts = function (extra) {
+      sel.innerHTML = '<option value="">我自己</option>' + data.teachers.map(function (n) {
+        return '<option' + (n === lessonAs ? ' selected' : '') + '>' + esc(n) + '</option>';
+      }).join('') + (extra.length ? '<optgroup label="課表上的名字（帳號設定沒有，可能打錯）">' + extra.map(function (n) {
+        return '<option value="' + esc(n) + '"' + (n === lessonAs ? ' selected' : '') + '>' + esc(n) + '（沒有帳號）</option>';
+      }).join('') + '</optgroup>' : '');
+    };
+    opts([]);
+    call('adminScheduleTeachers', token).then(opts).catch(function () {});
+  }
+  $('lessonsAs').addEventListener('change', function () { lessonAs = this.value; loadLessons(); });
+  function viewingOther() { return !!lessonAs && lessonAs !== data.account; }
   function renderLessonLine(line) {
     var box = $('lessonsLine');
+    if (viewingOther()) { box.innerHTML = ''; return; }
     if (!line || !line.enabled) { box.innerHTML = ''; return; }
     box.innerHTML = line.bound
       ? '<span style="color:var(--ok)">✓ 已綁定 LINE</span>，週五下午會私訊提醒你沒訂貨的課。 ' +
@@ -3432,6 +3469,7 @@
     var head = nw.todo
       ? '下一個截止是 ' + nw.deadline + '：' + shortDate(nw.from) + '～' + shortDate(nw.to) + ' 還有 ' + nw.todo + ' 堂課未訂貨。'
       : shortDate(nw.from) + '～' + shortDate(nw.to) + ' 的課都處理好了（截止 ' + nw.deadline + '）。';
+    if (viewingOther()) head = '正在查看「' + lessonAs + '」老師的課。' + head;
     msg('lessonsMsg', nw.todo ? 'info' : 'ok', (note ? note + '　' : '') + head);
     renderLessonLine(r.line);
     if (!r.lessons.length) {
@@ -3460,7 +3498,8 @@
           }).join('') + '</tbody></table></div></div>';
       }).join('');
     }
-    $('lessonsSchool').innerHTML = r.school.length
+    if (r.schoolRows) renderSchoolRows(r);
+    else $('lessonsSchool').innerHTML = r.school.length
       ? '<b>學校課表：</b>' + r.school.map(function (x) { return '週' + '一二三四五'.charAt(x.day) + x.session + ' ' + esc(x.course) + (x.className ? ' ' + esc(x.className) : ''); }).join('、') +
         '<div class="muted">學校課表有錯請告訴管理者。</div>'
       : '<span class="muted">學校課表上沒有你的課（或名字不一致），可以在下面自己新增。</span>';
@@ -3472,6 +3511,77 @@
         }).join('') + '</tbody></table></div>'
       : '<div class="muted small">還沒有。</div>';
   }
+  // 管理者：可以修改的學校課表
+  var WD = ['一', '二', '三', '四', '五'];
+  function schedForm(x, teacher) {
+    x = x || {};
+    var sel = function (f, list, v) { return '<select data-sf="' + f + '">' + list.map(function (o) { return '<option' + (o === v ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'; };
+    return '<div class="sched-form">' +
+      '<div><label>星期</label>' + sel('weekday', WD, x.weekday || '一') + '</div>' +
+      '<div><label>時段</label>' + sel('session', ['上午', '下午', '晚上'], x.session || '上午') + '</div>' +
+      '<div><label>教室</label><input data-sf="room" maxlength="20" value="' + esc(x.room || '') + '"></div>' +
+      '<div><label>課程</label><input data-sf="course" maxlength="30" value="' + esc(x.course || '') + '"></div>' +
+      '<div><label>節次</label><input data-sf="period" maxlength="10" placeholder="[1-4]" value="' + esc(x.period || '') + '"></div>' +
+      '<div><label>班級</label><input data-sf="className" maxlength="30" value="' + esc(x.className || '') + '"></div>' +
+      '<div><label>老師</label><input data-sf="teacher" maxlength="30" list="teacherList" value="' + esc(x.teacher || teacher || '') + '"></div>' +
+      '</div>';
+  }
+  function readSchedForm(box) {
+    var f = {};
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sf]'), function (el) { f[el.getAttribute('data-sf')] = el.value.trim(); });
+    return f;
+  }
+  function renderSchoolRows(r) {
+    var rows = r.schoolRows;
+    $('lessonsSchool').innerHTML = '<datalist id="teacherList">' + data.teachers.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' +
+      '<div class="muted small" style="margin-bottom:6px">學校課表（試算表「課表」分頁）。「永久取消」後這堂課不會再出現在我的課、也不會提醒，資料保留，可以恢復。只有某一週不用上，請在上面那一週按「不用訂貨」。</div>' +
+      (rows.length ? '<div class="tablewrap"><table class="sched-table"><tbody>' + rows.map(function (x) {
+        var off = !x.need || x.skipped;
+        return '<tr data-srow="' + x.row + '" data-wd="' + esc(x.weekday) + '" data-ss="' + esc(x.session) + '" data-tc="' + esc(x.teacher) + '" class="' + (off ? 'off' : '') + '">' +
+          '<td style="white-space:nowrap">週' + esc(x.weekday) + ' ' + esc(x.session) + '</td>' +
+          '<td class="sc-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room, x.period].filter(Boolean).join('・')) + '</div></td>' +
+          '<td class="small">' + (x.skipped ? '國技／預留，不提醒' : x.need ? '<span style="color:var(--ok)">上課中</span>' : '<span style="color:var(--bad)">已永久取消</span>') +
+            (x.note ? '<div class="muted">' + esc(x.note) + '</div>' : '') + '</td>' +
+          '<td><div class="actions" style="margin:0;justify-content:flex-end">' +
+            '<button type="button" class="btn ghost small" data-sact="edit">修改</button>' +
+            (x.need ? '<button type="button" class="btn danger small" data-sact="cancel">永久取消</button>' : '<button type="button" class="btn secondary small" data-sact="restore">恢復</button>') +
+          '</div></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="muted small">學校課表上沒有「' + esc(r.teacher) + '」的課。</div>') +
+      '<details style="margin-top:8px"><summary class="small" style="cursor:pointer;color:var(--brand);font-weight:600">＋ 新增一堂課到學校課表</summary>' +
+        '<div id="schedAdd" style="margin-top:6px">' + schedForm(null, r.teacher) +
+        '<div class="actions" style="justify-content:flex-start"><button type="button" class="btn small" data-sact="add">新增到課表</button></div></div></details>';
+    $('lessonsSchool')._rows = rows;
+  }
+  $('lessonsSchool').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-sact]');
+    if (!b) return;
+    var act = b.getAttribute('data-sact'), tr = b.closest('tr');
+    var done = function (note) { return function (r) { renderLessons(r, note); }; };
+    var fail = function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); };
+    if (act === 'add') {
+      setBusy(b, true, '新增中…');
+      call('adminAddSchedule', token, readSchedForm($('schedAdd')), lessonAs).then(done('已新增到學校課表。')).catch(fail);
+      return;
+    }
+    var row = Number(tr.getAttribute('data-srow'));
+    var x = ($('lessonsSchool')._rows || []).find(function (y) { return y.row === row; });
+    var expect = { weekday: tr.getAttribute('data-wd'), session: tr.getAttribute('data-ss'), teacher: tr.getAttribute('data-tc') };
+    if (act === 'edit') {
+      tr.innerHTML = '<td colspan="4">' + schedForm(x) +
+        '<div class="actions" style="justify-content:flex-end"><button type="button" class="btn ghost small" data-sact="editcancel">取消</button><button type="button" class="btn small" data-sact="save">儲存</button></div></td>';
+      return;
+    }
+    if (act === 'editcancel') { loadLessons(); return; }
+    if (act === 'save') {
+      setBusy(b, true, '儲存中…');
+      call('adminUpdateSchedule', token, row, expect, 'edit', readSchedForm(tr), lessonAs).then(done('課表已修改。')).catch(fail);
+      return;
+    }
+    if (act === 'cancel' && !confirm('永久取消「週' + x.weekday + x.session + ' ' + x.course + '」？\n之後不會再出現在我的課，也不會提醒（可以再按「恢復」）。')) return;
+    setBusy(b, true, '處理中…');
+    call('adminUpdateSchedule', token, row, expect, act, null, lessonAs)
+      .then(done(act === 'cancel' ? '已永久取消「' + x.course + '」。' : '已恢復「' + x.course + '」。')).catch(fail);
+  });
   $('reloadLessons').addEventListener('click', function () { loadLessons(); });
   $('lessonsList').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-lact]');
@@ -3487,6 +3597,7 @@
       draft.info.className = x.className || draft.info.className;
       draft.info.room = x.room || draft.info.room;
       draft.info.project = x.course;
+      draft.info.onBehalfOf = viewingOther() && Array.prototype.some.call($('fFor').options, function (o) { return o.value === lessonAs; }) ? lessonAs : '';
       if (!keepTime) draft.info.classTime = '';
       writeInfo(); saveDraft();
       if (!keepTime) $('fAmpm').value = x.session;
@@ -3494,11 +3605,12 @@
       show('viewOrder');
       msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請選擇幾點幾分、科別，再選食材。');
       msg('lastBox', '', '');
-      if (!draft.cart.length && !draft.tools.length) suggestLastOrder(x);
+      if (draft.info.onBehalfOf) msg('lastBox', 'info', '這是幫「' + draft.info.onBehalfOf + '」老師代訂。');
+      else if (!draft.cart.length && !draft.tools.length) suggestLastOrder(x);
       return;
     }
     setBusy(b, true, '處理中…');
-    call('setNoOrder', token, x.date, x.session, x.course, act === 'skip').then(function (r) {
+    call('setNoOrder', token, x.date, x.session, x.course, act === 'skip', lessonAs).then(function (r) {
       renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨。' : '已改回要訂貨。');
     }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
   });
@@ -3546,7 +3658,7 @@
     if (err) { msg('lessonsMsg', 'error', err); return; }
     var b = this;
     setBusy(b, true, '新增中…');
-    call('addMyLesson', token, l).then(function (r) {
+    call('addMyLesson', token, l, lessonAs).then(function (r) {
       $('mlCourse').value = ''; $('mlClass').value = ''; $('mlRoom').value = '';
       renderLessons(r, '已新增「' + l.course + '」。');
     }).catch(function (e) { msg('lessonsMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
@@ -3555,7 +3667,7 @@
     var b = e.target.closest('button[data-mact="del"]');
     if (!b || !confirm('刪除這堂自訂的課？')) return;
     setBusy(b, true, '刪除中…');
-    call('deleteMyLesson', token, Number(b.closest('tr').getAttribute('data-mrow'))).then(function (r) { renderLessons(r, '已刪除。'); })
+    call('deleteMyLesson', token, Number(b.closest('tr').getAttribute('data-mrow')), lessonAs).then(function (r) { renderLessons(r, '已刪除。'); })
       .catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
   });
 

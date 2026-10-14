@@ -2096,8 +2096,17 @@ function lessonsWithStatus_(from, to, teacher) {
 // ---- 老師：我的課（未訂貨課程、不用訂貨、自訂上課時間） ----
 
 /** 我接下來可以訂貨的課（最早可訂日期～30 天內）、學校課表、我自訂的課 */
-function getMyLessons(token) {
+/** 「我的課」看誰的課：老師只能看自己；管理者可以傳 as 看任何一位老師（課表上的名字也可以） */
+function lessonAccount_(token, as) {
   const account = auth_(token);
+  as = clean_(as, 30);
+  if (!as || as === account) return account;
+  if (ADMIN_ACCOUNTS.indexOf(account) < 0) throw new Error('只有管理者可以查看別的老師的課。');
+  return as;
+}
+
+function getMyLessons(token, as) {
+  const account = lessonAccount_(token, as);
   const now = new Date();
   const from = earliestClassDate_(now);
   const to = addDays_(today_(), MAX_DAYS_AHEAD);
@@ -2112,13 +2121,15 @@ function getMyLessons(token) {
     nextWeek: { from: dateStr_(from), to: dateStr_(firstWeekEnd), deadline: shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2), todo: todoNext },
     school: readSchedule_().filter(function (x) { return x.teacher === account; }),
     mine: readMyLessonRows_().filter(function (x) { return x.teacher === account; }),
+    teacher: account,
+    schoolRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? scheduleRowsOf_(account) : null,
     line: { enabled: !!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN'), bound: !!lineUserOf_(account) },
   };
 }
 
 /** 標記／取消「不用訂貨」：date = yyyy-mm-dd，session = 上午／下午／晚上 */
-function setNoOrder(token, date, session, course, skip) {
-  const account = auth_(token);
+function setNoOrder(token, date, session, course, skip, as) {
+  const account = lessonAccount_(token, as);
   const d = parseDate_(date);
   if (!d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
   const lock = LockService.getScriptLock();
@@ -2139,12 +2150,12 @@ function setNoOrder(token, date, session, course, skip) {
   } finally {
     lock.releaseLock();
   }
-  return getMyLessons(token);
+  return getMyLessons(token, as);
 }
 
 /** 老師自己新增上課時間（例如夜間部）。l: { type: '每週'|'單次', weekday: '一'~'五', date, session, course, className, room } */
-function addMyLesson(token, l) {
-  const account = auth_(token);
+function addMyLesson(token, l, as) {
+  const account = lessonAccount_(token, as);
   l = l || {};
   const type = l.type === '單次' ? '單次' : '每週';
   const session = String(l.session || '').trim();
@@ -2172,11 +2183,11 @@ function addMyLesson(token, l) {
   } finally {
     lock.releaseLock();
   }
-  return getMyLessons(token);
+  return getMyLessons(token, as);
 }
 
-function deleteMyLesson(token, row) {
-  const account = auth_(token);
+function deleteMyLesson(token, row, as) {
+  const account = lessonAccount_(token, as);
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -2188,7 +2199,119 @@ function deleteMyLesson(token, row) {
   } finally {
     lock.releaseLock();
   }
-  return getMyLessons(token);
+  return getMyLessons(token, as);
+}
+
+// ---- 管理者：修改學校課表（「課表」分頁） ----
+
+/** 某位老師在「課表」分頁的所有列（包含已取消的），給管理者修改用 */
+function scheduleRowsOf_(teacher) {
+  const sh = ss_().getSheetByName(SHEET.schedule);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return readTable_(SHEET.schedule, ['星期', '時段', '老師']).rows.filter(function (r) {
+    return String(r['老師']).trim() === teacher;
+  }).map(scheduleRowOut_).sort(function (a, b) {
+    return a.weekday === b.weekday ? SESSIONS.indexOf(a.session) - SESSIONS.indexOf(b.session) : '一二三四五'.indexOf(a.weekday) - '一二三四五'.indexOf(b.weekday);
+  });
+}
+
+function scheduleRowOut_(r) {
+  const course = String(r['課程'] || '').trim();
+  const need = r['需要訂貨'] === undefined || r['需要訂貨'] === '' || isTrue_(r['需要訂貨']);
+  return {
+    row: r._row, weekday: String(r['星期']).replace(/星期|週/g, '').trim(), session: String(r['時段']).trim(),
+    room: String(r['教室'] || '').trim(), course: course, period: String(r['節次'] || '').trim(),
+    className: String(r['班級'] || '').trim(), teacher: String(r['老師']).trim(),
+    need: need, skipped: /國技|預留/.test(course), note: String(r['備註'] || '').trim(),
+  };
+}
+
+/** 課表上有、但帳號設定沒有的老師名字（管理者的「查看老師」選單用，方便找出打錯的名字） */
+function scheduleOnlyTeachers_() {
+  const sh = ss_().getSheetByName(SHEET.schedule);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const accounts = {};
+  readTable_(SHEET.accounts, ['帳號']).rows.forEach(function (r) { accounts[String(r['帳號']).trim()] = true; });
+  const names = {};
+  readTable_(SHEET.schedule, ['老師']).rows.forEach(function (r) {
+    const n = String(r['老師']).trim();
+    if (n && !accounts[n]) names[n] = true;
+  });
+  return Object.keys(names).sort();
+}
+
+function adminScheduleTeachers(token) {
+  auth_(token, true);
+  return scheduleOnlyTeachers_();
+}
+
+function scheduleFields_(f) {
+  f = f || {};
+  const weekday = String(f.weekday || '').replace(/星期|週/g, '').trim();
+  if (weekday.length !== 1 || '一二三四五'.indexOf(weekday) < 0) throw new Error('請選擇星期幾（一～五）。');
+  const session = String(f.session || '').trim();
+  if (SESSIONS.indexOf(session) < 0) throw new Error('請選擇時段（上午／下午／晚上）。');
+  const course = clean_(f.course, 30);
+  if (!course) throw new Error('請填寫課程。');
+  const teacher = clean_(f.teacher, 30);
+  if (!teacher) throw new Error('請填寫老師。');
+  return { '星期': weekday, '時段': session, '教室': clean_(f.room, 20), '課程': course, '節次': clean_(f.period, 10),
+    '班級': clean_(f.className, 30), '老師': teacher };
+}
+
+/**
+ * 管理者修改「課表」分頁的一列。
+ * action：'edit'（fields 改內容）、'cancel'（永久取消：不再列入我的課和提醒，資料保留）、'restore'（恢復）。
+ * expect：畫面上看到的星期、時段、老師，跟試算表不一樣（別人改過）就不改。
+ */
+function adminUpdateSchedule(token, row, expect, action, fields, as) {
+  const admin = auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.schedule, ['星期', '時段', '老師']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    const cur = r ? scheduleRowOut_(r) : null;
+    if (!cur || !expect || cur.weekday !== expect.weekday || cur.session !== expect.session || cur.teacher !== expect.teacher) {
+      throw new Error('課表已經被改過，請重新整理再試一次。');
+    }
+    const stamp = Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd');
+    let set;
+    if (action === 'cancel') {
+      set = { '需要訂貨': false, '備註': (admin + ' ' + stamp + ' 取消' + (cur.note ? '；' + cur.note : '')).slice(0, 100) };
+    } else if (action === 'restore') {
+      set = { '需要訂貨': true, '備註': cur.note.replace(/^\S+ \d{4}\/\d{2}\/\d{2} 取消；?/, '') };
+    } else {
+      set = scheduleFields_(fields);
+      if (fields && fields.note !== undefined) set['備註'] = clean_(fields.note, 100);
+    }
+    Object.keys(set).forEach(function (k) {
+      if (t.cols[k] === undefined) throw new Error('「課表」分頁缺少「' + k + '」欄位。');
+      setCell_(t, r._row, k, set[k]);
+    });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyLessons(token, as);
+}
+
+/** 管理者在「課表」分頁新增一堂課 */
+function adminAddSchedule(token, fields, as) {
+  auth_(token, true);
+  const set = scheduleFields_(fields);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.schedule, ['星期', '時段', '教室', '課程', '節次', '班級', '老師', '需要訂貨', '備註']);
+    set['需要訂貨'] = true;
+    set['備註'] = clean_(fields && fields.note, 100);
+    appendRows_(SHEET.schedule, [set]);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyLessons(token, as);
 }
 
 function scheduleCount_() {
