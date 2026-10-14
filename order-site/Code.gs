@@ -1049,7 +1049,7 @@ function notifyTeacherOfEdit_(orderNo, admin, changes, reason, kind) {
       (reason ? (ret ? '退單原因：' : '修改原因：') + reason + '\n' : '') +
       (ret ? '' : changes.map(function (c) { return '・' + c; }).join('\n') + '\n') +
       (ret ? '\n請到「我的訂單」找到這張，按「再訂一次」修改後重新送出（已過截止的話請找管理者）。' : '\n有問題請找管理者。') +
-      (webAppUrl_() ? '\n' + webAppUrl_() + '?page=mine' : '');
+      (lineUrl_('mine') ? '\n' + lineUrl_('mine') : '');
     return linePush_(uid, text) ? '已用 LINE 通知 ' + teacher + ' 老師。' : 'LINE 通知 ' + teacher + ' 老師失敗。';
   } catch (e) {
     console.error('通知老師失敗：' + e.message);
@@ -1691,6 +1691,15 @@ function notifyEmails_() {
   if (NOTIFY_EMAILS.length) return NOTIFY_EMAILS.slice();
   const me = Session.getEffectiveUser().getEmail();
   return me ? [me] : [];
+}
+
+/**
+ * 傳到 LINE 的網站連結：加上 openExternalBrowser=1，LINE 會直接用手機的瀏覽器（Safari／Chrome）打開，
+ * 不用 LINE 內建瀏覽器（內建瀏覽器開 Apps Script 網站常出現「目前無法開啟這個檔案」）。
+ */
+function lineUrl_(page) {
+  const u = webAppUrl_();
+  return u ? u + '?' + (page ? 'page=' + page + '&' : '') + 'openExternalBrowser=1' : '';
 }
 
 function webAppUrl_() {
@@ -2584,7 +2593,7 @@ function runReminder_(send) {
   const range = shortDateTw_(r.from) + '～' + shortDateTw_(r.to);
   const teachers = Object.keys(missing);
   const dl = shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2);
-  const link = webAppUrl_() ? webAppUrl_() + '?page=lessons' : '';
+  const link = lineUrl_('lessons');
   const personal = function (t) {
     return '【訂貨提醒】' + t + ' 老師您好，' + range + ' 還有 ' + missing[t].length + ' 堂課沒訂貨：\n' +
       missing[t].map(function (x) { return '・' + x; }).join('\n') +
@@ -2712,7 +2721,7 @@ function lineStatus_() {
 function lineAutoReply_(text, userId) {
   const t = String(text || '').trim();
   const account = lineAccountOf_(userId);
-  const url = webAppUrl_();
+  const url = lineUrl_('');
   if (/截止|規則/.test(t) && t.length <= 10) {
     const now = new Date(), from = earliestClassDate_(now), dl = currentDeadline_(now) > now ? currentDeadline_(now) : addDays_(currentDeadline_(now), 7);
     return '【訂貨規則】' + lockRuleText_() + '。\n' +
@@ -2731,7 +2740,7 @@ function lineAutoReply_(text, userId) {
     if (!todo.length) return account + ' 老師，接下來 ' + MAX_DAYS_AHEAD + ' 天的課都已經訂貨或標記不用訂貨了。';
     return account + ' 老師，還有 ' + todo.length + ' 堂課沒訂貨：\n' + todo.slice(0, 20).map(function (x) {
       return '・' + shortDateTw_(parseDate_(x.date)) + x.session + ' ' + x.course + (x.className ? ' ' + x.className : '');
-    }).join('\n') + (todo.length > 20 ? '\n…' : '') + (url ? '\n\n去訂貨：' + url + '?page=lessons' : '');
+    }).join('\n') + (todo.length > 20 ? '\n…' : '') + (url ? '\n\n去訂貨：' + lineUrl_('lessons') : '');
   }
   const since = addDays_(today_(), -7);
   const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
@@ -2757,7 +2766,7 @@ function adminSetupRichMenu(token) {
   const w = 2500, h = 843, cw = Math.floor(w / 4);
   const areas = [
     { action: { type: 'message', label: '我的未訂貨課程', text: '我的未訂貨課程' } },
-    { action: { type: 'uri', label: '打開訂貨網站', uri: url } },
+    { action: { type: 'uri', label: '打開訂貨網站', uri: lineUrl_('') } },
     { action: { type: 'message', label: '我的訂單', text: '我的訂單' } },
     { action: { type: 'message', label: '截止時間說明', text: '截止時間說明' } },
   ].map(function (a, i) { a.bounds = { x: i * cw, y: 0, width: i === 3 ? w - 3 * cw : cw, height: h }; return a; });
@@ -2936,7 +2945,7 @@ function runDigest_(force) {
     (errors.length ? '\n⚠ 系統錯誤 ' + errors.length + ' 筆（詳見試算表「錯誤紀錄」分頁）：\n' + errors.slice(-3).map(function (e) {
       return '・' + e.account + ' ' + e.fn + '：' + e.message.slice(0, 60);
     }).join('\n') : '') +
-    (webAppUrl_() ? '\n\n' + webAppUrl_() : '');
+    (lineUrl_('') ? '\n\n' + lineUrl_('') : '');
   const html = '<h3>訂貨每日摘要 ' + escHtml_(day) + '</h3>' +
     '<p><b>新訂單 ' + newOrders.length + ' 張</b>（' + escHtml_(fmtDateTime_(since)) + ' 之後送出）</p>' +
     (newOrders.length ? '<table border="1" cellpadding="4" style="border-collapse:collapse;font-size:14px"><tr><th>送出時間</th><th>老師</th><th>班級</th><th>實作項目</th><th>上課日期</th><th>品項</th><th>狀態</th></tr>' +

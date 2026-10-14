@@ -747,6 +747,7 @@
       if (opts.html) $('askText').innerHTML = opts.html; else $('askText').textContent = text;
       $('askYes').textContent = yesText || '確定';
       $('askNo').textContent = opts.noText || '取消';
+      $('askNo').classList.toggle('hidden', !!opts.okOnly);
       $('askBox').classList.remove('hidden');
       var done = function (v) {
         $('askBox').classList.add('hidden');
@@ -760,12 +761,36 @@
   }
   // 瀏覽器的確認視窗：LINE 內建瀏覽器、或勾過「不要再顯示對話框」時會直接回傳「取消」，按鈕就像沒反應。
   // 偵測到被擋（一瞬間就回傳）時提示老師。
+  // 改用網頁內的確認視窗：第一次呼叫先跳出視窗並回傳 false；按「確定」後再點一次原本的按鈕，這次直接回傳 true。
+  var lastClicked = null, confirmPass = false;
+  document.addEventListener('click', function (e) { if (!e.target.closest('#askBox')) lastClicked = e.target; }, true);
   function safeConfirm(text) {
-    var t0 = Date.now();
-    var r = window.confirm(text);
-    if (!r && Date.now() - t0 < 80) toast('瀏覽器擋掉了確認視窗。請點右上角「…」→ 用 Safari／Chrome 開啟網站，或重新整理後再試。');
-    return r;
+    if (confirmPass) { confirmPass = false; return true; }
+    var target = lastClicked;
+    ask(text, '確定').then(function (ok) {
+      if (!ok || !target || !document.body.contains(target)) return;
+      confirmPass = true;
+      target.click();
+      confirmPass = false;
+    });
+    return false;
   }
+  // 網頁內的輸入視窗（取代 prompt）：同樣先跳出視窗，按「確定」後再點一次原本的按鈕，這次回傳輸入的文字
+  var promptPass = null;
+  function safePrompt(text, def) {
+    if (promptPass !== null) { var v = promptPass; promptPass = null; return v; }
+    var target = lastClicked;
+    ask('', '確定', { html: '<div style="white-space:pre-wrap;margin-bottom:8px">' + esc(text) + '</div><input type="text" id="askInput" maxlength="60" value="' + esc(def || '') + '">' }).then(function (ok) {
+      if (!ok || !target || !document.body.contains(target)) return;
+      promptPass = $('askInput').value;
+      target.click();
+      promptPass = null;
+    });
+    setTimeout(function () { var el = $('askInput'); if (el) { el.focus(); el.select(); } }, 50);
+    return null;
+  }
+  // 提示訊息（取代 alert，LINE 內建瀏覽器也看得到）
+  function notice(text) { return ask(text, '知道了', { okOnly: true }); }
   // 畫面下方浮出的提示（捲到哪裡都看得到）
   var toastTimer = null;
   function toast(text) {
@@ -1116,12 +1141,12 @@
   });
   $('addNew').addEventListener('click', function () {
     var name = $('nName').value.trim(), vendor = $('nVendor').value, qty = normNum($('nQty').value), unit = validUnit($('nUnit').value);
-    if (!name) { alert('請填寫食材名稱。'); return; }
+    if (!name) { notice('請填寫食材名稱。'); return; }
     var dup = data.items.find(function (it) { return it.name === name; });
-    if (dup) { alert('食材總表已經有「' + name + '」，請直接從上方搜尋加入。'); return; }
-    if (!vendor) { alert('請選擇廠商。'); return; }
-    if (qty === null) { alert('數量請輸入數字，例如 2、0.5、半。'); $('nQty').focus(); return; }
-    if ($('nUnit').value.trim() && !unit) { alert('單位要從清單選擇，可以打字搜尋，例如打「斤」「包」「克」。'); $('nUnit').focus(); return; }
+    if (dup) { notice('食材總表已經有「' + name + '」，請直接從上方搜尋加入。'); return; }
+    if (!vendor) { notice('請選擇廠商。'); return; }
+    if (qty === null) { notice('數量請輸入數字，例如 2、0.5、半。'); $('nQty').focus(); return; }
+    if ($('nUnit').value.trim() && !unit) { notice('單位要從清單選擇，可以打字搜尋，例如打「斤」「包」「克」。'); $('nUnit').focus(); return; }
     draft.cart.push({ key: 'n' + Date.now(), id: '', name: name, vendor: vendor, qty: qty, unit: unit, note: '', isNew: true, noOrder: false, section: draft.activeSection });
     $('nName').value = ''; $('nQty').value = ''; $('nUnit').value = '';
     saveDraft(); renderCart();
@@ -1320,7 +1345,7 @@
     var b = e.target.closest('button');
     if (!b) return;
     if (b.hasAttribute('data-sec-add')) {
-      var name = (prompt('段落名稱，例如：麵包體、抹醬、蛋糕體') || '').trim().slice(0, 20);
+      var name = (safePrompt('段落名稱，例如：麵包體、抹醬、蛋糕體') || '').trim().slice(0, 20);
       if (!name) return;
       if (draft.sections.indexOf(name) < 0) draft.sections.push(name);
       draft.activeSection = name;
@@ -2124,7 +2149,7 @@
     copyText(text).then(function () {
       b.textContent = '已複製 ✓';
       setTimeout(function () { b.textContent = '複製叫貨文字'; }, 1500);
-    }).catch(function () { prompt('請手動複製：', text); });
+    }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
   });
   var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
   function convertUnit(qty, unit, vendor) {
@@ -2293,7 +2318,7 @@
     var edits = { name: val('name'), vendor: val('vendor'), unit: val('unit') };
     if (act === 'map') {
       var id = (val('existing').match(/^(I\d+)/) || [])[1];
-      if (!id || !itemById[id]) { alert('請從清單選擇既有食材。'); return; }
+      if (!id || !itemById[id]) { notice('請從清單選擇既有食材。'); return; }
       edits.existingId = id;
     }
     if (act === 'reject' && !safeConfirm('確定退回「' + val('name') + '」？訂單中的這項食材會保持「待審核」。')) return;
@@ -2333,10 +2358,10 @@
     if (!t) return;
     var g = currentGroups();
     if (!g) {
-      var ans = prompt('這次有幾組？（範本存的是一組的量）', '');
+      var ans = safePrompt('這次有幾組？（範本存的是一組的量）', '');
       if (ans === null) return;
       var an = normNum(ans);
-      if (!an || !/^\d+$/.test(an) || +an < 1 || +an > 99) { alert('組數需為 1 到 99 的整數。'); return; }
+      if (!an || !/^\d+$/.test(an) || +an < 1 || +an > 99) { notice('組數需為 1 到 99 的整數。'); return; }
       g = +an; $('fGroups').value = g;
     }
     if ((draft.cart.length || draft.tools.length) && !safeConfirm('目前的訂購清單會被範本取代，確定嗎？')) return;
@@ -2376,7 +2401,7 @@
     for (var k = 0; k < draft.cart.length; k++) {
       if (!(toNum(draft.cart[k].qty) > 0)) { msg('orderMsg', 'error', '請先填寫「' + draft.cart[k].name + '」的數量。'); return; }
     }
-    var name = (prompt('範本名稱（同名會覆蓋）', draft.info.project || '') || '').trim();
+    var name = (safePrompt('範本名稱（同名會覆蓋）', draft.info.project || '') || '').trim();
     if (!name) return;
     var per = function (q) { return toNum(q) / g; };
     var items = draft.cart.map(function (c) {
@@ -2421,7 +2446,7 @@
     call('getMyOrders', token).then(function (list) {
       mineCache = list;
       printOrder(list.find(function (x) { return x.orderNo === lastSubmitted; }) || list[0], 'viewMine');
-    }).catch(function (e) { alert('載入失敗：' + e.message); })
+    }).catch(function (e) { notice('載入失敗：' + e.message); })
       .then(function () { setBusy(b, false); });
   });
 
@@ -3542,10 +3567,10 @@
     var picked = imp.rows.filter(function (r) { return r.on; });
     var bad = picked.filter(function (r) { return !r.name || (!r.tool && (isNaN(r.qty) || r.qty <= 0 || (!r.id && !r.vendor))); });
     if (bad.length) {
-      alert('這些勾選的列還沒填好（需要名稱、數量，新食材要選廠商）：\n' + bad.map(function (r) { return r.name || r.src; }).join('、'));
+      notice('這些勾選的列還沒填好（需要名稱、數量，新食材要選廠商）：\n' + bad.map(function (r) { return r.name || r.src; }).join('、'));
       return;
     }
-    if (!picked.length && !Object.keys(imp.info).length) { alert('沒有勾選任何食材。'); return; }
+    if (!picked.length && !Object.keys(imp.info).length) { notice('沒有勾選任何食材。'); return; }
     // 上課資訊：用檔案的（只覆蓋有讀到、有勾選的欄位）
     Array.prototype.forEach.call($('impReview').querySelectorAll('[data-info]'), function (cb) {
       if (cb.checked) draft.info[cb.getAttribute('data-info')] = imp.info[cb.getAttribute('data-info')];
@@ -3927,7 +3952,7 @@
     var tr = b.closest('tr'), act = b.getAttribute('data-lact');
     var x = { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
     if (act === 'order') {
-      if (draft.editing) { alert('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
+      if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
       if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
       readInfo();
       var keepTime = TIME_RE.test(draft.info.classTime || '') && draft.info.classTime.indexOf(x.session) === 0;
