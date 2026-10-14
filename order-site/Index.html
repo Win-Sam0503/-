@@ -2046,8 +2046,9 @@
     if (!changes.length && !info) { renderSummary(); return; }
     setBusy(btn, true, '儲存中…');
     var created = changes.filter(function (c) { return c.newItem; }).map(function (c) { return c.newItem.name; });
-    call('adminUpdateOrder', token, o.orderNo, changes, info).then(function () {
+    call('adminUpdateOrder', token, o.orderNo, changes, info).then(function (r) {
       msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已儲存：' + [changes.length ? '修改 ' + changes.length + ' 個品項' : '', info ? '上課資訊已更新' : ''].filter(Boolean).join('、') + '。' +
+        (r && r.notify ? r.notify : '') +
         (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));
       if (created.length) refreshItems();
       loadSummaryKeepMsg();
@@ -2108,12 +2109,12 @@
     if (!s) return;
     var no = s.getAttribute('data-no'), status = s.value;
     s.disabled = true;
-    call('adminSetStatus', token, no, status).then(function () {
+    call('adminSetStatus', token, no, status).then(function (r) {
       sumCache.forEach(function (o) {
         if (o.orderNo === no) { o.status = status; o.items.forEach(function (it) { it.status = status; }); }
       });
       renderSummary();
-      msg('sumMsg', 'ok', '訂單 ' + no + ' 已改為「' + status + '」。');
+      msg('sumMsg', 'ok', '訂單 ' + no + ' 已改為「' + status + '」。' + (r && r.notify ? r.notify : ''));
     }).catch(function (err) {
       msg('sumMsg', 'error', '更新失敗：' + err.message);
       s.disabled = false;

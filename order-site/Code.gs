@@ -849,6 +849,7 @@ function cancelOrder(token, orderNo) {
   const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
   const res = cancelOrderChecked_(account, isAdmin, orderNo);
   try { logOrderEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']); } catch (e) { console.error(e.message); }
+  if (isAdmin) notifyTeacherOfEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']);
   return res;
 }
 
@@ -987,7 +988,43 @@ function orderEditsFor_(orderNos) {
 function adminSetStatus(token, orderNo, status) {
   const admin = auth_(token, true);
   if (ORDER_STATUSES.indexOf(status) < 0) throw new Error('狀態不正確。');
-  return updateOrderStatus_(orderNo, status, null, status === '已審核' ? admin : null);
+  const res = updateOrderStatus_(orderNo, status, null, status === '已審核' ? admin : null);
+  if (status === '已取消') {
+    try { logOrderEdit_(String(orderNo || '').trim(), admin, ['取消整張訂單']); } catch (e) { console.error(e.message); }
+    return { result: res, notify: notifyTeacherOfEdit_(String(orderNo || '').trim(), admin, ['取消整張訂單']) };
+  }
+  return { result: res, notify: '' };
+}
+
+/**
+ * 管理者改到老師的訂單（修改明細、取消）時，LINE 私訊那位老師（代訂的話傳給被代訂的老師）。
+ * 老師沒綁定 LINE、管理者改自己的單、本月則數快用完時不傳。回傳結果文字（給畫面顯示）。
+ */
+function notifyTeacherOfEdit_(orderNo, admin, changes) {
+  try {
+    if (!changes || !changes.length) return '';
+    let o = orderOf_(orderNo);
+    if (!o) {
+      const rows = withHistory_([], null).filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
+      o = rows.length ? groupOrders_(rows, null)[0] : null;
+    }
+    if (!o) return '';
+    const teacher = o.onBehalfOf || o.teacher;
+    if (!teacher || teacher === admin) return '';
+    const uid = lineUserOf_(teacher);
+    if (!uid) return teacher + ' 老師沒有綁定 LINE，沒有通知。';
+    const q = lineQuota_();
+    if (q && q.limit && q.limit - q.used - 1 < LINE_RESERVE) return '本月 LINE 則數快用完，沒有通知 ' + teacher + ' 老師。';
+    const d = parseDate_(o.useDate);
+    const text = '【訂單修改通知】' + teacher + ' 老師您好，管理者修改了您的訂單：\n' +
+      (d ? shortDateTw_(d) + ' ' : '') + o.className + '「' + o.project + '」\n' +
+      changes.map(function (c) { return '・' + c; }).join('\n') +
+      '\n\n有問題請找管理者。' + (webAppUrl_() ? '\n' + webAppUrl_() : '');
+    return linePush_(uid, text) ? '已用 LINE 通知 ' + teacher + ' 老師。' : 'LINE 通知 ' + teacher + ' 老師失敗。';
+  } catch (e) {
+    console.error('通知老師失敗：' + e.message);
+    return '';
+  }
 }
 
 /**
@@ -1001,6 +1038,7 @@ function adminUpdateOrder(token, orderNo, changes, info) {
   if (!Array.isArray(changes)) changes = [];
   const infoSet = orderInfoSet_(info);
   if (!changes.length && !infoSet) throw new Error('沒有要修改的內容。');
+  let changesDone = [];
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -1106,11 +1144,11 @@ function adminUpdateOrder(token, orderNo, changes, info) {
       });
     }
     SpreadsheetApp.flush();
-    try { logOrderEdit_(orderNo, admin, diffOrders_(before, orderOf_(orderNo))); } catch (e) { console.error(e.message); }
-    return true;
+    try { changesDone = diffOrders_(before, orderOf_(orderNo)); logOrderEdit_(orderNo, admin, changesDone); } catch (e) { console.error(e.message); }
   } finally {
     lock.releaseLock();
   }
+  return { ok: true, notify: notifyTeacherOfEdit_(orderNo, admin, changesDone) };   // 傳 LINE 放在鎖外面，不讓別人等
 }
 
 function adminGetPending(token) {
