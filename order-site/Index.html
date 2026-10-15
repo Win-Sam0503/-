@@ -2310,6 +2310,8 @@
     var s = e.target.closest('select[data-act="status"]');
     if (!s) return;
     var no = s.getAttribute('data-no'), status = s.value;
+    var o = sumCache.find(function (x) { return x.orderNo === no; });
+    var go = function () {
     s.disabled = true;
     call('adminSetStatus', token, no, status).then(function (r) {
       sumCache.forEach(function (o) {
@@ -2320,6 +2322,17 @@
     }).catch(function (err) {
       msg('sumMsg', 'error', '更新失敗：' + err.message);
       s.disabled = false;
+    });
+    };
+    // 改成「已取消」影響很大（整張取消、LINE 通知老師），先跳出警告，避免誤按
+    if (status !== '已取消') { go(); return; }
+    var who = o ? (o.onBehalfOf || o.teacher) : '';
+    ask('', '確定取消整張訂單', { noText: '不要取消', html: '<div class="info-check"><h3 style="color:var(--bad)">⚠ 確定要取消這張訂單？</h3>' +
+      (o ? '<div style="margin-bottom:6px"><b>' + esc(shortDate(o.useDate) + ' ' + o.className + '「' + (o.project || '') + '」') + '</b><br>' + esc(who) + ' 老師・' + esc(no) + '</div>' : '') +
+      '<div class="muted small">整張訂單的所有品項都會取消，不會出現在廠商訂貨單；老師有綁定 LINE 的話會收到取消通知。<br>' +
+      '如果只是要改數量或刪掉某個品項，請改用「修改明細」。</div></div>' }).then(function (ok) {
+      if (ok) go();
+      else if (o) s.value = o.status;   // 不取消：選單改回原本的狀態
     });
   });
 
