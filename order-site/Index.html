@@ -3069,7 +3069,7 @@
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
               '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(fmtQty(r.need)) + ' ' + esc(r.needUnit)) + '</td>' +
-              '<td' + c + '><input class="pqty num-input" type="text" inputmode="decimal" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
+              '<td' + c + '><input class="pqty num-input" type="text" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
               '<td' + c + '><select class="punit">' + unitOptions(r.unit) + '</select></td>' +
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
               '<td class="noprint p-' + pDiff(r) + '">' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' : '') + '</td>';
@@ -3117,10 +3117,14 @@
     var page = vBox(r.vendor, 'data-vendor');
     if (page) page.querySelector('.vstate').innerHTML = vStateText(r.vendor);
   }
-  $('vendorSheets').addEventListener('input', function (e) {
+  // 跟老師訂貨頁一樣用一般文字框（不設 inputmode，Windows 的注音才不會被切成英文）；選字中不重算，選完再算
+  function pOnInput(e) {
+    if (e.isComposing) return;
     var tr = pState && e.target.closest('.vedit tr[data-pi]');
     if (tr) pRefresh(pRowFromInput(tr));
-  });
+  }
+  $('vendorSheets').addEventListener('input', pOnInput);
+  $('vendorSheets').addEventListener('compositionend', pOnInput);
   $('vendorSheets').addEventListener('change', function (e) {
     var sel = pState && e.target.closest('.vedit select.punit');
     if (!sel) return;
