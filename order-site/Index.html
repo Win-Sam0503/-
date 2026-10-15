@@ -3069,7 +3069,7 @@
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
               '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(fmtQty(r.need)) + ' ' + esc(r.needUnit)) + '</td>' +
-              '<td' + c + '><input class="pqty" type="number" inputmode="decimal" min="0" step="any" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
+              '<td' + c + '><input class="pqty num-input" type="text" inputmode="decimal" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
               '<td' + c + '><select class="punit">' + unitOptions(r.unit) + '</select></td>' +
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
               '<td class="noprint p-' + pDiff(r) + '">' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' : '') + '</td>';
@@ -3094,8 +3094,9 @@
   }
   function pRowFromInput(tr) {
     var r = pState.rows[Number(tr.getAttribute('data-pi'))];
-    var q = tr.querySelector('.pqty').value.trim();
-    r.qty = q === '' ? '' : Number(q);
+    // 純文字輸入（注音輸入法不會跑掉）：全形數字、「半」「兩」都看得懂；看不懂的先記成 NaN，儲存時提醒
+    var q = normNum(tr.querySelector('.pqty').value);
+    r.qty = q === '' ? '' : q === null ? NaN : Number(q);
     var uv = tr.querySelector('.punit').value;
     if (uv !== '__other') r.unit = uv.trim();
     r.note = tr.querySelector('.pnote').value.trim();
@@ -3165,7 +3166,7 @@
       if (err) return;
       var where = shortDate(r.date) + ' ' + (r.className ? r.className + ' ' : '') + '「' + (r.name || '補庫存') + '」';
       if (r.kind === '補庫存' && !r.name) { err = shortDate(r.date) + ' 有一列補庫存沒填食材名稱（不要的話按「刪除」）。'; bad = r; return; }
-      if (r.qty === '' || !(Number(r.qty) >= 0)) { err = where + '的實際叫貨請填數字（不叫填 0）。'; bad = r; return; }
+      if (r.qty === '' || !(Number(r.qty) >= 0)) { err = where + '的實際叫貨請填數字，例如 2、0.5、半（不叫填 0）。'; bad = r; return; }
       if (Number(r.qty) > 0 && !r.unit) { err = where + '沒有選單位。'; bad = r; }
     });
     if (err) {
