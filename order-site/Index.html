@@ -86,6 +86,7 @@
   .msg.error { background: var(--bad-soft); color: var(--bad); }
   .msg.info { background: var(--info-soft); color: var(--info); }
   .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.warn { background: var(--warn-soft); color: var(--warn); }
 
   .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: #eef0f3; color: #475467; }
   .badge.ok { background: var(--ok-soft); color: var(--ok); }
@@ -277,6 +278,25 @@
   .vpage th, .vpage td { border: 1px solid #999; padding: 4px 6px; }
   .vpage th { background: #f2f2f2; color: #000; font-size: inherit; }
   .vpage td.vm { vertical-align: middle; }
+  .vpage.deduct td { height: 10mm; }
+  .purchase-box .pv { margin: 18px 0 4px; font-size: 18px; color: var(--brand); border-bottom: 2px solid var(--brand-soft); }
+  .purchase-box .psum { margin: 10px 0; font-size: 15px; }
+  .purchase-box .ptable input { padding: 6px 8px; min-width: 0; }
+  .purchase-box .ptable { table-layout: fixed; width: 100%; min-width: 620px; }
+  .purchase-box .ptable th:nth-child(1) { width: 28%; } .purchase-box .ptable th:nth-child(2) { width: 12%; }
+  .purchase-box .ptable th:nth-child(3) { width: 15%; } .purchase-box .ptable th:nth-child(4) { width: 14%; }
+  .purchase-box .ptable th:nth-child(5) { width: 22%; } .purchase-box .ptable th:nth-child(6) { width: 9%; }
+  .purchase-box .ptable .pqty, .purchase-box .ptable .punit, .purchase-box .ptable .pnote, .purchase-box .ptable .pname { width: 100%; }
+  .purchase-box .ptable .pqty { text-align: right; font-weight: 700; }
+  .purchase-box tr.p-diff td { background: #fff6d6; }
+  .purchase-box tr.p-zero td { background: #eef0f2; color: var(--muted); }
+  .purchase-box tr.p-add td { background: #e8f4ea; }
+  .purchase-box .pd-diff { background: #fff6d6; padding: 0 4px; }
+  .purchase-box .pd-zero { background: #eef0f2; padding: 0 4px; }
+  .purchase-box .pd-add { background: #e8f4ea; padding: 0 4px; }
+  .purchase-box .pflag { color: var(--bad); font-size: 13px; }
+  .purchase-box .padd-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .purchase-box .padd-form select, .purchase-box .padd-form input { width: auto; }
   .vpage tr.vfirst td { border-top: 2.5px solid #000; }
   .vpage tr { page-break-inside: avoid; }
   .unit-input.invalid, .num-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
@@ -612,15 +632,23 @@
           <div><label for="vFrom">上課日期（起）</label><input id="vFrom" type="date"></div>
           <div><label for="vTo">上課日期（迄）</label><input id="vTo" type="date"></div>
           <div><label for="vVendor">廠商</label><select id="vVendor"></select></div>
+          <div><label for="vKind">要產生</label><select id="vKind">
+            <option value="order">訂貨單（老師需求＋各班明細）</option>
+            <option value="deduct">扣貨單（給學生手寫庫存、實際叫貨）</option>
+            <option value="purchase">叫貨單（確定訂貨後的實際叫貨量）</option>
+          </select></div>
         </div>
         <div class="actions">
-          <button type="button" class="btn secondary" id="vLoad">產生訂貨單</button>
+          <button type="button" class="btn secondary" id="vLoad">產生</button>
           <button type="button" class="btn" id="vPrint" disabled>列印</button>
+          <button type="button" class="btn" id="vConfirm" style="background:var(--ok, #2e7d32)">確定訂貨…</button>
         </div>
+        <div class="muted small" style="margin-bottom:6px">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生寫好交回後，按「確定訂貨…」輸入實際叫貨量 → ③ 產生「叫貨單」列印或複製文字給廠商。</div>
         <div class="status-chips" id="vSize" style="margin:0 0 8px;align-items:center"><span class="muted small">字體大小：</span><button type="button" data-size="13">小</button><button type="button" data-size="14">中</button><button type="button" data-size="17">大</button><button type="button" data-size="20">特大</button></div>
         <div class="muted small">每家廠商一頁：上面是食材合計（重量換算成同一種單位），下面是各班明細。不含已取消、勾選「有貨」的品項，也不含器具。</div>
       </div>
       <div id="vendorMsg" class="noprint"></div>
+      <div id="vPurchase" class="noprint"></div>
       <div id="vendorSheets"></div>
 
       <div class="panel noprint" id="autoPanel">
@@ -2783,10 +2811,19 @@
     msg('vendorMsg', 'info', '載入中…');
     $('vendorSheets').innerHTML = '';
     $('vPrint').disabled = true;
-    call('adminGetOrders', token, from, to).then(function (list) {
-      var html = vendorSheets(list, from, to, $('vVendor').value);
+    $('vPurchase').innerHTML = '';
+    var kind = $('vKind').value, only = $('vVendor').value;
+    var job = kind === 'purchase'
+      ? call('adminGetPurchase', token, from, to).then(function (rows) {
+          purchaseCache = rows;
+          return rows.length ? purchaseSheets(rows, from, to, only) : '';
+        })
+      : call('adminGetOrders', token, from, to).then(function (list) {
+          return kind === 'deduct' ? deductSheets(demandRows(list), from, to, only) : vendorSheets(list, from, to, only);
+        });
+    job.then(function (html) {
       $('vendorSheets').innerHTML = html;
-      msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有需要叫貨的品項。');
+      if (vKeepMsg) { $('vendorMsg').innerHTML = vKeepMsg; vKeepMsg = ''; } else msg('vendorMsg', html ? '' : 'info', html ? '' : kind === 'purchase' ? '這段期間還沒有「確定訂貨」，請先按「確定訂貨…」。' : '這段期間沒有需要叫貨的品項。');
       $('vPrint').disabled = !html;
     }).catch(function (e) { msg('vendorMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
@@ -2807,6 +2844,280 @@
     try { px = Number(localStorage.getItem('ckOrder.vendorSize')) || 14; } catch (e) {}
     setVendorSize([13, 14, 17, 20].indexOf(px) >= 0 ? px : 14);
   })();
+
+  // ------------------------------------------------------------------
+  // 扣貨單 → 確定訂貨（實際叫貨量）→ 叫貨單
+  // ------------------------------------------------------------------
+  // 老師需求依「送貨日期｜組別｜廠商｜食材｜單位」加總（重量換算成同一種單位）；不含已取消、有貨、器具
+  function demandRows(orders) {
+    var map = {}, list = [];
+    orders.forEach(function (o) {
+      if (o.status === '已取消') return;
+      o.items.forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.status === '已取消') return;
+        var cv = convertUnit(it.qty, it.unit, it.vendor);
+        var key = [o.useDate, it.group || '', it.vendor, it.name, cv.unit].join('|');
+        if (!map[key]) {
+          map[key] = { key: key, date: o.useDate, group: it.group || '', vendor: it.vendor, name: it.name, id: it.id === '待審核' ? '' : it.id, need: 0, needUnit: cv.unit, kind: '訂單' };
+          list.push(map[key]);
+        }
+        map[key].need = Math.round((map[key].need + cv.qty) * 100) / 100;
+      });
+    });
+    return list;
+  }
+  function pKey(r) { return [r.date, r.group || '', r.vendor, r.name, r.needUnit || ''].join('|'); }
+  function dayLabel(dk) { var p = dk.split('|'); return shortDate(p[0]) + (p[1] ? '・送貨組別 ' + p[1] : ''); }
+  // rows → { 廠商: { '日期|組別': [row] } }
+  function byVendorDay(rows, only) {
+    var by = {};
+    rows.forEach(function (r) {
+      if (only && r.vendor !== only) return;
+      var v = by[r.vendor] = by[r.vendor] || {};
+      (v[r.date + '|' + (r.group || '')] = v[r.date + '|' + (r.group || '')] || []).push(r);
+    });
+    return by;
+  }
+  function rangeText(from, to) { return shortDate(from) + (to !== from ? ' ～ ' + shortDate(to) : ''); }
+
+  // 扣貨單：給學生帶去倉庫手寫「現有庫存」「實際叫貨」，最後留空白列寫補庫存
+  function deductSheets(rows, from, to, only) {
+    var by = byVendorDay(rows, only);
+    return Object.keys(by).sort().map(function (v) {
+      return '<div class="vpage deduct"><h1>' + esc(v) + ' 扣貨單</h1><div class="vsub">' + esc(rangeText(from, to)) + '　　填寫人：＿＿＿＿＿＿</div>' +
+        Object.keys(by[v]).sort().map(function (dk) {
+          var list = by[v][dk].slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); });
+          return '<h3>' + esc(dayLabel(dk)) + '</h3><table><thead><tr><th style="width:36%">食材</th><th style="width:20%">需求合計</th><th style="width:22%">現有庫存</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
+            list.map(function (r) {
+              return '<tr><td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(r.need)) + ' ' + esc(r.needUnit) + '</td><td></td><td></td></tr>';
+            }).join('') + '</tbody></table>';
+        }).join('') +
+        '<h3>補庫存（老師沒訂、要另外叫的）</h3><table><thead><tr><th style="width:36%">食材</th><th style="width:20%">送貨日期</th><th style="width:22%">現有庫存</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
+        '<tr><td></td><td></td><td></td><td></td></tr>'.repeat(4) + '</tbody></table></div>';
+    }).join('');
+  }
+
+  // 叫貨單：確定後的實際叫貨量（叫貨量 0 的不列），每家廠商一頁，可複製成 LINE 文字
+  function purchaseSheets(rows, from, to, only) {
+    var by = byVendorDay(rows.filter(function (r) { return r.qty > 0; }), only);
+    var info = rows[0] ? '（' + rows[0].time + ' 由 ' + rows[0].by + ' 確定）' : '';
+    return Object.keys(by).sort().map(function (v) {
+      return '<div class="vpage"><h1>' + esc(v) + ' 叫貨單</h1><div class="vsub">' + esc(rangeText(from, to)) + '<span class="noprint muted small"> ' + esc(info) + '</span></div>' +
+        '<div class="noprint" style="text-align:right;margin-bottom:6px"><button type="button" class="btn secondary small" data-pcopy="' + esc(v) + '">複製叫貨文字</button></div>' +
+        Object.keys(by[v]).sort().map(function (dk) {
+          var list = by[v][dk].slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); });
+          return '<h3>' + esc(dayLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:16%">數量</th><th style="width:14%">單位</th><th style="width:30%">備註</th></tr></thead><tbody>' +
+            list.map(function (r) {
+              return '<tr><td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(r.qty)) + '</td><td class="vq">' + esc(r.unit) + '</td><td>' + esc(r.note) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+  var purchaseCache = [];
+  function purchaseText(v) {
+    var by = byVendorDay(purchaseCache.filter(function (r) { return r.qty > 0 && r.vendor === v; }));
+    return Object.keys(by[v] || {}).sort().map(function (dk) {
+      return '【' + v + '】' + dayLabel(dk) + '\n' + by[v][dk].slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); })
+        .map(function (r) { return r.name + ' ' + fmtQty(r.qty) + r.unit + (r.note ? '（' + r.note + '）' : ''); }).join('\n');
+    }).join('\n\n');
+  }
+  $('vendorSheets').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-pcopy]');
+    if (!b) return;
+    var text = purchaseText(b.getAttribute('data-pcopy'));
+    copyText(text).then(function () {
+      b.textContent = '已複製 ✓';
+      setTimeout(function () { b.textContent = '複製叫貨文字'; }, 1500);
+    }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
+  });
+
+  // 確定訂貨畫面：每個送貨日、每個食材輸入實際叫貨量（預設＝需求），可改單位、加補庫存項目
+  var pState = null, vKeepMsg = '';
+  $('vConfirm').addEventListener('click', function () {
+    var from = $('vFrom').value, to = $('vTo').value || from;
+    if (!from) { msg('vendorMsg', 'error', '請選擇日期。'); return; }
+    if (to < from) { msg('vendorMsg', 'error', '迄日不能早於起日。'); return; }
+    var btn = this;
+    setBusy(btn, true, '載入中…');
+    msg('vendorMsg', 'info', '載入中…');
+    $('vendorSheets').innerHTML = ''; $('vPrint').disabled = true;
+    Promise.all([call('adminGetOrders', token, from, to), call('adminGetPurchase', token, from, to)]).then(function (res) {
+      msg('vendorMsg', '', '');
+      openPurchase(from, to, res[0], res[1]);
+    }).catch(function (e) { msg('vendorMsg', 'error', '載入失敗：' + e.message); })
+      .then(function () { setBusy(btn, false); });
+  });
+  function openPurchase(from, to, orders, saved) {
+    var demand = demandRows(orders);
+    var savedMap = {}, rows = [];
+    saved.forEach(function (r) { if (r.kind !== '補庫存') savedMap[pKey(r)] = r; });
+    demand.forEach(function (d) {
+      var s = savedMap[d.key];
+      var r = { date: d.date, group: d.group, vendor: d.vendor, name: d.name, id: d.id, need: d.need, needUnit: d.needUnit, kind: '訂單', qty: d.need, unit: d.needUnit, note: '' };
+      if (s) {
+        r.qty = s.qty; r.unit = s.unit; r.note = s.note;
+        if (s.need !== d.need) r.flag = '需求從 ' + fmtQty(s.need) + ' 變成 ' + fmtQty(d.need) + '，請確認';
+        delete savedMap[d.key];
+      } else if (saved.length) r.flag = '確定後新增的需求';
+      rows.push(r);
+    });
+    Object.keys(savedMap).forEach(function (k) {
+      var s = savedMap[k];
+      rows.push({ date: s.date, group: s.group, vendor: s.vendor, name: s.name, id: s.id, need: 0, needUnit: s.needUnit, kind: '訂單', qty: s.qty, unit: s.unit, note: s.note, flag: '老師已取消這個需求' });
+    });
+    saved.forEach(function (s) { if (s.kind === '補庫存') rows.push({ date: s.date, group: s.group, vendor: s.vendor, name: s.name, id: s.id, need: '', needUnit: '', kind: '補庫存', qty: s.qty, unit: s.unit, note: s.note }); });
+    var wait = orders.filter(function (o) { return o.status === '待處理'; }).length;
+    pState = { from: from, to: to, rows: rows, saved: saved.length ? saved[0] : null, wait: wait, orders: orders.filter(function (o) { return o.status === '待處理' || o.status === '已審核'; }).length };
+    renderPurchase();
+    $('vPurchase').scrollIntoView({ block: 'start' });
+  }
+  function pDiff(r) {
+    if (r.kind === '補庫存') return 'add';
+    if (!(Number(r.qty) > 0)) return 'zero';
+    return Number(r.qty) !== r.need || r.unit !== r.needUnit ? 'diff' : '';
+  }
+  function pSummary() {
+    var c = { n: 0, diff: 0, zero: 0, add: 0 };
+    pState.rows.forEach(function (r) { var d = pDiff(r); if (r.kind === '訂單') c.n++; if (d) c[d]++; });
+    return '需求 ' + c.n + ' 項；<span class="pd-diff">改量 ' + c.diff + ' 項</span>；<span class="pd-zero">不叫（用庫存）' + c.zero + ' 項</span>；<span class="pd-add">補庫存 ' + c.add + ' 項</span>';
+  }
+  function renderPurchase() {
+    var st = pState;
+    var groups = byVendorDay(st.rows.map(function (r, i) { r.i = i; return r; }));
+    var units = data.orderUnits.concat(data.recipeUnits).filter(function (u, i, a) { return a.indexOf(u) === i; });
+    var vendors = data.vendors.slice();
+    var html = '<div class="panel purchase-box"><h2>確定訂貨：' + esc(rangeText(st.from, st.to)) + '</h2>' +
+      (st.saved ? '<div class="msg info">這段期間已在 ' + esc(st.saved.time) + ' 由 ' + esc(st.saved.by) + ' 確定過；現在是修改，確定後會換成新的數量、重新產生叫貨單。</div>' : '') +
+      (st.wait ? '<div class="msg warn">這段期間還有 ' + st.wait + ' 張「待處理」（未審核）的訂單，確定後也會一起改成「已叫貨」。</div>' : '') +
+      '<div class="muted small">照學生交回的扣貨單，把「實際叫貨」改成要跟廠商叫的量（預設＝老師需求）。填 0 代表不叫、用庫存；單位可以改（例如 300g 改叫 1 包）。這裡不會改到老師的訂單。</div>' +
+      '<div class="psum" id="pSum">' + pSummary() + '</div>';
+    Object.keys(groups).sort().forEach(function (v) {
+      html += '<datalist id="pItems-' + esc(v) + '">' + data.items.filter(function (it) { return it.vendor === v; }).map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
+      html += '<h3 class="pv">' + esc(v) + '</h3>';
+      Object.keys(groups[v]).sort().forEach(function (dk) {
+        var p = dk.split('|');
+        html += '<div class="vendor-title">' + esc(dayLabel(dk)) + '</div><div class="tablewrap"><table class="ptable"><thead><tr><th>食材</th><th class="num">需求</th><th>實際叫貨</th><th>單位</th><th>備註</th><th></th></tr></thead><tbody>' +
+          groups[v][dk].sort(function (a, b) { return (a.kind === b.kind ? 0 : a.kind === '補庫存' ? 1 : -1) || a.name.localeCompare(b.name, 'zh-Hant'); }).map(function (r) {
+            var add = r.kind === '補庫存';
+            return '<tr data-pi="' + r.i + '" class="p-' + pDiff(r) + '"><td>' +
+              (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱"> <span class="badge">補庫存</span>' : esc(r.name)) +
+              (r.flag ? '<div class="pflag">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
+              '<td class="num">' + (add ? '—' : esc(fmtQty(r.need)) + ' ' + esc(r.needUnit)) + '</td>' +
+              '<td><input class="pqty" type="number" inputmode="decimal" min="0" step="any" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
+              '<td><select class="punit">' + unitOptions(units, r.unit) + '</select></td>' +
+              '<td><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
+              '<td>' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' +
+          '<button type="button" class="btn ghost small" data-padd="' + esc(v + '|' + p[0] + '|' + (p[1] || '')) + '">＋ 補庫存（' + esc(dayLabel(dk)) + '）</button>';
+      });
+    });
+    var dates = [];
+    for (var d = parseDate(st.from); d && isoDate(d) <= st.to; d.setDate(d.getDate() + 1)) if (d.getDay() > 0 && d.getDay() < 6) dates.push(isoDate(d));
+    html += '<div class="padd-form"><b>補庫存（其他廠商或日期）：</b>' +
+      '<select id="paVendor">' + vendors.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('') + '</select>' +
+      '<select id="paDate">' + dates.map(function (x) { return '<option value="' + x + '">' + esc(shortDate(x)) + '</option>'; }).join('') + '</select>' +
+      '<input id="paGroup" placeholder="送貨組別（可空白）" style="width:150px">' +
+      '<button type="button" class="btn ghost small" id="paAdd">＋ 新增</button></div>' +
+      '<div class="actions"><button type="button" class="btn ghost" id="pCancel">取消</button><button type="button" class="btn ghost" id="pReset">全部照需求</button><button type="button" class="btn" id="pSave">確定訂貨</button></div></div>';
+    $('vPurchase').innerHTML = html;
+  }
+  // 單位用下拉選單（不用 datalist：建議清單開著時，第一下點按鈕會被吃掉）；最後一個選項可以自己打新單位
+  function unitOptions(units, cur) {
+    var list = units.slice();
+    if (cur && list.indexOf(cur) < 0) list.unshift(cur);
+    return (cur ? '' : '<option value="">選單位</option>') + list.map(function (u) {
+      return '<option' + (u === cur ? ' selected' : '') + '>' + esc(u) + '</option>';
+    }).join('') + '<option value="__other">其他單位…</option>';
+  }
+  $('vPurchase').addEventListener('change', function (e) {
+    var sel = e.target.closest('select.punit');
+    if (!sel || sel.value !== '__other') return;
+    var tr = sel.closest('tr[data-pi]'), r = pState.rows[Number(tr.getAttribute('data-pi'))];
+    ask('', '確定', { noText: '取消', html: '<div style="margin-bottom:8px">輸入單位（例如：箱、桶、盒）</div><input type="text" id="askInput" maxlength="10">' }).then(function (ok) {
+      var v = ok && $('askInput') ? $('askInput').value.trim().slice(0, 10) : '';
+      if (v) r.unit = v;
+      sel.innerHTML = unitOptions(data.orderUnits.concat(data.recipeUnits).filter(function (u, i, a) { return a.indexOf(u) === i; }), r.unit);
+      tr.className = 'p-' + pDiff(r);
+      $('pSum').innerHTML = pSummary();
+    });
+    setTimeout(function () { var el = $('askInput'); if (el) el.focus(); }, 50);
+  });
+  function pRowFromInput(tr) {
+    var r = pState.rows[Number(tr.getAttribute('data-pi'))];
+    var q = tr.querySelector('.pqty').value.trim();
+    r.qty = q === '' ? '' : Number(q);
+    var uv = tr.querySelector('.punit').value;
+    if (uv !== '__other') r.unit = uv.trim();
+    r.note = tr.querySelector('.pnote').value.trim();
+    if (tr.querySelector('.pname')) r.name = tr.querySelector('.pname').value.trim();
+    tr.className = 'p-' + pDiff(r);
+    return r;
+  }
+  $('vPurchase').addEventListener('input', function (e) {
+    var tr = e.target.closest('tr[data-pi]');
+    if (!tr) return;
+    pRowFromInput(tr);
+    $('pSum').innerHTML = pSummary();
+  });
+  function pAdd(v, date, group) {
+    pState.rows.push({ date: date, group: group, vendor: v, name: '', id: '', need: '', needUnit: '', kind: '補庫存', qty: '', unit: '', note: '' });
+    var idx = pState.rows.length - 1;
+    renderPurchase();
+    var tr = $('vPurchase').querySelector('tr[data-pi="' + idx + '"]');
+    if (tr) { tr.scrollIntoView({ block: 'center' }); tr.querySelector('.pname').focus(); }
+  }
+  $('vPurchase').addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.closest('[data-padd]')) { var p = t.closest('[data-padd]').getAttribute('data-padd').split('|'); pAdd(p[0], p[1], p[2]); return; }
+    if (t.closest('[data-pdel]')) { pState.rows.splice(Number(t.closest('[data-pdel]').getAttribute('data-pdel')), 1); renderPurchase(); return; }
+    if (t.id === 'paAdd') { pAdd($('paVendor').value, $('paDate').value, clean($('paGroup').value)); return; }
+    if (t.id === 'pCancel') { pState = null; $('vPurchase').innerHTML = ''; return; }
+    if (t.id === 'pReset') {
+      if (!safeConfirm('把所有「實際叫貨」改回老師需求的數量和單位？（補庫存項目保留）')) return;
+      pState.rows.forEach(function (r) { if (r.kind === '訂單') { r.qty = r.need; r.unit = r.needUnit; } });
+      renderPurchase(); return;
+    }
+    if (t.id === 'pSave') savePurchase(t);
+  });
+  function clean(v) { return String(v || '').trim(); }
+  function savePurchase(btn) {
+    var err = '', bad = null;
+    Array.prototype.forEach.call($('vPurchase').querySelectorAll('tr[data-pi]'), function (tr) { pRowFromInput(tr); });
+    pState.rows.forEach(function (r) {
+      if (err) return;
+      var where = shortDate(r.date) + ' ' + r.vendor + '「' + (r.name || '補庫存') + '」';
+      if (r.kind === '補庫存' && !r.name) { err = shortDate(r.date) + ' ' + r.vendor + ' 有一列補庫存沒填食材名稱（不要的話按「刪除」）。'; bad = r; return; }
+      if (r.qty === '' || !(Number(r.qty) >= 0)) { err = where + '的實際叫貨請填數字（不叫填 0）。'; bad = r; return; }
+      if (Number(r.qty) > 0 && !r.unit) { err = where + '沒有填單位。'; bad = r; }
+    });
+    if (err) {
+      msg('vendorMsg', 'error', err); toast(err);
+      var tr = bad && $('vPurchase').querySelector('tr[data-pi="' + bad.i + '"]');
+      if (tr) { tr.scrollIntoView({ block: 'center' }); tr.classList.add('field-err'); }
+      return;
+    }
+    var st = pState;
+    ask('', '確定訂貨', { noText: '再檢查一下', html: '<div class="info-check"><h3>確定 ' + esc(rangeText(st.from, st.to)) + ' 的叫貨？</h3>' +
+      '<div style="line-height:1.8">' + pSummary() + '</div>' +
+      '<div class="muted small" style="margin-top:8px">確定後：' + (st.orders ? st.orders + ' 張待處理／已審核的訂單會改成「已叫貨」，老師就不能再修改；' : '') +
+      '叫貨紀錄存到試算表「叫貨紀錄」分頁，並用 LINE 傳摘要給你。之後還可以再按「確定訂貨…」修改。</div></div>' }).then(function (ok) {
+      if (!ok) return;
+      setBusy(btn, true, '儲存中…');
+      var rows = st.rows.map(function (r) {
+        var it = r.kind === '補庫存' && !r.id ? data.items.find(function (x) { return x.name === r.name && x.vendor === r.vendor; }) : null;
+        return { date: r.date, group: r.group, vendor: r.vendor, name: r.name, id: r.id || (it ? it.id : ''), need: r.need, needUnit: r.needUnit, qty: Number(r.qty), unit: r.unit, kind: r.kind, note: r.note };
+      });
+      call('adminSavePurchase', token, st.from, st.to, rows).then(function (res) {
+        pState = null;
+        $('vPurchase').innerHTML = '';
+        vKeepMsg = '<div class="msg ok">' + esc('已確定訂貨：' + res.saved + ' 筆叫貨紀錄，' + res.orders + ' 張訂單改成「已叫貨」。' +
+          (res.notify ? '　Email：' + res.notify.email + '；LINE：' + res.notify.line : '') + '\n下面是叫貨單，可以列印或複製文字給廠商。') + '</div>';
+        $('vKind').value = 'purchase';
+        $('vVendor').value = '';
+        $('vLoad').click();
+      }).catch(function (e) { msg('vendorMsg', 'error', '儲存失敗：' + e.message); setBusy(btn, false); });
+    });
+  }
 
   function vendorSheets(orders, from, to, only) {
     var by = {};
