@@ -96,7 +96,7 @@ const SHEET = {
   purchase: '叫貨紀錄',
 };
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
-const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '確定時間', '確認人'];
+const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
 const GUOJI_HEADERS = ['日期', '時段', '班級', '核心主題', '實作名稱', '老師', '教室', '備註', '需要訂貨', '匯入時間'];
 const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
@@ -1028,7 +1028,7 @@ function purchaseDate_(v) {
   return d ? dateStr_(d) : String(v || '').trim();
 }
 
-/** 讀這段期間已確定的叫貨：[{ date, group, vendor, name, id, need, needUnit, qty, unit, kind, note, time, by }] */
+/** 讀這段期間的叫貨（草稿和已確定）：[{ date, group, vendor, orderNo, className, teacher, name, id, need, needUnit, qty, unit, kind, note, status, time, by }] */
 function adminGetPurchase(token, from, to) {
   auth_(token, true);
   const r = purchaseRange_(from, to);
@@ -1044,40 +1044,47 @@ function adminGetPurchase(token, from, to) {
       name: String(x['食材名稱'] || ''), id: String(x['食材ID'] || ''),
       need: x['需求量'] === '' ? '' : Number(x['需求量']), needUnit: String(x['需求單位'] || ''),
       qty: Number(x['叫貨量']) || 0, unit: String(x['叫貨單位'] || ''), kind: String(x['類型'] || '訂單'),
-      note: String(x['備註'] || ''), time: fmtDateTime_(x['確定時間']), by: String(x['確認人'] || ''),
+      note: String(x['備註'] || ''), status: String(x['狀態'] || '').trim() === '草稿' ? '草稿' : '已確定',
+      time: fmtDateTime_(x['確定時間']), by: String(x['確認人'] || ''),
     };
   });
 }
 
 /**
- * 確定訂貨：這段期間的叫貨紀錄整批換成 rows（可以重新打開修改），
- * 這段期間「待處理」「已審核」的訂單改成「已叫貨」，再用 LINE／Email 傳叫貨摘要給管理者。
+ * 儲存一家廠商的實際叫貨量：這段期間這家廠商的叫貨紀錄整批換成 rows（可以重複修改）。
+ * confirm = false：先存草稿，不改訂單狀態、不通知。
+ * confirm = true：正式確定；訂單裡所有要叫貨的廠商都確定了，訂單（待處理、已審核）才改成「已叫貨」；
+ *                 並用 LINE／Email 傳這家廠商的叫貨摘要給管理者。
  * rows: [{ date, group, vendor, orderNo, className, teacher, name, id, need, needUnit, qty, unit, kind: '訂單'|'補庫存', note }]
  */
-function adminSavePurchase(token, from, to, rows) {
+function adminSavePurchase(token, from, to, vendor, rows, confirm) {
   const admin = auth_(token, true);
   const r = purchaseRange_(from, to);
+  vendor = clean_(vendor, 30);
+  if (!vendor) throw new Error('缺少廠商。');
   if (!Array.isArray(rows)) throw new Error('叫貨資料不正確。');
   if (rows.length > PURCHASE_MAX_ROWS) throw new Error('品項太多，請縮短日期範圍。');
+  const status = confirm ? '已確定' : '草稿';
   const now = new Date();
   const out = rows.map(function (x, i) {
     const date = String(x && x.date || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < r.from || date > r.to) throw new Error('第 ' + (i + 1) + ' 筆的送貨日期不在這段期間。');
-    const name = clean_(x.name, 40), vendor = clean_(x.vendor, 30);
+    const name = clean_(x.name, 40);
     if (!name) throw new Error('第 ' + (i + 1) + ' 筆沒有食材名稱。');
-    if (!vendor) throw new Error('「' + name + '」沒有廠商。');
+    if (clean_(x.vendor, 30) !== vendor) throw new Error('「' + name + '」不是' + vendor + '的品項。');
     const qty = Number(x.qty);
     if (!isFinite(qty) || qty < 0 || qty > 99999) throw new Error('「' + name + '」的叫貨量不正確。');
     const unit = clean_(x.unit, 10);
     if (qty > 0 && !unit) throw new Error('「' + name + '」沒有填叫貨單位。');
     const need = x.need === '' || x.need === null || x.need === undefined ? '' : Number(x.need);
+    const add = x.kind === '補庫存';
     return {
       '送貨日期': date, '送貨組別': clean_(x.group, 20), '廠商': vendor,
-      '訂單編號': x.kind === '補庫存' ? '' : clean_(x.orderNo, 30), '上課班級': x.kind === '補庫存' ? '' : clean_(x.className, 30), '老師': x.kind === '補庫存' ? '' : clean_(x.teacher, 30),
+      '訂單編號': add ? '' : clean_(x.orderNo, 30), '上課班級': add ? '' : clean_(x.className, 30), '老師': add ? '' : clean_(x.teacher, 30),
       '食材名稱': name, '食材ID': clean_(x.id, 20),
       '需求量': isFinite(need) ? need : '', '需求單位': clean_(x.needUnit, 10),
-      '叫貨量': Math.round(qty * 100) / 100, '叫貨單位': unit, '類型': x.kind === '補庫存' ? '補庫存' : '訂單',
-      '備註': clean_(x.note, 60), '確定時間': now, '確認人': admin,
+      '叫貨量': Math.round(qty * 100) / 100, '叫貨單位': unit, '類型': add ? '補庫存' : '訂單',
+      '備註': clean_(x.note, 60), '狀態': status, '確定時間': now, '確認人': admin,
     };
   });
 
@@ -1085,67 +1092,78 @@ function adminSavePurchase(token, from, to, rows) {
   lock.waitLock(20000);
   let changedOrders = 0;
   try {
-    // 1. 叫貨紀錄：這段期間的舊紀錄刪掉，換成這次的
+    // 1. 叫貨紀錄：這段期間這家廠商的舊紀錄刪掉，換成這次的
     const sh = ensureSheet_(SHEET.purchase, PURCHASE_HEADERS);
     ensureHeaders_(sh, PURCHASE_HEADERS);
+    let confirmed = {};   // 這段期間已確定的廠商
     if (sh.getLastRow() >= 2) {
-      const old = readTable_(SHEET.purchase, ['送貨日期']).rows.filter(function (x) {
+      const all = readTable_(SHEET.purchase, ['送貨日期', '廠商']).rows.filter(function (x) {
         const d = purchaseDate_(x['送貨日期']);
         return d >= r.from && d <= r.to;
-      }).map(function (x) { return x._row; });
+      });
+      all.forEach(function (x) {
+        const v = String(x['廠商']).trim();
+        if (v !== vendor && String(x['狀態'] || '').trim() !== '草稿') confirmed[v] = true;
+      });
+      const old = all.filter(function (x) { return String(x['廠商']).trim() === vendor; }).map(function (x) { return x._row; });
       if (old.length) deleteRows_(sh, old);
     }
     appendRows_(SHEET.purchase, out, { '確定時間': 'yyyy/MM/dd HH:mm', '需求量': '0.##', '叫貨量': '0.##' });
+    if (confirm) confirmed[vendor] = true;
 
-    // 2. 這段期間待處理、已審核的訂單 → 已叫貨（整欄一次寫回；個別取消的品項保持取消）
-    const t = readTable_(SHEET.orders, ['訂單編號', '使用日期', '狀態']);
-    const start = parseDate_(r.from), end = parseDate_(r.to);
-    const byNo = {};
-    t.rows.forEach(function (x) {
-      const d = toDate_(x['使用日期']);
-      if (!d || d < start || d > end) return;
-      (byNo[String(x['訂單編號']).trim()] = byNo[String(x['訂單編號']).trim()] || []).push(x);
-    });
-    const col = t.cols['狀態'];
-    const lastRow = t.sheet.getLastRow();
-    const statusVals = lastRow >= 2 ? t.sheet.getRange(2, col, lastRow - 1, 1).getValues() : [];
-    Object.keys(byNo).forEach(function (no) {
-      const list = byNo[no];
-      const live = list.filter(function (x) { return String(x['狀態']).trim() !== '已取消'; });
-      if (!live.length) return;
-      if (!live.some(function (x) { return ['待處理', '已審核'].indexOf(String(x['狀態']).trim()) >= 0; })) return;
-      live.forEach(function (x) { statusVals[x._row - 2][0] = '已叫貨'; });
-      changedOrders++;
-    });
-    if (changedOrders) t.sheet.getRange(2, col, statusVals.length, 1).setValues(statusVals);
+    // 2. 確定時：訂單裡要叫貨的廠商全部確定了，待處理、已審核的訂單才改成「已叫貨」（個別取消的品項保持取消）
+    if (confirm) {
+      const t = readTable_(SHEET.orders, ['訂單編號', '使用日期', '狀態']);
+      const start = parseDate_(r.from), end = parseDate_(r.to);
+      const byNo = {};
+      t.rows.forEach(function (x) {
+        const d = toDate_(x['使用日期']);
+        if (!d || d < start || d > end) return;
+        (byNo[String(x['訂單編號']).trim()] = byNo[String(x['訂單編號']).trim()] || []).push(x);
+      });
+      const col = t.cols['狀態'];
+      const lastRow = t.sheet.getLastRow();
+      const statusVals = lastRow >= 2 ? t.sheet.getRange(2, col, lastRow - 1, 1).getValues() : [];
+      Object.keys(byNo).forEach(function (no) {
+        const live = byNo[no].filter(function (x) { return String(x['狀態']).trim() !== '已取消'; });
+        if (!live.some(function (x) { return ['待處理', '已審核'].indexOf(String(x['狀態']).trim()) >= 0; })) return;
+        const need = {};
+        live.forEach(function (x) {
+          if (String(x['食材ID']).trim() === TOOL_ID || isTrue_(x['不叫貨'])) return;
+          need[String(x['廠商']).trim()] = true;
+        });
+        const vs = Object.keys(need);
+        if (!vs.length || vs.indexOf(vendor) < 0 || !vs.every(function (v) { return confirmed[v]; })) return;
+        live.forEach(function (x) { statusVals[x._row - 2][0] = '已叫貨'; });
+        changedOrders++;
+      });
+      if (changedOrders) t.sheet.getRange(2, col, statusVals.length, 1).setValues(statusVals);
+    }
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
   }
+  if (!confirm) return { saved: out.length, orders: 0, notify: null, status: status };
 
   // 3. 叫貨摘要傳給管理者
   const range = shortDateTw_(parseDate_(r.from)) + (r.from !== r.to ? '～' + shortDateTw_(parseDate_(r.to)) : '');
-  const byVendor = {};
+  const c = { n: 0, diff: 0, add: 0, zero: 0 };
   out.forEach(function (x) {
-    const v = byVendor[x['廠商']] = byVendor[x['廠商']] || { n: 0, diff: 0, add: 0, zero: 0 };
-    if (x['叫貨量'] > 0) v.n++; else v.zero++;
-    if (x['類型'] === '補庫存') v.add++;
-    else if (x['叫貨量'] !== x['需求量'] || x['叫貨單位'] !== x['需求單位']) v.diff++;
+    if (x['叫貨量'] > 0) c.n++; else c.zero++;
+    if (x['類型'] === '補庫存') c.add++;
+    else if (x['叫貨量'] > 0 && (x['叫貨量'] !== x['需求量'] || x['叫貨單位'] !== x['需求單位'])) c.diff++;
   });
-  const vendors = Object.keys(byVendor).sort();
-  const lineOf = function (v) {
-    const b = byVendor[v];
-    return v + '：叫 ' + b.n + ' 項' + [b.diff ? '跟需求不同 ' + b.diff + ' 項' : '', b.add ? '補庫存 ' + b.add + ' 項' : '', b.zero ? '不叫（用庫存）' + b.zero + ' 項' : ''].filter(Boolean).map(function (s) { return '，' + s; }).join('');
-  };
+  const line = vendor + '：叫 ' + c.n + ' 筆' + [c.diff ? '跟老師訂的不同 ' + c.diff + ' 筆' : '', c.add ? '補庫存 ' + c.add + ' 筆' : '', c.zero ? '不叫（用庫存）' + c.zero + ' 筆' : '']
+    .filter(Boolean).map(function (x) { return '，' + x; }).join('');
   let notify = null;
   try {
-    notify = notify_('【叫貨確定】' + range,
-      '<p>' + escHtml_(admin) + ' 已確定 ' + escHtml_(range) + ' 的叫貨，' + changedOrders + ' 張訂單改成「已叫貨」。</p><ul>' +
-        vendors.map(function (v) { return '<li>' + escHtml_(lineOf(v)) + '</li>'; }).join('') + '</ul>' +
+    notify = notify_('【叫貨確定】' + vendor + ' ' + range,
+      '<p>' + escHtml_(admin) + ' 已確定 ' + escHtml_(range) + ' 的叫貨。</p><p>' + escHtml_(line) + '</p>' +
+        (changedOrders ? '<p>' + changedOrders + ' 張訂單的廠商都確定了，改成「已叫貨」。</p>' : '') +
         '<p>明細在試算表「' + SHEET.purchase + '」分頁。</p>',
-      '【叫貨確定】' + range + '\n' + changedOrders + ' 張訂單改成「已叫貨」\n' + vendors.map(lineOf).join('\n'));
+      '【叫貨確定】' + range + '\n' + line + (changedOrders ? '\n' + changedOrders + ' 張訂單改成「已叫貨」' : ''));
   } catch (e) { console.error(e.message); }
-  return { saved: out.length, orders: changedOrders, notify: notify };
+  return { saved: out.length, orders: changedOrders, notify: notify, status: status };
 }
 
 /** 管理者退單給老師：整張取消，LINE 告訴老師退單原因，請老師用「再訂一次」修改後重新送出 */
