@@ -96,7 +96,7 @@ const SHEET = {
   purchase: '叫貨紀錄',
 };
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
-const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '確定時間', '確認人'];
+const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
 const GUOJI_HEADERS = ['日期', '時段', '班級', '核心主題', '實作名稱', '老師', '教室', '備註', '需要訂貨', '匯入時間'];
 const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
@@ -1040,6 +1040,7 @@ function adminGetPurchase(token, from, to) {
   }).map(function (x) {
     return {
       date: purchaseDate_(x['送貨日期']), group: String(x['送貨組別'] || ''), vendor: String(x['廠商'] || ''),
+      orderNo: String(x['訂單編號'] || ''), className: String(x['上課班級'] || ''), teacher: String(x['老師'] || ''),
       name: String(x['食材名稱'] || ''), id: String(x['食材ID'] || ''),
       need: x['需求量'] === '' ? '' : Number(x['需求量']), needUnit: String(x['需求單位'] || ''),
       qty: Number(x['叫貨量']) || 0, unit: String(x['叫貨單位'] || ''), kind: String(x['類型'] || '訂單'),
@@ -1051,7 +1052,7 @@ function adminGetPurchase(token, from, to) {
 /**
  * 確定訂貨：這段期間的叫貨紀錄整批換成 rows（可以重新打開修改），
  * 這段期間「待處理」「已審核」的訂單改成「已叫貨」，再用 LINE／Email 傳叫貨摘要給管理者。
- * rows: [{ date, group, vendor, name, id, need, needUnit, qty, unit, kind: '訂單'|'補庫存', note }]
+ * rows: [{ date, group, vendor, orderNo, className, teacher, name, id, need, needUnit, qty, unit, kind: '訂單'|'補庫存', note }]
  */
 function adminSavePurchase(token, from, to, rows) {
   const admin = auth_(token, true);
@@ -1071,7 +1072,9 @@ function adminSavePurchase(token, from, to, rows) {
     if (qty > 0 && !unit) throw new Error('「' + name + '」沒有填叫貨單位。');
     const need = x.need === '' || x.need === null || x.need === undefined ? '' : Number(x.need);
     return {
-      '送貨日期': date, '送貨組別': clean_(x.group, 20), '廠商': vendor, '食材名稱': name, '食材ID': clean_(x.id, 20),
+      '送貨日期': date, '送貨組別': clean_(x.group, 20), '廠商': vendor,
+      '訂單編號': x.kind === '補庫存' ? '' : clean_(x.orderNo, 30), '上課班級': x.kind === '補庫存' ? '' : clean_(x.className, 30), '老師': x.kind === '補庫存' ? '' : clean_(x.teacher, 30),
+      '食材名稱': name, '食材ID': clean_(x.id, 20),
       '需求量': isFinite(need) ? need : '', '需求單位': clean_(x.needUnit, 10),
       '叫貨量': Math.round(qty * 100) / 100, '叫貨單位': unit, '類型': x.kind === '補庫存' ? '補庫存' : '訂單',
       '備註': clean_(x.note, 60), '確定時間': now, '確認人': admin,
@@ -1084,6 +1087,7 @@ function adminSavePurchase(token, from, to, rows) {
   try {
     // 1. 叫貨紀錄：這段期間的舊紀錄刪掉，換成這次的
     const sh = ensureSheet_(SHEET.purchase, PURCHASE_HEADERS);
+    ensureHeaders_(sh, PURCHASE_HEADERS);
     if (sh.getLastRow() >= 2) {
       const old = readTable_(SHEET.purchase, ['送貨日期']).rows.filter(function (x) {
         const d = purchaseDate_(x['送貨日期']);
@@ -2316,6 +2320,16 @@ function readSchedule_() {
 }
 
 /** 自動建立需要的分頁（第一次使用時） */
+/** 分頁缺少的標題補在最右邊（舊版建立的分頁也能存新欄位） */
+function ensureHeaders_(sh, headers) {
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const have = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+  const missing = headers.filter(function (h) { return have.indexOf(h) < 0; });
+  if (!missing.length) return;
+  const start = have.filter(Boolean).length ? lastCol + 1 : 1;
+  sh.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
+}
+
 function ensureSheet_(name, headers) {
   let sh = ss_().getSheetByName(name);
   if (!sh) {
