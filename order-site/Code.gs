@@ -76,6 +76,8 @@ const VENDOR_SPLIT = {
   'C蛋商': { baking: 'C烘焙蛋', other: 'C中餐蛋' },
 };
 const BAKING_DEPTS = ['烘焙'];
+// 菜商（A）、肉商（B）、海鮮（D）分「一二」「三四五」兩次送貨，訂貨單分開合計；其他廠商一週合計一次
+const GROUP_SPLIT_VENDORS = /^[ABD]/;
 
 const SHEET = {
   accounts: '帳號設定',
@@ -3031,7 +3033,7 @@ function ordersBetween_(from, to) {
   return groupOrders_(rows, null);
 }
 
-/** 依廠商整理：{ 廠商: { totals: [...], lines: [...] } }（不含已取消、有貨、器具） */
+/** 依廠商整理：{ 廠商: { totals: [{ group, items: [...] }], lines: [...] } }（不含已取消、有貨、器具） */
 function vendorBook_(orders) {
   const by = {};
   orders.forEach(function (o) {
@@ -3040,8 +3042,9 @@ function vendorBook_(orders) {
       if (it.id === TOOL_ID || it.noOrder || it.status === '已取消') return;
       const v = by[it.vendor] = by[it.vendor] || { totals: {}, lines: [] };
       const cv = convertUnit_(it.qty, it.unit, it.vendor);
-      const k = it.name + '|' + cv.unit;
-      v.totals[k] = v.totals[k] || { name: it.name, unit: cv.unit, qty: 0 };
+      const g = GROUP_SPLIT_VENDORS.test(it.vendor || '') ? String(it.group || '') : '';
+      const k = g + '|' + it.name + '|' + cv.unit;
+      v.totals[k] = v.totals[k] || { group: g, name: it.name, unit: cv.unit, qty: 0 };
       v.totals[k].qty = Math.round((v.totals[k].qty + cv.qty) * 100) / 100;
       const line = [o.useDate, it.group, o.className, it.name, it.qty, it.unit, o.onBehalfOf || o.teacher, it.note];
       line.block = [o.useDate, o.className, o.orderNo, it.group].join('|');   // 同一張訂單、同一送貨組別 = 明細合併成一塊
@@ -3049,7 +3052,13 @@ function vendorBook_(orders) {
     });
   });
   Object.keys(by).forEach(function (v) {
-    by[v].totals = Object.keys(by[v].totals).sort().map(function (k) { return by[v].totals[k]; });
+    const groups = [];
+    Object.keys(by[v].totals).sort().forEach(function (k) {
+      const t = by[v].totals[k];
+      if (!groups.length || groups[groups.length - 1].group !== t.group) groups.push({ group: t.group, items: [] });
+      groups[groups.length - 1].items.push(t);
+    });
+    by[v].totals = groups;
     by[v].lines.sort(function (a, b) { return a.block === b.block ? String(a[3]).localeCompare(String(b[3])) : (a.block < b.block ? -1 : 1); });
   });
   return by;
@@ -3086,9 +3095,14 @@ function runVendorOrders_() {
   vendors.forEach(function (v) {
     const sh = book_ss.insertSheet(v.slice(0, 90));
     const d = book[v];
-    const rows = [[v + ' 訂貨單', '', '', '', '', '', '', ''], [range, '', '', '', '', '', '', ''], ['', '', '', '', '', '', '', ''],
-      ['【食材合計】', '', '', '', '', '', '', ''], ['食材', '單位', '合計', '', '', '', '', '']];
-    d.totals.forEach(function (t) { rows.push([t.name, t.unit, t.qty, '', '', '', '', '']); });
+    const rows = [[v + ' 訂貨單', '', '', '', '', '', '', ''], [range, '', '', '', '', '', '', ''], ['', '', '', '', '', '', '', '']];
+    const totalHeads = [];
+    d.totals.forEach(function (g) {
+      rows.push(['【食材合計' + (g.group ? '・送貨組別 ' + g.group : '') + '】', '', '', '', '', '', '', '']);
+      totalHeads.push(rows.length + 1);
+      rows.push(['食材', '單位', '合計', '', '', '', '', '']);
+      g.items.forEach(function (t) { rows.push([t.name, t.unit, t.qty, '', '', '', '', '']); });
+    });
     rows.push(['', '', '', '', '', '', '', '']);
     rows.push(['【明細】', '', '', '', '', '', '', '']);
     const detailHead = rows.length + 1;
@@ -3098,7 +3112,7 @@ function runVendorOrders_() {
       return row.map(function (c) { return c === '' ? '' : String(c); });
     }));
     sh.getRange(1, 1).setFontSize(14).setFontWeight('bold');
-    sh.getRange(5, 1, 1, 3).setFontWeight('bold').setBackground('#eeeeee');
+    totalHeads.forEach(function (r) { sh.getRange(r, 1, 1, 3).setFontWeight('bold').setBackground('#eeeeee'); });
     sh.getRange(detailHead, 1, 1, 8).setFontWeight('bold').setBackground('#eeeeee');
     sh.setColumnWidth(1, 140); sh.setColumnWidth(4, 160); sh.setColumnWidth(8, 160);
     mergeDetailBlocks_(sh, detailHead + 1, d.lines);
@@ -3114,7 +3128,9 @@ function runVendorOrders_() {
   props.setProperty('LAST_VENDOR_URL', url);
   props.setProperty('LAST_VENDOR_TIME', fmtDateTime_(new Date()));
 
-  const summary = vendors.map(function (v) { return v + ' ' + book[v].totals.length + ' 項'; });
+  const summary = vendors.map(function (v) {
+    return v + ' ' + book[v].totals.map(function (g) { return (g.group ? g.group + ' ' : '') + g.items.length + ' 項'; }).join('、');
+  });
   const n = notify_('【訂貨單】' + range + ' 廠商訂貨單已產生',
     '<p>' + range + ' 的訂貨已截止，廠商訂貨單已經產生：</p><ul>' +
       summary.map(function (x) { return '<li>' + escHtml_(x) + '</li>'; }).join('') + '</ul>' +

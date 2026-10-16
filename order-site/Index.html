@@ -2889,23 +2889,38 @@
     return list;
   }
   function pKey(r) { return [r.orderNo, r.name, r.needUnit, r.group || ''].join('|'); }
-  function dayLabel(dk) { var p = dk.split('|'); return shortDate(p[0]) + (p[1] ? '・送貨組別 ' + p[1] : ''); }
-  // rows → { 廠商: { '日期|組別': [row] } }
+  // 菜商（A）、肉商（B）、海鮮（D）分「一二」「三四五」兩次送貨，各一張；其他廠商一週合成一張
+  var GROUP_SPLIT_VENDORS = /^[ABD]/;
+  function mondayOf(iso) {
+    var d = parseDate(iso);
+    if (!d) return iso || '';
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return isoDate(d);
+  }
+  function bucketKey(r) { return mondayOf(r.date) + '|' + (GROUP_SPLIT_VENDORS.test(r.vendor || '') ? (r.group || '') : ''); }
+  // 標題：日期範圍＋送貨組別，例如「10/19（一） ～ 10/20（二）・送貨組別 一二」
+  function dayLabel(dk, list) {
+    var dates = list.map(function (r) { return r.date; }).filter(Boolean).sort();
+    var g = dk.split('|')[1];
+    return (dates.length ? rangeText(dates[0], dates[dates.length - 1]) : '') + (g ? '・送貨組別 ' + g : '');
+  }
+  // rows → { 廠商: { '週一日期|組別': [row] } }
   function byVendorDay(rows, only) {
     var by = {};
     rows.forEach(function (r) {
       if (only && r.vendor !== only) return;
       var v = by[r.vendor] = by[r.vendor] || {};
-      (v[r.date + '|' + (r.group || '')] = v[r.date + '|' + (r.group || '')] || []).push(r);
+      var k = bucketKey(r);
+      (v[k] = v[k] || []).push(r);
     });
     return by;
   }
   function rangeText(from, to) { return shortDate(from) + (to !== from ? ' ～ ' + shortDate(to) : ''); }
-  // 同一天：訂單照班級排，補庫存放最後；訂單內照食材名稱
+  // 同一張單：訂單照上課日期、班級排，補庫存放最後；訂單內照食材名稱
   function sortLines(list) {
     return list.slice().sort(function (a, b) {
       if ((a.kind === '補庫存') !== (b.kind === '補庫存')) return a.kind === '補庫存' ? 1 : -1;
-      var ka = (a.className || '') + '|' + (a.orderNo || ''), kb = (b.className || '') + '|' + (b.orderNo || '');
+      var ka = (a.date || '') + '|' + (a.className || '') + '|' + (a.orderNo || ''), kb = (b.date || '') + '|' + (b.className || '') + '|' + (b.orderNo || '');
       if (ka !== kb) return ka.localeCompare(kb, 'zh-Hant');
       return a.name.localeCompare(b.name, 'zh-Hant');
     });
@@ -2933,7 +2948,7 @@
         var first = i === 0 || blockOf(list[i - 1]) !== blockOf(r);
         var rs = ' class="vm" rowspan="' + span[blockOf(r)] + '"';
         return '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="2"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(r.className) + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="2"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(r.className) + '<div class="muted small">' + esc(shortDate(r.date)) + '</div></td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
           cells(r) + '</tr>';
       }).join('') + '</tbody></table>';
   }
@@ -2945,7 +2960,7 @@
       return '<div class="vpage deduct"><h1>' + esc(v) + ' 扣貨單</h1><div class="vsub">' + esc(rangeText(from, to)) + '　　填寫人：＿＿＿＿＿＿</div>' +
         Object.keys(by[v]).sort().map(function (dk) {
           var list = sortLines(by[v][dk]);
-          return '<h3>' + esc(dayLabel(dk)) + '</h3>' +
+          return '<h3>' + esc(dayLabel(dk, list)) + '</h3>' +
             '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">現有庫存</th></tr></thead><tbody>' +
             sumLines(list, 'need', 'needUnit').map(function (t) {
               return '<tr><td>' + esc(t.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td><td></td></tr>';
@@ -2969,7 +2984,7 @@
         '<div class="noprint" style="text-align:right;margin-bottom:6px"><button type="button" class="btn secondary small" data-pcopy="' + esc(v) + '">複製叫貨文字</button></div>' +
         Object.keys(by[v]).sort().map(function (dk) {
           var list = sortLines(by[v][dk]);
-          return '<h3>' + esc(dayLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th></tr></thead><tbody>' +
+          return '<h3>' + esc(dayLabel(dk, list)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th></tr></thead><tbody>' +
             sumLines(list, 'qty', 'unit').map(function (t) {
               return '<tr><td>' + esc(t.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
             }).join('') + '</tbody></table>' +
@@ -2984,7 +2999,7 @@
   function purchaseText(v) {
     var by = byVendorDay(purchaseCache.filter(function (r) { return r.qty > 0 && r.vendor === v; }));
     return Object.keys(by[v] || {}).sort().map(function (dk) {
-      return '【' + v + '】' + dayLabel(dk) + '\n' + sumLines(by[v][dk], 'qty', 'unit').map(function (t) { return t.name + ' ' + fmtQty(t.qty) + t.unit; }).join('\n');
+      return '【' + v + '】' + dayLabel(dk, by[v][dk]) + '\n' + sumLines(by[v][dk], 'qty', 'unit').map(function (t) { return t.name + ' ' + fmtQty(t.qty) + t.unit; }).join('\n');
     }).join('\n\n');
   }
   $('vendorSheets').addEventListener('click', function (e) {
@@ -3074,8 +3089,8 @@
         (st.gone[v] ? '<div class="msg warn noprint">上次儲存後，老師取消了：' + esc(st.gone[v].map(function (g) { return shortDate(g.date) + ' ' + g.className + ' ' + g.name; }).join('、')) + '（這次不會再叫）。</div>' : '') +
         '<datalist id="pItems-' + esc(v) + '">' + data.items.filter(function (it) { return it.vendor === v; }).map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
       Object.keys(groups[v]).sort().forEach(function (dk) {
-        var p = dk.split('|'), list = sortLines(groups[v][dk]);
-        html += '<h3>' + esc(dayLabel(dk)) + '</h3>' +
+        var p = dk.split('|'), list = sortLines(groups[v][dk]), label = dayLabel(dk, list);
+        html += '<h3>' + esc(label) + '</h3>' +
           '<div class="ptot-wrap" data-pday="' + esc(v + '|' + dk) + '">' + pTotalsHtml(list) + '</div>' +
           '<div class="tablewrap ptable">' + blockTable(list, '<th>食材</th><th class="num" style="width:11%">老師訂</th><th style="width:12%">實際叫貨</th><th style="width:12%">單位</th><th style="width:16%">備註</th><th class="noprint" style="width:7%"></th>', function (r) {
             var add = r.kind === '補庫存', c = ' class="p-' + pDiff(r) + '"';
@@ -3087,7 +3102,7 @@
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
               '<td class="noprint p-' + pDiff(r) + '">' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' : '') + '</td>';
           }) + '</div>' +
-          '<button type="button" class="btn ghost small noprint" data-padd="' + esc(v + '|' + p[0] + '|' + (p[1] || '')) + '">＋ 補庫存（' + esc(dayLabel(dk)) + '）</button>';
+          '<button type="button" class="btn ghost small noprint" data-padd="' + esc(v + '|' + (list[0] ? list[0].date : p[0]) + '|' + (p[1] || '')) + '">＋ 補庫存（' + esc(label) + '）</button>';
       });
       html += '<div class="noprint vfoot"><div class="psum" data-psum="' + esc(v) + '">' + pSummary(v) + '</div><div class="actions">' +
         '<button type="button" class="btn ghost" data-preset="' + esc(v) + '">全部照老師訂的</button>' +
@@ -3122,8 +3137,8 @@
   }
   function vBox(v, attr) { return Array.prototype.filter.call($('vendorSheets').querySelectorAll('[' + attr + ']'), function (el) { return el.getAttribute(attr) === v; })[0]; }
   function pRefresh(r) {
-    var box = vBox(r.vendor + '|' + r.date + '|' + (r.group || ''), 'data-pday');
-    if (box) box.innerHTML = pTotalsHtml(pState.rows.filter(function (x) { return x.vendor === r.vendor && x.date === r.date && (x.group || '') === (r.group || ''); }));
+    var box = vBox(r.vendor + '|' + bucketKey(r), 'data-pday');
+    if (box) box.innerHTML = pTotalsHtml(pState.rows.filter(function (x) { return x.vendor === r.vendor && bucketKey(x) === bucketKey(r); }));
     var sum = vBox(r.vendor, 'data-psum');
     if (sum) sum.innerHTML = pSummary(r.vendor);
     pState.dirty[r.vendor] = true;
