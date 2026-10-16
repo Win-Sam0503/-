@@ -87,6 +87,12 @@
   .msg.info { background: var(--info-soft); color: var(--info); }
   .msg.ok { background: var(--ok-soft); color: var(--ok); }
   .msg.warn { background: var(--warn-soft); color: var(--warn); }
+  .deadline-bar { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 15px; background: var(--ok-soft); color: var(--ok); }
+  .deadline-bar.soon { background: var(--warn-soft); color: var(--warn); }
+  .deadline-bar.urgent { background: var(--bad-soft); color: var(--bad); font-weight: 700; }
+  .results .suggest { grid-column: 1 / -1; }
+  .suggest { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--brand-soft); }
+  .chipbtn { display: inline-block; margin: 4px 6px 0 0; padding: 4px 12px; border: 1px solid var(--brand); border-radius: 999px; background: #fff; color: var(--brand); cursor: pointer; font-size: 14px; }
 
   .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: #eef0f3; color: #475467; }
   .badge.ok { background: var(--ok-soft); color: var(--ok); }
@@ -414,6 +420,7 @@
       <div id="setupWarn"></div>
       <div id="editBanner" class="msg info hidden" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"></div>
       <div class="msg info" id="lockBanner"></div>
+      <div id="deadlineBar" class="deadline-bar hidden"></div>
       <div id="lastBox"></div>
       <div class="panel" id="tplPanel">
         <h2>我的範本 <span class="muted small" style="font-weight:normal">存一組的量，帶入時自動乘以組數</span></h2>
@@ -448,7 +455,8 @@
           <div><label for="fRoom">上課教室</label><input id="fRoom" type="text" maxlength="30"></div>
           <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"></div>
           <div><label for="fGroups">組數</label><input id="fGroups" type="text" class="num-input" data-int="1" autocomplete="off" maxlength="4" placeholder="例：6"></div>
-          <div><label for="fFor">代訂對象老師</label><select id="fFor"></select></div>
+          <div id="forBox" class="hidden"><label for="fFor">代訂對象老師 <a href="#" id="forHide" class="small" style="font-weight:normal">（不代訂）</a></label><select id="fFor"></select></div>
+          <div id="forLink" style="align-self:end;padding-bottom:10px"><a href="#" id="forShow" class="small">幫別的老師代訂？</a></div>
           <div class="wide" style="grid-column:1/-1"><label for="fProject">實作項目 <span class="req">*</span></label><input id="fProject" type="text" maxlength="60" placeholder="例：戚風蛋糕、宮保雞丁"></div>
         </div>
       </div>
@@ -472,6 +480,7 @@
               <div><label for="nUnit">單位</label><input id="nUnit" type="text" class="unit-input" data-new="1" autocomplete="off" maxlength="10" placeholder="打字搜尋"></div>
               <button type="button" class="btn small" id="addNew">加入清單</button>
             </div>
+            <div id="nSuggest"></div>
           </div>
         </div>
       </div>
@@ -1000,6 +1009,8 @@
       ? '管理者不受鎖單限制，可以訂今天起 30 天內的課。'
       : '<b>訂貨規則：</b>' + esc(data.lockRule) + '。目前最早可以訂 <b>' + esc(shortDate(data.minDate)) +
         '</b> 起的課，最晚到 ' + esc(shortDate(data.maxDate)) + '。';
+    renderDeadline();
+    syncForBox();
     $('setupWarn').innerHTML = data.missingSetup && data.missingSetup.length
       ? '<div class="msg setup-warn"><b>管理者請注意：</b>試算表還缺少 ' + esc(data.missingSetup.join('、')) +
         '。缺少的部分網站照常運作，只是對應的資料不會存進試算表（請參考 README 的設定說明）。</div>' : '';
@@ -1081,6 +1092,7 @@
     if (draft.info.useDate && (draft.info.useDate < data.minDate || draft.info.useDate > data.maxDate)) $('fDate').value = '';
     if (!TIME_RE.test(draft.info.classTime || '')) $('fTime').value = '';
     timeToSelects();
+    syncForBox();
   }
   var TIME_RE = /^(上午|下午|晚上) (1[0-2]|[1-9]):([0-5][05])$/;
   function timeToSelects() {
@@ -1151,7 +1163,10 @@
       return (a.name.toLowerCase().indexOf(q) === 0 ? 0 : 1) - (b.name.toLowerCase().indexOf(q) === 0 ? 0 : 1);
     });
     if (!list.length) {
-      $('results').innerHTML = '<div class="more">找不到符合的食材，可以換個關鍵字，或用下方「提交新食材」。</div>';
+      var sim = q ? similarItems(q, 6) : [];
+      $('results').innerHTML = sim.length
+        ? suggestHtml(sim, '找不到「' + $('search').value.trim() + '」，你是不是要找：')
+        : '<div class="more">找不到符合的食材，可以換個關鍵字，或用下方「提交新食材」。</div>';
       return;
     }
     var shown = list.slice(0, SHOW_LIMIT);
@@ -1173,7 +1188,10 @@
     vendorFilter = b.getAttribute('data-v');
     renderChips(); renderResults();
   });
+  var newConfirmed = false;
   $('results').addEventListener('click', function (e) {
+    var sb = e.target.closest('[data-sid]');
+    if (sb) { addExisting(itemById[sb.getAttribute('data-sid')]); $('search').value = ''; renderResults(); return; }
     var b = e.target.closest('.item');
     if (!b) return;
     var it = itemById[b.getAttribute('data-id')];
@@ -1195,11 +1213,116 @@
       $('nName').focus();
     }
   });
+  // ---- 訂貨截止倒數 ----
+  function renderDeadline() {
+    var bar = $('deadlineBar'), dl = data.deadline;
+    if (!dl || data.isAdmin) { bar.classList.add('hidden'); return; }
+    var left = dl.at - Date.now();
+    if (left <= 0) { start(); return; }   // 剛過截止：重新載入可訂日期
+    var d = Math.floor(left / 86400000), h = Math.floor(left % 86400000 / 3600000), m = Math.floor(left % 3600000 / 60000);
+    var txt = d ? d + ' 天 ' + h + ' 小時' : h ? h + ' 小時 ' + m + ' 分' : m + ' 分鐘';
+    bar.className = 'deadline-bar' + (left < 3 * 3600000 ? ' urgent' : left < 86400000 ? ' soon' : '');
+    bar.innerHTML = '⏰ ' + esc(shortDate(dl.from)) + '～' + esc(shortDate(dl.to)) + ' 的課，訂貨截止：<b>' + esc(dl.label) + '</b>，還有 <b>' + esc(txt) + '</b>' +
+      (left < 86400000 ? '，請盡快送出！' : '');
+  }
+  setInterval(function () { if (data && token) renderDeadline(); }, 60000);
+  // ---- 代訂：預設收起來，要幫別人訂才打開 ----
+  function syncForBox() {
+    var on = !!$('fFor').value;
+    $('forBox').classList.toggle('hidden', !on);
+    $('forLink').classList.toggle('hidden', on);
+  }
+  $('forShow').addEventListener('click', function (e) { e.preventDefault(); $('forBox').classList.remove('hidden'); $('forLink').classList.add('hidden'); $('fFor').focus(); });
+  $('forHide').addEventListener('click', function (e) {
+    e.preventDefault();
+    $('fFor').value = '';
+    $('fFor').dispatchEvent(new Event('change', { bubbles: true }));
+    syncForBox();
+  });
+  // 確認視窗裡點相似食材：直接換成正式食材
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ask-sid]');
+    if (!b) return;
+    addExisting(itemById[b.getAttribute('data-ask-sid')], normNum($('nQty').value) || '', $('nUnit').value);
+    $('nName').value = ''; $('nQty').value = ''; $('nUnit').value = ''; $('nSuggest').innerHTML = '';
+    $('newBox').classList.add('hidden');
+    $('askNo').click();
+    toast('已換成正式食材，不用等審核');
+  });
+
+  // ---- 相似食材：老師打的新食材，食材總表可能已經有（全蛋→雞蛋、高粉→高筋麵粉、細糖→細砂糖）----
+  var SYNONYMS = { '全蛋': '雞蛋', '蛋': '雞蛋', '雞蛋液': '雞蛋', '高粉': '高筋麵粉', '中粉': '中筋麵粉', '低粉': '低筋麵粉',
+    '細糖': '細砂糖', '砂糖': '細砂糖', '白糖': '細砂糖', '糖粉': '糖粉', '鮮奶': '鮮奶', '牛奶': '鮮奶', '鹽巴': '鹽', '食鹽': '鹽',
+    '沙拉油': '沙拉油', '芝士': '起司', '乳酪': '起司', '牛油': '奶油', '蛋白液': '蛋白', '蛋黃液': '蛋黃' };
+  function normName(t) { return String(t || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }
+  function similarItems(text, limit) {
+    var q = normName(text);
+    if (!q) return [];
+    var alt = SYNONYMS[q] ? normName(SYNONYMS[q]) : '';
+    Object.keys(SYNONYMS).forEach(function (k) { if (!alt && k.length >= 2 && q.indexOf(k) >= 0) alt = normName(q.replace(k, SYNONYMS[k])); });
+    var qs = q.split('');
+    var scored = data.items.map(function (it) {
+      var n = normName(it.name), names = [n].concat(String(it.alias || '').split(/[,，、\s]+/).map(normName).filter(Boolean));
+      var best = 0;
+      names.forEach(function (x) {
+        if (x === q || (alt && x === alt)) best = Math.max(best, 100);
+        else if (alt && (x.indexOf(alt) >= 0 || alt.indexOf(x) >= 0) && Math.min(x.length, alt.length) >= 2) best = Math.max(best, 80);
+        else if ((x.indexOf(q) >= 0 || q.indexOf(x) >= 0) && Math.min(x.length, q.length) >= 2) best = Math.max(best, 70 - Math.abs(x.length - q.length));
+        else {
+          var common = qs.filter(function (c, i) { return qs.indexOf(c) === i && x.indexOf(c) >= 0; }).length;
+          var ratio = common / Math.max(x.length, q.length);
+          if (common >= 2 && ratio >= 0.5) best = Math.max(best, Math.round(ratio * 60));
+        }
+      });
+      return { it: it, s: best };
+    }).filter(function (x) { return x.s > 0; });
+    var dept = $('fDept').value;
+    scored.sort(function (a, b) {
+      return b.s - a.s || ((b.it.dept === dept) - (a.it.dept === dept)) || a.it.name.length - b.it.name.length;
+    });
+    return scored.slice(0, limit || 5).map(function (x) { return x.it; });
+  }
+  function suggestHtml(list, label) {
+    return '<div class="suggest"><b>' + esc(label) + '</b><br>' + list.map(function (it) {
+      return '<button type="button" class="chipbtn" data-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(it.vendor) + '</span></button>';
+    }).join('') + '</div>';
+  }
+  function addExisting(it, qty, unit) {
+    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: qty || '',
+      unit: validUnit(unit) || validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
+    draft.cart.push(row);
+    saveDraft(); renderCart(); renderResults();
+    focusCartRow(row.key);
+  }
+  // 提交新食材的名稱打字時就提示
+  $('nName').addEventListener('input', function () {
+    var list = similarItems(this.value, 5);
+    $('nSuggest').innerHTML = list.length ? suggestHtml(list, '食材總表已經有類似的，點一下直接用（不用等審核）：') : '';
+  });
+  $('nSuggest').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-sid]');
+    if (!b) return;
+    addExisting(itemById[b.getAttribute('data-sid')], normNum($('nQty').value) || '', $('nUnit').value);
+    $('nName').value = ''; $('nQty').value = ''; $('nUnit').value = ''; $('nSuggest').innerHTML = '';
+    $('newBox').classList.add('hidden');
+    toast('已加入正式食材，不用等審核');
+  });
   $('addNew').addEventListener('click', function () {
     var name = $('nName').value.trim(), vendor = $('nVendor').value, qty = normNum($('nQty').value), unit = validUnit($('nUnit').value);
     if (!name) { notice('請填寫食材名稱。'); return; }
     var dup = data.items.find(function (it) { return it.name === name; });
     if (dup) { notice('食材總表已經有「' + name + '」，請直接從上方搜尋加入。'); return; }
+    var sim = similarItems(name, 5);
+    if (sim.length && !newConfirmed) {
+      ask('', '還是新增「' + name + '」', { noText: '取消', html: '<div class="info-check"><h3>食材總表可能已經有了</h3>' +
+        '<div class="muted small" style="margin-bottom:6px">用正式食材不用等審核，訂貨單也不會分成兩項。點一下就換成：</div>' +
+        sim.map(function (it) {
+          return '<button type="button" class="chipbtn" data-ask-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(it.vendor) + '</span></button>';
+        }).join('') + '</div>' }).then(function (ok) {
+        if (ok) { newConfirmed = true; $('addNew').click(); newConfirmed = false; }
+      });
+      return;
+    }
     if (!vendor) { notice('請選擇廠商。'); return; }
     if (qty === null) { notice('數量請輸入數字，例如 2、0.5、半。'); $('nQty').focus(); return; }
     if ($('nUnit').value.trim() && !unit) { notice('單位要從清單選擇，可以打字搜尋，例如打「斤」「包」「克」。'); $('nUnit').focus(); return; }
@@ -1681,7 +1804,13 @@
       });
       return;
     }
-    ask('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？', '送出訂單').then(function (ok) {
+    // 代訂對象跟自己的帳號很像（例如 葉卜尚1 代訂 葉卜尚）多半是登錯帳號；新食材要等審核
+    var me = data.account, forWho = i.onBehalfOf || '';
+    var selfLike = forWho && (forWho.indexOf(me) === 0 || me.indexOf(forWho) === 0);
+    var nNew = draft.cart.filter(function (c) { return c.isNew; }).length;
+    ask('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？' +
+      (selfLike ? '\n\n⚠ 代訂對象「' + forWho + '」跟你登入的帳號「' + me + '」很像。如果是幫自己訂，請按「取消」，把代訂改回「自己」；也可能是登錯帳號，請用「' + forWho + '」登入。' : '') +
+      (nNew ? '\n\n清單裡有 ' + nNew + ' 項新食材，要等管理者審核。' : ''), '送出訂單').then(function (ok) {
     if (!ok) return;
     var btn = $('submitBtn');
     setBusy(btn, true, '送出中…');

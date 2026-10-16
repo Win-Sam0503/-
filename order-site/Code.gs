@@ -284,6 +284,7 @@ function getBootstrap(token) {
     minDate: dateStr_(isAdmin ? today_() : earliestClassDate_(now)),
     maxDate: dateStr_(addDays_(today_(), MAX_DAYS_AHEAD)),
     lockRule: lockRuleText_(),
+    deadline: nextDeadline_(now),
     statuses: ORDER_STATUSES,
     orderUnits: unitLists_().order,
     recipeUnits: unitLists_().recipe,
@@ -1470,7 +1471,7 @@ function adminReviewItem(token, row, decision, edits, name) {
       if (exist) {
         const id = String(exist['食材ID']).trim();
         lines = fixPendingLines_(origName, { id: id, name: newName, vendor: String(exist['廠商'] || '').trim() });
-        result = '已對應（' + id + '，食材總表本來就有）';
+        result = '已對應（' + id + '，食材總表本來就有）' + (addAlias_(id, origName) ? '，「' + origName + '」已加入別名' : '');
       } else {
         const id = createItem_({ name: newName, alias: newName === origName ? '' : origName, vendor: vendor, unit: unit });
         lines = fixPendingLines_(origName, { id: id, name: newName, vendor: vendor });
@@ -1481,7 +1482,7 @@ function adminReviewItem(token, row, decision, edits, name) {
       const r = readTable_(SHEET.items, ['食材ID', '食材名稱']).rows.find(function (x) { return String(x['食材ID']).trim() === id; });
       if (!r) throw new Error('找不到食材 ' + id + '。');
       lines = fixPendingLines_(origName, { id: id, name: String(r['食材名稱']).trim(), vendor: String(r['廠商'] || '').trim() });
-      result = '已對應（' + id + '）';
+      result = '已對應（' + id + '）' + (addAlias_(id, origName) ? '，「' + origName + '」已加入別名' : '');
     } else {
       throw new Error('審核動作不正確。');
     }
@@ -1491,6 +1492,28 @@ function adminReviewItem(token, row, decision, edits, name) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 把老師的叫法加到食材的「別名」（例如「全蛋」對應到「雞蛋」後，下次搜尋「全蛋」就找得到雞蛋）。
+ * 名稱或別名已經有就不加；食材總表沒有「別名」欄就略過。回傳有沒有加。
+ */
+function addAlias_(id, alias) {
+  alias = clean_(alias, 40);
+  if (!alias) return false;
+  const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+  if (t.cols['別名'] === undefined) return false;
+  const r = t.rows.find(function (x) { return String(x['食材ID']).trim() === id; });
+  if (!r || String(r['食材名稱']).trim() === alias) return false;
+  const cur = String(r['別名'] || '').trim();
+  const list = cur ? cur.split(/[,，、\s]+/).filter(Boolean) : [];
+  if (list.indexOf(alias) >= 0) return false;
+  list.push(alias);
+  const v = list.join(',');
+  if (v.length > 200) return false;
+  t.sheet.getRange(r._row, t.cols['別名']).setNumberFormat('@').setValue(v);
+  clearItemsCache_();
+  return true;
 }
 
 /** 把「所有」訂單中同名的「待審核」食材換成正式的食材 ID、名稱、廠商（送貨組別跟著廠商重算）。回傳更新幾筆。 */
@@ -3474,6 +3497,17 @@ function currentDeadline_(now) {
   const monday = addDays_(today, -((today.getDay() + 6) % 7));
   const d = addDays_(monday, LOCK_WEEKDAY - 1);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), LOCK_HOUR, LOCK_MINUTE, 0);
+}
+
+/** 下一個訂貨截止：{ at: 毫秒, label: '10/19（一）12:00', from, to: 這次截止的是哪一週的課 } */
+function nextDeadline_(now) {
+  let d = currentDeadline_(now);
+  if (now >= d) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7, LOCK_HOUR, LOCK_MINUTE, 0);
+  const monday = addDays_(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 8 - LOCK_WEEKDAY);
+  return {
+    at: d.getTime(), label: shortDateTw_(d) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2),
+    from: dateStr_(monday), to: dateStr_(addDays_(monday, 4)),
+  };
 }
 
 /** 老師目前最早可以訂的上課日期：截止前是下週一，截止後是下下週一。 */
