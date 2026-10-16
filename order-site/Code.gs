@@ -3196,10 +3196,23 @@ function nextWeekRange_() {
 const GRAMS_ = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
 // 合計時計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）
 const COUNT_UNITS_ = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
-function convertUnit_(qty, unit, vendor) {
+// 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；其他廠商換成公斤
+const EGG_GRAMS_ = 50;
+function isEgg_(name) { return String(name || '').trim() === '雞蛋'; }
+function convertUnit_(qty, unit, vendor, name) {
+  if (GRAMS_[unit] && isEgg_(name)) return { qty: Math.round(qty * GRAMS_[unit] / EGG_GRAMS_ * 100) / 100, unit: '顆' };
   if (!GRAMS_[unit]) return { qty: qty, unit: COUNT_UNITS_[unit] || unit };
-  const target = /^[AB]/.test(vendor || '') ? '斤' : '公斤';
+  const target = /^[AB]/.test(vendor || '') ? '兩' : '公斤';
   return { qty: Math.round(qty * GRAMS_[unit] / GRAMS_[target] * 100) / 100, unit: target };
+}
+/** 合計顯示：{ qty, unit }；兩無條件進位到整兩、滿 16 兩進成斤，雞蛋進位到整顆 */
+function totalText_(qty, unit, name) {
+  if (unit === '兩') {
+    const n = Math.ceil(qty - 1e-6), jin = Math.floor(n / 16), liang = n % 16;
+    return jin ? { qty: jin + '斤' + (liang ? liang + '兩' : ''), unit: liang ? '斤兩' : '斤' } : { qty: String(n), unit: '兩' };
+  }
+  if (unit === '顆' && isEgg_(name)) return { qty: String(Math.ceil(qty - 1e-6)), unit: '顆' };
+  return { qty: qty, unit: unit };
 }
 
 function ordersBetween_(from, to) {
@@ -3218,7 +3231,7 @@ function vendorBook_(orders) {
     o.items.forEach(function (it) {
       if (it.id === TOOL_ID || it.noOrder || it.status === '已取消') return;
       const v = by[it.vendor] = by[it.vendor] || { totals: {}, lines: [] };
-      const cv = convertUnit_(it.qty, it.unit, it.vendor);
+      const cv = convertUnit_(it.qty, it.unit, it.vendor, it.name);
       const k = it.name + '|' + cv.unit;
       v.totals[k] = v.totals[k] || { name: it.name, unit: cv.unit, qty: 0 };
       v.totals[k].qty = Math.round((v.totals[k].qty + cv.qty) * 100) / 100;
@@ -3267,7 +3280,7 @@ function runVendorOrders_() {
     const d = book[v];
     const rows = [[v + ' 訂貨單', '', '', '', '', '', '', ''], [range, '', '', '', '', '', '', ''], ['', '', '', '', '', '', '', ''],
       ['【食材合計】', '', '', '', '', '', '', ''], ['食材', '單位', '合計', '', '', '', '', '']];
-    d.totals.forEach(function (t) { rows.push([t.name, t.unit, t.qty, '', '', '', '', '']); });
+    d.totals.forEach(function (t) { const x = totalText_(t.qty, t.unit, t.name); rows.push([t.name, x.unit, x.qty, '', '', '', '', '']); });
     rows.push(['', '', '', '', '', '', '', '']);
     rows.push(['【明細】', '', '', '', '', '', '', '']);
     const detailHead = rows.length + 1;

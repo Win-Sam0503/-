@@ -2149,7 +2149,7 @@
         var v = byVendor[it.vendor] = byVendor[it.vendor] || {};
         var dkey = it.group || '';   // 照送貨批次合計（菜商、肉商、海鮮分一二／三四五，其他整段期間一起）
         var day = v[dkey] = v[dkey] || {};
-        var cv = convertUnit(it.qty, it.unit, it.vendor);
+        var cv = convertUnit(it.qty, it.unit, it.vendor, it.name);
         var k = it.name + '|' + cv.unit;
         var agg = day[k] = day[k] || { name: it.name, unit: cv.unit, qty: 0, detail: [], pending: it.id === '待審核' };
         agg.qty += cv.qty;
@@ -2168,7 +2168,7 @@
           '<div class="tablewrap"><table class="sum-vt"><thead><tr><th>食材</th><th class="num">合計</th><th>明細（班級 數量）</th></tr></thead><tbody>' +
           rows.map(function (r) {
             return '<tr><td>' + esc(r.name) + (r.pending ? ' <span class="badge warn">待審核</span>' : '') + unitBadges(r, mixed) + '</td>' +
-              '<td class="num"><b>' + esc(fmtQty(r.qty)) + ' ' + esc(r.unit) + '</b></td>' +
+              '<td class="num"><b>' + esc(fmtTotal(r.qty, r.unit, r.name)) + '</b></td>' +
               '<td class="sum-detail">' + r.detail.map(function (d) {
                 return '<div>' + esc(d.who) + '　<b>' + esc(d.qty) + '</b>' + (d.note ? '<span class="muted">（' + esc(d.note) + '）</span>' : '') + '</div>';
               }).join('') + '</td></tr>';
@@ -2489,7 +2489,7 @@
     var text = Object.keys(v).sort().map(function (dk) {
       var lines = Object.keys(v[dk]).sort().map(function (k) {
         var r = v[dk][k];
-        return r.name + ' ' + fmtQty(r.qty) + r.unit;
+        return r.name + ' ' + fmtTotal(r.qty, r.unit, r.name);
       });
       return '【' + vName + '】' + batchLabel(dk) + '\n' + lines.join('\n');
     }).join('\n\n');
@@ -2501,10 +2501,23 @@
   var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
   // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
   var COUNT_UNITS = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
-  function convertUnit(qty, unit, vendor) {
+  // 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；其他廠商換成公斤
+  var EGG_GRAMS = 50;
+  function isEgg(name) { return String(name || '').trim() === '雞蛋'; }
+  function convertUnit(qty, unit, vendor, name) {
+    if (GRAMS[unit] && isEgg(name)) return { qty: Math.round(qty * GRAMS[unit] / EGG_GRAMS * 100) / 100, unit: '顆' };
     if (!GRAMS[unit]) return { qty: qty, unit: COUNT_UNITS[unit] || unit };
-    var target = /^[AB]/.test(vendor || '') ? '斤' : '公斤';
+    var target = /^[AB]/.test(vendor || '') ? '兩' : '公斤';
     return { qty: Math.round(qty * GRAMS[unit] / GRAMS[target] * 100) / 100, unit: target };
+  }
+  // 合計的顯示文字：兩無條件進位到整兩，滿 16 兩進成斤；雞蛋進位到整顆
+  function fmtTotal(qty, unit, name) {
+    if (unit === '兩') {
+      var n = Math.ceil(qty - 1e-6), jin = Math.floor(n / 16), liang = n % 16;
+      return jin ? jin + ' 斤' + (liang ? ' ' + liang + ' 兩' : '') : n + ' 兩';
+    }
+    if (unit === '顆' && isEgg(name)) return Math.ceil(qty - 1e-6) + ' 顆';
+    return fmtQty(qty) + ' ' + unit;
   }
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
@@ -3166,7 +3179,7 @@
     list.forEach(function (r) {
       var q = Number(r[field]);
       if (!(q > 0)) return;
-      var cv = convertUnit(q, r[unitField], r.vendor);
+      var cv = convertUnit(q, r[unitField], r.vendor, r.name);
       var k = r.name + '|' + cv.unit;
       if (!m[k]) { m[k] = { name: r.name, unit: cv.unit, qty: 0 }; keys.push(k); }
       m[k].qty = Math.round((m[k].qty + cv.qty) * 100) / 100;
@@ -3199,7 +3212,7 @@
             (function (tot) {
               var mixed = mixedNames(tot);
               return tot.map(function (t) {
-                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td><td></td></tr>';
+                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td><td></td></tr>';
               }).join('');
             })(sumLines(list, 'need', 'needUnit')) + '</tbody></table>' +
             blockTable(list, '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
@@ -3225,7 +3238,7 @@
             (function (tot) {
               var mixed = mixedNames(tot);
               return tot.map(function (t) {
-                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
+                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td></tr>';
               }).join('');
             })(sumLines(list, 'qty', 'unit')) + '</tbody></table>' +
             '<div class="muted small" style="margin:8px 0 4px">各班明細</div>' +
@@ -3265,7 +3278,7 @@
   function purchaseText(v) {
     var by = byVendorBatch(purchaseCache.filter(function (r) { return r.qty > 0 && r.vendor === v; }));
     return Object.keys(by[v] || {}).sort().map(function (dk) {
-      return '【' + v + '】' + batchLabel(dk) + '\n' + sumLines(by[v][dk], 'qty', 'unit').map(function (t) { return t.name + ' ' + fmtQty(t.qty) + t.unit; }).join('\n');
+      return '【' + v + '】' + batchLabel(dk) + '\n' + sumLines(by[v][dk], 'qty', 'unit').map(function (t) { return t.name + ' ' + fmtTotal(t.qty, t.unit, t.name); }).join('\n');
     }).join('\n\n');
   }
   $('vendorSheets').addEventListener('click', function (e) {
@@ -3334,7 +3347,7 @@
     return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th></tr></thead><tbody>' +
       keys.sort().map(function (k) {
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
-        return '<tr' + cls + '><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="num">' + (t.need ? esc(fmtQty(t.need)) + ' ' + esc(t.unit) : '—') + '</td><td class="num vq">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
+        return '<tr' + cls + '><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
   function vStateText(v) {
