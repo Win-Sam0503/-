@@ -2930,9 +2930,21 @@ function adminGridSchedule(token, row, expect, fields) {
   return adminGetSchedule(token);
 }
 
+/** 管理者在總課表的空格新增一堂課，回傳新的總課表 */
+function adminGridAddSchedule(token, fields) {
+  auth_(token, true);
+  addScheduleRow_(fields);
+  return adminGetSchedule(token);
+}
+
 /** 管理者在「課表」分頁新增一堂課 */
 function adminAddSchedule(token, fields, as) {
   auth_(token, true);
+  addScheduleRow_(fields);
+  return getMyLessons(token, as);
+}
+
+function addScheduleRow_(fields) {
   const set = scheduleFields_(fields);
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -2945,7 +2957,6 @@ function adminAddSchedule(token, fields, as) {
   } finally {
     lock.releaseLock();
   }
-  return getMyLessons(token, as);
 }
 
 function scheduleCount_() {
