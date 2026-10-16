@@ -1412,7 +1412,6 @@ function adminReviewItem(token, row, decision, edits) {
     const status = String(rec['審核狀態'] || '').trim();
     if (status && status !== '待審核') throw new Error('這筆資料已經審核過了。');
     const origName = String(rec['食材名稱']).trim();
-    const orderNo = String(rec['對應訂單編號'] || '').trim();
     let result;
 
     if (decision === 'reject') {
@@ -1424,14 +1423,16 @@ function adminReviewItem(token, row, decision, edits) {
       if (!vendor) throw new Error('請選擇廠商。');
       const id = createItem_({ name: name, alias: name === origName ? '' : origName, vendor: vendor, unit: unit },
         '食材總表已經有「' + name + '」，請改用「對應既有食材」。');
-      fixOrderLines_(orderNo, origName, { id: id, name: name, vendor: vendor });
+      fixOrderLines_(origName, { id: id, name: name, vendor: vendor });
       result = '已核准（' + id + '）';
+      closeSamePending_(pend, rec._row, origName, result);
     } else if (decision === 'map') {
       const id = String(edits.existingId || '').trim();
       const r = readTable_(SHEET.items, ['食材ID', '食材名稱']).rows.find(function (x) { return String(x['食材ID']).trim() === id; });
       if (!r) throw new Error('找不到食材 ' + id + '。');
-      fixOrderLines_(orderNo, origName, { id: id, name: String(r['食材名稱']).trim(), vendor: String(r['廠商'] || '').trim() });
+      fixOrderLines_(origName, { id: id, name: String(r['食材名稱']).trim(), vendor: String(r['廠商'] || '').trim() });
       result = '已對應（' + id + '）';
+      closeSamePending_(pend, rec._row, origName, result);
     } else {
       throw new Error('審核動作不正確。');
     }
@@ -1443,13 +1444,15 @@ function adminReviewItem(token, row, decision, edits) {
   }
 }
 
-/** 把訂單中「待審核」的食材換成正式的食材 ID、名稱、廠商。 */
-function fixOrderLines_(orderNo, origName, to) {
-  if (!orderNo) return;
+/**
+ * 把訂單中「待審核」的食材換成正式的食材 ID、名稱、廠商。
+ * 同名的新食材可能出現在好幾張訂單（不同老師各自提交），核准一次就全部換掉，
+ * 不然其他訂單會一直停在「待審核」，廠商訂貨總數也會被拆成兩列。
+ */
+function fixOrderLines_(origName, to) {
   const t = readTable_(SHEET.orders, ['訂單編號', '食材ID', '食材名稱']);
   const vendorGroups = readVendorGroups_();
   t.rows.forEach(function (r) {
-    if (String(r['訂單編號']).trim() !== orderNo) return;
     if (String(r['食材ID']).trim() !== PENDING_ID || String(r['食材名稱']).trim() !== origName) return;
     setCell_(t, r._row, '食材ID', to.id);
     setCell_(t, r._row, '食材名稱', to.name);
@@ -1458,6 +1461,15 @@ function fixOrderLines_(orderNo, origName, to) {
       const d = toDate_(r['使用日期']);
       if (d && t.cols['送貨組別'] !== undefined) setCell_(t, r._row, '送貨組別', deliveryGroup_(to.vendor, d.getDay(), vendorGroups));
     }
+  });
+}
+
+/** 其他訂單提交的同名新食材也一起結案，審核清單不會留下已經處理過的項目。 */
+function closeSamePending_(pend, row, origName, result) {
+  pend.rows.forEach(function (r) {
+    if (r._row === row || String(r['食材名稱']).trim() !== origName) return;
+    const s = String(r['審核狀態'] || '').trim();
+    if (!s || s === '待審核') setCell_(pend, r._row, '審核狀態', result);
   });
 }
 
