@@ -3079,8 +3079,10 @@ function nextWeekRange_() {
 }
 
 const GRAMS_ = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+// 合計時計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）
+const COUNT_UNITS_ = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
 function convertUnit_(qty, unit, vendor) {
-  if (!GRAMS_[unit]) return { qty: qty, unit: unit };
+  if (!GRAMS_[unit]) return { qty: qty, unit: COUNT_UNITS_[unit] || unit };
   const target = /^[AB]/.test(vendor || '') ? '斤' : '公斤';
   return { qty: Math.round(qty * GRAMS_[unit] / GRAMS_[target] * 100) / 100, unit: target };
 }

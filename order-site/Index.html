@@ -2086,10 +2086,11 @@
       var days = Object.keys(byVendor[vName]).sort();
       var body = days.map(function (dk) {
         var rows = Object.keys(byVendor[vName][dk]).sort().map(function (k) { return byVendor[vName][dk][k]; });
+        var mixed = mixedNames(rows);
         return '<div class="vendor-title" style="color:var(--text)">' + esc(batchLabel(dk)) + '</div>' +
           '<div class="tablewrap"><table class="sum-vt"><thead><tr><th>食材</th><th class="num">合計</th><th>明細（班級 數量）</th></tr></thead><tbody>' +
           rows.map(function (r) {
-            return '<tr><td>' + esc(r.name) + (r.pending ? ' <span class="badge warn">待審核</span>' : '') + '</td>' +
+            return '<tr><td>' + esc(r.name) + (r.pending ? ' <span class="badge warn">待審核</span>' : '') + unitBadges(r, mixed) + '</td>' +
               '<td class="num"><b>' + esc(fmtQty(r.qty)) + ' ' + esc(r.unit) + '</b></td>' +
               '<td class="sum-detail">' + r.detail.map(function (d) {
                 return '<div>' + esc(d.who) + '　<b>' + esc(d.qty) + '</b>' + (d.note ? '<span class="muted">（' + esc(d.note) + '）</span>' : '') + '</div>';
@@ -2418,8 +2419,10 @@
     }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
   });
   var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+  // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
+  var COUNT_UNITS = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
   function convertUnit(qty, unit, vendor) {
-    if (!GRAMS[unit]) return { qty: qty, unit: unit };
+    if (!GRAMS[unit]) return { qty: qty, unit: COUNT_UNITS[unit] || unit };
     var target = /^[AB]/.test(vendor || '') ? '斤' : '公斤';
     return { qty: Math.round(qty * GRAMS[unit] / GRAMS[target] * 100) / 100, unit: target };
   }
@@ -2965,11 +2968,14 @@
     pState = null;
     var kind = $('vKind').value, only = $('vVendor').value;
     var job = kind === 'purchase'
-      ? call('adminGetPurchase', token, from, to).then(function (rows) {
+      ? Promise.all([call('adminGetPurchase', token, from, to), call('adminGetOrders', token, from, to)]).then(function (res) {
+          var rows = res[0];
           purchaseCache = rows.filter(function (r) { return r.status !== '草稿'; });
           var drafts = rows.filter(function (r) { return r.status === '草稿' && (!only || r.vendor === only); })
             .map(function (r) { return r.vendor; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
-          vKeepMsg = drafts.length ? '<div class="msg warn">' + esc(drafts.join('、') + ' 還是草稿、沒有確定，所以不在叫貨單裡。請到「② 訂貨單」按「確定叫貨」。') + '</div>' : '';
+          var warn = staleText(purchaseCache, demandLines(res[1]), only, drafts);
+          vKeepMsg = (drafts.length ? '<div class="msg warn">' + esc(drafts.join('、') + ' 還是草稿、沒有確定，所以不在叫貨單裡。請到「② 訂貨單」按「確定叫貨」。') + '</div>' : '') +
+            (warn ? '<div class="msg error">' + esc(warn) + '</div>' : '');
           return purchaseCache.length ? purchaseSheets(purchaseCache, from, to, only) : '';
         })
       : kind === 'deduct'
@@ -3049,6 +3055,18 @@
     });
   }
   function blockOf(r) { return r.kind === '補庫存' ? '補庫存' : r.orderNo; }
+  // 合計提醒（只在畫面上，不印出來）：同一食材有幾種換算不了的單位、或用了配方單位（T、t、杯、ml…）
+  function mixedNames(list) {
+    var u = {};
+    list.forEach(function (t) { (u[t.name] = u[t.name] || {})[t.unit] = 1; });
+    var out = {};
+    Object.keys(u).forEach(function (n) { if (Object.keys(u[n]).length > 1) out[n] = 1; });
+    return out;
+  }
+  function unitBadges(t, mixed) {
+    return (mixed[t.name] ? ' <span class="badge warn noprint" title="同一食材用了換算不了的不同單位，合計分成好幾行，請一起看">不同單位</span>' : '') +
+      (data.recipeUnits.indexOf(t.unit) >= 0 ? ' <span class="badge warn noprint" title="T、t、杯、ml 是配方單位，廠商沒辦法照這個送">配方單位，請換算</span>' : '');
+  }
   // 合計（重量換算成同一種單位）：[{ name, unit, qty }]
   function sumLines(list, field, unitField) {
     var m = {}, keys = [];
@@ -3085,9 +3103,12 @@
           var list = sortLines(by[v][dk]);
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
             '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">現有庫存</th></tr></thead><tbody>' +
-            sumLines(list, 'need', 'needUnit').map(function (t) {
-              return '<tr><td>' + esc(t.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td><td></td></tr>';
-            }).join('') + '</tbody></table>' +
+            (function (tot) {
+              var mixed = mixedNames(tot);
+              return tot.map(function (t) {
+                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td><td></td></tr>';
+              }).join('');
+            })(sumLines(list, 'need', 'needUnit')) + '</tbody></table>' +
             blockTable(list, '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
               return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(r.need)) + ' ' + esc(r.needUnit) + '</td><td></td>';
             });
@@ -3108,9 +3129,12 @@
         Object.keys(by[v]).sort().map(function (dk) {
           var list = sortLines(by[v][dk]);
           return '<h3>' + esc(batchLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th></tr></thead><tbody>' +
-            sumLines(list, 'qty', 'unit').map(function (t) {
-              return '<tr><td>' + esc(t.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
-            }).join('') + '</tbody></table>' +
+            (function (tot) {
+              var mixed = mixedNames(tot);
+              return tot.map(function (t) {
+                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
+              }).join('');
+            })(sumLines(list, 'qty', 'unit')) + '</tbody></table>' +
             '<div class="muted small" style="margin:8px 0 4px">各班明細</div>' +
             blockTable(list, '<th>食材</th><th style="width:15%">叫貨</th><th style="width:22%">備註</th>', function (r) {
               return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(fmtQty(r.qty)) + ' ' + esc(r.unit) + '</td><td>' + esc(r.note) + '</td>';
@@ -3119,6 +3143,32 @@
     }).join('');
   }
   var purchaseCache = [];
+  // 叫貨單過期提醒：確定叫貨之後，老師又新增、修改或取消了訂單；或有廠商還沒確定
+  function staleText(saved, demand, only, drafts) {
+    var byV = {}, have = {}, done = {};
+    saved.forEach(function (r) { done[r.vendor] = 1; if (r.kind !== '補庫存' && r.orderNo) have[pKey(r)] = r; });
+    demand.forEach(function (d) {
+      if (only && d.vendor !== only) return;
+      var c = byV[d.vendor] = byV[d.vendor] || { add: 0, chg: 0, del: 0 };
+      var s = have[d.key];
+      if (!s) c.add++;
+      else { if (s.need !== d.need) c.chg++; delete have[d.key]; }
+    });
+    Object.keys(have).forEach(function (k) {
+      var r = have[k];
+      if (only && r.vendor !== only) return;
+      (byV[r.vendor] = byV[r.vendor] || { add: 0, chg: 0, del: 0 }).del++;
+    });
+    var changed = [], notYet = [];
+    Object.keys(byV).sort().forEach(function (v) {
+      var c = byV[v];
+      if (!done[v]) { if (drafts.indexOf(v) < 0) notYet.push(v); return; }
+      var parts = [c.add ? '新增 ' + c.add : '', c.chg ? '數量改了 ' + c.chg : '', c.del ? '取消 ' + c.del : ''].filter(Boolean);
+      if (parts.length) changed.push(v + '（' + parts.join('、') + ' 筆）');
+    });
+    return [changed.length ? '⚠ 確定叫貨之後訂單有變動：' + changed.join('、') + '。這張叫貨單是舊的，請到「② 訂貨單」看紅字、改好後再按一次「確定叫貨」。' : '',
+      notYet.length ? '⚠ 還沒確定叫貨：' + notYet.join('、') + '（不在這張叫貨單裡）。' : ''].filter(Boolean).join('\n');
+  }
   function purchaseText(v) {
     var by = byVendorBatch(purchaseCache.filter(function (r) { return r.qty > 0 && r.vendor === v; }));
     return Object.keys(by[v] || {}).sort().map(function (dk) {
@@ -3187,10 +3237,11 @@
     var need = sumLines(list, 'need', 'needUnit'), act = sumLines(list, 'qty', 'unit'), m = {}, keys = [];
     need.forEach(function (t) { var k = t.name + '|' + t.unit; m[k] = { name: t.name, unit: t.unit, need: t.qty, qty: 0 }; keys.push(k); });
     act.forEach(function (t) { var k = t.name + '|' + t.unit; if (!m[k]) { m[k] = { name: t.name, unit: t.unit, need: 0, qty: 0 }; keys.push(k); } m[k].qty = t.qty; });
+    var mixed = mixedNames(keys.map(function (k) { return m[k]; }));
     return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th></tr></thead><tbody>' +
       keys.sort().map(function (k) {
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
-        return '<tr' + cls + '><td>' + esc(t.name) + '</td><td class="num">' + (t.need ? esc(fmtQty(t.need)) + ' ' + esc(t.unit) : '—') + '</td><td class="num vq">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
+        return '<tr' + cls + '><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="num">' + (t.need ? esc(fmtQty(t.need)) + ' ' + esc(t.unit) : '—') + '</td><td class="num vq">' + esc(fmtQty(t.qty)) + ' ' + esc(t.unit) + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
   function vStateText(v) {
