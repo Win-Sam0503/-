@@ -753,7 +753,9 @@ function adminSetUnitActive(token, row, active) {
 }
 
 /** 讀「廠商設定」：{ 廠商: [星期代碼, ...] } */
+let VENDOR_GROUPS_CACHE_ = null;   // 同一次執行只讀一次
 function readVendorGroups_() {
+  if (VENDOR_GROUPS_CACHE_) return VENDOR_GROUPS_CACHE_;
   const map = {};
   try {
     readTable_(SHEET.vendors, ['廠商', '星期代碼']).rows.forEach(function (r) {
@@ -764,7 +766,9 @@ function readVendorGroups_() {
     });
   } catch (e) {
     console.error(e.message);
+    return map;   // 讀不到時不快取，下次再試
   }
+  VENDOR_GROUPS_CACHE_ = map;
   return map;
 }
 
@@ -775,14 +779,17 @@ function orderVendor_(vendor, dept) {
   return BAKING_DEPTS.indexOf(String(dept || '').trim()) >= 0 ? split.baking : split.other;
 }
 
-/** 依上課日期的星期決定送貨組別；廠商設定沒有列的廠商，週一二為「一二」、週三四五為「三四五」。 */
+/**
+ * 依上課日期的星期決定送貨組別，照「廠商設定」分頁（目前菜商、肉商、海鮮分一二／三四五）。
+ * 廠商設定沒有列的廠商不分組別（回傳空白），進貨單一週合在一起。
+ */
 function deliveryGroup_(vendor, dow, vendorGroups) {
   const ch = WEEKDAY[dow];
-  const codes = vendorGroups[vendor] || [];
+  const codes = vendorGroups[String(vendor || '').trim()] || [];
   for (let i = 0; i < codes.length; i++) {
     if (codes[i].indexOf(ch) >= 0) return codes[i];
   }
-  return dow <= 2 ? '一二' : '三四五';
+  return '';
 }
 
 function nextOrderNo_() {
@@ -3238,6 +3245,12 @@ function escHtml_(s) {
 function groupOrders_(rows, account) {
   const map = {};
   const list = [];
+  const vendorGroups = readVendorGroups_();
+  // 舊訂單可能所有廠商都寫了送貨組別；廠商設定沒有分組別的廠商一律不分
+  const groupOf = function (r) {
+    const v = String(r['廠商'] || '').trim();
+    return vendorGroups[v] ? String(r['送貨組別'] || '') : '';
+  };
   rows.forEach(function (r) {
     const no = String(r['訂單編號']).trim();
     if (!no) return;
@@ -3264,7 +3277,7 @@ function groupOrders_(rows, account) {
       id: String(r['食材ID'] || ''),
       name: String(r['食材名稱'] || ''),
       vendor: String(r['廠商'] || ''),
-      group: String(r['送貨組別'] || ''),
+      group: groupOf(r),
       qty: Number(r['數量']) || 0,
       unit: String(r['單位'] || ''),
       note: String(r['備註'] || ''),
