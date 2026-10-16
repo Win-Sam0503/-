@@ -3216,6 +3216,12 @@ function convertUnit_(qty, unit, vendor, name) {
   const target = /^[AB]/.test(vendor || '') ? '兩' : '公斤';
   return { qty: Math.round(qty * GRAMS_[unit] / GRAMS_[target] * 100) / 100, unit: target };
 }
+/** 給廠商的明細（單筆）：菜商、肉商的重量換成斤兩、雞蛋的克換成顆，其他照老師原本的單位 */
+function vendorLineQty_(qty, unit, vendor, name) {
+  const cv = convertUnit_(Number(qty), unit, vendor, name);
+  if (cv.unit === '兩' || (cv.unit === '顆' && isEgg_(name) && GRAMS_[unit])) return totalText_(cv.qty, cv.unit, name);
+  return { qty: qty, unit: unit };
+}
 /** 合計顯示：{ qty, unit }；兩無條件進位到整兩、滿 16 兩進成斤，雞蛋進位到整顆 */
 function totalText_(qty, unit, name) {
   if (unit === '兩') {
@@ -3246,7 +3252,8 @@ function vendorBook_(orders) {
       const k = it.name + '|' + cv.unit;
       v.totals[k] = v.totals[k] || { name: it.name, unit: cv.unit, qty: 0 };
       v.totals[k].qty = Math.round((v.totals[k].qty + cv.qty) * 100) / 100;
-      const line = [o.useDate, it.group, o.className, it.name, it.qty, it.unit, o.onBehalfOf || o.teacher, it.note];
+      const lq = vendorLineQty_(it.qty, it.unit, it.vendor, it.name);
+      const line = [o.useDate, it.group, o.className, it.name, lq.qty, lq.unit, o.onBehalfOf || o.teacher, it.note];
       line.block = [o.useDate, o.className, o.orderNo, it.group].join('|');   // 同一張訂單、同一送貨組別 = 明細合併成一塊
       v.lines.push(line);
     });
