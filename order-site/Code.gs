@@ -94,12 +94,15 @@ const SHEET = {
   edits: '修改紀錄',
   guoji: '國技排班',
   purchase: '叫貨紀錄',
+  prints: '列印紀錄',
 };
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
 const GUOJI_HEADERS = ['日期', '時段', '班級', '核心主題', '實作名稱', '老師', '教室', '備註', '需要訂貨', '匯入時間'];
 const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
+// 列印紀錄：管理者在訂單彙整印過的料單，每張訂單一列（最後一次列印）
+const PRINT_HEADERS = ['訂單編號', '列印時間', '列印人'];
 const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
 const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
 const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
@@ -905,9 +908,53 @@ function adminGetOrders(token, from, to) {
   const list = groupOrders_(rows, null).sort(function (a, b) {
     return a.useDate === b.useDate ? (a.orderNo < b.orderNo ? -1 : 1) : (a.useDate < b.useDate ? -1 : 1);
   });
-  const edits = orderEditsFor_(list.map(function (o) { return o.orderNo; }));
-  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; });
+  const nos = list.map(function (o) { return o.orderNo; });
+  const edits = orderEditsFor_(nos), printed = printedFor_(nos);
+  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; });
   return list;
+}
+
+/** 這些訂單最後一次在訂單彙整列印的時間和列印人：{ 訂單編號: { time, who } } */
+function printedFor_(orderNos) {
+  const out = {};
+  const sh = ss_().getSheetByName(SHEET.prints);
+  if (!sh || sh.getLastRow() < 2 || !orderNos.length) return out;
+  const want = {};
+  orderNos.forEach(function (n) { want[n] = true; });
+  readTable_(SHEET.prints, ['訂單編號', '列印時間']).rows.forEach(function (r) {
+    const no = String(r['訂單編號']).trim();
+    if (want[no]) out[no] = { time: fmtDateTime_(r['列印時間']), who: String(r['列印人'] || '') };
+  });
+  return out;
+}
+
+/** 管理者在訂單彙整按了列印：記下這幾張訂單的列印時間（同一張只留最後一次） */
+function adminMarkPrinted(token, orderNos) {
+  const admin = auth_(token, true);
+  const nos = (Array.isArray(orderNos) ? orderNos : []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+  if (!nos.length) return {};
+  if (nos.length > 500) throw new Error('一次最多記錄 500 張。');
+  const now = new Date();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.prints, PRINT_HEADERS);
+    const t = readTable_(SHEET.prints, ['訂單編號']);
+    const at = {};
+    t.rows.forEach(function (r) { at[String(r['訂單編號']).trim()] = r._row; });
+    const add = [];
+    nos.forEach(function (no) {
+      if (at[no]) { setCell_(t, at[no], '列印時間', now); setCell_(t, at[no], '列印人', admin); }
+      else { add.push({ '訂單編號': no, '列印時間': now, '列印人': admin }); at[no] = -1; }
+    });
+    if (add.length) appendRows_(SHEET.prints, add, { '列印時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  const out = {};
+  nos.forEach(function (no) { out[no] = { time: fmtDateTime_(now), who: admin }; });
+  return out;
 }
 
 /** 管理者改上課資訊：{ className, room, project, groups }，只改有給的欄位。沒有要改的回傳 null。 */

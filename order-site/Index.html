@@ -283,6 +283,8 @@
   .edit-info { display: grid; grid-template-columns: 1fr 1fr 2fr 80px; gap: 8px; margin: 8px 0 10px; }
   @media (max-width: 640px) { .edit-info { grid-template-columns: 1fr 1fr; } }
   .badge.edited { background: #fff4e5; color: #b45309; }
+  .badge.unprinted { background: #fee4e2; color: #b42318; font-weight: 700; }
+  .badge.printed { background: #ecfdf3; color: #067647; }
   .edit-log { margin-top: 8px; border: 1px solid #f5d9b0; background: #fffaf2; border-radius: 10px; padding: 6px 12px; }
   .edit-log summary { cursor: pointer; color: #b45309; font-weight: 600; }
   .edit-log ul { margin: 6px 0 2px; padding-left: 18px; }
@@ -992,6 +994,8 @@
   });
 
   $('logoutBtn').addEventListener('click', function () {
+    var unp = data && data.isAdmin && !$('viewSummary').classList.contains('hidden') ? unprintedList() : [];
+    if (unp.length && !safeConfirm('⚠ 尚未列印此料單\n這段期間還有 ' + unp.length + ' 張已審核的料單還沒列印，確定要登出？')) return;
     saveDraft();
     var t = token;
     showLogin('');
@@ -1108,13 +1112,28 @@
     }
   }
 
+  // 離開訂單彙整時，還有已審核但沒列印的料單就提醒
+  function leaveTo(view) {
+    var unp = view !== 'viewSummary' && view !== 'viewPrint' && !$('viewSummary').classList.contains('hidden') ? unprintedList() : [];
+    if (!unp.length) { show(view); return; }
+    ask('', '先去列印', { noText: '不印，離開', html: '<div style="font-weight:700;font-size:18px;margin-bottom:6px">⚠ 尚未列印此料單</div>' +
+      '<div>這段期間還有 <b>' + unp.length + '</b> 張已審核的料單還沒列印：</div><ul class="small" style="margin:6px 0 0;padding-left:20px;max-height:40vh;overflow:auto">' +
+      unp.map(function (o) { return '<li>' + esc(shortDate(o.useDate) + ' ' + o.className + ' ' + teacherOf(o) + '「' + o.project + '」') + (printState(o) === 'old' ? '（印過舊版）' : '') + '</li>'; }).join('') + '</ul>' })
+      .then(function (ok) {
+        if (ok) printOrders(unp, 'viewSummary', '尚未列印的料單 ');
+        else show(view);
+      });
+  }
   $('nav').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-view]');
-    if (b) show(b.getAttribute('data-view'));
+    if (b) leaveTo(b.getAttribute('data-view'));
   });
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-goto]');
-    if (b) show(b.getAttribute('data-goto'));
+    if (b) leaveTo(b.getAttribute('data-goto'));
+  });
+  window.addEventListener('beforeunload', function (e) {
+    if (data && data.isAdmin && !$('viewSummary').classList.contains('hidden') && unprintedList().length) { e.preventDefault(); e.returnValue = ''; }
   });
 
   // ------------------------------------------------------------------
@@ -1927,7 +1946,7 @@
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
-        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + statusBadge(o.status) + '</span></div>' +
+        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
@@ -2052,7 +2071,26 @@
   var EDITED = '__edited';   // 「訂單狀態」選單裡的「有修改紀錄」
   // 一鍵列印：已審核＝已審核、已叫貨、已到貨；未審核＝待處理。照上課日期、班級排序
   var sumBase = [];
+  // 料單列印狀態：'' 不用印（已取消）、'no' 還沒印、'old' 印過但之後有修改、'ok' 已印
+  function printState(o) {
+    if (o.status === '已取消') return '';
+    if (!o.printed) return 'no';
+    var e = o.edits && o.edits.length ? o.edits[o.edits.length - 1].time : '';
+    return e && e > o.printed.time ? 'old' : 'ok';
+  }
+  function printBadge(o) {
+    var st = printState(o);
+    if (st === 'no') return '<span class="badge' + (o.status === '待處理' ? '' : ' unprinted') + '">尚未列印</span> ';
+    if (st === 'old') return '<span class="badge unprinted" title="上次列印 ' + esc(o.printed.time) + '，之後訂單有修改">尚未列印（印過舊版）</span> ';
+    if (st === 'ok') return '<span class="badge printed" title="' + esc(o.printed.who) + ' 列印">已列印 ' + esc(o.printed.time.slice(5)) + '</span> ';
+    return '';
+  }
+  // 已審核（含已叫貨、已到貨）但還沒列印的料單
+  function unprintedList() {
+    return bulkList(sumCache, 'ok').filter(function (o) { return printState(o) !== 'ok'; });
+  }
   function bulkList(base, kind) {
+    if (kind === 'unprinted') return unprintedList();
     return base.filter(function (o) {
       return kind === 'wait' ? o.status === '待處理' : ['已審核', '已叫貨', '已到貨'].indexOf(o.status) >= 0;
     }).sort(function (a, b) {
@@ -2165,6 +2203,9 @@
     var bulk = '<div class="actions" style="justify-content:flex-start;margin-top:10px">' +
       '<button type="button" class="btn secondary small" data-bulk="ok"' + (nOk ? '' : ' disabled') + '>🖨 一鍵列印：已審核（' + nOk + ' 張）</button>' +
       '<button type="button" class="btn ghost small" data-bulk="wait"' + (nWait ? '' : ' disabled') + '>🖨 一鍵列印：未審核（' + nWait + ' 張）</button></div>';
+    var unp = unprintedList();
+    if (unp.length) bulk += '<div class="msg error" style="margin-top:10px">⚠ 這段期間還有 <b>' + unp.length + '</b> 張已審核的料單尚未列印。' +
+      ' <button type="button" class="btn small" data-bulk="unprinted">🖨 列印尚未列印的（' + unp.length + ' 張）</button></div>';
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st === EDITED ? '有修改紀錄' : st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + bulk + '</div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
@@ -2173,7 +2214,7 @@
     var bk = e.target.closest('button[data-bulk]');
     if (bk) {
       var kind = bk.getAttribute('data-bulk');
-      printOrders(bulkList(sumBase, kind), 'viewSummary', kind === 'ok' ? '已審核訂單 ' : '未審核訂單 ');
+      printOrders(bulkList(sumBase, kind), 'viewSummary', kind === 'ok' ? '已審核訂單 ' : kind === 'unprinted' ? '尚未列印的料單 ' : '未審核訂單 ');
       return;
     }
     var b = e.target.closest('button[data-act]');
@@ -2774,7 +2815,20 @@
     show('viewPrint');
   }
   $('pFormat').addEventListener('change', renderPrint);
-  $('pPrint').addEventListener('click', function () { window.print(); });
+  // 從訂單彙整印料單：記下列印時間（按「列印」或 Ctrl+P 都算）
+  var markingPrint = false;
+  function markPrinted() {
+    if (markingPrint || !data || !data.isAdmin || printBack !== 'viewSummary' || $('viewPrint').classList.contains('hidden') || !printing.length) return;
+    markingPrint = true;
+    setTimeout(function () { markingPrint = false; }, 3000);
+    var nos = printing.map(function (o) { return o.orderNo; });
+    call('adminMarkPrinted', token, nos).then(function (r) {
+      sumCache.forEach(function (o) { if (r[o.orderNo]) o.printed = r[o.orderNo]; });
+      renderSummary();
+    }).catch(function (err) { notice('列印紀錄沒有存到：' + err.message); });
+  }
+  window.addEventListener('beforeprint', markPrinted);
+  $('pPrint').addEventListener('click', function () { markPrinted(); window.print(); });
   $('pBack').addEventListener('click', function () {
     // 從「我的訂單」來的就不重新載入；從「送出成功」來的要載入
     keepMine = printBack === 'viewMine' && $('mineList').children.length > 0;
