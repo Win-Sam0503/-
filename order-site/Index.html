@@ -2440,10 +2440,20 @@
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));
       else msg('pendMsg', list.length ? '' : 'ok', list.length ? '' : '目前沒有待審核的食材。');
+      var firstOrphan = true;
       $('pendList').innerHTML = list.map(function (p) {
-        return '<div class="pending-card" data-row="' + p.row + '">' +
+        var head = '';
+        if (p.orphan && firstOrphan) {
+          firstOrphan = false;
+          head = '<div class="panel" style="padding:12px 16px;margin-top:18px"><h2 style="margin:0;font-size:17px">訂單裡還是「待審核」的食材</h2>' +
+            '<div class="muted small">這些食材之前退回過或重複送審，但訂單裡還沒換成正式食材，廠商訂貨單的合計會分成兩項。請「對應既有食材」或「核准」，所有訂單會一起更新；真的不要的話，請到訂單彙整用「修改明細」取消那一項。</div></div>';
+        }
+        return head + '<div class="pending-card" data-row="' + p.row + '" data-name="' + esc(p.name) + '">' +
           '<div class="head" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>' + esc(p.name) + '</b>' +
-          '<span class="muted small">' + esc(p.teacher) + '・' + esc(p.time) + '・訂單 ' + esc(p.orderNo) + '</span></div>' +
+          '<span class="muted small">' + esc(p.teacher) + (p.time ? '・' + esc(p.time) : '') + '・' +
+            (p.orders > 1 ? '<b style="color:var(--brand)">' + p.orders + ' 張訂單</b>' : '訂單') + ' ' + esc(p.orderNo) +
+            (p.lines ? '・訂單裡 ' + p.lines + ' 筆' : '') + '</span></div>' +
+          (p.orders > 1 ? '<div class="msg info" style="margin:6px 0">審核一次，這 ' + p.orders + ' 張訂單裡的「' + esc(p.name) + '」會一起更新。</div>' : '') +
           '<div class="grid2">' +
             '<div><label>正式名稱</label><input type="text" data-f="name" maxlength="40" value="' + esc(p.name) + '"></div>' +
             '<div><label>廠商</label><select data-f="vendor">' + data.vendors.map(function (v) {
@@ -2453,7 +2463,7 @@
             '<div class="wide" style="grid-column:1/-1"><label>或對應到既有食材（輸入名稱搜尋）</label><input type="text" data-f="existing" list="itemList" placeholder="例：I0007 青蔥"></div>' +
           '</div>' +
           '<div class="actions">' +
-            '<button type="button" class="btn danger small" data-act="reject">退回</button>' +
+            (p.orphan ? '' : '<button type="button" class="btn danger small" data-act="reject">退回</button>') +
             '<button type="button" class="btn secondary small" data-act="map">對應既有食材</button>' +
             '<button type="button" class="btn small" data-act="approve">核准並加入食材總表</button>' +
           '</div></div>';
@@ -2473,9 +2483,9 @@
       if (!id || !itemById[id]) { notice('請從清單選擇既有食材。'); return; }
       edits.existingId = id;
     }
-    if (act === 'reject' && !safeConfirm('確定退回「' + val('name') + '」？訂單中的這項食材會保持「待審核」。')) return;
+    if (act === 'reject' && !safeConfirm('確定退回「' + val('name') + '」？\n退回不會改訂單：訂單裡的這項食材還是「待審核」，會移到下面「訂單裡還是待審核的食材」，之後還是要對應或請老師修改。\n如果只是重複送審，請改按「對應既有食材」或「核准」。')) return;
     setBusy(b, true);
-    call('adminReviewItem', token, Number(card.getAttribute('data-row')), act, edits).then(function (res) {
+    call('adminReviewItem', token, Number(card.getAttribute('data-row')), act, edits, card.getAttribute('data-name')).then(function (res) {
       var note = '「' + edits.name + '」' + res + '。';
       if (act === 'approve') {
         // 重新載入食材，讓新食材馬上可以被搜尋到
