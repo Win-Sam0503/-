@@ -2363,7 +2363,7 @@ function withHistory_(rows, since) {
 
 // ---- 檔案匯入：Excel、Word、照片（OCR）→ 表格與文字 ----
 //
-// 需要在 Apps Script 編輯器左邊「服務 ＋」加入「Drive API」。
+// 有開「Drive API」服務就用它；沒開也可以（直接呼叫 Drive 網路 API）。
 // 檔案先轉成 Google 試算表／文件讀內容，讀完立刻刪掉，不會留在雲端硬碟。
 
 const IMPORT_TYPES_ = {
@@ -2381,9 +2381,6 @@ function importFile(token, file) {
   if (!kind) throw new Error('不支援這種檔案。請上傳 Excel（.xlsx）、Word（.docx）、照片或 PDF。');
   const bytes = Utilities.base64Decode(String(file.data));
   if (bytes.length > IMPORT_MAX_MB * 1024 * 1024) throw new Error('檔案太大（上限 ' + IMPORT_MAX_MB + ' MB）。');
-  if (typeof Drive === 'undefined') {
-    throw new Error('伺服器還沒開啟「Drive API」服務。請管理者到 Apps Script 編輯器左邊「服務 ＋」加入 Drive API，再重新部署。');
-  }
   const blob = Utilities.newBlob(bytes, file.mimeType || 'application/octet-stream', name);
   const target = kind === 'sheet' ? MimeType.GOOGLE_SHEETS : MimeType.GOOGLE_DOCS;
   const id = convertFile_(blob, name, target, kind === 'ocr');
@@ -2397,6 +2394,7 @@ function importFile(token, file) {
 /** 用 Drive API 把檔案轉成 Google 格式（照片／PDF 會做文字辨識），回傳新檔案 ID。 */
 function convertFile_(blob, name, targetMime, ocr) {
   return retry_(function () {
+    if (typeof Drive === 'undefined') return convertViaRest_(blob, name, targetMime, ocr);   // 沒開「Drive API」服務：直接呼叫 Drive 網路 API
     if (Drive.Files.create) {   // Drive API v3
       const f = Drive.Files.create({ name: '[匯入暫存] ' + name, mimeType: targetMime }, blob, ocr ? { ocrLanguage: 'zh-TW' } : {});
       return f.id;
@@ -2405,6 +2403,29 @@ function convertFile_(blob, name, targetMime, ocr) {
       ocr ? { ocr: true, ocrLanguage: 'zh-TW', convert: true } : { convert: true });
     return f.id;
   });
+}
+
+/** 不用進階服務，直接用 Drive API v3 上傳並轉檔（權限跟 DriveApp 一樣） */
+function convertViaRest_(blob, name, targetMime, ocr) {
+  const boundary = 'import' + Date.now();
+  const meta = JSON.stringify({ name: '[匯入暫存] ' + name, mimeType: targetMime });
+  const head = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
+    '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.getContentType() || 'application/octet-stream') + '\r\n\r\n').getBytes();
+  const tail = Utilities.newBlob('\r\n--' + boundary + '--').getBytes();
+  const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id' + (ocr ? '&ocrLanguage=zh-TW' : ''), {
+    method: 'post',
+    contentType: 'multipart/related; boundary=' + boundary,
+    payload: head.concat(blob.getBytes(), tail),
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code >= 300) {
+    let m = '';
+    try { m = JSON.parse(res.getContentText()).error.message; } catch (e) { m = res.getContentText().slice(0, 200); }
+    throw new Error('檔案轉換失敗（' + code + '）：' + m);
+  }
+  return JSON.parse(res.getContentText()).id;
 }
 
 function readConvertedSheet_(id) {
