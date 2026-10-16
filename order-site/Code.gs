@@ -2815,6 +2815,53 @@ function adminUpdateSchedule(token, row, expect, action, fields, as) {
   return getMyLessons(token, as);
 }
 
+/** 管理者：總課表（「課表」分頁全部的課，含已取消的），依教室 × 星期 × 時段排成格子 */
+function adminGetSchedule(token) {
+  auth_(token, true);
+  const sh = ss_().getSheetByName(SHEET.schedule);
+  const rows = !sh || sh.getLastRow() < 2 ? [] : readTable_(SHEET.schedule, ['星期', '時段', '老師']).rows.map(scheduleRowOut_);
+  const accounts = {};
+  readTable_(SHEET.accounts, ['帳號']).rows.forEach(function (r) { accounts[String(r['帳號']).trim()] = true; });
+  rows.forEach(function (x) { x.noAccount = !!x.teacher && !accounts[x.teacher]; });
+  return { rows: rows };
+}
+
+/**
+ * 管理者在總課表上改一堂課：fields 是新的內容，fields.need = false 是永久取消、true 是上課中。
+ * expect 跟 adminUpdateSchedule 一樣，別人改過就不改。
+ */
+function adminGridSchedule(token, row, expect, fields) {
+  const admin = auth_(token, true);
+  const set = scheduleFields_(fields);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.schedule, ['星期', '時段', '老師']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    const cur = r ? scheduleRowOut_(r) : null;
+    if (!cur || !expect || cur.weekday !== expect.weekday || cur.session !== expect.session || cur.teacher !== expect.teacher) {
+      throw new Error('課表已經被改過，請重新整理再試一次。');
+    }
+    let note = fields.note === undefined ? cur.note : clean_(fields.note, 100);
+    const need = fields.need === undefined ? cur.need : !!fields.need;
+    if (cur.need && !need) {
+      note = (admin + ' ' + Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd') + ' 取消' + (note ? '；' + note : '')).slice(0, 100);
+    } else if (!cur.need && need) {
+      note = note.replace(/^\S+ \d{4}\/\d{2}\/\d{2} 取消；?/, '');
+    }
+    set['需要訂貨'] = need;
+    set['備註'] = note;
+    Object.keys(set).forEach(function (k) {
+      if (t.cols[k] === undefined) throw new Error('「課表」分頁缺少「' + k + '」欄位。');
+      setCell_(t, r._row, k, set[k]);
+    });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return adminGetSchedule(token);
+}
+
 /** 管理者在「課表」分頁新增一堂課 */
 function adminAddSchedule(token, fields, as) {
   auth_(token, true);
