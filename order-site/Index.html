@@ -3104,6 +3104,28 @@
   // ------------------------------------------------------------------
   // 管理者：廠商訂貨單（每家廠商一頁：食材合計＋各班明細）
   // ------------------------------------------------------------------
+  // 產生扣貨單／訂貨單／叫貨單前：這段期間（這家廠商）還有「待審核」的食材就先跳出警示
+  function pendingGate(orders, only, kind) {
+    var list = [];
+    orders.forEach(function (o) {
+      if (o.status === '已取消') return;
+      o.items.forEach(function (it) {
+        if (it.id !== '待審核' || it.status === '已取消' || it.noOrder || (only && it.vendor !== only)) return;
+        list.push({ name: it.name, vendor: it.vendor, qty: fmtQty(it.qty) + ' ' + it.unit, who: shortDate(o.useDate) + ' ' + (o.className || '') + ' ' + (o.onBehalfOf || o.teacher) });
+      });
+    });
+    if (!list.length) return Promise.resolve(true);
+    var what = { deduct: '扣貨單', order: '訂貨單', purchase: '叫貨單' }[kind] || '叫貨單';
+    return ask('', '先去審核', { noText: '仍要產生' + what, html:
+      '<div style="font-weight:700;font-size:18px;color:var(--bad);margin-bottom:6px">⚠ 尚有未審核食材</div>' +
+      '<div style="text-align:left">這段期間有 <b>' + list.length + '</b> 項食材還沒審核。它們目前照老師選的廠商算進' + what + '，如果廠商選錯或名稱跟既有食材不同，叫貨數量可能會錯：</div>' +
+      '<ul class="small" style="text-align:left;margin:6px 0 0;padding-left:20px;max-height:40vh;overflow:auto">' + list.map(function (x) {
+        return '<li><b>' + esc(x.name) + '</b> ' + esc(x.qty) + '（' + esc(x.vendor) + '）<span class="muted">　' + esc(x.who) + '</span></li>';
+      }).join('') + '</ul>' }).then(function (ok) {
+      if (ok) { show('viewPending'); return false; }
+      return true;
+    });
+  }
   $('vLoad').addEventListener('click', function () {
     var from = $('vFrom').value, to = $('vTo').value || from;
     if (!from) { msg('vendorMsg', 'error', '請選擇日期。'); return; }
@@ -3117,24 +3139,28 @@
         !safeConfirm('訂貨單有修改還沒儲存，重新產生會不見。確定要繼續？')) { setBusy(btn, false); msg('vendorMsg', '', ''); return; }
     pState = null;
     var kind = $('vKind').value, only = $('vVendor').value;
-    var job = kind === 'purchase'
-      ? Promise.all([call('adminGetPurchase', token, from, to), call('adminGetOrders', token, from, to)]).then(function (res) {
-          var rows = res[0];
-          purchaseCache = rows.filter(function (r) { return r.status !== '草稿'; });
-          var drafts = rows.filter(function (r) { return r.status === '草稿' && (!only || r.vendor === only); })
-            .map(function (r) { return r.vendor; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
-          var warn = staleText(purchaseCache, demandLines(res[1]), only, drafts);
-          vKeepMsg = (drafts.length ? '<div class="msg warn">' + esc(drafts.join('、') + ' 還是草稿、沒有確定，所以不在叫貨單裡。請到「② 訂貨單」按「確定叫貨」。') + '</div>' : '') +
-            (warn ? '<div class="msg error">' + esc(warn) + '</div>' : '');
-          return purchaseCache.length ? purchaseSheets(purchaseCache, from, to, only) : '';
-        })
-      : kind === 'deduct'
-        ? call('adminGetOrders', token, from, to).then(function (list) { return deductSheets(demandLines(list), from, to, only); })
-        : Promise.all([call('adminGetOrders', token, from, to), call('adminGetPurchase', token, from, to)]).then(function (res) {
-            openPurchase(from, to, res[0], res[1], only);
-            return pState.rows.some(function (r) { return !only || r.vendor === only; }) ? $('vendorSheets').innerHTML : '';
-          });
+    var fetch = kind === 'deduct' ? Promise.all([call('adminGetOrders', token, from, to)])
+      : Promise.all([call('adminGetOrders', token, from, to), call('adminGetPurchase', token, from, to)]);
+    var job = fetch.then(function (res) {
+      var orders = res[0], pur = res[1];
+      return pendingGate(orders, only, kind).then(function (go) {
+        if (!go) return null;
+        if (kind === 'deduct') return deductSheets(demandLines(orders), from, to, only);
+        if (kind === 'order') {
+          openPurchase(from, to, orders, pur, only);
+          return pState.rows.some(function (r) { return !only || r.vendor === only; }) ? $('vendorSheets').innerHTML : '';
+        }
+        purchaseCache = pur.filter(function (r) { return r.status !== '草稿'; });
+        var drafts = pur.filter(function (r) { return r.status === '草稿' && (!only || r.vendor === only); })
+          .map(function (r) { return r.vendor; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
+        var warn = staleText(purchaseCache, demandLines(orders), only, drafts);
+        vKeepMsg = (drafts.length ? '<div class="msg warn">' + esc(drafts.join('、') + ' 還是草稿、沒有確定，所以不在叫貨單裡。請到「② 訂貨單」按「確定叫貨」。') + '</div>' : '') +
+          (warn ? '<div class="msg error">' + esc(warn) + '</div>' : '');
+        return purchaseCache.length ? purchaseSheets(purchaseCache, from, to, only) : '';
+      });
+    });
     job.then(function (html) {
+      if (html === null) { pState = null; msg('vendorMsg', 'warn', '還有未審核的食材，已先停止產生。審核完再回來按「產生」。'); return; }
       if (kind !== 'order' || !html) $('vendorSheets').innerHTML = html;
       if (kind === 'order' && !html) pState = null;
       if (vKeepMsg) { $('vendorMsg').innerHTML = vKeepMsg; vKeepMsg = ''; } else msg('vendorMsg', html ? '' : 'info', html ? '' : kind === 'purchase' ? '這段期間還沒有確定的叫貨，請先到「② 訂貨單」改好數量後按「確定叫貨」。' : '這段期間沒有需要叫貨的品項。');
