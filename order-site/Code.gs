@@ -2223,8 +2223,15 @@ function gas_(method, path, body) {
   if (code >= 300) {
     let m = '';
     try { m = JSON.parse(text).error.message; } catch (e) { m = text.slice(0, 300); }
-    if (/has not been used|is disabled|not enabled the Apps Script API/i.test(m)) {
+    if (/not enabled the Apps Script API/i.test(m)) {
       throw new Error('還沒打開「Google Apps Script API」：請用電腦到 script.google.com/home/usersettings 打開，等幾分鐘再試。');
+    }
+    if (/has not been used in project|is disabled/i.test(m)) {
+      const link = (m.match(/https:\/\/console\.\S+?(?=[\s.]*$|\s)/) || [])[0] || '';
+      const proj = (m.match(/project (\d+)/) || [])[1] || '';
+      throw new Error('個人設定的 Apps Script API 已開啟，但這個程式所屬的 Google Cloud 專案' + (proj ? '（' + proj + '）' : '') +
+        '還沒啟用 Apps Script API。請用電腦打開：' + (link || 'https://console.cloud.google.com/apis/library/script.googleapis.com' + (proj ? '?project=' + proj : '')) +
+        ' 按「啟用」，等 5 分鐘再試。打不開或沒有權限時，要把 Apps Script 換到自己的 Google Cloud 專案（見說明）。');
     }
     if (code === 403) throw new Error('程式沒有「管理 Apps Script 專案」的權限：請用電腦貼上新的 appsscript.json，再執行一次授權。（' + m + '）');
     throw new Error(m || ('Apps Script API 錯誤（' + code + '）'));
