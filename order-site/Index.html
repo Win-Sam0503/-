@@ -327,7 +327,18 @@
   .status-chips button.on { border-color: var(--brand); color: var(--brand); font-weight: 700; }
   .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
   .login .copyright { padding: 16px 0 0; text-align: left; border-top: 1px solid var(--line); margin-top: 16px; }
-  #nav.forced button:not(#logoutBtn) { display: none; }
+  #nav.forced button:not(#logoutBtn):not(#helpBtn) { display: none; }
+  .login-top { max-width: 380px; margin: 0 auto; text-align: right; }
+  .help-btn { border: 1px solid var(--brand); background: #fff; color: var(--brand); border-radius: 999px; padding: 6px 14px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .help-btn:hover, .help-btn:focus-visible { background: var(--brand); color: #fff; outline: none; }
+  .help-card { background: #fff; border-radius: 14px; padding: 14px 16px 16px; width: 100%; max-width: 760px; max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  .help-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 18px; }
+  .help-group { margin: 12px 0 4px; font-weight: 700; color: var(--brand); }
+  .help-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .help-item .t { font-weight: 600; }
+  .help-item .v { display: flex; gap: 6px; flex-wrap: wrap; }
+  .help-player { position: relative; width: 100%; background: #000; border-radius: 10px; overflow: hidden; margin: 6px 0 8px; }
+  .help-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .pw-form { max-width: 440px; margin: 0 auto; }
   .pw-form .field { margin-bottom: 12px; }
   #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
@@ -444,6 +455,7 @@
 
 <!-- 登入 -->
 <section id="viewLogin" class="wrap" style="padding:16px">
+  <div class="login-top"><button type="button" class="help-btn" data-help>▶ 教學影片</button></div>
   <form id="loginForm" class="panel login" novalidate>
     <h1>三信家商餐飲科訂貨系統</h1>
     <p class="muted">請用老師帳號登入</p>
@@ -469,6 +481,7 @@
         <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewPassword">改密碼</button>
+        <button type="button" id="helpBtn" data-help title="怎麼操作？看教學影片">▶ 教學</button>
         <button type="button" id="logoutBtn">登出</button>
       </nav>
     </div>
@@ -811,6 +824,12 @@
 <div id="askBox" class="ask-back hidden" role="dialog" aria-modal="true">
   <div class="ask-card"><div id="askText"></div>
     <div class="actions"><button type="button" class="btn ghost" id="askNo">取消</button><button type="button" class="btn" id="askYes">確定</button></div></div>
+</div>
+<div id="helpBox" class="ask-back hidden" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="help-card">
+    <div class="help-head"><b id="helpTitle">教學影片</b><button type="button" class="btn ghost small" id="helpClose" aria-label="關閉">✕ 關閉</button></div>
+    <div id="helpBody"></div>
+  </div>
 </div>
 <div id="toast" class="toast hidden" role="alert"></div>
 <datalist id="itemList"></datalist>
@@ -5115,6 +5134,67 @@
     });
     setTimeout(function () { var el = document.querySelector('#gridForm [data-sf="teacher"]'); if (el) el.focus(); }, 50);
   });
+
+  // ------------------------------------------------------------------
+  // 教學影片（登入頁右上角、上方選單的「▶ 教學」）：影片在雲端硬碟「訂貨系統教學影片」資料夾
+  // ------------------------------------------------------------------
+  var helpData = null;
+  function helpParse(v) {
+    var m = v.name.match(/^(老師|管理者)教學\s*(\d+)?[_＿ ]?(.*?)(?:[_＿ ](電腦版|手機版))?$/);
+    var who = m ? m[1] : '其他', no = m && m[2] ? Number(m[2]) : 99, title = m ? m[3] : v.name, form = m && m[4] ? m[4] : '';
+    return { id: v.id, who: who, no: no, title: (title || v.name).replace(/[_＿]/g, ' '), form: form, shared: v.shared !== false, raw: v.name };
+  }
+  function openHelp(refresh) {
+    $('helpBox').classList.remove('hidden');
+    $('helpBody').innerHTML = '<div class="muted">載入中…</div>';
+    call('getHelpVideos', token || '', !!refresh).then(function (r) { helpData = r; renderHelp(); })
+      .catch(function (err) { $('helpBody').innerHTML = '<div class="msg error">' + esc(err.message) + '</div>'; });
+  }
+  function closeHelp() { $('helpBox').classList.add('hidden'); $('helpBody').innerHTML = ''; }
+  function renderHelp() {
+    var r = helpData, groups = {}, order = ['老師', '管理者', '其他'];
+    (r.videos || []).map(helpParse).forEach(function (v) {
+      var g = groups[v.who] = groups[v.who] || {};
+      var k = v.no + '|' + v.title;
+      (g[k] = g[k] || { no: v.no, title: v.title, list: [] }).list.push(v);
+    });
+    var preferMobile = window.innerWidth < 700;
+    var html = '';
+    order.forEach(function (who) {
+      if (!groups[who]) return;
+      var items = Object.keys(groups[who]).map(function (k) { return groups[who][k]; }).sort(function (a, b) { return a.no - b.no || (a.title < b.title ? -1 : 1); });
+      html += '<div class="help-group">' + (who === '其他' ? '其他影片' : who + '教學') + (who === '管理者' ? ' <span class="muted small" style="font-weight:normal">（只有管理者看得到）</span>' : '') + '</div>' +
+        items.map(function (it) {
+          it.list.sort(function (a, b) { return (a.form === '手機版') === preferMobile ? -1 : 1; });
+          return '<div class="help-item"><span class="t">' + (it.no < 99 ? it.no + '. ' : '') + esc(it.title) + '</span><span class="v">' +
+            it.list.map(function (v) {
+              return '<button type="button" class="btn ' + (v === it.list[0] ? '' : 'ghost ') + 'small" data-play="' + esc(v.id) + '" data-form="' + esc(v.form) + '" data-title="' + esc(it.title) + '">▶ ' + esc(v.form || '播放') + '</button>' +
+                (r.admin && !v.shared && v.who !== '管理者' ? '<span class="small" style="color:var(--bad)" title="' + esc(v.raw) + '">⚠ 還沒分享，老師看不到</span>' : '');
+            }).join('') + '</span></div>';
+        }).join('');
+    });
+    if (!html) html = '<div class="muted">還沒有教學影片。</div>';
+    if (r.admin) html += '<div class="msg info small" style="margin-top:12px">管理者：影片放在雲端硬碟「<b>' + esc(r.folder) + '</b>」資料夾，檔名像「老師教學2_訂貨流程_手機版」；開頭是「管理者」的只有管理者看得到。' +
+      '資料夾請設定「知道連結的任何人（或學校網域）都能檢視」，老師才看得到。新增影片後按 <button type="button" class="btn ghost small" id="helpRefresh">重新整理清單</button></div>';
+    $('helpBody').innerHTML = html;
+  }
+  function playHelp(id, form, title) {
+    var tall = form === '手機版';
+    $('helpBody').innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<button type="button" class="btn ghost small" id="helpBack">← 回影片清單</button><b>' + esc(title) + (form ? '（' + esc(form) + '）' : '') + '</b></div>' +
+      '<div class="help-player" style="' + (tall ? 'max-width:min(420px,100%);margin:6px auto 8px;padding-top:min(177.8%,70vh)' : 'padding-top:56.25%') + '">' +
+      '<iframe src="https://drive.google.com/file/d/' + encodeURIComponent(id) + '/preview" allow="autoplay; fullscreen" allowfullscreen title="' + esc(title) + '"></iframe></div>' +
+      '<div class="muted small">播不出來？<a href="https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view" target="_blank" rel="noopener">在新分頁開啟</a>（學校帳號登入 Google 後再試）。</div>';
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-help]')) { e.preventDefault(); openHelp(false); return; }
+    var pl = e.target.closest('#helpBody [data-play]');
+    if (pl) { playHelp(pl.getAttribute('data-play'), pl.getAttribute('data-form'), pl.getAttribute('data-title')); return; }
+    if (e.target.closest('#helpBack')) { renderHelp(); return; }
+    if (e.target.closest('#helpRefresh')) { openHelp(true); return; }
+    if (e.target.id === 'helpClose' || e.target.closest('#helpClose') || e.target.id === 'helpBox') closeHelp();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('helpBox').classList.contains('hidden')) closeHelp(); });
   $('reloadLessons').addEventListener('click', function () { loadLessons(); });
   $('lessonsList').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-lact]');

@@ -304,6 +304,38 @@ function getBootstrap(token) {
   };
 }
 
+// ---- 教學影片：放在雲端硬碟「訂貨系統教學影片」資料夾；檔名開頭「管理者」只有管理者看得到 ----
+const HELP_FOLDER = '訂貨系統教學影片';
+
+/** 教學影片清單（登入頁也可以看，不用 token；管理者多看管理者教學和分享狀態）。refresh：管理者重新讀資料夾 */
+function getHelpVideos(token, refresh) {
+  let admin = false;
+  if (token) { try { admin = ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0; } catch (e) { admin = false; } }
+  const cache = CacheService.getScriptCache();
+  let list = admin && refresh ? null : JSON.parse(cache.get('helpVideos') || 'null');
+  if (!list) {
+    list = [];
+    const it = DriveApp.getFoldersByName(HELP_FOLDER);
+    if (it.hasNext()) {
+      const files = it.next().getFiles();
+      while (files.hasNext()) {
+        const f = files.next();
+        if (!/^video\//.test(f.getMimeType())) continue;
+        let shared = true;
+        try { shared = f.getSharingAccess() !== DriveApp.Access.PRIVATE; } catch (e) { /* 共用雲端硬碟 */ }
+        list.push({ id: f.getId(), name: f.getName().replace(/\.[^.]+$/, ''), shared: shared });
+      }
+    }
+    list.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+    cache.put('helpVideos', JSON.stringify(list), 600);
+  }
+  return {
+    admin: admin, folder: HELP_FOLDER,
+    videos: list.filter(function (v) { return admin || !/^管理者/.test(v.name); })
+      .map(function (v) { return admin ? v : { id: v.id, name: v.name }; }),
+  };
+}
+
 /** 廠商聯絡資料：{ 廠商: { fax, phone, person, note } } */
 function readVendorContacts_() {
   const sh = ss_().getSheetByName(SHEET.contacts);
