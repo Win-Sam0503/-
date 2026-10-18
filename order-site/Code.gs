@@ -112,7 +112,8 @@ const CONTACT_HEADERS = ['廠商', '傳真', '電話', '聯絡人', '備註'];
 const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
 const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
 const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
-const SKIP_HEADERS = ['老師', '日期', '時段', '課程', '標記時間'];
+// 「不用訂貨」分頁也放管理者手動標的「已叫料」（標記欄）
+const SKIP_HEADERS = ['老師', '日期', '時段', '課程', '標記時間', '標記', '備註', '標記人'];
 
 // 需要你在試算表手動新增的欄位（沒有的話網站照常運作，只是對應功能不會存檔）
 const OPTIONAL_COLUMNS = {
@@ -2604,18 +2605,7 @@ function sessionOf_(classTime) {
 /** 每堂課加上 status：ordered（同老師、同一天、同時段有訂單）／skipped（按了不用訂貨）／todo */
 function lessonsWithStatus_(from, to, teacher) {
   const lessons = lessonsBetween_(from, to, teacher);
-  const have = {}, skip = {};
-  ordersBetween_(from, to).forEach(function (o) {
-    if (o.status === '已取消') return;
-    have[(o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime)] = true;
-  });
-  const sh = ss_().getSheetByName(SHEET.skips);
-  if (sh && sh.getLastRow() >= 2) {
-    readTable_(SHEET.skips, ['老師', '日期', '時段']).rows.forEach(function (r) {
-      const d = toDate_(r['日期']);
-      if (d) skip[String(r['老師']).trim() + '|' + dateStr_(d) + '|' + String(r['時段']).trim()] = true;
-    });
-  }
+  const st = lessonStatusMaps_(from, to), have = st.have, skip = st.skip, manual = st.manual;
   // 同一位老師同一天同時段有兩堂課時，只要一張訂單（也只算一次）
   const seen = {};
   return lessons.filter(function (x) {
@@ -2625,7 +2615,7 @@ function lessonsWithStatus_(from, to, teacher) {
     return true;
   }).map(function (x) {
     const k = x.teacher + '|' + x.date + '|' + x.session;
-    x.status = have[k] ? 'ordered' : skip[k] ? 'skipped' : 'todo';
+    x.status = have[k] || manual[k] ? 'ordered' : skip[k] ? 'skipped' : 'todo';
     return x;
   });
 }
@@ -2969,7 +2959,9 @@ function adminGetSchedule(token, weekOf) {
   const st = lessonStatusMaps_(mon, fri);
   const status = function (teacher, date, session) {
     const k = teacher + '|' + date + '|' + session;
-    return st.have[k] ? { status: 'ordered', orders: st.have[k] } : st.skip[k] ? { status: 'skipped' } : { status: 'todo' };
+    const r = st.have[k] ? { status: 'ordered', orders: st.have[k] } : st.manual[k] ? { status: 'ordered', manual: st.manual[k] } : st.skip[k] ? { status: 'skipped' } : { status: 'todo' };
+    if (st.manual[k] || st.skip[k]) r.marked = true;   // 有手動標記（可以改回自動）
+    return r;
   };
   rows.forEach(function (x) {
     if (!x.need || x.skipped) return;
@@ -2979,26 +2971,36 @@ function adminGetSchedule(token, weekOf) {
     const r = status(x.teacher, dates[i], x.session);
     x.status = r.status;
     x.orders = r.orders || [];
+    x.manual = r.manual || null;
+    x.marked = !!r.marked;
+    x.date = dates[i];
   });
   out.extras = lessonsBetween_(mon, fri, null).filter(function (x) { return x.source !== '課表'; }).map(function (x) {
     const r = status(x.teacher, x.date, x.session);
     return { source: x.source, teacher: x.teacher, weekday: '一二三四五'.charAt(dates.indexOf(x.date)), session: x.session, course: x.course,
       className: x.className, room: x.room, status: r.status, orders: r.orders || [], noAccount: !!x.teacher && !accounts[x.teacher],
+      manual: r.manual || null, marked: !!r.marked, date: x.date,
       kind: x.source === '自訂' && x.session === '晚上' ? '夜間部' : '日間部' };
   });
   out.week = { from: dates[0], to: dates[4], dates: dates };
+  out.weekOrders = st.list;
   return out;
 }
 
-/** 某段期間的訂單和「不用訂貨」：have[老師|日期|時段] = [{ orderNo, project, status }]、skip[老師|日期|時段] = true */
+/**
+ * 某段期間的訂單和標記：have[老師|日期|時段] = [{ orderNo, project, status }]、
+ * skip[...] = true（不用訂貨）、manual[...] = { note, by }（管理者手動標「已叫料」）
+ */
 function lessonStatusMaps_(from, to) {
-  const have = {}, skip = {};
+  const have = {}, skip = {}, manual = {};
   const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, from).filter(function (r) {
     const d = toDate_(r['使用日期']);
     return d && d >= from && d <= to;
   });
+  const list = [];
   groupOrders_(rows, null).forEach(function (o) {
     if (o.status === '已取消') return;
+    list.push({ teacher: o.onBehalfOf || o.teacher, date: o.useDate, session: sessionOf_(o.classTime), project: o.project, className: o.className, orderNo: o.orderNo });
     const k = (o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime);
     (have[k] = have[k] || []).push({ orderNo: o.orderNo, project: o.project, status: o.status, className: o.className });
   });
@@ -3006,10 +3008,45 @@ function lessonStatusMaps_(from, to) {
   if (sh && sh.getLastRow() >= 2) {
     readTable_(SHEET.skips, ['老師', '日期', '時段']).rows.forEach(function (r) {
       const d = toDate_(r['日期']);
-      if (d) skip[String(r['老師']).trim() + '|' + dateStr_(d) + '|' + String(r['時段']).trim()] = true;
+      if (!d) return;
+      const k = String(r['老師']).trim() + '|' + dateStr_(d) + '|' + String(r['時段']).trim();
+      if (String(r['標記'] || '').trim() === '已叫料') manual[k] = { note: String(r['備註'] || '').trim(), by: String(r['標記人'] || '').trim() };
+      else skip[k] = true;
     });
   }
-  return { have: have, skip: skip };
+  return { have: have, skip: skip, manual: manual, list: list };
+}
+
+/**
+ * 管理者在總課表手動改某一週某堂課的叫料狀態（例如老師訂單日期填錯，系統對不起來）。
+ * mark：'auto'（依訂單自動判斷）／'ordered'（已叫料）／'skipped'（不用訂貨）
+ */
+function adminSetLessonMark(token, teacher, date, session, course, mark, note, weekOf) {
+  const admin = auth_(token, true);
+  const t0 = clean_(teacher, 30), d = parseDate_(date);
+  if (!t0 || !d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
+  if (['auto', 'ordered', 'skipped'].indexOf(mark) < 0) throw new Error('狀態不正確。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(SHEET.skips, SKIP_HEADERS);
+    ensureHeaders_(sh, SKIP_HEADERS);
+    const t = readTable_(SHEET.skips, ['老師', '日期', '時段']);
+    const same = t.rows.filter(function (r) {
+      const rd = toDate_(r['日期']);
+      return String(r['老師']).trim() === t0 && rd && dateStr_(rd) === dateStr_(d) && String(r['時段']).trim() === session;
+    });
+    if (same.length) deleteRows_(sh, same.map(function (r) { return r._row; }));
+    if (mark !== 'auto') {
+      appendRows_(SHEET.skips, [{ '老師': t0, '日期': d, '時段': session, '課程': clean_(course, 40), '標記時間': new Date(),
+        '標記': mark === 'ordered' ? '已叫料' : '不用訂貨', '備註': clean_(note, 100), '標記人': admin }],
+        { '日期': 'yyyy-mm-dd', '標記時間': 'yyyy/mm/dd hh:mm' });
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return adminGetSchedule(token, weekOf);
 }
 
 /**
