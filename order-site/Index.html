@@ -316,6 +316,9 @@
   .edit-info { display: grid; grid-template-columns: 1fr 1fr 2fr 80px; gap: 8px; margin: 8px 0 10px; }
   @media (max-width: 640px) { .edit-info { grid-template-columns: 1fr 1fr; } }
   .badge.edited { background: #fff4e5; color: #b45309; }
+  .lesson-ok { margin-top: 4px; font-size: 14px; color: #067647; }
+  .lesson-warn { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
+  .lesson-near { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; margin-top: 4px; color: var(--text); }
   .badge.unprinted { background: #fee4e2; color: #b42318; font-weight: 700; }
   .badge.printed { background: #ecfdf3; color: #067647; }
   .edit-log { margin-top: 8px; border: 1px solid #f5d9b0; background: #fffaf2; border-radius: 10px; padding: 6px 12px; }
@@ -1959,6 +1962,22 @@
   // 我的訂單
   // ------------------------------------------------------------------
   var mineCache = [];
+  // 訂單對照課表（管理者）：對到哪一堂課；對不到就列出這位老師這週的課，可以直接標「已叫料」
+  var LESSON_ST = { ordered: '已叫料', manual: '已叫料（手動）', skipped: '不用訂貨', todo: '未叫料' };
+  function lessonText(l) { return shortDate(l.date) + ' ' + l.session + ' ' + [l.room, l.course, l.className].filter(Boolean).join(' '); }
+  function lessonMatchHtml(o) {
+    var L = o.lesson;
+    if (!L) return '';
+    if (L.match.length) return '<div class="lesson-ok noprint">📅 對到課表：' + esc(L.match.map(lessonText).join('、')) + '</div>';
+    var head = '⚠ 課表對不到：' + esc(L.teacher) + ' 在 ' + esc(shortDate(o.useDate) + ' ' + L.session) + ' 課表上沒有課';
+    if (!L.known) return '<div class="lesson-warn noprint">' + head + '。課表上也找不到「' + esc(L.teacher) + '」這位老師（名字可能打錯，或還沒排進課表）。</div>';
+    return '<div class="lesson-warn noprint">' + head + (L.near.length ? '，這週課表上的課：' : '，這週課表上也沒有他的課（日期可能填錯週）。') +
+      L.near.map(function (l, i) {
+        return '<div class="lesson-near"><span>' + esc(lessonText(l)) + (l.source && l.source !== '課表' ? '（' + esc(l.source) + '）' : '') +
+          ' <span class="badge' + (l.status === 'todo' ? ' unprinted' : '') + '">' + LESSON_ST[l.status] + '</span></span>' +
+          (l.status === 'todo' ? '<button type="button" class="btn ghost small" data-act="lessonmark" data-no="' + esc(o.orderNo) + '" data-li="' + i + '">標記這堂已叫料</button>' : '') + '</div>';
+      }).join('') + '</div>';
+  }
   function orderCard(o, opts) {
     var info = [shortDate(o.useDate), o.dept, o.className ? o.className + ' 班' : '', o.groups ? o.groups + ' 組' : '', o.classTime, o.room].filter(Boolean).join('・');
     var who = '操作：' + o.teacher + (o.onBehalfOf ? '，代訂：' + o.onBehalfOf : '');
@@ -2005,7 +2024,7 @@
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
-        (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
+        (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' + (opts.admin ? lessonMatchHtml(o) : '') +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
@@ -2278,6 +2297,17 @@
     if (!b) return;
     var o = sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); });
     var act = b.getAttribute('data-act');
+    if (act === 'lessonmark') {
+      var l = o.lesson.near[Number(b.getAttribute('data-li'))];
+      if (!l || !safeConfirm('把 ' + o.lesson.teacher + ' 的「' + lessonText(l) + '」標記為已叫料？\n（訂單 ' + o.orderNo + ' 填的是 ' + shortDate(o.useDate) + ' ' + o.lesson.session + '；只改總課表和提醒，訂單本身不變）')) return;
+      setBusy(b, true, '標記中…');
+      call('adminSetLessonMark', token, o.lesson.teacher, l.date, l.session, l.course, 'ordered',
+        '訂單 ' + o.orderNo + ' 填成 ' + shortDate(o.useDate) + ' ' + o.lesson.session, l.date).then(function () {
+        msg('sumMsg', 'ok', '已把 ' + o.lesson.teacher + ' 的「' + lessonText(l) + '」標記為已叫料（總課表、我的課、LINE 提醒都會照這個）。如果訂單日期真的填錯，請按「修改明細」或退單請老師改。');
+        loadSummaryKeepMsg();
+      }).catch(function (err) { msg('sumMsg', 'error', err.message); setBusy(b, false); });
+      return;
+    }
     if (act === 'print') printOrder(o, 'viewSummary');
     else if (act === 'edit') openEditor(o, b.closest('.order'));
     else if (act === 'return') {

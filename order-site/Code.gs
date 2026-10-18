@@ -987,7 +987,37 @@ function adminGetOrders(token, from, to) {
   const nos = list.map(function (o) { return o.orderNo; });
   const edits = orderEditsFor_(nos), printed = printedFor_(nos);
   list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; });
+  try { matchLessons_(list, start, end); } catch (e) { console.error('matchLessons_ ' + e.message); }
   return list;
+}
+
+/**
+ * 每張訂單對照課表：o.lesson = { match: [課], near: [同一週這位老師的其他課（含叫料狀態）], known: 課表上有沒有這位老師 }。
+ * 老師的日期、時段填錯時，管理者一眼就看得出來是哪一堂課。
+ */
+function matchLessons_(list, start, end) {
+  if (!list.length) return;
+  const mon = addDays_(start, -((start.getDay() + 6) % 7)), fri = addDays_(end, (5 - end.getDay() + 7) % 7);
+  const lessons = lessonsBetween_(mon, fri, null);
+  const st = lessonStatusMaps_(mon, fri);
+  const teachers = {};
+  readSchedule_().forEach(function (x) { teachers[x.teacher] = true; });
+  readMyLessonRows_().forEach(function (x) { teachers[x.teacher] = true; });
+  lessons.forEach(function (x) { teachers[x.teacher] = true; });
+  const weekOf = function (ds) { const d = parseDate_(ds); return dateStr_(addDays_(d, -((d.getDay() + 6) % 7))); };
+  const brief = function (x) {
+    const k = x.teacher + '|' + x.date + '|' + x.session;
+    return { date: x.date, session: x.session, course: x.course, room: x.room, className: x.className, source: x.source,
+      status: st.have[k] ? 'ordered' : st.manual[k] ? 'manual' : st.skip[k] ? 'skipped' : 'todo' };
+  };
+  list.forEach(function (o) {
+    if (o.status === '已取消') return;
+    const who = o.onBehalfOf || o.teacher, ses = sessionOf_(o.classTime), wk = weekOf(o.useDate);
+    const mine = lessons.filter(function (x) { return x.teacher === who; });
+    const match = mine.filter(function (x) { return x.date === o.useDate && x.session === ses; });
+    o.lesson = { teacher: who, session: ses, known: !!teachers[who], match: match.map(brief),
+      near: match.length ? [] : mine.filter(function (x) { return weekOf(x.date) === wk; }).map(brief) };
+  });
 }
 
 /** 這些訂單最後一次在訂單彙整列印的時間和列印人：{ 訂單編號: { time, who } } */
