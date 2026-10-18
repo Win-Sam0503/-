@@ -691,6 +691,7 @@
           <label class="check"><input type="checkbox" id="gridShowOff" checked> 顯示已取消的課</label>
         </div>
       </div>
+      <div class="status-chips noprint" id="gridKinds" style="margin:0 0 8px"></div>
       <div id="gridMsg" class="noprint"></div>
       <div id="gridBox"></div>
     </section>
@@ -4730,7 +4731,7 @@
     }
     if (r.schoolRows) renderSchoolRows(r);
     else $('lessonsSchool').innerHTML = r.school.length
-      ? '<b>學校課表：</b>' + r.school.map(function (x) { return '週' + '一二三四五'.charAt(x.day) + x.session + ' ' + esc(x.course) + (x.className ? ' ' + esc(x.className) : ''); }).join('、') +
+      ? '<b>學校課表：</b>' + r.school.map(function (x) { return '週' + '一二三四五'.charAt(x.day) + x.session + ' ' + esc(x.course) + (x.className ? ' ' + esc(x.className) : '') + (schedRange(x) ? '（' + esc(schedRange(x)) + '）' : ''); }).join('、') +
         '<div class="muted">學校課表有錯請告訴管理者。</div>'
       : '<span class="muted">學校課表上沒有你的課（或名字不一致），可以在下面自己新增。</span>';
     $('lessonsMine').innerHTML = r.mine.length
@@ -4754,7 +4755,14 @@
       '<div><label>節次</label><input data-sf="period" maxlength="10" placeholder="[1-4]" value="' + esc(x.period || '') + '"></div>' +
       '<div><label>班級</label><input data-sf="className" maxlength="30" value="' + esc(x.className || '') + '"></div>' +
       '<div><label>老師</label><input data-sf="teacher" maxlength="30" list="teacherList" value="' + esc(x.teacher || teacher || '') + '"></div>' +
+      '<div><label>類別</label>' + sel('kind', SCHED_KINDS, x.kind || SCHED_KINDS[0]) + '</div>' +
+      '<div><label>開始日期 <span class="muted small">（彈性課程）</span></label><input data-sf="from" type="date" value="' + esc(x.from || '') + '"></div>' +
+      '<div><label>結束日期</label><input data-sf="to" type="date" value="' + esc(x.to || '') + '"></div>' +
       '</div>';
+  }
+  var SCHED_KINDS = ['日間部', '夜間部', '彈性課程'];
+  function schedRange(x) {
+    return x.from || x.to ? (x.from ? shortDate(x.from) : '') + '～' + (x.to ? shortDate(x.to) : '') : '';
   }
   function readSchedForm(box) {
     var f = {};
@@ -4769,7 +4777,7 @@
         var off = !x.need || x.skipped;
         return '<tr data-srow="' + x.row + '" data-wd="' + esc(x.weekday) + '" data-ss="' + esc(x.session) + '" data-tc="' + esc(x.teacher) + '" class="' + (off ? 'off' : '') + '">' +
           '<td style="white-space:nowrap">週' + esc(x.weekday) + ' ' + esc(x.session) + '</td>' +
-          '<td class="sc-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room, x.period].filter(Boolean).join('・')) + '</div></td>' +
+          '<td class="sc-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.kind !== '日間部' ? x.kind : '', x.className, x.room, x.period, schedRange(x)].filter(Boolean).join('・')) + '</div></td>' +
           '<td class="small">' + (x.skipped ? '國技／預留，不提醒' : x.need ? '<span style="color:var(--ok)">上課中</span>' : '<span style="color:var(--bad)">已永久取消</span>') +
             (x.note ? '<div class="muted">' + esc(x.note) + '</div>' : '') + '</td>' +
           '<td><div class="actions" style="margin:0;justify-content:flex-end">' +
@@ -4851,7 +4859,8 @@
   // ------------------------------------------------------------------
   // 總課表（管理者）：教室 × 星期 × 時段 的格子，點一堂課修改
   // ------------------------------------------------------------------
-  var gridRows = [], gridData = {};
+  var gridRows = [], gridData = {}, gridKind = '日間部';
+  try { gridKind = localStorage.getItem('ckOrder.gridKind') || gridKind; } catch (e) {}
   function gridWeekOf() { return $('gridWeek').value; }
   function mondayOf(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7); }
   // 教室排序：中 → 廚 → 西餐 → 烘 → 調 → 餐服 → 其他，同一類依一、二、三…
@@ -4877,6 +4886,8 @@
       '<div style="margin-top:8px;text-align:left"><label for="gridNote">備註</label><input id="gridNote" maxlength="100" value="' + esc(x.note || '') + '"></div>';
   }
   function gridAdd(x) {
+    x.kind = x.kind || gridKind;
+    if (!x.session && gridKind === '夜間部') x.session = '晚上';
     ask('', '新增', { html: gridDialog('新增一堂課' + (x.weekday ? '：週' + x.weekday + x.session + (x.room ? ' ' + x.room : '') : ''), x) + '</div>' }).then(function (ok) {
       if (!ok) return;
       var f = readSchedForm($('gridForm'));
@@ -4911,16 +4922,31 @@
   }
   function drawGrid() {
     var showOff = $('gridShowOff').checked, hl = $('gridTeacher').value;
-    var extras = (gridData.extras || []).map(function (x, i) { x.extra = true; x.ei = i; x.need = true; return x; });
-    var rows = gridRows.filter(function (x) { return showOff || (x.need && !x.skipped); }).concat(extras);
-    if (!gridRows.length && !extras.length) { $('gridBox').innerHTML = '<div class="panel muted">「課表」分頁還沒有課。</div>'; return; }
+    var allExtras = (gridData.extras || []).map(function (x, i) { x.extra = true; x.ei = i; x.need = true; return x; });
+    var nKind = {};
+    SCHED_KINDS.forEach(function (k) { nKind[k] = 0; });
+    gridRows.concat(allExtras).forEach(function (x) { if (x.need && !x.skipped) nKind[x.kind || '日間部']++; });
+    if (SCHED_KINDS.indexOf(gridKind) < 0) gridKind = SCHED_KINDS[0];
+    $('gridKinds').innerHTML = SCHED_KINDS.map(function (k) {
+      return '<button type="button" data-gk="' + k + '"' + (k === gridKind ? ' class="on"' : '') + '>' + k + '（' + nKind[k] + '）</button>';
+    }).join('');
+    var mine = function (x) { return (x.kind || '日間部') === gridKind; };
+    var kindRows = gridRows.filter(mine), extras = allExtras.filter(mine);
+    var rows = kindRows.filter(function (x) { return showOff || (x.need && !x.skipped); }).concat(extras);
+    if (!kindRows.length && !extras.length) {
+      $('gridBox').innerHTML = '<div class="panel muted">「' + esc(gridKind) + '」還沒有課。按上面的「＋ 新增一堂課」新增' + (gridKind === '彈性課程' ? '，可以設定開始和結束日期，只有那幾週會出現在老師的我的課和提醒。' : '。') + '</div>';
+      return;
+    }
     var week = gridData.week || null, dates = week ? week.dates : [];
     var count = { ordered: 0, todo: 0, skipped: 0 };
     rows.forEach(function (x) { if (x.status) count[x.status]++; });
+    var printTitle = '三信家商餐飲科 總課表' + (gridKind !== '日間部' ? '（' + gridKind + '）' : '');
     var WD = ['一', '二', '三', '四', '五'];
-    var sessions = ['上午', '下午'].concat(gridRows.concat(extras).some(function (x) { return x.session === '晚上'; }) ? ['晚上'] : []);
+    var sessions = ['上午', '下午', '晚上'].filter(function (s) {
+      return (gridKind === '夜間部' ? s === '晚上' : s !== '晚上') || kindRows.concat(extras).some(function (x) { return x.session === s; });
+    });
     var rooms = [];
-    gridRows.concat(extras).forEach(function (x) { var k = x.room || '（沒填教室）'; if (rooms.indexOf(k) < 0) rooms.push(k); });
+    kindRows.concat(extras).forEach(function (x) { var k = x.room || '（沒填教室）'; if (rooms.indexOf(k) < 0) rooms.push(k); });
     rooms.sort(roomCompare);
     var cells = {};
     rows.forEach(function (x) {
@@ -4935,7 +4961,7 @@
       '<span><i style="background:#fff;border-color:#f97066;border-width:2px"></i>未叫料 ' + count.todo + '</span>' +
       '<span><i style="background:#f2f4f7;border-color:#d0d5dd"></i>不用訂貨 ' + count.skipped + '</span>' +
       '<span class="noprint muted small">虛線框：國技排班、老師自己新增的課（請到「我的課」修改）</span></div>' : '';
-    var html = (week ? '<div class="grid-print-head"><h1>三信家商餐飲科 總課表</h1></div>' : '') + legend +
+    var html = (week ? '<div class="grid-print-head"><h1>' + esc(printTitle) + '</h1></div>' : '') + legend +
       '<div class="sgrid-wrap"><table class="sgrid"><thead><tr><th class="room">教室</th>' +
       WD.map(function (d, di) { return sessions.map(function (s, i) { return '<th' + (i === 0 ? ' class="day-start"' : '') + '>週' + d + shortS[s] + (dates[di] ? '<div class="muted small" style="font-weight:normal">' + md(dates[di]) + '</div>' : '') + '</th>'; }).join(''); }).join('') +
       '</tr></thead><tbody>' + rooms.map(function (room) {
@@ -4943,7 +4969,7 @@
           return sessions.map(function (s, i) {
             var list = cells[room + '|' + d + '|' + s] || [];
             return '<td' + (i === 0 ? ' class="day-start"' : '') + '>' + list.map(function (x) {
-              var off = !x.need || x.skipped;
+              var off = !x.need || x.skipped || x.outOfWeek;
               var cls = 'slesson' + (off ? ' off' : '') + (x.status ? ' st-' + x.status : '') + (x.extra ? ' extra' : '') + (hl ? (x.teacher === hl ? ' hl' : ' dim') : '');
               var ord = (x.orders || []).map(function (o) { return o.project; }).filter(Boolean).join('、');
               return '<button type="button" class="' + cls + '" ' + (x.extra ? 'data-gextra="' + x.ei + '"' : 'data-grow="' + x.row + '"') +
@@ -4951,7 +4977,8 @@
                 (x.extra ? '<span class="src">' + esc(x.source) + '</span>' : '') + '<b style="display:inline">' + esc(x.course) + '</b><br>' +
                 (x.className ? '<span>' + esc(x.className) + '</span> ' : '') + (x.period ? '<span class="muted">' + esc(x.period) + '</span>' : '') +
                 '<div class="t' + (x.noAccount ? ' warn-t' : '') + '"' + (x.noAccount ? ' title="帳號設定沒有這位老師"' : '') + '>' + esc(x.teacher) + (x.noAccount ? ' ⚠' : '') + '</div>' +
-                (x.skipped ? '<div class="small">國技／預留</div>' : !x.need ? '<div class="small">已取消</div>' : '') +
+                (schedRange(x) ? '<div class="small">' + esc(schedRange(x)) + '</div>' : '') +
+                (x.skipped ? '<div class="small">國技／預留</div>' : !x.need ? '<div class="small">已取消</div>' : x.outOfWeek ? '<div class="small">這週沒上</div>' : '') +
                 (x.status ? '<div class="st">' + stText[x.status] + '</div>' : '') +
                 '</button>';
             }).join('') + (list.length ? '' : '<button type="button" class="sadd" data-gadd="' + esc(room === '（沒填教室）' ? '' : room) + '|' + d + '|' + s + '" title="在這格新增一堂課" aria-label="新增 週' + d + s + ' ' + esc(room) + ' 的課">＋</button>') + '</td>';
@@ -4963,6 +4990,13 @@
   $('gridReload').addEventListener('click', function () { loadGrid(); });
   $('gridAddBtn').addEventListener('click', function () { gridAdd({}); });
   $('gridWeek').addEventListener('change', function () { loadGrid(); });
+  $('gridKinds').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-gk]');
+    if (!b) return;
+    gridKind = b.getAttribute('data-gk');
+    try { localStorage.setItem('ckOrder.gridKind', gridKind); } catch (e2) {}
+    drawGrid();
+  });
   $('gridWeeks').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-gw]');
     if (!b) return;
@@ -4994,7 +5028,7 @@
     var x = gridRows.find(function (y) { return y.row === row; });
     if (!x) return;
     ask('', '儲存', { html:
-      gridDialog('修改課表：週' + x.weekday + x.session + ' ' + x.room, x) +
+      gridDialog('修改課表：週' + x.weekday + x.session + ' ' + x.room + (x.kind !== '日間部' ? '（' + x.kind + '）' : ''), x) +
       '<label class="check" style="margin-top:8px;text-align:left"><input type="checkbox" id="gridNeed"' + (x.need ? '' : ' checked') + '> 永久取消這堂課（不出現在我的課、不提醒，資料保留）</label>' +
       (x.skipped ? '<div class="muted small" style="text-align:left">課程名稱有「國技」或「預留」，不會列入我的課和提醒。</div>' : '') + '</div>'
     }).then(function (ok) {

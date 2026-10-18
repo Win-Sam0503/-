@@ -29,6 +29,9 @@ const DEPARTMENTS = ['中餐', '西餐', '日料', '烘焙', '飲調', '果雕',
 // 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
 const CLASS_TIME_PATTERN = /^(上午|下午|晚上) (1[0-2]|[1-9]):[0-5][05]$/;
 const SESSIONS = ['上午', '下午', '晚上'];
+// 課表類別：總課表分頁籤；空白＝日間部。彈性課程可以設開始、結束日期（只有那幾週）
+const SCHEDULE_KINDS = ['日間部', '夜間部', '彈性課程'];
+const SCHEDULE_HEADERS = ['星期', '時段', '教室', '課程', '節次', '班級', '老師', '需要訂貨', '備註', '類別', '開始日期', '結束日期'];
 // 鎖單：每週一 12:00 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
 const LOCK_WEEKDAY = 1;                     // 截止星期（1 = 星期一 … 5 = 星期五）
 const LOCK_HOUR = 12;
@@ -2513,10 +2516,18 @@ function readSchedule_() {
       className: String(r['班級'] || '').trim(),
       teacher: String(r['老師']).trim(),
       need: r['需要訂貨'] === undefined || r['需要訂貨'] === '' || isTrue_(r['需要訂貨']),
+      kind: scheduleKind_(r['類別']),
+      from: toDate_(r['開始日期']) ? dateStr_(toDate_(r['開始日期'])) : '',
+      to: toDate_(r['結束日期']) ? dateStr_(toDate_(r['結束日期'])) : '',
     };
   }).filter(function (x) {
     return x.need && x.teacher && x.day >= 0 && SESSIONS.indexOf(x.session) >= 0 && !/國技|預留/.test(x.course);
   });
+}
+
+function scheduleKind_(v) {
+  const k = String(v || '').trim();
+  return SCHEDULE_KINDS.indexOf(k) >= 0 ? k : SCHEDULE_KINDS[0];
 }
 
 /** 自動建立需要的分頁（第一次使用時） */
@@ -2570,6 +2581,7 @@ function lessonsBetween_(from, to, teacher) {
     if (idx < 0 || idx > 4) continue;
     const ds = dateStr_(d);
     sched.forEach(function (x) {
+      if ((x.from && ds < x.from) || (x.to && ds > x.to)) return;   // 彈性課程：只有開始～結束日期那幾週
       if (x.day === idx && (!teacher || x.teacher === teacher)) {
         out.push({ teacher: x.teacher, date: ds, session: x.session, course: x.course, className: x.className, room: x.room, source: '課表' });
       }
@@ -2849,6 +2861,9 @@ function scheduleRowOut_(r) {
     room: String(r['教室'] || '').trim(), course: course, period: String(r['節次'] || '').trim(),
     className: String(r['班級'] || '').trim(), teacher: String(r['老師']).trim(),
     need: need, skipped: /國技|預留/.test(course), note: String(r['備註'] || '').trim(),
+    kind: scheduleKind_(r['類別']),
+    from: toDate_(r['開始日期']) ? dateStr_(toDate_(r['開始日期'])) : '',
+    to: toDate_(r['結束日期']) ? dateStr_(toDate_(r['結束日期'])) : '',
   };
 }
 
@@ -2882,8 +2897,21 @@ function scheduleFields_(f) {
   if (!course) throw new Error('請填寫課程。');
   const teacher = clean_(f.teacher, 30);
   if (!teacher) throw new Error('請填寫老師。');
-  return { '星期': weekday, '時段': session, '教室': clean_(f.room, 20), '課程': course, '節次': clean_(f.period, 10),
+  const out = { '星期': weekday, '時段': session, '教室': clean_(f.room, 20), '課程': course, '節次': clean_(f.period, 10),
     '班級': clean_(f.className, 30), '老師': teacher };
+  if (f.kind !== undefined) {
+    const kind = String(f.kind || '').trim() || SCHEDULE_KINDS[0];
+    if (SCHEDULE_KINDS.indexOf(kind) < 0) throw new Error('課表類別不正確。');
+    out['類別'] = kind;
+  }
+  if (f.from !== undefined || f.to !== undefined) {
+    const a = f.from ? parseDate_(f.from) : null, b = f.to ? parseDate_(f.to) : null;
+    if ((f.from && !a) || (f.to && !b)) throw new Error('開始或結束日期不正確。');
+    if (a && b && b < a) throw new Error('結束日期不能早於開始日期。');
+    out['開始日期'] = a || '';
+    out['結束日期'] = b || '';
+  }
+  return out;
 }
 
 /**
@@ -2896,6 +2924,7 @@ function adminUpdateSchedule(token, row, expect, action, fields, as) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    ensureHeaders_(sheet_(SHEET.schedule), SCHEDULE_HEADERS);
     const t = readTable_(SHEET.schedule, ['星期', '時段', '老師']);
     const r = t.rows.find(function (x) { return x._row === Number(row); });
     const cur = r ? scheduleRowOut_(r) : null;
@@ -2946,6 +2975,7 @@ function adminGetSchedule(token, weekOf) {
     if (!x.need || x.skipped) return;
     const i = '一二三四五'.indexOf(x.weekday);
     if (i < 0) return;
+    if ((x.from && dates[i] < x.from) || (x.to && dates[i] > x.to)) { x.outOfWeek = true; return; }
     const r = status(x.teacher, dates[i], x.session);
     x.status = r.status;
     x.orders = r.orders || [];
@@ -2953,7 +2983,8 @@ function adminGetSchedule(token, weekOf) {
   out.extras = lessonsBetween_(mon, fri, null).filter(function (x) { return x.source !== '課表'; }).map(function (x) {
     const r = status(x.teacher, x.date, x.session);
     return { source: x.source, teacher: x.teacher, weekday: '一二三四五'.charAt(dates.indexOf(x.date)), session: x.session, course: x.course,
-      className: x.className, room: x.room, status: r.status, orders: r.orders || [], noAccount: !!x.teacher && !accounts[x.teacher] };
+      className: x.className, room: x.room, status: r.status, orders: r.orders || [], noAccount: !!x.teacher && !accounts[x.teacher],
+      kind: x.source === '自訂' && x.session === '晚上' ? '夜間部' : '日間部' };
   });
   out.week = { from: dates[0], to: dates[4], dates: dates };
   return out;
@@ -2991,6 +3022,7 @@ function adminGridSchedule(token, row, expect, fields, weekOf) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    ensureHeaders_(sheet_(SHEET.schedule), SCHEDULE_HEADERS);
     const t = readTable_(SHEET.schedule, ['星期', '時段', '老師']);
     const r = t.rows.find(function (x) { return x._row === Number(row); });
     const cur = r ? scheduleRowOut_(r) : null;
@@ -3036,10 +3068,11 @@ function addScheduleRow_(fields) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    ensureSheet_(SHEET.schedule, ['星期', '時段', '教室', '課程', '節次', '班級', '老師', '需要訂貨', '備註']);
+    const sh = ensureSheet_(SHEET.schedule, SCHEDULE_HEADERS);
+    ensureHeaders_(sh, SCHEDULE_HEADERS);
     set['需要訂貨'] = true;
     set['備註'] = clean_(fields && fields.note, 100);
-    appendRows_(SHEET.schedule, [set]);
+    appendRows_(SHEET.schedule, [set], { '開始日期': 'yyyy-mm-dd', '結束日期': 'yyyy-mm-dd' });
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
