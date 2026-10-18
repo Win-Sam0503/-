@@ -286,6 +286,12 @@
   .slesson.st-skipped { background: #f2f4f7; border-color: #d0d5dd; }
   .slesson.st-skipped .st { color: #475467; }
   .slesson.extra { border-style: dashed; }
+  .slesson.st-holiday { background: #f2f4f7; border-color: #d0d5dd; color: var(--muted); }
+  .slesson.st-holiday .st { color: #667085; }
+  .sgrid th.hol { background: #fef3f2; color: #b42318; }
+  .badge.holiday { background: #fef3f2; color: #b42318; }
+  .hol-list { margin: 6px 0; }
+  .hol-list div { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
   .slesson .src { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 6px; background: #e0eaff; color: #3538cd; margin-right: 3px; }
   .grid-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 8px 0; font-size: 14px; }
   .grid-legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; border: 1px solid; }
@@ -709,6 +715,17 @@
           <label class="check"><input type="checkbox" id="gridShowOff" checked> 顯示已取消的課</label>
         </div>
       </div>
+      <details class="panel noprint" id="holBox" style="padding:10px 16px">
+        <summary style="cursor:pointer;font-weight:700">📅 放假日設定（國定假日、補假、校慶補假…）</summary>
+        <div class="muted small" style="margin-top:6px">設定後，這幾天的課在老師的「我的課」顯示「放假」、不算未訂貨、也不會 LINE 提醒；老師選到這天訂貨會跳出提醒。連續放假可以填一段日期。</div>
+        <div class="grid-tools">
+          <div><label for="holFrom">開始日期</label><input id="holFrom" type="date"></div>
+          <div><label for="holTo">結束日期（一天就不用填）</label><input id="holTo" type="date"></div>
+          <div><label for="holName">名稱</label><input id="holName" type="text" maxlength="30" placeholder="例：國慶日補假"></div>
+          <button type="button" class="btn secondary small" id="holAdd" style="margin-bottom:8px">新增</button>
+        </div>
+        <div id="holList" class="hol-list small"></div>
+      </details>
       <div class="status-chips noprint" id="gridKinds" style="margin:0 0 8px"></div>
       <div id="gridMsg" class="noprint"></div>
       <div id="gridBox"></div>
@@ -1241,6 +1258,9 @@
       h.textContent = '最晚只能訂 ' + shortDate(data.maxDate); h.style.color = 'var(--bad)';
     } else if (d.getDay() === 0 || d.getDay() === 6) {
       h.textContent = '星期' + WEEK[d.getDay()] + '：週末不送貨'; h.style.color = 'var(--bad)';
+    } else if ((data.holidays || []).some(function (x) { return v >= x.from && v <= x.to; })) {
+      var hd = data.holidays.find(function (x) { return v >= x.from && v <= x.to; });
+      h.textContent = '⚠ 這天是「' + hd.name + '」，學校放假，請確認日期'; h.style.color = 'var(--bad)';
     } else {
       h.textContent = '星期' + WEEK[d.getDay()] + '・菜商、肉商、海鮮是 ' + deliveryCode(d) + ' 組送貨'; h.style.color = '';
     }
@@ -1968,7 +1988,7 @@
   // ------------------------------------------------------------------
   var mineCache = [];
   // 訂單對照課表（管理者）：對到哪一堂課；對不到就列出這位老師這週的課，可以直接標「已叫料」
-  var LESSON_ST = { ordered: '已叫料', manual: '已叫料（手動）', skipped: '不用訂貨', todo: '未叫料' };
+  var LESSON_ST = { ordered: '已叫料', manual: '已叫料（手動）', skipped: '不用訂貨', todo: '未叫料', holiday: '放假' };
   function lessonText(l) { return shortDate(l.date) + ' ' + l.session + ' ' + [l.room, l.course, l.className].filter(Boolean).join(' '); }
   function lessonMatchHtml(o) {
     var L = o.lesson;
@@ -4636,7 +4656,10 @@
   // 我的課：未訂貨的課、不用訂貨、自訂上課時間
   // ------------------------------------------------------------------
   var lessonsCache = null;
-  var LESSON_STATUS = { ordered: '<span class="badge ok">已訂貨</span>', skipped: '<span class="badge">不用訂貨</span>', todo: '<span class="badge warn">未訂貨</span>' };
+  var LESSON_STATUS = { ordered: '<span class="badge ok">已訂貨</span>', skipped: '<span class="badge">不用訂貨</span>', todo: '<span class="badge warn">未訂貨</span>', holiday: '<span class="badge holiday">放假</span>' };
+  function holidayText(list) {
+    return list.map(function (h) { return shortDate(h.from) + (h.to !== h.from ? '～' + shortDate(h.to) : '') + ' ' + h.name; }).join('、');
+  }
   function setLessonCount(n) {
     $('lessonCount').textContent = n;
     $('lessonCount').classList.toggle('hidden', !n);
@@ -4802,7 +4825,8 @@
         if (!byWeek[k]) { byWeek[k] = []; weeks.push(k); }
         byWeek[k].push(x);
       });
-      $('lessonsList').innerHTML = weeks.map(function (k) {
+      var hols = r.holidays || [];
+      $('lessonsList').innerHTML = (hols.length ? '<div class="msg warn holiday-note">📅 <b>放假提醒</b>：' + esc(holidayText(hols)) + '。這幾天學校放假，課不用訂貨，也不會提醒你。</div>' : '') + weeks.map(function (k) {
         var list = byWeek[k], todo = list.filter(function (x) { return x.status === 'todo'; }).length;
         var fri = parseDate(k); fri = isoDate(new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 4));
         return '<div class="panel"><h2>' + esc(shortDate(k) + '～' + shortDate(fri)) + ' <span class="muted small" style="font-weight:normal">' + (todo ? '還有 ' + todo + ' 堂未訂貨' : '都處理好了') + '</span></h2>' +
@@ -4813,7 +4837,7 @@
             return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
               '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div></td>' +
-              '<td class="lt-status">' + LESSON_STATUS[x.status] + '</td>' +
+              '<td class="lt-status">' + LESSON_STATUS[x.status] + (x.holiday ? '<div class="small" style="color:var(--muted)">' + esc(x.holiday) + '</div>' : '') + '</td>' +
               '<td class="lt-act"><div class="actions" style="margin:0;justify-content:flex-end">' + btns + '</div></td></tr>';
           }).join('') + '</tbody></table></div></div>';
       }).join('');
@@ -5021,8 +5045,33 @@
     msg('gridMsg', 'info', '載入中…');
     call('adminGetSchedule', token, gridWeekOf()).then(function (r) { msg('gridMsg', '', ''); renderGrid(r, note); }).catch(function (err) { msg('gridMsg', 'error', err.message); });
   }
+  function renderHolidays(list) {
+    data.holidays = list.slice();
+    var today = isoDate(new Date());
+    var show = list.filter(function (h) { return h.to >= today; });
+    $('holList').innerHTML = show.length ? show.map(function (h) {
+      return '<div><span>' + esc(shortDate(h.from) + (h.to !== h.from ? '～' + shortDate(h.to) : '') + '　' + h.name) + '</span>' +
+        '<button type="button" class="btn ghost small" data-holdel="' + h.row + '" data-holfrom="' + esc(h.from) + '">刪除</button></div>';
+    }).join('') : '<div class="muted">還沒有設定接下來的放假日。</div>';
+  }
+  $('holAdd').addEventListener('click', function () {
+    var b = this;
+    setBusy(b, true, '新增中…');
+    call('adminAddHoliday', token, $('holFrom').value, $('holTo').value || $('holFrom').value, $('holName').value.trim()).then(function (list) {
+      renderHolidays(list); $('holFrom').value = ''; $('holTo').value = ''; $('holName').value = '';
+      setBusy(b, false); loadGrid('已新增放假日。');
+    }).catch(function (err) { msg('gridMsg', 'error', err.message); setBusy(b, false); });
+  });
+  $('holList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-holdel]');
+    if (!b || !safeConfirm('刪除這個放假日？')) return;
+    call('adminDeleteHoliday', token, Number(b.getAttribute('data-holdel')), b.getAttribute('data-holfrom')).then(function (list) {
+      renderHolidays(list); loadGrid('已刪除放假日。');
+    }).catch(function (err) { msg('gridMsg', 'error', err.message); });
+  });
   function renderGrid(r, note) {
     gridData = r;
+    if (r.holidays) renderHolidays(r.holidays);
     gridRows = r.rows || [];
     if (note) msg('gridMsg', 'ok', note);
     var names = [];
@@ -5051,7 +5100,7 @@
       return;
     }
     var week = gridData.week || null, dates = week ? week.dates : [];
-    var count = { ordered: 0, todo: 0, skipped: 0 };
+    var count = { ordered: 0, todo: 0, skipped: 0, holiday: 0 };
     rows.forEach(function (x) { if (x.status) count[x.status]++; });
     var printTitle = '三信家商餐飲科 總課表' + (gridKind !== '日間部' ? '（' + gridKind + '）' : '');
     var WD = ['一', '二', '三', '四', '五'];
@@ -5068,15 +5117,17 @@
     });
     var shortS = { '上午': '上', '下午': '下', '晚上': '晚' };
     var md = function (ds) { var p = ds.split('-'); return Number(p[1]) + '/' + Number(p[2]); };
-    var stText = { ordered: '✓ 已叫料', todo: '未叫料', skipped: '不用訂貨' };
+    var stText = { ordered: '✓ 已叫料', todo: '未叫料', skipped: '不用訂貨', holiday: '放假' };
+    var hols = week ? week.holidays || [] : [];
     var legend = week ? '<div class="grid-legend"><b>' + esc(rangeText(week.from, week.to)) + '</b>' +
       '<span><i style="background:#dcfae6;border-color:#47cd89"></i>已叫料 ' + count.ordered + '</span>' +
       '<span><i style="background:#fff;border-color:#f97066;border-width:2px"></i>未叫料 ' + count.todo + '</span>' +
       '<span><i style="background:#f2f4f7;border-color:#d0d5dd"></i>不用訂貨 ' + count.skipped + '</span>' +
+      (hols.some(Boolean) ? '<span style="color:#b42318">📅 放假：' + esc(hols.map(function (h, i) { return h ? md(dates[i]) + ' ' + h : ''; }).filter(Boolean).join('、')) + '</span>' : '') +
       '<span class="noprint muted small">虛線框：國技排班、老師自己新增的課（請到「我的課」修改）</span></div>' : '';
     var html = (week ? '<div class="grid-print-head"><h1>' + esc(printTitle) + '</h1></div>' : '') + legend +
       '<div class="sgrid-wrap"><table class="sgrid"><thead><tr><th class="room">教室</th>' +
-      WD.map(function (d, di) { return sessions.map(function (s, i) { return '<th' + (i === 0 ? ' class="day-start"' : '') + '>週' + d + shortS[s] + (dates[di] ? '<div class="muted small" style="font-weight:normal">' + md(dates[di]) + '</div>' : '') + '</th>'; }).join(''); }).join('') +
+      WD.map(function (d, di) { return sessions.map(function (s, i) { return '<th class="' + (i === 0 ? 'day-start' : '') + (hols[di] ? ' hol' : '') + '"' + (hols[di] ? ' title="' + esc(hols[di]) + '"' : '') + '>週' + d + shortS[s] + (dates[di] ? '<div class="muted small" style="font-weight:normal">' + md(dates[di]) + '</div>' : '') + (hols[di] ? '<div class="small">放假</div>' : '') + '</th>'; }).join(''); }).join('') +
       '</tr></thead><tbody>' + rooms.map(function (room) {
         return '<tr><th class="room">' + esc(room) + '</th>' + WD.map(function (d) {
           return sessions.map(function (s, i) {
@@ -5092,7 +5143,7 @@
                 '<div class="t' + (x.noAccount ? ' warn-t' : '') + '"' + (x.noAccount ? ' title="帳號設定沒有這位老師"' : '') + '>' + esc(x.teacher) + (x.noAccount ? ' ⚠' : '') + '</div>' +
                 (schedRange(x) ? '<div class="small">' + esc(schedRange(x)) + '</div>' : '') +
                 (x.skipped ? '<div class="small">國技／預留</div>' : !x.need ? '<div class="small">已取消</div>' : x.outOfWeek ? '<div class="small">這週沒上</div>' : '') +
-                (x.status ? '<div class="st">' + stText[x.status] + (x.manual ? '（手動）' : '') + '</div>' : '') +
+                (x.status ? '<div class="st">' + stText[x.status] + (x.holiday && x.status === 'holiday' ? '：' + esc(x.holiday) : '') + (x.manual ? '（手動）' : '') + '</div>' : '') +
                 '</button>';
             }).join('') + (list.length ? '' : '<button type="button" class="sadd" data-gadd="' + esc(room === '（沒填教室）' ? '' : room) + '|' + d + '|' + s + '" title="在這格新增一堂課" aria-label="新增 週' + d + s + ' ' + esc(room) + ' 的課">＋</button>') + '</td>';
           }).join('');

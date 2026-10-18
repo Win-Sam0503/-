@@ -99,6 +99,7 @@ const SHEET = {
   purchase: '叫貨紀錄',
   prints: '列印紀錄',
   contacts: '廠商聯絡',
+  holidays: '放假日',
 };
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
@@ -109,6 +110,8 @@ const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
 const PRINT_HEADERS = ['訂單編號', '列印時間', '列印人'];
 // 廠商聯絡：傳真、電話，印在叫貨單上
 const CONTACT_HEADERS = ['廠商', '傳真', '電話', '聯絡人', '備註'];
+// 放假日（國定假日、補假、校慶補假…）：這幾天的課不算未訂貨、不提醒
+const HOLIDAY_HEADERS = ['開始日期', '結束日期', '名稱'];
 const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
 const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
 const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
@@ -301,6 +304,7 @@ function getBootstrap(token) {
     pendingUnits: unitLists_().pending,
     missingSetup: isAdmin ? missingSetup_() : [],
     vendorContacts: isAdmin ? readVendorContacts_() : {},
+    holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
   };
 }
 
@@ -1008,7 +1012,7 @@ function matchLessons_(list, start, end) {
   const brief = function (x) {
     const k = x.teacher + '|' + x.date + '|' + x.session;
     return { date: x.date, session: x.session, course: x.course, room: x.room, className: x.className, source: x.source,
-      status: st.have[k] ? 'ordered' : st.manual[k] ? 'manual' : st.skip[k] ? 'skipped' : 'todo' };
+      status: st.have[k] ? 'ordered' : st.manual[k] ? 'manual' : st.skip[k] ? 'skipped' : holidayOf_(x.date) ? 'holiday' : 'todo' };
   };
   list.forEach(function (o) {
     if (o.status === '已取消') return;
@@ -2628,6 +2632,68 @@ function readMyLessonRows_() {
   }).filter(function (x) { return x.teacher && SESSIONS.indexOf(x.session) >= 0; });
 }
 
+/** 放假日：[{ row, from, to, name }]（日期是 yyyy-MM-dd，一次執行只讀一次） */
+let holidayCache_ = null;
+function readHolidays_() {
+  if (holidayCache_) return holidayCache_;
+  const sh = ss_().getSheetByName(SHEET.holidays);
+  holidayCache_ = !sh || sh.getLastRow() < 2 ? [] : readTable_(SHEET.holidays, ['開始日期']).rows.map(function (r) {
+    const a = toDate_(r['開始日期']), b = toDate_(r['結束日期']) || a;
+    return a ? { row: r._row, from: dateStr_(a), to: dateStr_(b < a ? a : b), name: String(r['名稱'] || '').trim() || '放假' } : null;
+  }).filter(Boolean).sort(function (x, y) { return x.from < y.from ? -1 : 1; });
+  return holidayCache_;
+}
+/** 這天放假的話回傳名稱，不然回傳空字串 */
+function holidayOf_(ds) {
+  const h = readHolidays_().find(function (x) { return ds >= x.from && ds <= x.to; });
+  return h ? h.name : '';
+}
+/** from～to 之間的放假日（給畫面顯示） */
+function holidaysBetween_(from, to) {
+  const a = dateStr_(from), b = dateStr_(to);
+  return readHolidays_().filter(function (x) { return x.to >= a && x.from <= b; });
+}
+
+/** 管理者：新增放假日（from～to，名稱），回傳全部放假日 */
+function adminAddHoliday(token, from, to, name) {
+  auth_(token, true);
+  const a = parseDate_(from), b = parseDate_(to) || a;
+  if (!a) throw new Error('請選擇放假日期。');
+  if (b < a) throw new Error('結束日期不能早於開始日期。');
+  const n = clean_(name, 30);
+  if (!n) throw new Error('請填寫放假名稱，例如：國慶日、校慶補假。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.holidays, HOLIDAY_HEADERS);
+    appendRows_(SHEET.holidays, [{ '開始日期': a, '結束日期': b, '名稱': n }], { '開始日期': 'yyyy-mm-dd', '結束日期': 'yyyy-mm-dd' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  holidayCache_ = null;
+  return readHolidays_();
+}
+
+/** 管理者：刪除放假日（expect 是畫面上看到的開始日期，避免刪錯列） */
+function adminDeleteHoliday(token, row, expectFrom) {
+  auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ss_().getSheetByName(SHEET.holidays);
+    const t = readTable_(SHEET.holidays, ['開始日期']);
+    const r = t.rows.find(function (x) { return x._row === Number(row); });
+    if (!r || !toDate_(r['開始日期']) || dateStr_(toDate_(r['開始日期'])) !== expectFrom) throw new Error('放假日已經被改過，請重新整理再試一次。');
+    deleteRows_(sh, [r._row]);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  holidayCache_ = null;
+  return readHolidays_();
+}
+
 /** from～to 之間每一天的課（學校課表＋老師自訂），teacher = null 是全部老師 */
 function lessonsBetween_(from, to, teacher) {
   const sched = readSchedule_(), mine = readMyLessonRows_();
@@ -2677,7 +2743,9 @@ function lessonsWithStatus_(from, to, teacher) {
     return true;
   }).map(function (x) {
     const k = x.teacher + '|' + x.date + '|' + x.session;
-    x.status = have[k] || manual[k] ? 'ordered' : skip[k] ? 'skipped' : 'todo';
+    const hol = holidayOf_(x.date);
+    x.status = have[k] || manual[k] ? 'ordered' : skip[k] ? 'skipped' : hol ? 'holiday' : 'todo';
+    if (hol) x.holiday = hol;
     return x;
   });
 }
@@ -2710,6 +2778,7 @@ function getMyLessons(token, as) {
     nextWeek: { from: dateStr_(from), to: dateStr_(firstWeekEnd), deadline: shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2), todo: todoNext },
     school: readSchedule_().filter(function (x) { return x.teacher === account; }),
     mine: readMyLessonRows_().filter(function (x) { return x.teacher === account; }),
+    holidays: holidaysBetween_(from, to),
     teacher: account,
     schoolRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? scheduleRowsOf_(account) : null,
     guojiRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? guojiRowsOf_(account) : null,
@@ -3021,7 +3090,8 @@ function adminGetSchedule(token, weekOf) {
   const st = lessonStatusMaps_(mon, fri);
   const status = function (teacher, date, session) {
     const k = teacher + '|' + date + '|' + session;
-    const r = st.have[k] ? { status: 'ordered', orders: st.have[k] } : st.manual[k] ? { status: 'ordered', manual: st.manual[k] } : st.skip[k] ? { status: 'skipped' } : { status: 'todo' };
+    const hol = holidayOf_(date);
+    const r = st.have[k] ? { status: 'ordered', orders: st.have[k] } : st.manual[k] ? { status: 'ordered', manual: st.manual[k] } : st.skip[k] ? { status: 'skipped' } : hol ? { status: 'holiday', holiday: hol } : { status: 'todo' };
     if (st.manual[k] || st.skip[k]) r.marked = true;   // 有手動標記（可以改回自動）
     return r;
   };
@@ -3035,16 +3105,18 @@ function adminGetSchedule(token, weekOf) {
     x.orders = r.orders || [];
     x.manual = r.manual || null;
     x.marked = !!r.marked;
+    x.holiday = r.holiday || '';
     x.date = dates[i];
   });
   out.extras = lessonsBetween_(mon, fri, null).filter(function (x) { return x.source !== '課表'; }).map(function (x) {
     const r = status(x.teacher, x.date, x.session);
     return { source: x.source, teacher: x.teacher, weekday: '一二三四五'.charAt(dates.indexOf(x.date)), session: x.session, course: x.course,
       className: x.className, room: x.room, status: r.status, orders: r.orders || [], noAccount: !!x.teacher && !accounts[x.teacher],
-      manual: r.manual || null, marked: !!r.marked, date: x.date,
+      manual: r.manual || null, marked: !!r.marked, date: x.date, holiday: r.holiday || '',
       kind: x.source === '自訂' && x.session === '晚上' ? '夜間部' : '日間部' };
   });
-  out.week = { from: dates[0], to: dates[4], dates: dates };
+  out.week = { from: dates[0], to: dates[4], dates: dates, holidays: dates.map(holidayOf_) };
+  out.holidays = readHolidays_();
   out.weekOrders = st.list;
   return out;
 }
