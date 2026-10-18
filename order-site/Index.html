@@ -680,7 +680,7 @@
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
           <div class="span2">
             <div class="status-chips" id="sRanges" style="margin-top:0">
-              <button type="button" data-range="lastWeek">上週</button><button type="button" data-range="thisWeek">本週</button><button type="button" data-range="nextWeek">下週</button><button type="button" data-range="lastMonth">上個月</button><button type="button" data-range="thisMonth">本月</button><button type="button" data-range="last3">近 3 個月</button><button type="button" data-range="term">本學期</button><button type="button" data-range="lastTerm">上學期</button>
+              <button type="button" data-range="lastWeek">上週</button><button type="button" data-range="thisWeek">本週</button><button type="button" data-range="nextWeek">下週</button><button type="button" data-range="weekAfter">下下週</button><button type="button" data-range="lastMonth">上個月</button><button type="button" data-range="thisMonth">本月</button><button type="button" data-range="last3">近 3 個月</button><button type="button" data-range="term">本學期</button><button type="button" data-range="lastTerm">上學期</button>
             </div>
             <div class="muted small" style="margin-top:4px">點一下直接查詢；試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div>
           </div>
@@ -2540,6 +2540,7 @@
       case 'lastWeek': return [add(mon, -7), add(mon, -1)];
       case 'thisWeek': return [mon, add(mon, 6)];
       case 'nextWeek': return [add(mon, 7), add(mon, 13)];
+      case 'weekAfter': return [add(mon, 14), add(mon, 20)];
       case 'lastMonth': return [new Date(y, m - 1, 1), new Date(y, m, 0)];
       case 'thisMonth': return [new Date(y, m, 1), new Date(y, m + 1, 0)];
       case 'last3': return [new Date(y, m - 2, 1), t];
