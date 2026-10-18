@@ -1084,7 +1084,10 @@
   // LINE 提醒的連結（?page=lessons）：登入後直接打開「我的課」
   var startPage = '';
   try {
-    if (window.google && google.script && google.script.url) google.script.url.getLocation(function (loc) { startPage = (loc.parameter && loc.parameter.page) || ''; });
+    if (window.google && google.script && google.script.url) google.script.url.getLocation(function (loc) {
+      startPage = (loc.parameter && loc.parameter.page) || '';
+      if (startPage === 'help') { startPage = ''; setTimeout(function () { openHelp(false); }, 0); }   // LINE 選單「教學影片」：不用登入直接看
+    });
   } catch (e) {}
   function setupApp() {
     $('who').textContent = data.account + (data.isAdmin ? '（管理者）' : '') + ' 已登入';
@@ -3853,7 +3856,7 @@
   });
 
   $('aRichMenu').addEventListener('click', function () {
-    if (!safeConfirm('在官方帳號建立 4 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明）？\n這個不會用到則數。')) return;
+    if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n這個不會用到則數。')) return;
     autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。'; });
   });
 

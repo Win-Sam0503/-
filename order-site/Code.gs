@@ -3340,6 +3340,9 @@ function lineAutoReply_(text, userId) {
       '目前最早可以訂：' + shortDateTw_(from) + ' 的課，最晚可以訂 ' + MAX_DAYS_AHEAD + ' 天內的課。' + (url ? '\n' + url : '');
   }
   if (/網站|訂貨系統/.test(t) && t.length <= 10) return url ? '訂貨網站：' + url : '訂貨網站還沒部署。';
+  if (/教學|影片|怎麼用|使用說明|操作說明/.test(t) && t.length <= 10) {
+    return url ? '▶ 教學影片（不用登入就可以看，用瀏覽器打開）：\n' + lineUrl_('help') : '訂貨網站還沒部署。';
+  }
   const wantLessons = /未訂貨|還沒訂|我的課/.test(t) && t.length <= 12;
   const wantOrders = /我的訂單|訂單狀態/.test(t) && t.length <= 12;
   if (!wantLessons && !wantOrders) return '';
@@ -3365,7 +3368,7 @@ function lineAutoReply_(text, userId) {
   }).join('\n') + (url ? '\n\n' + url : '');
 }
 
-/** 管理者：建立官方帳號圖文選單（4 個按鈕）並設為預設 */
+/** 管理者：建立官方帳號圖文選單（6 個按鈕，上下兩排）並設為預設 */
 function adminSetupRichMenu(token) {
   auth_(token, true);
   const props = PropertiesService.getScriptProperties();
@@ -3374,13 +3377,19 @@ function adminSetupRichMenu(token) {
   const url = webAppUrl_();
   if (!url) throw new Error('請先部署網站，再回來設定選單。');
   const auth = { Authorization: 'Bearer ' + lineToken };
-  const w = 2500, h = 843, cw = Math.floor(w / 4);
+  const w = 2500, h = 1686, cw = Math.floor(w / 3), rh = h / 2;
   const areas = [
     { action: { type: 'message', label: '我的未訂貨課程', text: '我的未訂貨課程' } },
     { action: { type: 'uri', label: '打開訂貨網站', uri: lineUrl_('') } },
     { action: { type: 'message', label: '我的訂單', text: '我的訂單' } },
     { action: { type: 'message', label: '截止時間說明', text: '截止時間說明' } },
-  ].map(function (a, i) { a.bounds = { x: i * cw, y: 0, width: i === 3 ? w - 3 * cw : cw, height: h }; return a; });
+    { action: { type: 'uri', label: '教學影片', uri: lineUrl_('help') } },
+    { action: { type: 'uri', label: '我的課表', uri: lineUrl_('lessons') } },
+  ].map(function (a, i) {
+    const c = i % 3, r = Math.floor(i / 3);
+    a.bounds = { x: c * cw, y: r * rh, width: c === 2 ? w - 2 * cw : cw, height: rh };
+    return a;
+  });
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
     payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統選單', chatBarText: '訂貨選單', areas: areas }),
