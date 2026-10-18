@@ -786,6 +786,13 @@
           <button type="button" class="btn ghost small" id="aRemindNow">立即傳訂貨提醒</button>
           <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
         </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">管理者帳號</h3>
+        <div class="muted small">設成管理者的老師，用自己的帳號登入就會看到訂單彙整、廠商訂貨單、總課表、審核食材等所有管理功能（也可以修改這裡的設定），原本的訂貨功能照常可以用。也可以直接在試算表「帳號設定」的「管理者」欄打勾。</div>
+        <div id="admList" class="hol-list small"></div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="admPick">新增管理者</label><select id="admPick"></select></div>
+          <button type="button" class="btn secondary small" id="admAdd">設為管理者</button>
+        </div>
         <h3 style="font-size:16px;margin:18px 0 6px">網站網址</h3>
         <div class="muted small">LINE 通知、官方帳號選單、每日摘要裡的連結都會用這個網址。請貼上「部署 → 管理部署」裡<b>正在使用</b>的網頁應用程式網址（結尾是 /exec），存好後再按一次「設定官方帳號選單」。</div>
         <div class="tpl-row" style="margin-top:6px">
@@ -3803,8 +3810,36 @@
       ? '<span style="color:var(--ok)">✓ 已指定網址</span>' + (st.autoUrl && st.autoUrl !== st.webhookUrl ? '<span class="muted">（系統自動判斷的是另一個舊網址，已改用你指定的）</span>' : '')
       : '<span style="color:var(--bad)">尚未指定，目前用系統自動判斷的網址；部署很多個時可能是舊的，建議貼上正確網址後儲存。</span>';
   }
+  function renderAdmins(r) {
+    $('admList').innerHTML = r.builtin.map(function (a) { return '<div><span>' + esc(a) + ' <span class="muted">（內建，不能取消）</span></span></div>'; }).join('') +
+      r.extra.map(function (a) {
+        return '<div><span>' + esc(a) + (a === r.me ? ' <span class="muted">（你自己）</span>' : '') + '</span><button type="button" class="btn ghost small" data-admdel="' + esc(a) + '">取消管理者</button></div>';
+      }).join('');
+    var opts = r.teachers.filter(function (t) { return r.extra.indexOf(t) < 0; });
+    $('admPick').innerHTML = '<option value="">選擇老師</option>' + opts.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('');
+  }
+  function loadAdmins() { call('adminListAdmins', token).then(renderAdmins).catch(function (e) { $('admList').textContent = '讀取失敗：' + e.message; }); }
+  $('admAdd').addEventListener('click', function () {
+    var who = $('admPick').value, b = this;
+    if (!who) { msg('autoMsg', 'error', '請先選擇老師。'); return; }
+    if (!safeConfirm('把「' + who + '」設成管理者？\n他登入後可以看到所有訂單、修改訂單、叫貨、審核食材和系統設定。')) return;
+    setBusy(b, true, '設定中…');
+    call('adminSetAdmin', token, who, true).then(function (r) { renderAdmins(r); msg('autoMsg', 'ok', '「' + who + '」已設成管理者，他重新登入後就會看到管理功能。'); })
+      .catch(function (e) { msg('autoMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('admList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-admdel]');
+    if (!b) return;
+    var who = b.getAttribute('data-admdel');
+    if (!safeConfirm('取消「' + who + '」的管理者權限？' + (who === data.account ? '\n這是你自己的帳號，取消後你會馬上看不到管理功能。' : ''))) return;
+    call('adminSetAdmin', token, who, false).then(function (r) {
+      if (r.selfRemoved) { notice('已取消你自己的管理者權限，請重新登入。'); return; }
+      renderAdmins(r); msg('autoMsg', 'ok', '已取消「' + who + '」的管理者權限。');
+    }).catch(function (e2) { msg('autoMsg', 'error', e2.message); });
+  });
   function loadAuto(keepMsg) {
     if (keepMsg !== true) msg('autoMsg', '', '');
+    loadAdmins();
     return call('adminGetAutomation', token).then(renderAuto)
       .catch(function (e) { msg('autoMsg', 'error', '讀取失敗：' + e.message + '（第一次使用請先在 Apps Script 編輯器執行 setupAutomation 並授權）'); });
   }

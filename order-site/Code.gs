@@ -24,7 +24,7 @@
 const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';
 
 const SITE_TITLE = '三信家商餐飲科訂貨系統';
-const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能
+const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能（其他老師可以在網站上設成管理者，存在「帳號設定」的「管理者」欄）
 const DEPARTMENTS = ['中餐', '西餐', '日料', '烘焙', '飲調', '果雕', '刀功'];
 // 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
 const CLASS_TIME_PATTERN = /^(上午|下午|晚上) (1[0-2]|[1-9]):[0-5][05]$/;
@@ -179,7 +179,7 @@ function login(account, password) {
   cache.put('session:' + token, account, SESSION_HOURS * 3600);
   const mustChange = password === DEFAULT_PASSWORD;
   if (mustChange) cache.put('mustchange:' + token, '1', SESSION_HOURS * 3600);
-  return { token: token, account: account, isAdmin: ADMIN_ACCOUNTS.indexOf(account) >= 0, mustChange: mustChange };
+  return { token: token, account: account, isAdmin: isAdmin_(account), mustChange: mustChange };
 }
 
 // 常見的異體字、簡體字 → 台灣常用寫法（只用來比對帳號，不會改試算表）
@@ -252,13 +252,66 @@ function logLogin_(account, result) {
 }
 
 /** 檢查登入狀態，回傳帳號名稱。 */
+/** 是不是管理者：內建的「管理者」帳號，或「帳號設定」裡「管理者」欄打勾、而且啟用的老師 */
+function isAdmin_(account) {
+  if (!account) return false;
+  if (ADMIN_ACCOUNTS.indexOf(account) >= 0) return true;
+  return extraAdmins_().indexOf(account) >= 0;
+}
+function extraAdmins_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('extraAdmins');
+  if (hit) return JSON.parse(hit);
+  const t = readTable_(SHEET.accounts, ['帳號']);
+  const list = t.cols['管理者'] === undefined ? [] : t.rows.filter(function (r) {
+    return isTrue_(r['管理者']) && isTrue_(r['啟用']);
+  }).map(function (r) { return String(r['帳號']).trim(); }).filter(Boolean);
+  cache.put('extraAdmins', JSON.stringify(list), 300);
+  return list;
+}
+
+/** 管理者：目前的管理者和可以設定的老師 */
+function adminListAdmins(token) {
+  return listAdmins_(auth_(token, true));
+}
+function listAdmins_(me) {
+  const t = readTable_(SHEET.accounts, ['帳號', '啟用']);
+  const teachers = t.rows.filter(function (r) { return isTrue_(r['啟用']); }).map(function (r) { return String(r['帳號']).trim(); })
+    .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0; });
+  return { builtin: ADMIN_ACCOUNTS.slice(), extra: extraAdmins_(), teachers: teachers, me: me };
+}
+
+/** 管理者：把某位老師設成管理者（on = true）或取消 */
+function adminSetAdmin(token, account, on) {
+  const me = auth_(token, true);
+  account = clean_(account, 30);
+  if (ADMIN_ACCOUNTS.indexOf(account) >= 0) throw new Error('「' + account + '」是內建的管理者，不能取消。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(sheet_(SHEET.accounts), ['管理者']);
+    const t = readTable_(SHEET.accounts, ['帳號']);
+    const r = t.rows.find(function (x) { return String(x['帳號']).trim() === account; });
+    if (!r) throw new Error('「帳號設定」裡找不到「' + account + '」。');
+    if (on && !isTrue_(r['啟用'])) throw new Error('「' + account + '」的帳號沒有啟用。');
+    setCell_(t, r._row, '管理者', !!on);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  CacheService.getScriptCache().remove('extraAdmins');
+  const out = listAdmins_(me);
+  out.selfRemoved = !on && account === me;
+  return out;
+}
+
 function auth_(token, needAdmin, allowMustChange) {
   const cache = CacheService.getScriptCache();
   const account = token ? cache.get('session:' + token) : null;
   if (!account) throw new Error('SESSION_EXPIRED');
   // 還在用預設密碼的，除了改密碼以外什麼都不能做
   if (!allowMustChange && cache.get('mustchange:' + token)) throw new Error('MUST_CHANGE_PASSWORD');
-  if (needAdmin && ADMIN_ACCOUNTS.indexOf(account) < 0) throw new Error('只有管理者可以使用這個功能。');
+  if (needAdmin && !isAdmin_(account)) throw new Error('只有管理者可以使用這個功能。');
   return account;
 }
 
@@ -282,7 +335,7 @@ function getBootstrap(token) {
   const depts = DEPARTMENTS.slice();
   items.forEach(function (it) { if (it.dept !== '通用' && depts.indexOf(it.dept) < 0) depts.push(it.dept); });
 
-  const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
+  const isAdmin = isAdmin_(account);
   const now = new Date();
   return {
     account: account,
@@ -314,7 +367,7 @@ const HELP_FOLDER = '訂貨系統教學影片';
 /** 教學影片清單（登入頁也可以看，不用 token；管理者多看管理者教學和分享狀態）。refresh：管理者重新讀資料夾 */
 function getHelpVideos(token, refresh) {
   let admin = false;
-  if (token) { try { admin = ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0; } catch (e) { admin = false; } }
+  if (token) { try { admin = isAdmin_(auth_(token)); } catch (e) { admin = false; } }
   const cache = CacheService.getScriptCache();
   let list = admin && refresh ? null : JSON.parse(cache.get('helpVideos') || 'null');
   if (!list) {
@@ -459,7 +512,7 @@ function lockRuleText_() {
  */
 function submitOrder(token, payload) {
   const account = auth_(token);
-  const o = validateOrder_(payload, account, ADMIN_ACCOUNTS.indexOf(account) >= 0);
+  const o = validateOrder_(payload, account, isAdmin_(account));
 
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -479,7 +532,7 @@ function submitOrder(token, payload) {
  */
 function updateOrder(token, orderNo, payload) {
   const account = auth_(token);
-  const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
+  const isAdmin = isAdmin_(account);
   orderNo = String(orderNo || '').trim();
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -904,7 +957,7 @@ function getMyOrders(token, days) {
   // 管理者改過、退單的紀錄（含原因），給老師看
   const edits = orderEditsFor_(list.map(function (o) { return o.orderNo; }));
   list.forEach(function (o) {
-    o.adminNotes = (edits[o.orderNo] || []).filter(function (e) { return ADMIN_ACCOUNTS.indexOf(e.who) >= 0; });
+    o.adminNotes = (edits[o.orderNo] || []).filter(function (e) { return isAdmin_(e.who); });
   });
   return list;
 }
@@ -947,7 +1000,7 @@ function classKeys_(s) {
 
 function cancelOrder(token, orderNo) {
   const account = auth_(token);
-  const isAdmin = ADMIN_ACCOUNTS.indexOf(account) >= 0;
+  const isAdmin = isAdmin_(account);
   const res = cancelOrderChecked_(account, isAdmin, orderNo);
   try { logOrderEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']); } catch (e) { console.error(e.message); }
   if (isAdmin) notifyTeacherOfEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']);
@@ -2758,7 +2811,7 @@ function lessonAccount_(token, as) {
   const account = auth_(token);
   as = clean_(as, 30);
   if (!as || as === account) return account;
-  if (ADMIN_ACCOUNTS.indexOf(account) < 0) throw new Error('只有管理者可以查看別的老師的課。');
+  if (!isAdmin_(account)) throw new Error('只有管理者可以查看別的老師的課。');
   return as;
 }
 
@@ -2780,8 +2833,8 @@ function getMyLessons(token, as) {
     mine: readMyLessonRows_().filter(function (x) { return x.teacher === account; }),
     holidays: holidaysBetween_(from, to),
     teacher: account,
-    schoolRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? scheduleRowsOf_(account) : null,
-    guojiRows: ADMIN_ACCOUNTS.indexOf(auth_(token)) >= 0 ? guojiRowsOf_(account) : null,
+    schoolRows: isAdmin_(auth_(token)) ? scheduleRowsOf_(account) : null,
+    guojiRows: isAdmin_(auth_(token)) ? guojiRowsOf_(account) : null,
     line: { enabled: !!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN'), bound: !!lineUserOf_(account) },
   };
 }
