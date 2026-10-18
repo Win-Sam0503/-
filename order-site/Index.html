@@ -381,6 +381,8 @@
   .vedit .pd-zero { background: #eef0f2; padding: 0 4px; }
   .vedit .pd-add { background: #e8f4ea; padding: 0 4px; }
   .vedit .pflag { color: var(--bad); font-size: 13px; }
+  .vedit .vpart-detail { margin-top: 18px; }
+  .vedit .vdetail-title { display: none; }
   .padd-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .padd-form select, .padd-form input { width: auto; }
   .vpage .dsum { margin-bottom: 8px; }
@@ -436,6 +438,11 @@
     .vpage:last-child { page-break-after: auto; }
     .vedit input, .vedit select { border: 0 !important; background: none !important; padding: 0 !important; -webkit-appearance: none; appearance: none; color: #000; }
     .vedit .ptable table { min-width: 0; }
+    #vendorSheets.vp-sum .vedit .vpart-detail, #vendorSheets.vp-detail .vedit .vpart-sum { display: none; }
+    #vendorSheets.vp-detail .vedit > h1, #vendorSheets.vp-detail .vedit > .vsub { display: none; }
+    #vendorSheets.vp-detail .vedit .vdetail-title { display: block; }
+    #vendorSheets.vp-both .vedit .vpart-detail { break-before: page; page-break-before: always; margin-top: 0; }
+    #vendorSheets.vp-both .vedit .vdetail-title { display: block; }
     .vedit .p-diff, .vedit .p-zero, .vedit .p-add { background: none !important; color: #000; }
     main { padding: 0 !important; max-width: none !important; }
     .print-scroll { overflow: visible; padding: 0; }
@@ -760,8 +767,8 @@
             <option value="order">② 訂貨單（直接改實際叫貨量、儲存、確定）</option>
             <option value="purchase">③ 叫貨單（給廠商，只有實際叫貨量）</option>
           </select></div>
-          <div id="vPartWrap" class="hidden"><label for="vPart">叫貨單內容</label><select id="vPart">
-            <option value="sum">只有合計（給廠商）</option>
+          <div id="vPartWrap"><label for="vPart">列印內容</label><select id="vPart">
+            <option value="sum">只有合計</option>
             <option value="detail">只有各班明細</option>
             <option value="both">合計＋各班明細（分開兩頁）</option>
           </select></div>
@@ -772,7 +779,7 @@
         </div>
         <div class="muted small" style="margin-bottom:6px">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，直接改每班的實際叫貨量，每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商。</div>
         <div class="status-chips" id="vSize" style="margin:0 0 8px;align-items:center"><span class="muted small">字體大小：</span><button type="button" data-size="13">小</button><button type="button" data-size="14">中</button><button type="button" data-size="17">大</button><button type="button" data-size="20">特大</button></div>
-        <div class="muted small">每家廠商一頁：食材合計（重量換算成同一種單位）＋各班明細；③ 叫貨單可以選只印合計、只印明細，或分開兩頁。不含已取消、勾選「有貨」的品項，也不含器具。</div>
+        <div class="muted small">每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印內容」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。</div>
       </div>
       <div id="vendorMsg" class="noprint"></div>
       <div id="vendorSheets"></div>
@@ -3254,7 +3261,8 @@
       var orders = res[0], pur = res[1];
       return pendingGate(orders, only, kind).then(function (go) {
         if (!go) return null;
-        if (kind === 'deduct') return deductSheets(demandLines(orders), from, to, only);
+        lastSheet = null;
+        if (kind === 'deduct') { lastSheet = { fn: deductSheets, args: [demandLines(orders), from, to, only] }; return deductSheets.apply(null, lastSheet.args); }
         if (kind === 'order') {
           openPurchase(from, to, orders, pur, only);
           return pState.rows.some(function (r) { return !only || r.vendor === only; }) ? $('vendorSheets').innerHTML : '';
@@ -3265,7 +3273,7 @@
         var warn = staleText(purchaseCache, demandLines(orders), only, drafts);
         vKeepMsg = (drafts.length ? '<div class="msg warn">' + esc(drafts.join('、') + ' 還是草稿、沒有確定，所以不在叫貨單裡。請到「② 訂貨單」按「確定叫貨」。') + '</div>' : '') +
           (warn ? '<div class="msg error">' + esc(warn) + '</div>' : '');
-        lastPurchaseArgs = [purchaseCache, from, to, only];
+        lastSheet = { fn: purchaseSheets, args: [purchaseCache, from, to, only] };
         return purchaseCache.length ? purchaseSheets(purchaseCache, from, to, only) : '';
       });
     });
@@ -3380,27 +3388,33 @@
       }).join('') + '</tbody></table>';
   }
 
-  // 扣貨單：每班一塊，旁邊空白給學生手寫「現有庫存」「實際叫貨」，最後留補庫存空白列
+  // 扣貨單：合計（旁邊空白給學生寫現有庫存）和各班明細（寫實際叫貨）分開成不同頁，「列印內容」選要印哪一種；最後留補庫存空白列
   function deductSheets(rows, from, to, only) {
+    var part = $('vPart').value || 'sum';
     var by = byVendorBatch(rows, only);
     return Object.keys(by).sort().map(function (v) {
-      return '<div class="vpage deduct"><h1>' + esc(v) + ' 扣貨單</h1><div class="vsub">' + esc(rangeText(from, to)) + '　　填寫人：＿＿＿＿＿＿</div>' +
+      var head = function (title) {
+        return '<div class="vpage deduct"><h1>' + esc(v) + ' ' + title + '</h1><div class="vsub">' + esc(rangeText(from, to)) + '　　填寫人：＿＿＿＿＿＿</div>';
+      };
+      var extra = '<h3>補庫存（老師沒訂、要另外叫的）</h3><table><thead><tr><th style="width:36%">食材</th><th style="width:20%">送貨日期</th><th style="width:22%">現有庫存</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
+        '<tr><td></td><td></td><td></td><td></td></tr>'.repeat(4) + '</tbody></table>';
+      var sumPage = head('扣貨單') +
         Object.keys(by[v]).sort().map(function (dk) {
-          var list = sortLines(by[v][dk]);
+          var tot = sumLines(by[v][dk], 'need', 'needUnit'), mixed = mixedNames(tot);
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
             '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">現有庫存</th></tr></thead><tbody>' +
-            (function (tot) {
-              var mixed = mixedNames(tot);
-              return tot.map(function (t) {
-                return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td><td></td></tr>';
-              }).join('');
-            })(sumLines(list, 'need', 'needUnit')) + '</tbody></table>' +
-            blockTable(list, '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
+            tot.map(function (t) {
+              return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td><td></td></tr>';
+            }).join('') + '</tbody></table>';
+        }).join('') + (part === 'sum' ? extra : '') + '</div>';
+      var detailPage = head('扣貨明細（各班）') +
+        Object.keys(by[v]).sort().map(function (dk) {
+          return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
+            blockTable(sortLines(by[v][dk]), '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
               return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(vendorQty(r.need, r.needUnit, r.vendor, r.name)) + '</td><td></td>';
             });
-        }).join('') +
-        '<h3>補庫存（老師沒訂、要另外叫的）</h3><table><thead><tr><th style="width:36%">食材</th><th style="width:20%">送貨日期</th><th style="width:22%">現有庫存</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
-        '<tr><td></td><td></td><td></td><td></td></tr>'.repeat(4) + '</tbody></table></div>';
+        }).join('') + extra + '</div>';
+      return (part !== 'detail' ? sumPage : '') + (part !== 'sum' ? detailPage : '');
     }).join('');
   }
 
@@ -3473,14 +3487,13 @@
       return (part !== 'detail' ? sumPage : '') + (part !== 'sum' ? detailPage : '');
     }).join('');
   }
-  var lastPurchaseArgs = null;   // 換「叫貨單內容」時直接重畫，不用重新載入
-  function syncVPart() { $('vPartWrap').classList.toggle('hidden', $('vKind').value !== 'purchase'); }
-  $('vKind').addEventListener('change', syncVPart);
+  // 「列印內容」：① ③ 換了直接重畫（不用重新載入）；② 畫面全部顯示方便修改，只影響列印
+  var lastSheet = null;   // { kind, fn, args }
+  function syncVPart() { $('vendorSheets').className = 'vp-' + ($('vPart').value || 'sum'); }
   $('vPart').addEventListener('change', function () {
     try { localStorage.setItem('ckOrder.vendorPart', this.value); } catch (e) {}
-    if (lastPurchaseArgs && $('vKind').value === 'purchase' && $('vendorSheets').querySelector('.vpage')) {
-      $('vendorSheets').innerHTML = purchaseSheets.apply(null, lastPurchaseArgs);
-    }
+    syncVPart();
+    if (lastSheet && !pState && $('vendorSheets').querySelector('.vpage')) $('vendorSheets').innerHTML = lastSheet.fn.apply(null, lastSheet.args);
   });
   (function () {
     var p = 'sum';
@@ -3602,16 +3615,19 @@
     var groups = byVendorBatch(st.rows.map(function (r, i) { r.i = i; return r; }), st.only);
     var html = (st.wait ? '<div class="msg warn noprint">這段期間還有 ' + st.wait + ' 張「待處理」（未審核）的訂單，確定叫貨後也會改成「已叫貨」。</div>' : '') +
       '<div class="muted small noprint" style="margin-bottom:10px">照學生交回的扣貨單，在每一班的「實際叫貨」填要跟廠商叫的量（預設＝老師訂的）。填 0 代表不叫、用庫存；單位可以改。合計會自動重算。' +
-      '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。</div>';
+      '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。畫面上合計、明細都會顯示方便修改，列印時照上面的「列印內容」。</div>';
     Object.keys(groups).sort().forEach(function (v) {
       html += '<div class="vpage vedit" data-vendor="' + esc(v) + '"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(rangeText(st.from, st.to)) + '</div>' + contactHtml(v) +
         '<div class="noprint vstate" style="text-align:center;margin-bottom:8px">' + vStateText(v) + '</div>' +
         (st.gone[v] ? '<div class="msg warn noprint">上次儲存後，老師取消了：' + esc(st.gone[v].map(function (g) { return shortDate(g.date) + ' ' + g.className + ' ' + g.name; }).join('、')) + '（這次不會再叫）。</div>' : '') +
         '<datalist id="pItems-' + esc(v) + '">' + data.items.filter(function (it) { return it.vendor === v; }).map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
+      html += '<div class="vpart-sum">' + Object.keys(groups[v]).sort().map(function (dk) {
+        return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
+          '<div class="ptot-wrap" data-pday="' + esc(v + '|' + dk) + '">' + pTotalsHtml(sortLines(groups[v][dk])) + '</div>';
+      }).join('') + '</div><div class="vpart-detail"><h1 class="vdetail-title">' + esc(v) + ' 訂貨明細（各班）</h1><div class="vsub vdetail-title">' + esc(rangeText(st.from, st.to)) + '</div>';
       Object.keys(groups[v]).sort().forEach(function (dk) {
         var list = sortLines(groups[v][dk]);
         html += '<h3>' + esc(batchLabel(dk)) + '</h3>' +
-          '<div class="ptot-wrap" data-pday="' + esc(v + '|' + dk) + '">' + pTotalsHtml(list) + '</div>' +
           '<div class="tablewrap ptable">' + blockTable(list, '<th>食材</th><th class="num" style="width:11%">老師訂</th><th style="width:12%">實際叫貨</th><th style="width:12%">單位</th><th style="width:16%">備註</th><th class="noprint" style="width:7%"></th>', function (r) {
             var add = r.kind === '補庫存', c = ' class="p-' + pDiff(r) + '"';
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
@@ -3624,6 +3640,7 @@
           }) + '</div>' +
           '<button type="button" class="btn ghost small noprint" data-padd="' + esc(v + '|' + list[0].date + '|' + dk) + '">＋ 補庫存（' + esc(batchLabel(dk)) + '）</button>';
       });
+      html += '</div>';
       html += '<div class="noprint vfoot"><div class="psum" data-psum="' + esc(v) + '">' + pSummary(v) + '</div><div class="actions">' +
         '<button type="button" class="btn ghost" data-preset="' + esc(v) + '">全部照老師訂的</button>' +
         '<button type="button" class="btn secondary" data-psave="' + esc(v) + '" data-mode="draft">先儲存（草稿）</button>' +
