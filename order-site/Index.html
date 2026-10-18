@@ -810,6 +810,20 @@
         </div>
         <div id="aBindInfo" class="small" style="margin-top:8px"></div>
       </div>
+      <div class="panel noprint hidden" id="updPanel">
+        <h2>⟳ 更新程式 <button type="button" class="btn ghost small" id="updReload">重新整理</button></h2>
+        <div class="muted small">從 GitHub 讀 Claude 改好的新程式，換掉網站的程式並部署（網址不變）。每次都要輸入傳到你 LINE 的驗證碼；部署後網站打不開會自動還原。只有內建的「管理者」帳號看得到。</div>
+        <div id="updMsg"></div>
+        <div id="updBox" class="small" style="line-height:1.8"></div>
+        <details style="margin-top:10px"><summary class="small" style="cursor:pointer;color:var(--brand);font-weight:600">設定 GitHub token</summary>
+          <div class="muted small" style="margin-top:6px">GitHub →（右上頭像）Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token：
+            Repository access 選「Only select repositories」→ 只選這個儲存庫；Permissions → Repository permissions → <b>Contents：Read-only</b>（其他都不要給）。產生後把 github_pat_ 開頭的 token 貼在這裡（存好後不會再顯示）。</div>
+          <div class="tpl-row" style="margin-top:6px">
+            <div><label for="updToken">GitHub token</label><input id="updToken" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+            <button type="button" class="btn secondary small" id="updTokenSave">儲存</button>
+          </div>
+        </details>
+      </div>
     </section>
 
     <!-- 管理者：審核食材 -->
@@ -3837,9 +3851,92 @@
       renderAdmins(r); msg('autoMsg', 'ok', '已取消「' + who + '」的管理者權限。');
     }).catch(function (e2) { msg('autoMsg', 'error', e2.message); });
   });
+  // ---- 一鍵更新程式（只有內建的管理者帳號） ----
+  var updInfo = null, updPending = null;   // updPending：{ action, sha } 已經傳了驗證碼、等輸入
+  function loadUpdate(note) {
+    $('updPanel').classList.toggle('hidden', !data.isOwner);
+    if (!data.isOwner) return;
+    msg('updMsg', 'info', '讀取中…');
+    call('adminUpdateInfo', token, updInfo ? updInfo.branch : '').then(function (r) { renderUpdate(r, note); })
+      .catch(function (e) { msg('updMsg', 'error', e.message); });
+  }
+  function renderUpdate(r, note) {
+    updInfo = r;
+    msg('updMsg', note ? 'ok' : (r.error ? 'error' : ''), note || r.error || '');
+    var cur = r.current || {}, html = '';
+    html += '目前網站：' + (cur.sha ? '<b>' + esc(cur.sha.slice(0, 7)) + '</b>（' + esc(cur.at) + ' 用一鍵更新）' : '還沒用一鍵更新過（是你手動貼上的版本）') + '<br>';
+    if (!r.lineReady) html += '<span style="color:var(--bad)">⚠ 還沒設定 LINE 通知，收不到驗證碼。請先在上面「LINE 官方帳號通知」設定並綁定。</span><br>';
+    if (r.lockedUntil > Date.now()) html += '<span style="color:var(--bad)">⚠ 驗證碼錯太多次，鎖定到 ' + esc(new Date(r.lockedUntil).toLocaleTimeString()) + '。</span><br>';
+    if (!r.hasToken) { html += '<span style="color:var(--bad)">還沒設定 GitHub token，請先在下面設定。</span>'; $('updBox').innerHTML = html; return; }
+    if (r.branches && r.branches.length) {
+      html += '<label for="updBranch" style="display:inline">分支：</label><select id="updBranch" style="width:auto">' + r.branches.map(function (b) {
+        return '<option' + (b === r.branch ? ' selected' : '') + '>' + esc(b) + '</option>';
+      }).join('') + '</select><br>';
+    }
+    var list = r.commits || [];
+    if (list.length) {
+      var latest = list[0], isCur = latest.sha === cur.sha;
+      html += '<div style="margin:6px 0">GitHub 上最近的版本：</div><div class="hol-list">' + list.slice(0, 5).map(function (c, i) {
+        return '<div><span><b>' + esc(c.sha.slice(0, 7)) + '</b>　' + esc(c.message) + ' <span class="muted">' + esc(String(c.date).slice(0, 10)) + '</span>' +
+          (i === 0 ? ' <span class="badge ok">最新</span>' : '') + (c.sha === cur.sha ? ' <span class="badge">網站目前</span>' : '') + '</span></div>';
+      }).join('') + '</div>';
+      if (updPending) {
+        html += '<div class="msg info" style="margin-top:8px">驗證碼已經傳到你的 LINE（5 分鐘內有效）。' +
+          '<div class="tpl-row" style="margin-top:6px"><div><label for="updCode">LINE 驗證碼</label><input id="updCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>' +
+          '<button type="button" class="btn small" id="updConfirm">' + (updPending.action === 'update' ? '確定更新到 ' + esc(updPending.sha.slice(0, 7)) : '確定還原') + '</button>' +
+          '<button type="button" class="btn ghost small" id="updCancel">取消</button></div></div>';
+      } else {
+        html += '<div class="actions" style="justify-content:flex-start">' +
+          (isCur ? '<span class="muted">網站已經是最新版。</span>' : '<button type="button" class="btn small" data-upd="update" data-sha="' + esc(latest.sha) + '">⟳ 更新到 ' + esc(latest.sha.slice(0, 7)) + '</button>') +
+          (cur.prevVersion ? '<button type="button" class="btn ghost small" data-upd="rollback">↶ 還原上一版</button>' : '') + '</div>' +
+          '<div class="muted">請確認版本代碼跟 Claude 在對話裡告訴你的一樣再更新。</div>';
+      }
+    }
+    $('updBox').innerHTML = html;
+  }
+  $('updReload').addEventListener('click', function () { updPending = null; loadUpdate(); });
+  $('updTokenSave').addEventListener('click', function () {
+    var v = $('updToken').value.trim(), b = this;
+    if (!v) { msg('updMsg', 'error', '請貼上 token（要刪除請輸入 -）。'); return; }
+    setBusy(b, true, '儲存中…');
+    call('adminSaveUpdateSettings', token, v, updInfo ? updInfo.branch : '').then(function (r) { $('updToken').value = ''; renderUpdate(r, v === '-' ? '已刪除 GitHub token。' : 'GitHub token 已儲存。'); })
+      .catch(function (e) { msg('updMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('updBox').addEventListener('change', function (e) {
+    if (e.target.id !== 'updBranch') return;
+    updInfo.branch = e.target.value; updPending = null;
+    call('adminSaveUpdateSettings', token, '', e.target.value).then(function (r) { renderUpdate(r); }).catch(function (err) { msg('updMsg', 'error', err.message); });
+  });
+  $('updBox').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-upd]');
+    if (b) {
+      var action = b.getAttribute('data-upd'), sha = b.getAttribute('data-sha') || '';
+      setBusy(b, true, '傳送驗證碼…');
+      call('adminRequestUpdateCode', token, action, sha).then(function () { updPending = { action: action, sha: sha }; renderUpdate(updInfo); setTimeout(function () { var i = $('updCode'); if (i) i.focus(); }, 50); })
+        .catch(function (err) { msg('updMsg', 'error', err.message); setBusy(b, false); });
+      return;
+    }
+    if (e.target.id === 'updCancel') { updPending = null; renderUpdate(updInfo); return; }
+    if (e.target.id === 'updConfirm') {
+      var code = $('updCode').value.trim(), c = e.target, p = updPending;
+      if (!/^\d{6}$/.test(code)) { msg('updMsg', 'error', '請輸入 6 位數驗證碼。'); return; }
+      setBusy(c, true, p.action === 'update' ? '更新中，約 30 秒…' : '還原中…');
+      var job = p.action === 'update' ? call('adminRunUpdate', token, updInfo.branch, p.sha, code) : call('adminRollbackUpdate', token, code);
+      job.then(function (r) {
+        updPending = null;
+        renderUpdate(r.info, (p.action === 'update' ? '已更新並部署（版本 ' + p.sha.slice(0, 7) + '）。' : '已還原成上一版。') + '請重新整理網頁（手機往下拉），再點幾個頁面確認正常。');
+      }).catch(function (err) {
+        if (/驗證碼不對/.test(err.message)) { setBusy(c, false); $('updCode').value = ''; }
+        else { updPending = null; renderUpdate(updInfo); }
+        msg('updMsg', 'error', err.message);
+      });
+    }
+  });
+
   function loadAuto(keepMsg) {
     if (keepMsg !== true) msg('autoMsg', '', '');
     loadAdmins();
+    loadUpdate();
     return call('adminGetAutomation', token).then(renderAuto)
       .catch(function (e) { msg('autoMsg', 'error', '讀取失敗：' + e.message + '（第一次使用請先在 Apps Script 編輯器執行 setupAutomation 並授權）'); });
   }

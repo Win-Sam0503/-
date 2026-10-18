@@ -130,7 +130,13 @@ const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 // 試算表標題的別名：訂單總表用「使用日期」或「上課日期」都可以
 const HEADER_ALIASES = { '上課日期': '使用日期', '使用日期': '上課日期' };
 
-function doGet() {
+function doGet(e) {
+  // 一鍵更新後的自動測試：程式讀得到、畫面產生得出來就回 OK（不含任何資料）
+  if (e && e.parameter && e.parameter.health) {
+    let ok = false;
+    try { ok = HtmlService.createTemplateFromFile('Index').evaluate().getContent().length > 1000; } catch (err) { ok = false; }
+    return ContentService.createTextOutput(ok ? 'ORDER_SITE_OK' : 'ORDER_SITE_FAIL');
+  }
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle(SITE_TITLE)
@@ -340,6 +346,7 @@ function getBootstrap(token) {
   return {
     account: account,
     isAdmin: isAdmin,
+    isOwner: ADMIN_ACCOUNTS.indexOf(account) >= 0,
     items: items,
     vendors: vendors,
     vendorSplit: VENDOR_SPLIT,
@@ -2170,6 +2177,249 @@ function adminSetSiteUrl(token, url) {
     props.setProperty('SITE_URL', url);
   }
   return automationStatus_();
+}
+
+// =====================================================================
+// 一鍵更新程式（管理者用手機也能更新）
+// 保護：① 只有內建「管理者」帳號能用；② 每次更新／還原都要輸入傳到管理者 LINE 的驗證碼（錯 3 次鎖 1 小時）；
+// ③ 只從固定的 GitHub 儲存庫讀程式，token 只有唯讀權限；④ 只更新到畫面上看到的那一版（版本代碼要一致）；
+// ⑤ Apps Script 會擋語法錯誤，部署後自動測試網站，打不開就自動還原；⑥ 每次都記在「更新紀錄」分頁並用 LINE 通知。
+// 需要：script.google.com/home/usersettings 打開「Google Apps Script API」，appsscript.json 有 script.projects、script.deployments 權限。
+// =====================================================================
+const UPDATE_REPO = 'win-sam0503/-';
+const UPDATE_DIR = 'order-site';
+const UPDATE_DEFAULT_BRANCH = 'claude/hi-ksvoju';
+const UPDATE_FILES = { Code: ['Code.gs', 'SERVER_JS'], Index: ['Index.html', 'HTML'], RichMenu: ['RichMenu.html', 'HTML'] };
+const UPDATE_LOG_HEADERS = ['時間', '動作', '版本', '說明', '結果', '操作人'];
+
+/** 只有內建的管理者帳號（不含後來設定的管理者）可以更新程式 */
+function updateOwner_(token) {
+  const account = auth_(token, true);
+  if (ADMIN_ACCOUNTS.indexOf(account) < 0) throw new Error('只有內建的「管理者」帳號可以更新程式。');
+  return account;
+}
+
+function gh_(path, raw) {
+  const tk = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!tk) throw new Error('還沒設定 GitHub token，請先在「更新程式」的設定貼上。');
+  const res = UrlFetchApp.fetch('https://api.github.com/repos/' + UPDATE_REPO + '/' + path, {
+    headers: { Authorization: 'Bearer ' + tk, Accept: raw ? 'application/vnd.github.raw' : 'application/vnd.github+json',
+      'User-Agent': 'order-site-updater', 'X-GitHub-Api-Version': '2022-11-28' },
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code === 401) throw new Error('GitHub token 不正確或已過期，請重新產生一組貼上。');
+  if (code === 403) throw new Error('GitHub 拒絕存取（token 沒有這個儲存庫的「Contents 唯讀」權限，或暫時超過次數）。');
+  if (code === 404) throw new Error('GitHub 上找不到（' + path.split('?')[0] + '）：請確認分支名稱和 token 的儲存庫權限。');
+  if (code >= 300) throw new Error('GitHub 回應錯誤（' + code + '）。');
+  return raw ? res.getContentText('UTF-8') : JSON.parse(res.getContentText('UTF-8'));
+}
+
+function gas_(method, path, body) {
+  const opt = { method: method, contentType: 'application/json', headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true };
+  if (body) opt.payload = JSON.stringify(body);
+  const res = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + ScriptApp.getScriptId() + path, opt);
+  const code = res.getResponseCode(), text = res.getContentText('UTF-8');
+  if (code >= 300) {
+    let m = '';
+    try { m = JSON.parse(text).error.message; } catch (e) { m = text.slice(0, 300); }
+    if (/has not been used|is disabled|not enabled the Apps Script API/i.test(m)) {
+      throw new Error('還沒打開「Google Apps Script API」：請用電腦到 script.google.com/home/usersettings 打開，等幾分鐘再試。');
+    }
+    if (code === 403) throw new Error('程式沒有「管理 Apps Script 專案」的權限：請用電腦貼上新的 appsscript.json，再執行一次授權。（' + m + '）');
+    throw new Error(m || ('Apps Script API 錯誤（' + code + '）'));
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+/** 現在網站用的部署 ID（從「自動化 → 網站網址」取） */
+function updateDeploymentId_() {
+  const m = String(webAppUrl_() || '').match(/\/s\/([\w-]+)\/exec/);
+  if (!m) throw new Error('找不到網站的部署 ID，請先在「自動化 → 網站網址」貼上正在使用的網址。');
+  return m[1];
+}
+
+function updateState_() {
+  const p = PropertiesService.getScriptProperties();
+  return { sha: p.getProperty('UPDATE_SHA') || '', at: p.getProperty('UPDATE_AT') || '', version: Number(p.getProperty('UPDATE_VERSION') || 0),
+    prevVersion: Number(p.getProperty('UPDATE_PREV_VERSION') || 0), prevSha: p.getProperty('UPDATE_PREV_SHA') || '' };
+}
+
+function updateLog_(action, version, note, result, who) {
+  try {
+    ensureSheet_('更新紀錄', UPDATE_LOG_HEADERS);
+    appendRows_('更新紀錄', [{ '時間': new Date(), '動作': action, '版本': version, '說明': String(note || '').slice(0, 200), '結果': result, '操作人': who }],
+      { '時間': 'yyyy/mm/dd hh:mm' });
+  } catch (e) { console.error('updateLog_ ' + e.message); }
+  linePush_(PropertiesService.getScriptProperties().getProperty('LINE_TO'), '【訂貨系統更新】' + action + '：' + result + (version ? '（' + version + '）' : '') + (note ? '\n' + note : ''));
+}
+
+/** 管理者：更新程式的狀態（目前版本、GitHub 上的版本） */
+function adminUpdateInfo(token, branch) {
+  updateOwner_(token);
+  const p = PropertiesService.getScriptProperties();
+  branch = clean_(branch, 100) || p.getProperty('UPDATE_BRANCH') || UPDATE_DEFAULT_BRANCH;
+  const out = { hasToken: !!p.getProperty('GITHUB_TOKEN'), lineReady: !!(p.getProperty('LINE_TOKEN') && p.getProperty('LINE_TO')),
+    branch: branch, current: updateState_(), repo: UPDATE_REPO, lockedUntil: Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) };
+  if (!out.hasToken) return out;
+  try {
+    out.branches = gh_('branches?per_page=100').map(function (b) { return b.name; });
+    out.commits = gh_('commits?sha=' + encodeURIComponent(branch) + '&path=' + UPDATE_DIR + '&per_page=10').map(function (c) {
+      return { sha: c.sha, message: String(c.commit.message || '').split('\n')[0].slice(0, 120), date: c.commit.committer ? c.commit.committer.date : '' };
+    });
+  } catch (e) {
+    out.error = e.message;
+  }
+  return out;
+}
+
+/** 管理者：存 GitHub token（空白＝不改；"-"＝刪除）和分支 */
+function adminSaveUpdateSettings(token, ghToken, branch) {
+  const who = updateOwner_(token);
+  const p = PropertiesService.getScriptProperties();
+  const t = String(ghToken || '').trim();
+  if (t === '-') { p.deleteProperty('GITHUB_TOKEN'); updateLog_('刪除 GitHub token', '', '', '完成', who); }
+  else if (t) {
+    if (!/^(github_pat_|ghp_)\w+$/.test(t)) throw new Error('這看起來不像 GitHub token（應該是 github_pat_ 開頭）。');
+    p.setProperty('GITHUB_TOKEN', t);
+    updateLog_('設定 GitHub token', '', '', '完成', who);
+  }
+  const b = clean_(branch, 100);
+  if (b) p.setProperty('UPDATE_BRANCH', b);
+  return adminUpdateInfo(token, b);
+}
+
+/** 管理者：要更新或還原前，先把 6 位數驗證碼傳到管理者的 LINE（5 分鐘有效） */
+function adminRequestUpdateCode(token, action, sha) {
+  updateOwner_(token);
+  const p = PropertiesService.getScriptProperties();
+  if (Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) > Date.now()) throw new Error('驗證碼錯太多次，已鎖定 1 小時，請稍後再試。');
+  if (action !== 'update' && action !== 'rollback') throw new Error('動作不正確。');
+  const to = p.getProperty('LINE_TO');
+  if (!to || !p.getProperty('LINE_TOKEN')) throw new Error('要先設定 LINE 通知（自動化 → LINE 官方帳號通知），才收得到驗證碼。');
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  CacheService.getScriptCache().put('updCode', JSON.stringify({ code: code, action: action, sha: String(sha || ''), tries: 0 }), 300);
+  const what = action === 'update' ? '更新程式到版本 ' + String(sha || '').slice(0, 7) : '還原成上一版';
+  if (!linePush_(to, '【訂貨系統】' + what + ' 的驗證碼：' + code + '\n5 分鐘內有效。\n如果不是你按的，請不要告訴任何人，並馬上修改管理者密碼。')) {
+    throw new Error('驗證碼傳送失敗，請確認 LINE 設定或本月則數。');
+  }
+  return { sent: true };
+}
+
+function verifyUpdateCode_(action, sha, code, who) {
+  const cache = CacheService.getScriptCache(), p = PropertiesService.getScriptProperties();
+  if (Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) > Date.now()) throw new Error('驗證碼錯太多次，已鎖定 1 小時，請稍後再試。');
+  const s = JSON.parse(cache.get('updCode') || 'null');
+  if (!s || s.action !== action || (action === 'update' && s.sha !== sha)) throw new Error('驗證碼已過期或不是這個動作的，請重新按「傳驗證碼」。');
+  if (String(code || '').trim() !== s.code) {
+    s.tries++;
+    if (s.tries >= 3) {
+      cache.remove('updCode');
+      p.setProperty('UPDATE_LOCK_UNTIL', String(Date.now() + 3600 * 1000));
+      updateLog_(action === 'update' ? '更新程式' : '還原', '', '驗證碼錯 3 次，鎖定 1 小時', '拒絕', who);
+      throw new Error('驗證碼錯 3 次，已鎖定 1 小時。');
+    }
+    cache.put('updCode', JSON.stringify(s), 300);
+    throw new Error('驗證碼不對，還可以再試 ' + (3 - s.tries) + ' 次。');
+  }
+  cache.remove('updCode');
+}
+
+/** 部署後測試：打開網站的健康檢查（?health=1），新程式能讀取、畫面能產生才算成功 */
+function updateHealthy_() {
+  try {
+    // 帶上自己的授權，網站設成「只限學校帳號」也打得開
+    const res = UrlFetchApp.fetch('https://script.google.com/macros/s/' + updateDeploymentId_() + '/exec?health=1', {
+      muteHttpExceptions: true, followRedirects: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } });
+    return res.getResponseCode() === 200 && /ORDER_SITE_OK/.test(res.getContentText());
+  } catch (e) {
+    return false;
+  }
+}
+
+function deployVersion_(version, note) {
+  gas_('put', '/deployments/' + updateDeploymentId_(), { deploymentConfig: { scriptId: ScriptApp.getScriptId(), versionNumber: version,
+    manifestFileName: 'appsscript', description: String(note).slice(0, 100) } });
+}
+
+/** 管理者：輸入 LINE 驗證碼後，把網站更新成 GitHub 上 branch 的 sha 那一版 */
+function adminRunUpdate(token, branch, sha, code) {
+  const who = updateOwner_(token);
+  branch = clean_(branch, 100) || UPDATE_DEFAULT_BRANCH;
+  if (!/^[0-9a-f]{40}$/.test(String(sha || ''))) throw new Error('版本不正確，請重新整理。');
+  verifyUpdateCode_('update', sha, code, who);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) throw new Error('有人正在更新，請稍等一下再試。');
+  const short = sha.slice(0, 7);
+  try {
+    const head = gh_('commits?sha=' + encodeURIComponent(branch) + '&path=' + UPDATE_DIR + '&per_page=1')[0];
+    if (!head || head.sha !== sha) throw new Error('GitHub 上的最新版本跟畫面上的不一樣，請按「重新整理」確認後再更新。');
+    const msg = String(head.commit.message || '').split('\n')[0].slice(0, 80);
+    const src = {};
+    Object.keys(UPDATE_FILES).forEach(function (name) {
+      try { src[name] = gh_('contents/' + UPDATE_DIR + '/' + UPDATE_FILES[name][0] + '?ref=' + sha, true); } catch (e) { if (name !== 'RichMenu') throw e; }
+    });
+    if (!/function doGet\s*\(/.test(src.Code || '') || src.Code.length < 50000) throw new Error('GitHub 上的 Code.gs 看起來不完整，沒有更新。');
+    if (!/<\/html>\s*$/i.test(src.Index || '') || src.Index.length < 50000) throw new Error('GitHub 上的 Index.html 看起來不完整，沒有更新。');
+    const manifest = gh_('contents/' + UPDATE_DIR + '/appsscript.json?ref=' + sha, true);
+    const before = gas_('get', '/content');
+    const files = JSON.parse(JSON.stringify(before.files || []));
+    const cur = files.find(function (f) { return f.name === 'appsscript'; });
+    const scopes = function (j) { try { return (JSON.parse(j).oauthScopes || []).slice().sort().join(' '); } catch (e) { return '?'; } };
+    if (cur && scopes(cur.source) !== scopes(manifest)) throw new Error('這次更新需要新的權限（appsscript.json 改了），請用電腦更新並授權一次。');
+    Object.keys(src).forEach(function (name) {
+      const f = files.find(function (x) { return x.name === name; });
+      if (f) f.source = src[name]; else files.push({ name: name, type: UPDATE_FILES[name][1], source: src[name] });
+    });
+    if (cur) cur.source = manifest;
+    try {
+      gas_('put', '/content', { files: files });
+    } catch (e) {
+      throw new Error('新程式存不進 Apps Script（' + e.message + '），網站維持原本的版本。');
+    }
+    const ver = gas_('post', '/versions', { description: 'GitHub ' + short + '：' + msg }).versionNumber;
+    const dep = gas_('get', '/deployments/' + updateDeploymentId_());
+    const prev = dep.deploymentConfig && dep.deploymentConfig.versionNumber || 0;
+    deployVersion_(ver, '一鍵更新 ' + short + ' ' + msg);
+    if (!updateHealthy_()) {
+      // 新版本打不開：網站和排程都換回原本的程式
+      if (prev) deployVersion_(prev, '自動還原（' + short + ' 測試失敗）');
+      gas_('put', '/content', { files: before.files });
+      updateLog_('更新程式', short, msg, '失敗，已自動還原', who);
+      throw new Error('新版本部署後網站打不開，已經自動還原成原本的版本。請把這個狀況告訴 Claude。');
+    }
+    const p = PropertiesService.getScriptProperties(), st = updateState_();
+    p.setProperties({ UPDATE_PREV_VERSION: String(prev), UPDATE_PREV_SHA: st.sha, UPDATE_SHA: sha, UPDATE_VERSION: String(ver),
+      UPDATE_AT: fmtDateTime_(new Date()), UPDATE_BRANCH: branch });
+    updateLog_('更新程式', short, msg, '成功（Apps Script 版本 ' + ver + '）', who);
+    return { ok: true, version: ver, message: msg, info: adminUpdateInfo(token, branch) };
+  } catch (e) {
+    if (!/已經自動還原/.test(e.message)) updateLog_('更新程式', short, e.message, '沒有更新', who);
+    throw e;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 管理者：輸入 LINE 驗證碼後，還原成上一版（網站和排程用的程式都換回去） */
+function adminRollbackUpdate(token, code) {
+  const who = updateOwner_(token);
+  const st = updateState_();
+  if (!st.prevVersion) throw new Error('沒有可以還原的上一版。');
+  verifyUpdateCode_('rollback', '', code, who);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) throw new Error('有人正在更新，請稍等一下再試。');
+  try {
+    const old = gas_('get', '/content?versionNumber=' + st.prevVersion);
+    gas_('put', '/content', { files: old.files });
+    deployVersion_(st.prevVersion, '還原到版本 ' + st.prevVersion);
+    PropertiesService.getScriptProperties().setProperties({ UPDATE_VERSION: String(st.prevVersion), UPDATE_SHA: st.prevSha,
+      UPDATE_PREV_VERSION: '0', UPDATE_PREV_SHA: '', UPDATE_AT: fmtDateTime_(new Date()) });
+    updateLog_('還原', st.prevSha ? st.prevSha.slice(0, 7) : '版本 ' + st.prevVersion, '', '成功', who);
+    return { ok: true, version: st.prevVersion, info: adminUpdateInfo(token) };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** 寄 Email，並在有綁定 LINE 時推播。回傳各管道的結果。 */
