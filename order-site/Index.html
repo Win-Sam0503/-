@@ -307,6 +307,8 @@
   .vpage { background: #fff; color: #000; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
   .vpage h1 { font-size: 20px; margin: 0; text-align: center; }
   .vpage .vsub { text-align: center; color: #444; margin: 2px 0 12px; }
+  .vcontact { text-align: center; font-size: 18px; font-weight: 700; margin: -6px 0 12px; }
+  .vcontact .none { font-weight: normal; font-size: 15px; color: var(--muted); }
   .vpage h3 { font-size: calc(var(--vfs, 14px) + 1px); margin: 14px 0 6px; }
   .vpage table { border-collapse: collapse; width: 100%; font-size: var(--vfs, 14px); }
   .vpage td.vq { font-weight: 700; }
@@ -3233,13 +3235,53 @@
     }).join('');
   }
 
+  // 廠商聯絡資料（傳真、電話）：分科的廠商（E烘焙乾貨…）找不到就用原本的名稱（E乾貨）
+  function contactOf(v) {
+    var c = data.vendorContacts || {};
+    if (c[v]) return c[v];
+    var base = Object.keys(data.vendorSplit || {}).find(function (k) { var x = data.vendorSplit[k]; return x.baking === v || x.other === v; });
+    return (base && c[base]) || null;
+  }
+  function contactHtml(v) {
+    var c = contactOf(v), parts = [];
+    if (c && c.fax) parts.push('傳真：' + esc(c.fax));
+    if (c && c.phone) parts.push('電話：' + esc(c.phone));
+    if (c && c.person) parts.push('聯絡人：' + esc(c.person));
+    return '<div class="vcontact">' + (parts.length ? parts.join('　') : '<span class="none noprint">還沒設定傳真號碼</span>') +
+      (c && c.note ? '<div class="small" style="font-weight:normal">' + esc(c.note) + '</div>' : '') +
+      ' <button type="button" class="btn ghost small noprint" data-vcontact="' + esc(v) + '">' + (parts.length ? '✎ 修改' : '＋ 設定傳真、電話') + '</button></div>';
+  }
+  $('vendorSheets').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-vcontact]');
+    if (!b) return;
+    var v = b.getAttribute('data-vcontact'), c = contactOf(v) || {};
+    var base = Object.keys(data.vendorSplit || {}).find(function (k) { var x = data.vendorSplit[k]; return x.baking === v || x.other === v; });
+    var f = function (id, label, val, ph) { return '<div style="text-align:left;margin-top:8px"><label for="' + id + '">' + label + '</label><input id="' + id + '" type="text" maxlength="' + (id === 'vcNote' ? 100 : 30) + '" value="' + esc(val || '') + '" placeholder="' + ph + '" autocomplete="off"></div>'; };
+    ask('', '儲存', { html: '<div style="font-weight:700;font-size:17px">' + esc(v) + ' 聯絡資料</div>' +
+      '<div class="muted small" style="text-align:left">存一次就會印在這家廠商的叫貨單、訂貨單上面。' + (base ? '（「' + esc(base) + '」的烘焙、中餐兩張單共用）' : '') + '</div>' +
+      f('vcFax', '傳真', c.fax, '例：07-1234567') + f('vcPhone', '電話', c.phone, '例：0912-345678') + f('vcPerson', '聯絡人', c.person, '例：王老闆') + f('vcNote', '備註', c.note, '例：傳真後請打電話確認') })
+      .then(function (ok) {
+        if (!ok) return;
+        var fields = { fax: $('vcFax').value.trim(), phone: $('vcPhone').value.trim(), person: $('vcPerson').value.trim(), note: $('vcNote').value.trim() };
+        call('adminSaveVendorContact', token, base || v, fields).then(function (r) {
+          data.vendorContacts = r;
+          Array.prototype.forEach.call(document.querySelectorAll('#vendorSheets .vcontact'), function (el) {
+            var vv = el.querySelector('[data-vcontact]').getAttribute('data-vcontact');
+            el.outerHTML = contactHtml(vv);
+          });
+          msg('vendorMsg', 'ok', '已儲存「' + (base || v) + '」的聯絡資料。');
+        }).catch(function (err) { msg('vendorMsg', 'error', err.message); });
+      });
+    setTimeout(function () { var el = $('vcFax'); if (el) el.focus(); }, 50);
+  });
+
   // 叫貨單：上面是實際叫貨合計（給廠商），下面是各班明細；叫貨量 0 的不列
   function purchaseSheets(rows, from, to, only) {
     var live = rows.filter(function (r) { return r.qty > 0; });
     var by = byVendorBatch(live, only);
     var info = rows[0] ? '（' + rows[0].time + ' 由 ' + rows[0].by + ' 確定）' : '';
     return Object.keys(by).sort().map(function (v) {
-      return '<div class="vpage"><h1>' + esc(v) + ' 叫貨單</h1><div class="vsub">' + esc(rangeText(from, to)) + '<span class="noprint muted small"> ' + esc(info) + '</span></div>' +
+      return '<div class="vpage"><h1>' + esc(v) + ' 叫貨單</h1><div class="vsub">' + esc(rangeText(from, to)) + '<span class="noprint muted small"> ' + esc(info) + '</span></div>' + contactHtml(v) +
         '<div class="noprint" style="text-align:right;margin-bottom:6px"><button type="button" class="btn secondary small" data-pcopy="' + esc(v) + '">複製叫貨文字</button></div>' +
         Object.keys(by[v]).sort().map(function (dk) {
           var list = sortLines(by[v][dk]);
@@ -3373,7 +3415,7 @@
       '<div class="muted small noprint" style="margin-bottom:10px">照學生交回的扣貨單，在每一班的「實際叫貨」填要跟廠商叫的量（預設＝老師訂的）。填 0 代表不叫、用庫存；單位可以改。合計會自動重算。' +
       '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。</div>';
     Object.keys(groups).sort().forEach(function (v) {
-      html += '<div class="vpage vedit" data-vendor="' + esc(v) + '"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(rangeText(st.from, st.to)) + '</div>' +
+      html += '<div class="vpage vedit" data-vendor="' + esc(v) + '"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(rangeText(st.from, st.to)) + '</div>' + contactHtml(v) +
         '<div class="noprint vstate" style="text-align:center;margin-bottom:8px">' + vStateText(v) + '</div>' +
         (st.gone[v] ? '<div class="msg warn noprint">上次儲存後，老師取消了：' + esc(st.gone[v].map(function (g) { return shortDate(g.date) + ' ' + g.className + ' ' + g.name; }).join('、')) + '（這次不會再叫）。</div>' : '') +
         '<datalist id="pItems-' + esc(v) + '">' + data.items.filter(function (it) { return it.vendor === v; }).map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
@@ -4819,7 +4861,7 @@
   }
   function renderGrid(r, note) {
     gridRows = r.rows || [];
-    if (note) msg('gridMsg', 'success', note);
+    if (note) msg('gridMsg', 'ok', note);
     var names = [];
     gridRows.forEach(function (x) { if (x.teacher && names.indexOf(x.teacher) < 0) names.push(x.teacher); });
     names.sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });

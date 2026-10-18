@@ -95,6 +95,7 @@ const SHEET = {
   guoji: '國技排班',
   purchase: '叫貨紀錄',
   prints: '列印紀錄',
+  contacts: '廠商聯絡',
 };
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
@@ -103,6 +104,8 @@ const GUOJI_HEADERS = ['日期', '時段', '班級', '核心主題', '實作名�
 const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
 // 列印紀錄：管理者在訂單彙整印過的料單，每張訂單一列（最後一次列印）
 const PRINT_HEADERS = ['訂單編號', '列印時間', '列印人'];
+// 廠商聯絡：傳真、電話，印在叫貨單上
+const CONTACT_HEADERS = ['廠商', '傳真', '電話', '聯絡人', '備註'];
 const ERROR_HEADERS = ['時間', '帳號', '功能', '類型', '訊息', '畫面'];
 const ERROR_KEEP = 2000;                      // 錯誤紀錄最多保留幾列
 const MY_LESSON_HEADERS = ['老師', '類型', '星期', '日期', '時段', '課程', '班級', '教室', '建立時間'];
@@ -293,7 +296,44 @@ function getBootstrap(token) {
     recipeUnits: unitLists_().recipe,
     pendingUnits: unitLists_().pending,
     missingSetup: isAdmin ? missingSetup_() : [],
+    vendorContacts: isAdmin ? readVendorContacts_() : {},
   };
+}
+
+/** 廠商聯絡資料：{ 廠商: { fax, phone, person, note } } */
+function readVendorContacts_() {
+  const sh = ss_().getSheetByName(SHEET.contacts);
+  const out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  readTable_(SHEET.contacts, ['廠商']).rows.forEach(function (r) {
+    const v = String(r['廠商']).trim();
+    if (v) out[v] = { fax: String(r['傳真'] || '').trim(), phone: String(r['電話'] || '').trim(), person: String(r['聯絡人'] || '').trim(), note: String(r['備註'] || '').trim() };
+  });
+  return out;
+}
+
+/** 管理者儲存一家廠商的傳真、電話、聯絡人、備註，回傳全部廠商的聯絡資料 */
+function adminSaveVendorContact(token, vendor, f) {
+  auth_(token, true);
+  const v = clean_(vendor, 40);
+  if (!v) throw new Error('沒有廠商名稱。');
+  f = f || {};
+  const set = { '傳真': clean_(f.fax, 30), '電話': clean_(f.phone, 30), '聯絡人': clean_(f.person, 30), '備註': clean_(f.note, 100) };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(SHEET.contacts, CONTACT_HEADERS);
+    ensureHeaders_(sh, CONTACT_HEADERS);
+    sh.getRange('B:C').setNumberFormat('@');   // 電話號碼開頭的 0 不要被吃掉
+    const t = readTable_(SHEET.contacts, ['廠商']);
+    const r = t.rows.find(function (x) { return String(x['廠商']).trim() === v; });
+    if (r) Object.keys(set).forEach(function (k) { setCell_(t, r._row, k, set[k]); });
+    else { set['廠商'] = v; appendRows_(SHEET.contacts, [set]); }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return readVendorContacts_();
 }
 
 /** 檢查試算表是否已加上新功能需要的欄位和分頁，回傳缺少的項目（只給管理者看）。 */
