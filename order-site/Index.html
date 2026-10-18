@@ -316,6 +316,8 @@
   .edit-info { display: grid; grid-template-columns: 1fr 1fr 2fr 80px; gap: 8px; margin: 8px 0 10px; }
   @media (max-width: 640px) { .edit-info { grid-template-columns: 1fr 1fr; } }
   .badge.edited { background: #fff4e5; color: #b45309; }
+  .status-chips button.warnchip { border-color: var(--warn); color: var(--warn); }
+  .status-chips button.warnchip.on { background: var(--warn); color: #fff; }
   .lesson-ok { margin-top: 4px; font-size: 14px; color: #067647; }
   .lesson-warn { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
   .lesson-near { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; margin-top: 4px; color: var(--text); }
@@ -2148,6 +2150,14 @@
   }
   // 「訂單狀態」選單：顯示各狀態幾張（依目前選的老師），保留目前選的
   var EDITED = '__edited';   // 「訂單狀態」選單裡的「有修改紀錄」
+  var NOLESSON = '__nolesson';   // 「未對應課程」：日期／時段／老師對不到課表，而且還沒手動標記
+  var SPECIAL = {};
+  SPECIAL[EDITED] = { label: '有修改紀錄', test: function (o) { return o.edits && o.edits.length; } };
+  SPECIAL[NOLESSON] = { label: '未對應課程', test: function (o) {
+    var L = o.lesson;
+    return o.status !== '已取消' && L && !L.match.length && !L.near.some(function (l) { return l.status === 'manual'; });
+  } };
+  function stLabel(st) { return SPECIAL[st] ? SPECIAL[st].label : st; }
   // 一鍵列印：已審核＝已審核、已叫貨、已到貨；未審核＝待處理。照上課日期、班級排序
   var sumBase = [];
   // 料單列印狀態：'' 不用印（已取消）、'no' 還沒印、'old' 印過但之後有修改、'ok' 已印
@@ -2180,10 +2190,10 @@
   function fillStatusFilter(base) {
     var sel = $('sStatus'), cur = sel.value, count = {};
     base.forEach(function (o) { count[o.status] = (count[o.status] || 0) + 1; });
-    count[EDITED] = base.filter(function (o) { return o.edits && o.edits.length; }).length;
+    Object.keys(SPECIAL).forEach(function (k) { count[k] = base.filter(SPECIAL[k].test).length; });
     sel.innerHTML = '<option value="">全部狀態（' + base.filter(function (o) { return !$('sHideCancel').checked || o.status !== '已取消'; }).length + '）</option>' +
-      sumStatuses().concat([EDITED]).map(function (st) {
-        return '<option value="' + esc(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(st === EDITED ? '有修改紀錄' : st) + '（' + (count[st] || 0) + '）</option>';
+      sumStatuses().concat(Object.keys(SPECIAL)).map(function (st) {
+        return '<option value="' + esc(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(stLabel(st)) + '（' + (count[st] || 0) + '）</option>';
       }).join('');
     return count;
   }
@@ -2203,14 +2213,14 @@
     var count = fillStatusFilter(base);
     var st = $('sStatus').value;
     var list = base.filter(function (o) {
-      if (st === EDITED) return o.edits && o.edits.length;
+      if (SPECIAL[st]) return SPECIAL[st].test(o);
       return st ? o.status === st : (!hideCancel || o.status !== '已取消');
     });
-    var chips = '<div class="status-chips">' + sumStatuses().concat([EDITED]).filter(function (x) { return count[x] && (x !== '已取消' || !hideCancel || st === x); }).map(function (x) {
-      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + '">' + esc(x === EDITED ? '有修改紀錄' : x) + ' ' + count[x] + '</button>';
+    var chips = '<div class="status-chips">' + sumStatuses().concat(Object.keys(SPECIAL)).filter(function (x) { return count[x] && (x !== '已取消' || !hideCancel || st === x); }).map(function (x) {
+      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + (x === NOLESSON ? ' warnchip' : '') + '">' + (x === NOLESSON ? '⚠ ' : '') + esc(stLabel(x)) + ' ' + count[x] + '</button>';
     }).join('') + (st ? '<button type="button" data-status="">顯示全部</button>' : '') + '</div>';
     if (!list.length) {
-      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (kw.length ? '符合「' + kw.join(' ') + '」的' : '') + (st ? '「' + (st === EDITED ? '有修改紀錄' : st) + '」的' : '') + '訂單。');
+      msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (kw.length ? '符合「' + kw.join(' ') + '」的' : '') + (st ? '「' + stLabel(st) + '」的' : '') + '訂單。');
       $('sumVendors').innerHTML = '';
       $('sumOrders').innerHTML = base.length ? '<div class="panel" style="padding:12px 16px">' + chips + '</div>' : '';
       return;
@@ -2285,7 +2295,7 @@
     var unp = unprintedList();
     if (unp.length) bulk += '<div class="msg error" style="margin-top:10px">⚠ 這段期間還有 <b>' + unp.length + '</b> 張已審核的料單尚未列印。' +
       ' <button type="button" class="btn small" data-bulk="unprinted">🖨 列印尚未列印的（' + unp.length + ' 張）</button></div>';
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(st === EDITED ? '有修改紀錄' : st) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + bulk + '</div>' +
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + bulk + '</div>' +
       list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
