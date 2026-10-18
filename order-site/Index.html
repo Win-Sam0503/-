@@ -869,6 +869,14 @@
       </div>
       <div id="pendUnits"></div>
       <div id="pendList"></div>
+      <div class="panel" id="aliasPanel">
+        <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
+        <div class="muted small">只有「完全一樣」的字才會換；同一個叫法對到兩種以上食材（標 ⚠）就不自動換，讓老師自己選。學錯了按 ✕ 刪掉（存在食材總表的「別名」欄）。</div>
+        <div id="aliasMsg"></div>
+        <details id="aliasBox" style="margin-top:8px"><summary id="aliasSum" style="cursor:pointer">展開清單</summary>
+          <input id="aliasFind" type="search" placeholder="找食材或叫法，例如：糖" style="margin:8px 0;max-width:280px" autocomplete="off">
+          <div id="aliasList" class="small" style="line-height:2.2"></div></details>
+      </div>
     </section>
   </main>
   <footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
@@ -1431,6 +1439,15 @@
     '細糖': '細砂糖', '砂糖': '細砂糖', '白糖': '細砂糖', '糖粉': '糖粉', '鮮奶': '鮮奶', '牛奶': '鮮奶', '鹽巴': '鹽', '食鹽': '鹽',
     '沙拉油': '沙拉油', '芝士': '起司', '乳酪': '起司', '牛油': '奶油', '蛋白液': '蛋白', '蛋黃液': '蛋黃' };
   function normName(t) { return String(t || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }
+  // 管理者對應過的叫法（別名完全一樣、而且只屬於一種食材；跟正式食材同名的不算，那個直接用正式食材）
+  function learnedItem(text) {
+    var q = normName(text);
+    if (!q || data.items.some(function (it) { return normName(it.name) === q; })) return null;
+    var hits = data.items.filter(function (it) {
+      return String(it.alias || '').split(/[,，、]+/).some(function (a) { return normName(a) === q; });
+    });
+    return hits.length === 1 ? hits[0] : null;
+  }
   function similarItems(text, limit) {
     var q = normName(text);
     if (!q) return [];
@@ -1488,6 +1505,20 @@
     if (!name) { notice('請填寫食材名稱。'); return; }
     var dup = data.items.find(function (it) { return it.name === name; });
     if (dup) { notice('食材總表已經有「' + name + '」，請直接從上方搜尋加入。'); return; }
+    // 自動學習：管理者以前把這個叫法對應過某個食材（食材總表的別名，只對到一種），先問老師是不是這個
+    var learned = newConfirmed ? null : learnedItem(name);
+    if (learned) {
+      ask('', '用「' + learned.name + '」', { noText: '不是，我要新增「' + name + '」', html: '<div class="info-check"><h3>「' + esc(name) + '」就是「' + esc(learned.name) + '」嗎？</h3>' +
+        '<div class="muted small">管理者以前把「' + esc(name) + '」對應成食材總表的「' + esc(learned.name) + '」（' + esc(learned.vendor) + '）。用正式食材不用等審核。</div></div>' }).then(function (ok) {
+        if (ok) {
+          addExisting(learned, qty || '', $('nUnit').value);
+          $('nName').value = ''; $('nQty').value = ''; $('nUnit').value = ''; $('nSuggest').innerHTML = '';
+          $('newBox').classList.add('hidden');
+          toast('已換成「' + learned.name + '」，不用等審核');
+        } else { newConfirmed = true; $('addNew').click(); newConfirmed = false; }
+      });
+      return;
+    }
     var sim = similarItems(name, 5);
     if (sim.length && !newConfirmed) {
       ask('', '還是新增「' + name + '」', { noText: '取消', html: '<div class="info-check"><h3>食材總表可能已經有了</h3>' +
@@ -1502,7 +1533,7 @@
     if (!vendor) { notice('請選擇廠商。'); return; }
     if (qty === null) { notice('數量請輸入數字，例如 2、0.5、半。'); $('nQty').focus(); return; }
     if ($('nUnit').value.trim() && !unit) { notice('單位要從清單選擇，可以打字搜尋，例如打「斤」「包」「克」。'); $('nUnit').focus(); return; }
-    draft.cart.push({ key: 'n' + Date.now(), id: '', name: name, vendor: vendor, qty: qty, unit: unit, note: '', isNew: true, noOrder: false, section: draft.activeSection });
+    draft.cart.push({ key: 'n' + Date.now(), id: '', name: name, vendor: vendor, qty: qty, unit: unit, note: '', isNew: true, noOrder: false, section: draft.activeSection, keepNew: newConfirmed });
     $('nName').value = ''; $('nQty').value = ''; $('nUnit').value = '';
     saveDraft(); renderCart();
   });
@@ -1952,7 +1983,7 @@
         return { id: c.id, qty: toNum(c.qty), unit: c.unit, note: c.note, noOrder: !!c.noOrder, section: c.section || '' };
       }),
       newItems: draft.cart.filter(function (c) { return c.isNew; }).map(function (c) {
-        return { name: c.name, vendor: c.vendor, qty: toNum(c.qty), unit: c.unit, note: c.note, noOrder: !!c.noOrder, section: c.section || '' };
+        return { name: c.name, vendor: c.vendor, qty: toNum(c.qty), unit: c.unit, note: c.note, noOrder: !!c.noOrder, section: c.section || '', keepNew: !!c.keepNew };
       }),
       tools: tools.map(function (t) { return { name: String(t.name).trim(), qty: toNum(t.qty), note: t.note }; }),
       newUnits: draft.newUnits.filter(function (u) { return draft.cart.some(function (c) { return normUnit(c.unit) === u; }); })
@@ -1995,7 +2026,8 @@
       $('doneNo').textContent = res.orderNo;
       $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
         (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '') +
-        (res.tools ? '、' + res.tools + ' 項器具' : '');
+        (res.tools ? '、' + res.tools + ' 項器具' : '') +
+        (res.learned && res.learned.length ? '。已自動換成正式食材：' + res.learned.map(function (x) { return x.from + '→' + x.to; }).join('、') : '');
       lastSubmitted = res.orderNo;
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
       var keepMode = draft.qtyMode;
@@ -2814,11 +2846,50 @@
     }).catch(function (err) { msg('pendMsg', 'error', err.message); setBusy(b, false); });
   });
 
+  function renderAliases(r) {
+    if (!r.ok) { $('aliasList').innerHTML = '<span class="muted">食材總表沒有「別名」欄，系統沒辦法記住叫法。請在食材總表最後加一欄「別名」。</span>'; return; }
+    var n = r.list.reduce(function (s, x) { return s + x.aliases.length; }, 0);
+    var amb = r.list.reduce(function (s, x) { return s + Object.keys(x.shared).length; }, 0);
+    $('aliasSum').innerHTML = '展開清單（' + r.list.length + ' 種食材、' + n + ' 個叫法' + (amb ? '，<span style="color:var(--warn)">⚠ ' + amb + ' 個重複</span>' : '') + '）';
+    $('aliasList').innerHTML = r.list.length ? r.list.map(function (x) {
+      return '<div data-afind="' + esc((x.name + ',' + x.aliases.join(',')).toLowerCase()) + '"><b>' + esc(x.name) + '</b><span class="muted">（' + esc(x.vendor) + '）</span>　' + x.aliases.map(function (a) {
+        var sh = x.shared[a];
+        return '<span class="chipbtn" style="cursor:default' + (sh ? ';border-color:var(--warn)' : '') + '"' + (sh ? ' title="也是「' + esc(sh.join('、')) + '」的別名，不會自動換"' : '') + '>' +
+          (sh ? '⚠ ' : '') + esc(a) + ' <button type="button" class="btn ghost small" style="padding:0 6px;min-height:0" data-unalias="' + esc(x.id) + '" data-alias="' + esc(a) + '" aria-label="刪掉 ' + esc(a) + '">✕</button></span>';
+      }).join(' ') + '</div>';
+    }).join('') : '<span class="muted">還沒有學會的叫法。</span>';
+  }
+  $('aliasFind').addEventListener('input', function () {
+    var q = this.value.trim().toLowerCase();
+    Array.prototype.forEach.call($('aliasList').querySelectorAll('[data-afind]'), function (el) {
+      el.classList.toggle('hidden', !!q && el.getAttribute('data-afind').indexOf(q) < 0);
+    });
+  });
+  function loadAliases() {
+    $('aliasList').innerHTML = '<span class="muted">載入中…</span>';
+    call('adminGetAliases', token).then(renderAliases).catch(function (e) { msg('aliasMsg', 'error', e.message); });
+  }
+  $('aliasList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-unalias]');
+    if (!b) return;
+    var id = b.getAttribute('data-unalias'), a = b.getAttribute('data-alias');
+    var it = data.items.find(function (x) { return x.id === id; });
+    ask('', '刪掉', { noText: '取消', html: '<div>以後老師打「<b>' + esc(a) + '</b>」不會再自動換成「' + esc(it ? it.name : id) + '」，會變成新食材送審。確定刪掉？</div>' }).then(function (ok) {
+      if (!ok) return;
+      call('adminRemoveAlias', token, id, a).then(function (r) {
+        renderAliases(r);
+        $('aliasFind').dispatchEvent(new Event('input'));
+        if (it) it.alias = String(it.alias || '').split(/[,，、]+/).filter(function (x) { return x.trim() && x.trim() !== a; }).join(',');
+        msg('aliasMsg', 'ok', '已刪掉「' + a + '」。');
+      }).catch(function (err) { msg('aliasMsg', 'error', err.message); });
+    });
+  });
   function loadPending(note) {
     msg('pendMsg', 'info', '載入中…');
     $('pendList').innerHTML = '';
     loadPendingUnits();
     loadUnitPanel();
+    loadAliases();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));

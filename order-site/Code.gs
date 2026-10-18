@@ -631,7 +631,7 @@ function writeOrder_(o, orderNo, submittedAt, operator, account, skipPending) {
   });
   if (pending.length) appendRows_(SHEET.pending, pending, { '新增時間': 'yyyy/mm/dd hh:mm:ss' });
   const tools = o.lines.filter(function (l) { return l.id === TOOL_ID; }).length;
-  return { orderNo: orderNo, useDate: dateStr_(o.useDate), count: o.lines.length - tools, tools: tools, pending: newOnes.length };
+  return { orderNo: orderNo, useDate: dateStr_(o.useDate), count: o.lines.length - tools, tools: tools, pending: newOnes.length, learned: o.learned || [] };
 }
 
 function validateOrder_(p, account, isAdmin) {
@@ -693,10 +693,25 @@ function validateOrder_(p, account, isAdmin) {
       noOrder: !!it.noOrder || vendor === SELF_VENDOR, section: clean_(it.section, 20),
     });
   });
+  const learn = learnIndex_(catalog), learned = [];
   (Array.isArray(p.newItems) ? p.newItems : []).forEach(function (it) {
     const name = clean_(it && it.name, 40);
     const vendor = clean_(it && it.vendor, 20);
     if (!name) throw new Error('新增食材請填寫名稱。');
+    // 自動學習：名稱和正式食材一樣，或是管理者以前對應過的叫法（只對到一種食材），直接換成正式食材，不用再審核。
+    // 老師在確認視窗按過「不是，我要新的」（keepNew）就照老師的。
+    const hit = it.keepNew ? null : learnMatch_(learn, name);
+    if (hit) {
+      const r = catalog[hit], realVendor = String(r['廠商']).trim(), realName = String(r['食材名稱']).trim();
+      if (learnKey_(name) !== learnKey_(realName)) learned.push({ from: name, to: realName });
+      lines.push({
+        id: hit, name: realName, vendor: orderVendor_(realVendor, dept), catVendor: realVendor,
+        qty: qty_(it.qty, realName), unit: unit_(it.unit, r['單位'], realName, newUnits), note: clean_(it.note, 100),
+        group: deliveryGroup_(realVendor, dow, vendorGroups),
+        noOrder: !!it.noOrder || realVendor === SELF_VENDOR, section: clean_(it.section, 20),
+      });
+      return;
+    }
     if (!vendor) throw new Error('請選擇「' + name + '」的廠商。');
     lines.push({
       id: PENDING_ID, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
@@ -720,7 +735,7 @@ function validateOrder_(p, account, isAdmin) {
 
   return {
     useDate: useDate, dept: dept, classTime: classTime, room: clean_(p.room, 30),
-    className: className, project: project, onBehalfOf: onBehalfOf, groups: groups, lines: lines,
+    className: className, project: project, onBehalfOf: onBehalfOf, groups: groups, lines: lines, learned: learned,
     newUnits: newUnits.filter(function (u) { return lines.some(function (l) { return l.unit === u; }); }),
   };
 }
@@ -1711,6 +1726,79 @@ function adminReviewItem(token, row, decision, edits, name) {
   }
 }
 
+/** 比對用：去掉空白、括號，英文小寫（跟網頁的 normName 一樣） */
+function learnKey_(t) { return String(t || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }
+
+/** 正式食材的名稱、別名索引：{ name: {key: [id]}, alias: {key: [id]} } */
+function learnIndex_(catalog) {
+  const idx = { name: {}, alias: {} };
+  const put = function (m, k, id) { if (k && (m[k] = m[k] || []).indexOf(id) < 0) m[k].push(id); };
+  Object.keys(catalog).forEach(function (id) {
+    const r = catalog[id];
+    if (id === PENDING_ID || id === TOOL_ID) return;
+    put(idx.name, learnKey_(r['食材名稱']), id);
+    String(r['別名'] || '').split(/[,，、]+/).forEach(function (a) { put(idx.alias, learnKey_(a), id); });
+  });
+  return idx;
+}
+
+/** 名稱完全一樣優先；別名只有對到「一種」食材才算（例如「糖」同時是細砂糖和二砂的別名，就不自動換，讓老師自己選） */
+function learnMatch_(idx, name) {
+  const k = learnKey_(name);
+  if (!k) return '';
+  const n = idx.name[k];
+  if (n && n.length === 1) return n[0];
+  if (n && n.length > 1) return '';
+  const a = idx.alias[k];
+  return a && a.length === 1 ? a[0] : '';
+}
+
+/** 管理者：系統學到的叫法（食材總表的「別名」）。[{ id, name, vendor, aliases: [], shared: {別名: [其他食材名稱]} }] */
+function adminGetAliases(token) {
+  auth_(token, true);
+  const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+  if (t.cols['別名'] === undefined) return { ok: false, list: [] };
+  const owners = {};
+  const list = [];
+  t.rows.forEach(function (r) {
+    if (r['啟用'] !== undefined && !isTrue_(r['啟用'])) return;
+    const aliases = String(r['別名'] || '').split(/[,，、]+/).map(function (a) { return a.trim(); }).filter(Boolean);
+    if (!aliases.length) return;
+    const x = { id: String(r['食材ID']).trim(), name: String(r['食材名稱']).trim(), vendor: String(r['廠商'] || '').trim(), aliases: aliases };
+    aliases.forEach(function (a) { (owners[learnKey_(a)] = owners[learnKey_(a)] || []).push(x.name); });
+    list.push(x);
+  });
+  list.forEach(function (x) {
+    x.shared = {};
+    x.aliases.forEach(function (a) {
+      const o = owners[learnKey_(a)].filter(function (n) { return n !== x.name; });
+      if (o.length) x.shared[a] = o;
+    });
+  });
+  return { ok: true, list: list.sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); }) };
+}
+
+/** 管理者：刪掉一個學錯的叫法 */
+function adminRemoveAlias(token, id, alias) {
+  auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+    if (t.cols['別名'] === undefined) throw new Error('食材總表沒有「別名」欄。');
+    const r = t.rows.find(function (x) { return String(x['食材ID']).trim() === String(id || '').trim(); });
+    if (!r) throw new Error('找不到食材 ' + id + '，請重新整理。');
+    const list = String(r['別名'] || '').split(/[,，、]+/).map(function (a) { return a.trim(); }).filter(Boolean);
+    const left = list.filter(function (a) { return a !== String(alias || '').trim(); });
+    if (left.length === list.length) throw new Error('「' + alias + '」已經不在「' + r['食材名稱'] + '」的別名裡。');
+    t.sheet.getRange(r._row, t.cols['別名']).setNumberFormat('@').setValue(left.join(','));
+    clearItemsCache_();
+    return adminGetAliases(token);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /**
  * 把老師的叫法加到食材的「別名」（例如「全蛋」對應到「雞蛋」後，下次搜尋「全蛋」就找得到雞蛋）。
  * 名稱或別名已經有就不加；食材總表沒有「別名」欄就略過。回傳有沒有加。
@@ -1722,6 +1810,8 @@ function addAlias_(id, alias) {
   if (t.cols['別名'] === undefined) return false;
   const r = t.rows.find(function (x) { return String(x['食材ID']).trim() === id; });
   if (!r || String(r['食材名稱']).trim() === alias) return false;
+  // 這個叫法本身就是另一個正式食材的名稱（例如把「糖粉」對應成細砂糖）：不學，避免以後把糖粉都換掉
+  if (t.rows.some(function (x) { return x !== r && (x['啟用'] === undefined || isTrue_(x['啟用'])) && learnKey_(x['食材名稱']) === learnKey_(alias); })) return false;
   const cur = String(r['別名'] || '').trim();
   const list = cur ? cur.split(/[,，、\s]+/).filter(Boolean) : [];
   if (list.indexOf(alias) >= 0) return false;
