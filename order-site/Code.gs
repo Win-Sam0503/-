@@ -2924,21 +2924,68 @@ function adminUpdateSchedule(token, row, expect, action, fields, as) {
 }
 
 /** 管理者：總課表（「課表」分頁全部的課，含已取消的），依教室 × 星期 × 時段排成格子 */
-function adminGetSchedule(token) {
+function adminGetSchedule(token, weekOf) {
   auth_(token, true);
   const sh = ss_().getSheetByName(SHEET.schedule);
   const rows = !sh || sh.getLastRow() < 2 ? [] : readTable_(SHEET.schedule, ['星期', '時段', '老師']).rows.map(scheduleRowOut_);
   const accounts = {};
   readTable_(SHEET.accounts, ['帳號']).rows.forEach(function (r) { accounts[String(r['帳號']).trim()] = true; });
   rows.forEach(function (x) { x.noAccount = !!x.teacher && !accounts[x.teacher]; });
-  return { rows: rows };
+  const out = { rows: rows };
+  const base = parseDate_(weekOf);
+  if (!base) return out;
+  // 這一週（週一～週五）每堂課的叫料狀態，再加上國技排班、老師自己新增的課
+  const mon = addDays_(base, -((base.getDay() + 6) % 7)), fri = addDays_(mon, 4);
+  const dates = [0, 1, 2, 3, 4].map(function (i) { return dateStr_(addDays_(mon, i)); });
+  const st = lessonStatusMaps_(mon, fri);
+  const status = function (teacher, date, session) {
+    const k = teacher + '|' + date + '|' + session;
+    return st.have[k] ? { status: 'ordered', orders: st.have[k] } : st.skip[k] ? { status: 'skipped' } : { status: 'todo' };
+  };
+  rows.forEach(function (x) {
+    if (!x.need || x.skipped) return;
+    const i = '一二三四五'.indexOf(x.weekday);
+    if (i < 0) return;
+    const r = status(x.teacher, dates[i], x.session);
+    x.status = r.status;
+    x.orders = r.orders || [];
+  });
+  out.extras = lessonsBetween_(mon, fri, null).filter(function (x) { return x.source !== '課表'; }).map(function (x) {
+    const r = status(x.teacher, x.date, x.session);
+    return { source: x.source, teacher: x.teacher, weekday: '一二三四五'.charAt(dates.indexOf(x.date)), session: x.session, course: x.course,
+      className: x.className, room: x.room, status: r.status, orders: r.orders || [], noAccount: !!x.teacher && !accounts[x.teacher] };
+  });
+  out.week = { from: dates[0], to: dates[4], dates: dates };
+  return out;
+}
+
+/** 某段期間的訂單和「不用訂貨」：have[老師|日期|時段] = [{ orderNo, project, status }]、skip[老師|日期|時段] = true */
+function lessonStatusMaps_(from, to) {
+  const have = {}, skip = {};
+  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, from).filter(function (r) {
+    const d = toDate_(r['使用日期']);
+    return d && d >= from && d <= to;
+  });
+  groupOrders_(rows, null).forEach(function (o) {
+    if (o.status === '已取消') return;
+    const k = (o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime);
+    (have[k] = have[k] || []).push({ orderNo: o.orderNo, project: o.project, status: o.status, className: o.className });
+  });
+  const sh = ss_().getSheetByName(SHEET.skips);
+  if (sh && sh.getLastRow() >= 2) {
+    readTable_(SHEET.skips, ['老師', '日期', '時段']).rows.forEach(function (r) {
+      const d = toDate_(r['日期']);
+      if (d) skip[String(r['老師']).trim() + '|' + dateStr_(d) + '|' + String(r['時段']).trim()] = true;
+    });
+  }
+  return { have: have, skip: skip };
 }
 
 /**
  * 管理者在總課表上改一堂課：fields 是新的內容，fields.need = false 是永久取消、true 是上課中。
  * expect 跟 adminUpdateSchedule 一樣，別人改過就不改。
  */
-function adminGridSchedule(token, row, expect, fields) {
+function adminGridSchedule(token, row, expect, fields, weekOf) {
   const admin = auth_(token, true);
   const set = scheduleFields_(fields);
   const lock = LockService.getScriptLock();
@@ -2967,14 +3014,14 @@ function adminGridSchedule(token, row, expect, fields) {
   } finally {
     lock.releaseLock();
   }
-  return adminGetSchedule(token);
+  return adminGetSchedule(token, weekOf);
 }
 
 /** 管理者在總課表的空格新增一堂課，回傳新的總課表 */
-function adminGridAddSchedule(token, fields) {
+function adminGridAddSchedule(token, fields, weekOf) {
   auth_(token, true);
   addScheduleRow_(fields);
-  return adminGetSchedule(token);
+  return adminGetSchedule(token, weekOf);
 }
 
 /** 管理者在「課表」分頁新增一堂課 */

@@ -278,6 +278,36 @@
   .slesson.hl { background: #fef0c7; border-color: #f79009; box-shadow: 0 0 0 2px #fec84b; }
   .slesson.dim { opacity: .35; }
   .slesson .warn-t { color: var(--bad); }
+  .slesson .st { margin-top: 2px; font-size: 13px; font-weight: 700; }
+  .slesson.st-ordered { background: #dcfae6; border-color: #47cd89; }
+  .slesson.st-ordered .st { color: #067647; }
+  .slesson.st-todo { background: #fff; border: 2px solid #f97066; }
+  .slesson.st-todo .st { color: #b42318; }
+  .slesson.st-skipped { background: #f2f4f7; border-color: #d0d5dd; }
+  .slesson.st-skipped .st { color: #475467; }
+  .slesson.extra { border-style: dashed; }
+  .slesson .src { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 6px; background: #e0eaff; color: #3538cd; margin-right: 3px; }
+  .grid-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 8px 0; font-size: 14px; }
+  .grid-legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; border: 1px solid; }
+  .grid-print-head { display: none; }
+  @page gridland { size: A4 landscape; margin: 8mm; }
+  @media print {
+    #viewSchedule .grid-print-head { display: block; text-align: center; margin-bottom: 4px; }
+    #viewSchedule .grid-print-head h1 { font-size: 18px; margin: 0; }
+    #viewSchedule #gridBox { page: gridland; }
+    #viewSchedule .sgrid-wrap { overflow: visible; border: 0; }
+    #viewSchedule .sgrid { width: 100%; min-width: 0; font-size: 10px; table-layout: fixed; }
+    #viewSchedule .sgrid th, #viewSchedule .sgrid td { padding: 2px; position: static; }
+    #viewSchedule .sgrid thead th { white-space: normal; font-size: 10px; text-align: center; }
+    #viewSchedule .sgrid th.room { width: 44px; }
+    #viewSchedule .sgrid td { min-width: 0; }
+    #viewSchedule .slesson { padding: 2px 3px; margin-bottom: 2px; font-size: 10px; box-shadow: none !important; opacity: 1 !important; }
+    #viewSchedule .slesson b { font-size: 10.5px; }
+    #viewSchedule .slesson .st { font-size: 10px; }
+    #viewSchedule .sadd { display: none; }
+    #viewSchedule .sgrid tr { break-inside: avoid; }
+    #viewSchedule, #viewSchedule * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
   .sched-form.in-ask { grid-template-columns: 1fr 1fr; text-align: left; }
   .reason-box { display: grid; grid-template-columns: 1fr 1.4fr; gap: 6px; margin-top: 10px; }
   .reason-box label { grid-column: 1 / -1; margin: 0; }
@@ -651,15 +681,17 @@
     </section>
 
     <section id="viewSchedule" class="hidden">
-      <div class="panel">
-        <h2 style="margin:0">總課表 <button type="button" class="btn ghost small" id="gridReload">重新整理</button> <button type="button" class="btn secondary small" id="gridAddBtn">＋ 新增一堂課</button></h2>
+      <div class="panel noprint">
+        <h2 style="margin:0">總課表 <button type="button" class="btn ghost small" id="gridReload">重新整理</button> <button type="button" class="btn secondary small" id="gridAddBtn">＋ 新增一堂課</button> <button type="button" class="btn small" id="gridPrint">🖨 列印這週課表</button></h2>
         <div class="muted small">試算表「課表」分頁的每週固定課。點一堂課可以改老師、課程、班級、教室、節次，或永久取消／恢復；點空白格子的「＋」可以新增一堂課（新教室請按上面的「新增一堂課」）；改完老師的「我的課」和訂貨提醒會跟著變。只有某一週不上，請到「我的課」選那位老師、按那一週的「不用訂貨」。</div>
         <div class="grid-tools">
+          <div><label for="gridWeek">哪一週</label><input id="gridWeek" type="date"></div>
+          <div class="status-chips" id="gridWeeks" style="margin:0 0 4px"><button type="button" data-gw="-7">上週</button><button type="button" data-gw="0">本週</button><button type="button" data-gw="7">下週</button><button type="button" data-gw="14">下下週</button></div>
           <div><label for="gridTeacher">標出老師</label><select id="gridTeacher"><option value="">（不標）</option></select></div>
           <label class="check"><input type="checkbox" id="gridShowOff" checked> 顯示已取消的課</label>
         </div>
       </div>
-      <div id="gridMsg"></div>
+      <div id="gridMsg" class="noprint"></div>
       <div id="gridBox"></div>
     </section>
 
@@ -4819,7 +4851,9 @@
   // ------------------------------------------------------------------
   // 總課表（管理者）：教室 × 星期 × 時段 的格子，點一堂課修改
   // ------------------------------------------------------------------
-  var gridRows = [];
+  var gridRows = [], gridData = {};
+  function gridWeekOf() { return $('gridWeek').value; }
+  function mondayOf(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7); }
   // 教室排序：中 → 廚 → 西餐 → 烘 → 調 → 餐服 → 其他，同一類依一、二、三…
   var ROOM_GROUPS = ['中', '廚', '西', '烘', '調', '餐服'], CN_NUM = '一二三四五六七八九十';
   function roomKey(r) {
@@ -4848,18 +4882,23 @@
       var f = readSchedForm($('gridForm'));
       f.note = $('gridNote').value.trim();
       msg('gridMsg', 'info', '新增中…');
-      call('adminGridAddSchedule', token, f).then(function (r) {
+      call('adminGridAddSchedule', token, f, gridWeekOf()).then(function (r) {
         renderGrid(r, '已新增「' + f.course + '」到週' + f.weekday + f.session + (f.room ? ' ' + f.room : '') + '（' + f.teacher + '）。');
       }).catch(function (err) { msg('gridMsg', 'error', err.message); });
     });
     setTimeout(function () { var el = document.querySelector('#gridForm [data-sf="course"]'); if (el) el.focus(); }, 50);
   }
   function loadGrid(note) {
-    msg('gridMsg', '', '');
-    if (!gridRows.length) $('gridBox').innerHTML = '<div class="panel muted">載入中…</div>';
-    call('adminGetSchedule', token).then(function (r) { renderGrid(r, note); }).catch(function (err) { msg('gridMsg', 'error', err.message); });
+    if (!$('gridWeek').value) {   // 預設：下週（老師正在訂的那一週）
+      var t = new Date();
+      $('gridWeek').value = isoDate(new Date(mondayOf(t).getTime() + 7 * 864e5));
+    }
+    $('gridWeek').value = isoDate(mondayOf(parseDate($('gridWeek').value) || new Date()));
+    msg('gridMsg', 'info', '載入中…');
+    call('adminGetSchedule', token, gridWeekOf()).then(function (r) { msg('gridMsg', '', ''); renderGrid(r, note); }).catch(function (err) { msg('gridMsg', 'error', err.message); });
   }
   function renderGrid(r, note) {
+    gridData = r;
     gridRows = r.rows || [];
     if (note) msg('gridMsg', 'ok', note);
     var names = [];
@@ -4872,12 +4911,16 @@
   }
   function drawGrid() {
     var showOff = $('gridShowOff').checked, hl = $('gridTeacher').value;
-    var rows = gridRows.filter(function (x) { return showOff || (x.need && !x.skipped); });
-    if (!gridRows.length) { $('gridBox').innerHTML = '<div class="panel muted">「課表」分頁還沒有課。</div>'; return; }
+    var extras = (gridData.extras || []).map(function (x, i) { x.extra = true; x.ei = i; x.need = true; return x; });
+    var rows = gridRows.filter(function (x) { return showOff || (x.need && !x.skipped); }).concat(extras);
+    if (!gridRows.length && !extras.length) { $('gridBox').innerHTML = '<div class="panel muted">「課表」分頁還沒有課。</div>'; return; }
+    var week = gridData.week || null, dates = week ? week.dates : [];
+    var count = { ordered: 0, todo: 0, skipped: 0 };
+    rows.forEach(function (x) { if (x.status) count[x.status]++; });
     var WD = ['一', '二', '三', '四', '五'];
-    var sessions = ['上午', '下午'].concat(gridRows.some(function (x) { return x.session === '晚上'; }) ? ['晚上'] : []);
+    var sessions = ['上午', '下午'].concat(gridRows.concat(extras).some(function (x) { return x.session === '晚上'; }) ? ['晚上'] : []);
     var rooms = [];
-    gridRows.forEach(function (x) { var k = x.room || '（沒填教室）'; if (rooms.indexOf(k) < 0) rooms.push(k); });
+    gridRows.concat(extras).forEach(function (x) { var k = x.room || '（沒填教室）'; if (rooms.indexOf(k) < 0) rooms.push(k); });
     rooms.sort(roomCompare);
     var cells = {};
     rows.forEach(function (x) {
@@ -4885,20 +4928,31 @@
       (cells[k] = cells[k] || []).push(x);
     });
     var shortS = { '上午': '上', '下午': '下', '晚上': '晚' };
-    var html = '<div class="sgrid-wrap"><table class="sgrid"><thead><tr><th class="room">教室</th>' +
-      WD.map(function (d) { return sessions.map(function (s, i) { return '<th' + (i === 0 ? ' class="day-start"' : '') + '>週' + d + shortS[s] + '</th>'; }).join(''); }).join('') +
+    var md = function (ds) { var p = ds.split('-'); return Number(p[1]) + '/' + Number(p[2]); };
+    var stText = { ordered: '✓ 已叫料', todo: '未叫料', skipped: '不用訂貨' };
+    var legend = week ? '<div class="grid-legend"><b>' + esc(rangeText(week.from, week.to)) + '</b>' +
+      '<span><i style="background:#dcfae6;border-color:#47cd89"></i>已叫料 ' + count.ordered + '</span>' +
+      '<span><i style="background:#fff;border-color:#f97066;border-width:2px"></i>未叫料 ' + count.todo + '</span>' +
+      '<span><i style="background:#f2f4f7;border-color:#d0d5dd"></i>不用訂貨 ' + count.skipped + '</span>' +
+      '<span class="noprint muted small">虛線框：國技排班、老師自己新增的課（請到「我的課」修改）</span></div>' : '';
+    var html = (week ? '<div class="grid-print-head"><h1>三信家商餐飲科 總課表</h1></div>' : '') + legend +
+      '<div class="sgrid-wrap"><table class="sgrid"><thead><tr><th class="room">教室</th>' +
+      WD.map(function (d, di) { return sessions.map(function (s, i) { return '<th' + (i === 0 ? ' class="day-start"' : '') + '>週' + d + shortS[s] + (dates[di] ? '<div class="muted small" style="font-weight:normal">' + md(dates[di]) + '</div>' : '') + '</th>'; }).join(''); }).join('') +
       '</tr></thead><tbody>' + rooms.map(function (room) {
         return '<tr><th class="room">' + esc(room) + '</th>' + WD.map(function (d) {
           return sessions.map(function (s, i) {
             var list = cells[room + '|' + d + '|' + s] || [];
             return '<td' + (i === 0 ? ' class="day-start"' : '') + '>' + list.map(function (x) {
               var off = !x.need || x.skipped;
-              var cls = 'slesson' + (off ? ' off' : '') + (hl ? (x.teacher === hl ? ' hl' : ' dim') : '');
-              return '<button type="button" class="' + cls + '" data-grow="' + x.row + '" title="點一下修改">' +
-                '<b>' + esc(x.course) + '</b>' +
+              var cls = 'slesson' + (off ? ' off' : '') + (x.status ? ' st-' + x.status : '') + (x.extra ? ' extra' : '') + (hl ? (x.teacher === hl ? ' hl' : ' dim') : '');
+              var ord = (x.orders || []).map(function (o) { return o.project; }).filter(Boolean).join('、');
+              return '<button type="button" class="' + cls + '" ' + (x.extra ? 'data-gextra="' + x.ei + '"' : 'data-grow="' + x.row + '"') +
+                ' title="' + (x.extra ? esc(x.source === '國技' ? '國技排班' : '老師自己新增的課') + '，請到「我的課」修改' : '點一下修改') + (ord ? '\n叫料：' + esc(ord) : '') + '">' +
+                (x.extra ? '<span class="src">' + esc(x.source) + '</span>' : '') + '<b style="display:inline">' + esc(x.course) + '</b><br>' +
                 (x.className ? '<span>' + esc(x.className) + '</span> ' : '') + (x.period ? '<span class="muted">' + esc(x.period) + '</span>' : '') +
                 '<div class="t' + (x.noAccount ? ' warn-t' : '') + '"' + (x.noAccount ? ' title="帳號設定沒有這位老師"' : '') + '>' + esc(x.teacher) + (x.noAccount ? ' ⚠' : '') + '</div>' +
                 (x.skipped ? '<div class="small">國技／預留</div>' : !x.need ? '<div class="small">已取消</div>' : '') +
+                (x.status ? '<div class="st">' + stText[x.status] + '</div>' : '') +
                 '</button>';
             }).join('') + (list.length ? '' : '<button type="button" class="sadd" data-gadd="' + esc(room === '（沒填教室）' ? '' : room) + '|' + d + '|' + s + '" title="在這格新增一堂課" aria-label="新增 週' + d + s + ' ' + esc(room) + ' 的課">＋</button>') + '</td>';
           }).join('');
@@ -4908,6 +4962,17 @@
   }
   $('gridReload').addEventListener('click', function () { loadGrid(); });
   $('gridAddBtn').addEventListener('click', function () { gridAdd({}); });
+  $('gridWeek').addEventListener('change', function () { loadGrid(); });
+  $('gridWeeks').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-gw]');
+    if (!b) return;
+    $('gridWeek').value = isoDate(new Date(mondayOf(new Date()).getTime() + Number(b.getAttribute('data-gw')) * 864e5));
+    loadGrid();
+  });
+  $('gridPrint').addEventListener('click', function () {
+    if (!gridData.week) { notice('課表還沒載入完成。'); return; }
+    window.print();
+  });
   $('gridTeacher').addEventListener('change', drawGrid);
   $('gridShowOff').addEventListener('change', drawGrid);
   $('gridBox').addEventListener('click', function (e) {
@@ -4915,6 +4980,12 @@
     if (a) {
       var p = a.getAttribute('data-gadd').split('|');
       gridAdd({ room: p[0], weekday: p[1], session: p[2] });
+      return;
+    }
+    var ex = e.target.closest('button[data-gextra]');
+    if (ex) {
+      var y = (gridData.extras || [])[Number(ex.getAttribute('data-gextra'))];
+      if (y) notice((y.source === '國技' ? '這是國技排班的課' : '這是' + y.teacher + '老師自己新增的課') + '，請到「我的課」選「' + y.teacher + '」修改。');
       return;
     }
     var b = e.target.closest('button[data-grow]');
@@ -4932,7 +5003,7 @@
       f.note = $('gridNote').value.trim();
       f.need = !$('gridNeed').checked;
       msg('gridMsg', '', '儲存中…');
-      call('adminGridSchedule', token, row, { weekday: x.weekday, session: x.session, teacher: x.teacher }, f).then(function (r) {
+      call('adminGridSchedule', token, row, { weekday: x.weekday, session: x.session, teacher: x.teacher }, f, gridWeekOf()).then(function (r) {
         var what = [];
         if (f.teacher !== x.teacher) what.push('老師 ' + x.teacher + ' → ' + f.teacher);
         if (f.weekday !== x.weekday || f.session !== x.session) what.push('時間 週' + x.weekday + x.session + ' → 週' + f.weekday + f.session);
