@@ -1862,6 +1862,64 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
   return { lines: lines, id: id, moved: moved, remembered: keep, more: more.length, moreMoved: more };
 }
 
+/**
+ * 管理者：一次改很多食材的廠商（乾貨進貨科別「貼上清單」）。changes: [{ id, vendor }]，
+ * vendor 可以是訂單上的廠商（E烘焙乾貨、E中餐乾貨、F飲調…）或分科前的名稱（E乾貨＝兩科都進）。
+ * 食材總表、訂單總表各讀一次；還沒叫貨的訂單（今天以後、待處理或已審核）跟著改。
+ */
+function adminSetItemVendors(token, changes) {
+  auth_(token, true);
+  const ok = orderVendors_().concat(Object.keys(VENDOR_SPLIT));
+  const want = {};
+  (changes || []).forEach(function (c) {
+    const id = String(c && c.id || '').trim(), v = String(c && c.vendor || '').trim();
+    if (!id) return;
+    if (ok.indexOf(v) < 0) throw new Error('沒有「' + v + '」這家廠商。');
+    want[id] = v;
+  });
+  const vendorGroups = readVendorGroups_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    // 整欄讀、整欄寫（一格一格寫幾百格太慢）
+    const column = function (table, header) {
+      const n = table.sheet.getLastRow() - 1, c = table.cols[header];
+      const range = table.sheet.getRange(2, c, Math.max(n, 1), 1);
+      return { range: range, values: n > 0 ? range.getValues() : [], dirty: false };
+    };
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']);
+    const iv = column(t, '廠商');
+    let items = 0;
+    t.rows.forEach(function (r) {
+      const v = want[String(r['食材ID']).trim()];
+      if (!v || String(r['廠商'] || '').trim() === v) return;
+      iv.values[r._row - 2][0] = v; iv.dirty = true;
+      items++;
+    });
+    if (iv.dirty) { iv.range.setValues(iv.values); clearItemsCache_(); }
+    const o = readTable_(SHEET.orders, ['訂單編號', '食材ID', '廠商']);
+    const ov = column(o, '廠商'), og = o.cols['送貨組別'] !== undefined ? column(o, '送貨組別') : null;
+    const today = today_();
+    let lines = 0;
+    o.rows.forEach(function (x) {
+      const v = want[String(x['食材ID'] || '').trim()];
+      if (!v) return;
+      const d = toDate_(x['使用日期']), st = String(x['狀態'] || '').trim();
+      if (!d || d < today || (st !== '待處理' && st !== '已審核')) return;
+      const nv = orderVendor_(v, x['科別']);
+      if (String(x['廠商'] || '').trim() === nv) return;
+      ov.values[x._row - 2][0] = nv; ov.dirty = true;
+      if (og) { og.values[x._row - 2][0] = deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups); og.dirty = true; }
+      lines++;
+    });
+    if (ov.dirty) ov.range.setValues(ov.values);
+    if (og && og.dirty) og.range.setValues(og.values);
+    return { items: items, lines: lines };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** 食材總表的廠商改成 vendor（訂單上的廠商名稱，例如 E烘焙乾貨、A菜商），還沒叫貨的訂單（今天以後、待處理或已審核）也跟著改。回傳改了的訂單品項 [{ orderNo, vendor, group }] */
 function setItemVendor_(id, vendor) {
   const vendorGroups = readVendorGroups_();

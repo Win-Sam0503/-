@@ -887,6 +887,13 @@
           <div class="tablewrap"><table class="sum-vt" id="dryTable"></table></div>
           <div class="actions"><button type="button" class="btn" id="drySave" disabled>儲存變更</button></div>
         </details>
+        <details id="dryPasteBox" style="margin-top:8px"><summary style="cursor:pointer">📋 貼上清單一次改（從 Excel 複製兩欄：食材名稱、跟哪一家叫）</summary>
+          <div class="muted small" style="margin:6px 0">每一行一個食材，第二欄寫：<b>烘焙乾貨</b>、<b>中餐乾貨</b>、<b>兩邊</b>（兩科都進）、<b>飲調</b>，或直接寫廠商名稱（例如 A菜商）。食材名稱也可以寫別名（例如 蕃茄醬）。
+            先按「預覽」看會改哪些，確定再按「套用」；還沒叫貨的訂單也會跟著改。</div>
+          <textarea id="dryPaste" rows="6" style="width:100%" placeholder="中筋麵粉	兩邊&#10;低筋麵粉	烘焙乾貨&#10;醬油	中餐乾貨"></textarea>
+          <div class="actions"><button type="button" class="btn secondary" id="dryPreview">預覽</button><button type="button" class="btn" id="dryApply" disabled>套用</button></div>
+          <div id="dryPasteOut"></div>
+        </details>
       </div>
       <div class="panel" id="aliasPanel">
         <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
@@ -2961,6 +2968,55 @@
       dry = r.data; dryEdit = {}; renderDry();
       msg('dryMsg', 'ok', '已更新 ' + r.changed + ' 項乾貨的進貨科別' + (r.lines ? '，還沒叫貨的訂單也跟著改了 ' + r.lines + ' 筆' : '') + '。已經叫貨、到貨的訂單不變。');
     }).catch(function (e) { msg('dryMsg', 'error', e.message); }).then(function () { setBusy(btn, false); renderDry(); });
+  });
+  // 貼上清單：名稱（或別名）＋ 跟哪一家叫
+  var dryPasteChanges = [];
+  function pasteVendor(label) {
+    var t = String(label || '').replace(/\s/g, ''), sp = (data.vendorSplit || {})['E乾貨'] || {};
+    if (/兩|雙|都|both/i.test(t)) return 'E乾貨';
+    if (/烘焙/.test(t)) return sp.baking;
+    if (/中餐/.test(t)) return sp.other;
+    if (/飲調/.test(t)) return 'F飲調';
+    return moveTargets('').indexOf(t) >= 0 || t === 'E乾貨' ? t : '';
+  }
+  function pasteItem(name) {
+    var q = normName(name), hit = data.items.filter(function (it) { return normName(it.name) === q; });
+    if (!hit.length) hit = data.items.filter(function (it) { return String(it.alias || '').split(/[,，、]+/).some(function (a) { return normName(a) === q; }); });
+    return hit.length === 1 ? hit[0] : null;
+  }
+  $('dryPreview').addEventListener('click', function () {
+    var seen = {}, rows = [], bad = [], same = 0;
+    $('dryPaste').value.split(/\r?\n/).forEach(function (line) {
+      var parts = line.split(/\t|,|，|\s{2,}/).map(function (x) { return x.trim(); }).filter(Boolean);
+      if (parts.length < 2) { if (parts.length) bad.push(line.trim() + '（少了跟哪一家叫）'); return; }
+      var it = pasteItem(parts[0]), v = pasteVendor(parts[parts.length - 1]);
+      if (!it) { bad.push(parts[0] + '（食材總表找不到，或對到好幾項）'); return; }
+      if (!v) { bad.push(parts[0] + '：「' + parts[parts.length - 1] + '」看不懂是哪一家'); return; }
+      if (seen[it.id] && seen[it.id] !== v) bad.push(it.name + ' 出現兩次、寫了不同家（用最後一個：' + v + '）');
+      seen[it.id] = v;
+      rows = rows.filter(function (r) { return r.id !== it.id; });
+      if (it.vendor === v) { same++; return; }
+      rows.push({ id: it.id, name: it.name + (normName(it.name) !== normName(parts[0]) ? '（' + parts[0] + '）' : ''), from: it.vendor, vendor: v });
+    });
+    dryPasteChanges = rows;
+    var label = function (v) { var sp = (data.vendorSplit || {})['E乾貨'] || {}; return v === 'E乾貨' ? 'E乾貨（兩科都進）' : v === sp.baking ? v + '（只有烘焙進）' : v === sp.other ? v + '（只有中餐進）' : v; };
+    $('dryPasteOut').innerHTML = (bad.length ? '<div class="msg warn">這些沒辦法改：<br>' + bad.map(esc).join('<br>') + '</div>' : '') +
+      '<div class="small" style="margin:6px 0">要改 <b>' + rows.length + '</b> 項' + (same ? '，' + same + ' 項本來就是這樣' : '') + '：</div>' +
+      (rows.length ? '<div class="tablewrap" style="max-height:50vh;overflow:auto"><table class="sum-vt"><thead><tr><th>食材</th><th>現在</th><th>改成</th></tr></thead><tbody>' +
+        rows.map(function (r) { return '<tr><td>' + esc(r.name) + '</td><td>' + esc(label(r.from)) + '</td><td><b>' + esc(label(r.vendor)) + '</b></td></tr>'; }).join('') + '</tbody></table></div>' : '');
+    $('dryApply').disabled = !rows.length;
+  });
+  $('dryApply').addEventListener('click', function () {
+    var btn = this;
+    if (!dryPasteChanges.length) return;
+    setBusy(btn, true, '套用中…');
+    call('adminSetItemVendors', token, dryPasteChanges.map(function (r) { return { id: r.id, vendor: r.vendor }; })).then(function (r) {
+      dryPasteChanges.forEach(function (c) { var it = data.items.find(function (x) { return x.id === c.id; }); if (it) it.vendor = c.vendor; });
+      dryPasteChanges = [];
+      $('dryPasteOut').innerHTML = '<div class="msg ok">已改好 ' + r.items + ' 項食材的廠商' + (r.lines ? '，還沒叫貨的訂單也跟著改了 ' + r.lines + ' 筆' : '') + '。</div>';
+      loadDry();
+    }).catch(function (e) { $('dryPasteOut').innerHTML = '<div class="msg error">' + esc(e.message) + '</div>'; })
+      .then(function () { setBusy(btn, false); $('dryApply').disabled = true; });
   });
   function loadPending(note) {
     msg('pendMsg', 'info', '載入中…');
