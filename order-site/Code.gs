@@ -1295,9 +1295,11 @@ function adminGetPurchase(token, from, to) {
  * confirm = false：先存草稿，不改訂單狀態、不通知。
  * confirm = true：正式確定；訂單裡所有要叫貨的廠商都確定了，訂單（待處理、已審核）才改成「已叫貨」；
  *                 並用 LINE／Email 傳這家廠商的叫貨摘要給管理者。
- * rows: [{ date, group, vendor, orderNo, className, teacher, name, id, need, needUnit, qty, unit, kind: '訂單'|'補庫存', note }]
+ * rows: [{ date, group, vendor, orderNo, className, teacher, name, id, need, needUnit, qty, unit, kind: '訂單'|'補庫存'|'合計', note }]
+ * kind '合計'：在 ③ 叫貨單直接改的合計（這個送貨組別這個食材給廠商的總量，0 ＝ 不叫），各班明細不變。
+ * quiet：只是在 ③ 改合計，不再傳 LINE／Email。
  */
-function adminSavePurchase(token, from, to, vendor, rows, confirm) {
+function adminSavePurchase(token, from, to, vendor, rows, confirm, quiet) {
   const admin = auth_(token, true);
   const r = purchaseRange_(from, to);
   vendor = clean_(vendor, 30);
@@ -1317,13 +1319,13 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm) {
     const unit = clean_(x.unit, 10);
     if (qty > 0 && !unit) throw new Error('「' + name + '」沒有填叫貨單位。');
     const need = x.need === '' || x.need === null || x.need === undefined ? '' : Number(x.need);
-    const add = x.kind === '補庫存';
+    const add = x.kind === '補庫存' || x.kind === '合計';
     return {
       '送貨日期': date, '送貨組別': clean_(x.group, 20), '廠商': vendor,
       '訂單編號': add ? '' : clean_(x.orderNo, 30), '上課班級': add ? '' : clean_(x.className, 30), '老師': add ? '' : clean_(x.teacher, 30),
       '食材名稱': name, '食材ID': clean_(x.id, 20),
       '需求量': isFinite(need) ? need : '', '需求單位': clean_(x.needUnit, 10),
-      '叫貨量': Math.round(qty * 100) / 100, '叫貨單位': unit, '類型': add ? '補庫存' : '訂單',
+      '叫貨量': Math.round(qty * 100) / 100, '叫貨單位': unit, '類型': add ? x.kind : '訂單',
       '備註': clean_(x.note, 60), '狀態': status, '確定時間': now, '確認人': admin,
     };
   });
@@ -1383,12 +1385,13 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm) {
   } finally {
     lock.releaseLock();
   }
-  if (!confirm) return { saved: out.length, orders: 0, notify: null, status: status };
+  if (!confirm || quiet) return { saved: out.length, orders: changedOrders, notify: null, status: status };
 
   // 3. 叫貨摘要傳給管理者
   const range = shortDateTw_(parseDate_(r.from)) + (r.from !== r.to ? '～' + shortDateTw_(parseDate_(r.to)) : '');
   const c = { n: 0, diff: 0, add: 0, zero: 0 };
   out.forEach(function (x) {
+    if (x['類型'] === '合計') return;
     if (x['叫貨量'] > 0) c.n++; else c.zero++;
     if (x['類型'] === '補庫存') c.add++;
     else if (x['叫貨量'] > 0 && (x['叫貨量'] !== x['需求量'] || x['叫貨單位'] !== x['需求單位'])) c.diff++;

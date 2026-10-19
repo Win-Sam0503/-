@@ -3764,7 +3764,7 @@
   // 叫貨單：合計（給廠商）和各班明細分開成不同頁，「叫貨單內容」選要印哪一種；叫貨量 0 的不列
   function purchaseSheets(rows, from, to, only) {
     var part = $('vPart').value || 'sum';
-    var live = rows.filter(function (r) { return r.qty > 0; });
+    var live = rows.filter(function (r) { return r.qty > 0 && r.kind !== '合計'; });
     var by = byVendorBatch(live, only);
     var info = rows[0] ? '（' + rows[0].time + ' 由 ' + rows[0].by + ' 確定）' : '';
     return Object.keys(by).sort().map(function (v) {
@@ -3774,10 +3774,15 @@
       var sumPage = head('叫貨單') +
         '<div class="noprint" style="text-align:right;margin-bottom:6px"><button type="button" class="btn secondary small" data-pcopy="' + esc(v) + '">複製叫貨文字</button></div>' +
         Object.keys(by[v]).sort().map(function (dk) {
-          var tot = sumLines(by[v][dk], 'qty', 'unit'), mixed = mixedNames(tot);
-          return '<h3>' + esc(batchLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th></tr></thead><tbody>' +
+          var tot = purchaseTotals(rows, v, dk), mixed = mixedNames(tot);
+          return '<h3>' + esc(batchLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th><th class="noprint" style="width:150px"></th></tr></thead><tbody>' +
             tot.map(function (t) {
-              return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td></tr>';
+              var key = esc(v + '|' + dk + '|' + t.name);
+              return '<tr' + (t.deleted ? ' class="noprint" style="color:var(--muted);text-decoration:line-through"' : '') + '><td>' + esc(t.name) + unitBadges(t, mixed) +
+                (t.ovr ? ' <span class="badge warn noprint" title="在叫貨單直接改過">已改（原本 ' + esc(t.orig) + '）</span>' : '') + '</td>' +
+                '<td class="vq" style="text-align:right">' + (t.deleted ? '不叫' : esc(fmtTotal(t.qty, t.unit, t.name))) + '</td>' +
+                '<td class="noprint" style="white-space:nowrap">' + (t.deleted ? '' : '<button type="button" class="btn ghost small" data-tedit="' + key + '">改量</button><button type="button" class="btn ghost small" data-tdel="' + key + '">刪除</button>') +
+                (t.ovr ? '<button type="button" class="btn ghost small" data-treset="' + key + '">恢復</button>' : '') + '</td></tr>';
             }).join('') + '</tbody></table>';
         }).join('') + '</div>';
       var detailPage = head('叫貨明細（各班）') +
@@ -3836,11 +3841,72 @@
       notYet.length ? '⚠ 還沒確定叫貨：' + notYet.join('、') + '（不在這張叫貨單裡）。' : ''].filter(Boolean).join('\n');
   }
   function purchaseText(v) {
-    var by = byVendorBatch(purchaseCache.filter(function (r) { return r.qty > 0 && r.vendor === v; }));
+    var by = byVendorBatch(purchaseCache.filter(function (r) { return r.qty > 0 && r.vendor === v && r.kind !== '合計'; }));
     return Object.keys(by[v] || {}).sort().map(function (dk) {
-      return '【' + v + '】' + batchLabel(dk) + '\n' + sumLines(by[v][dk], 'qty', 'unit').map(function (t) { return t.name + ' ' + fmtTotal(t.qty, t.unit, t.name); }).join('\n');
+      return '【' + v + '】' + batchLabel(dk) + '\n' + purchaseTotals(purchaseCache, v, dk).filter(function (t) { return !t.deleted; })
+        .map(function (t) { return t.name + ' ' + fmtTotal(t.qty, t.unit, t.name); }).join('\n');
     }).join('\n\n');
   }
+  // ③ 叫貨單的合計：各班加總，再套用在叫貨單直接改的合計（類型「合計」：這家廠商這個送貨組別這個食材的總量，0 ＝ 不叫）
+  function purchaseTotals(rows, v, dk) {
+    var mine = rows.filter(function (r) { return r.vendor === v && (r.group || '') === dk; });
+    var tot = sumLines(mine.filter(function (r) { return r.kind !== '合計'; }), 'qty', 'unit');
+    mine.filter(function (r) { return r.kind === '合計'; }).forEach(function (o) {
+      var old = tot.filter(function (t) { return t.name === o.name; });
+      var orig = old.map(function (t) { return fmtTotal(t.qty, t.unit, t.name); }).join('＋') || '沒有';
+      tot = tot.filter(function (t) { return t.name !== o.name; });
+      var cv = Number(o.qty) > 0 ? convertUnit(Number(o.qty), o.unit, v, o.name) : { qty: 0, unit: o.unit };
+      tot.push({ name: o.name, unit: cv.unit, qty: cv.qty, ovr: true, orig: orig, deleted: !(Number(o.qty) > 0) });
+    });
+    return tot.sort(function (a, b) { return (a.name + '|' + a.unit).localeCompare(b.name + '|' + b.unit); });
+  }
+  // ③ 直接改合計／刪除／恢復：存成類型「合計」的叫貨紀錄（各班明細不變），不再傳 LINE
+  function purchaseOverride(key, mode) {
+    var p = key.split('|'), v = p[0], dk = p[1], name = p.slice(2).join('|');
+    var args = lastSheet && lastSheet.fn === purchaseSheets ? lastSheet.args : null;
+    if (!args) return;
+    var t = purchaseTotals(purchaseCache, v, dk).filter(function (x) { return x.name === name; })[0];
+    var base = purchaseCache.filter(function (r) { return r.vendor === v && (r.group || '') === dk && r.kind !== '合計' && r.name === name; })[0];
+    var save = function (qty, unit) {
+      var rest = purchaseCache.filter(function (r) { return r.vendor === v && !(r.kind === '合計' && (r.group || '') === dk && r.name === name); });
+      if (mode !== 'reset') rest.push({ date: (base || rest[0] || {}).date || args[1], group: dk, vendor: v, orderNo: '', className: '', teacher: '', name: name,
+        id: base ? base.id : '', need: '', needUnit: '', qty: qty, unit: unit, kind: '合計', note: '' });
+      msg('vendorMsg', 'info', '儲存中…');
+      call('adminSavePurchase', token, args[1], args[2], v, rest.map(function (r) {
+        return { date: r.date, group: r.group, vendor: r.vendor, orderNo: r.orderNo || '', className: r.className || '', teacher: r.teacher || '', name: r.name, id: r.id || '',
+          need: r.need, needUnit: r.needUnit, qty: Number(r.qty) || 0, unit: r.unit, kind: r.kind, note: r.note || '' };
+      }), true, true).then(function () {
+        var info = purchaseCache.filter(function (r) { return r.vendor === v; })[0] || {};
+        purchaseCache = purchaseCache.filter(function (r) { return r.vendor !== v; }).concat(rest.map(function (r) { return Object.assign({ status: '已確定', time: info.time || '剛剛', by: info.by || data.account }, r); }));
+        lastSheet.args[0] = purchaseCache;
+        $('vendorSheets').innerHTML = purchaseSheets.apply(null, lastSheet.args);
+        msg('vendorMsg', 'ok', v + '「' + name + '」' + (mode === 'reset' ? '已恢復成各班加總。' : qty > 0 ? '合計改成 ' + fmtQty(qty) + ' ' + unit + '。' : '已刪除（不叫）。') + '（各班明細不變；回「② 訂貨單」重新確定也會保留這個修改。）');
+      }).catch(function (e) { msg('vendorMsg', 'error', '儲存失敗：' + e.message); });
+    };
+    if (mode === 'reset') { save(); return; }
+    if (mode === 'del') {
+      ask('', '刪除', { noText: '取消', html: '<div>' + esc(v) + ' 的「' + esc(name) + '」這次不叫（合計 ' + esc(t ? fmtTotal(t.qty, t.unit, t.name) : '') + ' 不給廠商）？<div class="muted small">各班明細不變，之後可以按「恢復」。</div></div>' })
+        .then(function (ok) { if (ok) save(0, (t && t.unit) || ''); });
+      return;
+    }
+    var u = t && t.unit === '兩' ? '斤' : (t ? t.unit : ''), q = t ? (t.unit === '兩' ? Math.round(t.qty / 16 * 100) / 100 : t.qty) : '';
+    ask('', '儲存', { noText: '取消', html: '<div class="info-check"><h3>' + esc(v) + '「' + esc(name) + '」叫貨合計</h3>' +
+      '<div class="muted small" style="margin-bottom:8px">現在：' + esc(t ? fmtTotal(t.qty, t.unit, t.name) : '') + (t && t.ovr ? '（各班加總：' + esc(t.orig) + '）' : '') + '</div>' +
+      '<div style="display:flex;gap:8px"><input id="tQty" type="text" value="' + esc(String(q)) + '" style="flex:1" autocomplete="off"><select id="tUnit" style="width:auto">' + unitOptions(u) + '</select></div></div>' }).then(function (ok) {
+      if (!ok) return;
+      var nq = normNum($('tQty').value), nu = $('tUnit').value;
+      if (nq === null || nq === '' || !(Number(nq) >= 0)) { notice('請填數字，例如 3、1.5、半（不叫填 0）。'); return; }
+      if (Number(nq) > 0 && (!nu || nu === '__other')) { notice('請選單位。'); return; }
+      save(Number(nq), nu);
+    });
+    setTimeout(function () { var el = $('tQty'); if (el) { el.focus(); el.select(); } }, 50);
+  }
+  $('vendorSheets').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-tedit],[data-tdel],[data-treset]');
+    if (!b) return;
+    purchaseOverride(b.getAttribute('data-tedit') || b.getAttribute('data-tdel') || b.getAttribute('data-treset'),
+      b.hasAttribute('data-tedit') ? 'edit' : b.hasAttribute('data-tdel') ? 'del' : 'reset');
+  });
   $('vendorSheets').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-pcopy]');
     if (!b) return;
@@ -3875,7 +3941,7 @@
     var gone = {};
     Object.keys(savedMap).forEach(function (k) { var g = savedMap[k]; (gone[g.vendor] = gone[g.vendor] || []).push(g); });
     saved.forEach(function (s) { if (s.kind === '補庫存') rows.push({ date: s.date, group: s.group, vendor: s.vendor, name: s.name, id: s.id, need: '', needUnit: '', kind: '補庫存', qty: s.qty, unit: s.unit, note: s.note }); });
-    pState = { from: from, to: to, only: only, rows: rows, gone: gone, vstate: vstate, dirty: {},
+    pState = { from: from, to: to, only: only, rows: rows, gone: gone, vstate: vstate, dirty: {}, overrides: saved.filter(function (s) { return s.kind === '合計'; }),
       wait: orders.filter(function (o) { return o.status === '待處理'; }).length };
     renderPurchase();
   }
@@ -3908,7 +3974,9 @@
       keys.sort().map(function (k) {
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
         var move = '<td class="noprint">' + (t.need ? '<button type="button" class="btn ghost small" data-pmoveall="' + esc(t.name) + '" title="這家沒有賣，這段期間所有班的「' + esc(t.name) + '」都改跟別家叫">全部換廠商</button>' : '') + '</td>';
-        return '<tr' + cls + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td>' + move + '</tr>';
+        var ov = list[0] && (pState.overrides || []).filter(function (o) { return o.vendor === list[0].vendor && (o.group || '') === (list[0].group || '') && o.name === t.name; })[0];
+        return '<tr' + cls + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
+          (ov ? ' <span class="badge warn noprint" title="在 ③ 叫貨單直接改過合計，給廠商的是這個數字">叫貨單改成 ' + esc(Number(ov.qty) > 0 ? fmtQty(ov.qty) + ' ' + ov.unit : '不叫') + '</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td>' + move + '</tr>';
       }).join('') + '</tbody></table>';
   }
   function vStateText(v) {
@@ -4163,7 +4231,9 @@
       var it = r.kind === '補庫存' && !r.id ? data.items.find(function (x) { return x.name === r.name && x.vendor === r.vendor; }) : null;
       return { date: r.date, group: r.group, vendor: r.vendor, orderNo: r.orderNo || '', className: r.className || '', teacher: r.teacher || '',
         name: r.name, id: r.id || (it ? it.id : ''), need: r.need, needUnit: r.needUnit, qty: Number(r.qty), unit: r.unit, kind: r.kind, note: r.note };
-    });
+    }).concat((pState.overrides || []).filter(function (o) { return o.vendor === v; }).map(function (o) {   // ③ 叫貨單直接改的合計，重新儲存也保留
+      return { date: o.date, group: o.group, vendor: o.vendor, orderNo: '', className: '', teacher: '', name: o.name, id: o.id || '', need: '', needUnit: '', qty: Number(o.qty) || 0, unit: o.unit, kind: '合計', note: o.note || '' };
+    }));
     var go = function () {
       setBusy(btn, true, '儲存中…');
       call('adminSavePurchase', token, pState.from, pState.to, v, rows, confirm).then(function (res) {
