@@ -2149,6 +2149,30 @@
           (l.status === 'todo' ? '<button type="button" class="btn ghost small" data-act="lessonmark" data-no="' + esc(o.orderNo) + '" data-li="' + i + '">標記這堂已叫料</button>' : '') + '</div>';
       }).join('') + '</div>';
   }
+  // 未對應課程的訂單：照訂單內容加進「課表」分頁（星期、時段、教室、班級、老師自動帶入，可以改）
+  function addLessonFromOrder(o, btn) {
+    var d = parseDate(o.useDate), wd = '日一二三四五六'.charAt(d ? d.getDay() : 1);
+    var session = (o.lesson && o.lesson.session) || (String(o.classTime).match(/^(上午|下午|晚上)/) || [])[1] || '上午';
+    var f = function (id, label, val) { return '<div><label for="' + id + '">' + label + '</label><input id="' + id + '" type="text" maxlength="30" value="' + esc(val || '') + '" autocomplete="off"></div>'; };
+    var sel = function (id, label, list, cur) { return '<div><label for="' + id + '">' + label + '</label><select id="' + id + '">' + list.map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select></div>'; };
+    ask('', '加入課表', { noText: '取消', html: '<div class="info-check"><h3>把這張料單加入課表</h3>' +
+      '<div class="muted small" style="margin-bottom:6px">照訂單帶入，可以改。加入後這張訂單就會對到課表，總課表、我的課、LINE 提醒也會有這堂課。</div>' +
+      '<div class="sched-form in-ask">' + sel('alWd', '星期', ['一', '二', '三', '四', '五'], wd) + sel('alSe', '時段', ['上午', '下午', '晚上'], session) +
+      f('alRoom', '教室', o.room) + f('alClass', '班級', o.className) + f('alCourse', '課程', o.project || o.dept) + f('alTeacher', '老師', (o.lesson && o.lesson.teacher) || o.onBehalfOf || o.teacher) +
+      sel('alKind', '課表類別', ['日間部', '夜間部', '彈性課程'], session === '晚上' ? '夜間部' : '日間部') +
+      sel('alRange', '上課期間', ['每週都有', '只有 ' + shortDate(o.useDate) + ' 這一次'], '每週都有') + '</div></div>' }).then(function (ok) {
+      if (!ok) return;
+      var once = $('alRange').selectedIndex === 1;
+      var fields = { weekday: $('alWd').value, session: $('alSe').value, room: $('alRoom').value.trim(), className: $('alClass').value.trim(),
+        course: $('alCourse').value.trim(), teacher: $('alTeacher').value.trim(), kind: $('alKind').value,
+        from: once ? o.useDate : '', to: once ? o.useDate : '', note: '從訂單 ' + o.orderNo + ' 加入' };
+      setBusy(btn, true, '加入中…');
+      call('adminGridAddSchedule', token, fields, o.useDate).then(function () {
+        msg('sumMsg', 'ok', '已把「' + fields.course + '」（' + fields.teacher + '，星期' + fields.weekday + fields.session + (once ? '，只有 ' + shortDate(o.useDate) : '，每週') + '）加入課表。');
+        loadSummaryKeepMsg();
+      }).catch(function (e) { msg('sumMsg', 'error', e.message); setBusy(btn, false); });
+    });
+  }
   function orderCard(o, opts) {
     var info = [shortDate(o.useDate), o.dept, o.className ? o.className + ' 班' : '', o.groups ? o.groups + ' 組' : '', o.classTime, o.room].filter(Boolean).join('・');
     var who = '操作：' + o.teacher + (o.onBehalfOf ? '，代訂：' + o.onBehalfOf : '');
@@ -2193,7 +2217,8 @@
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
-        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + '</span></div>' +
+        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) +
+        (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' + (opts.admin ? lessonMatchHtml(o) : '') +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
@@ -2513,6 +2538,7 @@
     if (!b) return;
     var o = sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); });
     var act = b.getAttribute('data-act');
+    if (act === 'addlesson') { addLessonFromOrder(o, b); return; }
     if (act === 'lessonmark') {
       var l = o.lesson.near[Number(b.getAttribute('data-li'))];
       if (!l || !safeConfirm('把 ' + o.lesson.teacher + ' 的「' + lessonText(l) + '」標記為已叫料？\n（訂單 ' + o.orderNo + ' 填的是 ' + shortDate(o.useDate) + ' ' + o.lesson.session + '；只改總課表和提醒，訂單本身不變）')) return;
