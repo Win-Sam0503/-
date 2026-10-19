@@ -3459,7 +3459,7 @@
       }).join('') + '</tbody></table>';
   }
 
-  // 扣貨單：合計（旁邊空白給學生寫現有庫存）和各班明細（寫實際叫貨）分開成不同頁，「列印內容」選要印哪一種；最後留補庫存空白列
+  // 扣貨單：合計（旁邊空白給學生寫實際叫貨）和各班明細（寫實際叫貨）分開成不同頁，「列印內容」選要印哪一種；最後留補庫存空白列
   function deductSheets(rows, from, to, only) {
     var part = $('vPart').value || 'sum';
     var by = byVendorBatch(rows, only);
@@ -3473,7 +3473,7 @@
         Object.keys(by[v]).sort().map(function (dk) {
           var tot = sumLines(by[v][dk], 'need', 'needUnit'), mixed = mixedNames(tot);
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
-            '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">現有庫存</th></tr></thead><tbody>' +
+            '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
             tot.map(function (t) {
               return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td><td></td></tr>';
             }).join('') + '</tbody></table>';
