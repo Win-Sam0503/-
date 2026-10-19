@@ -1162,10 +1162,22 @@ function adminMarkPrinted(token, orderNos) {
   return out;
 }
 
-/** 管理者改上課資訊：{ className, room, project, groups }，只改有給的欄位。沒有要改的回傳 null。 */
+/** 管理者改上課資訊：{ className, room, project, groups, classTime, useDate }，只改有給的欄位。沒有要改的回傳 null。 */
 function orderInfoSet_(info) {
   if (!info || typeof info !== 'object') return null;
   const set = {};
+  if (info.classTime !== undefined) {
+    const v = clean_(info.classTime, 12);
+    if (!CLASS_TIME_PATTERN.test(v)) throw new Error('請選擇上課時間（上午／下午／夜間）。');
+    set['上課時間'] = v;
+  }
+  if (info.useDate !== undefined) {
+    const d = parseDate_(info.useDate);
+    if (!d) throw new Error('上課日期不正確。');
+    if (d.getDay() === 0 || d.getDay() === 6) throw new Error('上課日期是週末，廠商不送貨，請改選平日。');
+    set['使用日期'] = d;
+    set['星期'] = '星期' + WEEKDAY[d.getDay()];
+  }
   if (info.className !== undefined) {
     const v = clean_(info.className, 30);
     if (!v) throw new Error('上課班級不能空白。');
@@ -1588,10 +1600,18 @@ function adminUpdateOrder(token, orderNo, changes, info, reason) {
       // 上課資訊（班級、教室、實作項目、組數）整張訂單每一列都改，包含剛新增的品項
       SpreadsheetApp.flush();
       const t2 = readTable_(SHEET.orders, ['訂單編號']);
+      const vg = readVendorGroups_();
       t2.rows.forEach(function (r) {
         if (String(r['訂單編號']).trim() !== orderNo) return;
         Object.keys(infoSet).forEach(function (k) { if (t2.cols[k] !== undefined) setCell_(t2, r._row, k, infoSet[k]); });
+        // 改了上課日期：送貨組別照新的星期重算（菜商、肉商、海鮮分一二／三四五）
+        if (infoSet['使用日期'] && t2.cols['送貨組別'] !== undefined && String(r['食材ID']).trim() !== TOOL_ID) {
+          setCell_(t2, r._row, '送貨組別', deliveryGroup_(groupVendor_(String(r['廠商'] || '').trim()), infoSet['使用日期'].getDay(), vg));
+        }
       });
+      if (infoSet['使用日期'] && t2.cols['使用日期'] !== undefined) {
+        t2.rows.forEach(function (r) { if (String(r['訂單編號']).trim() === orderNo) t2.sheet.getRange(r._row, t2.cols['使用日期']).setNumberFormat('yyyy-mm-dd'); });
+      }
     }
     SpreadsheetApp.flush();
     try { changesDone = diffOrders_(before, orderOf_(orderNo)); logOrderEdit_(orderNo, admin, changesDone, reason); } catch (e) { console.error(e.message); }
