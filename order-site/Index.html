@@ -3449,12 +3449,12 @@
   function blockTable(list, head, cells) {
     var span = {};
     list.forEach(function (r) { span[blockOf(r)] = (span[blockOf(r)] || 0) + 1; });
-    return '<table><thead><tr><th style="width:16%">日期／班級</th><th style="width:11%">老師</th>' + head + '</tr></thead><tbody>' +
+    return '<table><thead><tr><th style="width:10%">日期</th><th style="width:10%">班級</th><th style="width:10%">老師</th>' + head + '</tr></thead><tbody>' +
       list.map(function (r, i) {
         var first = i === 0 || blockOf(list[i - 1]) !== blockOf(r);
         var rs = ' class="vm" rowspan="' + span[blockOf(r)] + '"';
         return '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="2"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + '<br>' + esc(r.className) + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(r.className) + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
           cells(r) + '</tr>';
       }).join('') + '</tbody></table>';
   }
