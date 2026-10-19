@@ -382,6 +382,10 @@
   .vedit .pd-add { background: #e8f4ea; padding: 0 4px; }
   .vedit .pflag { color: var(--bad); font-size: 13px; }
   .vedit .vpart-detail { margin-top: 18px; }
+  .pfind-bar { position: sticky; top: var(--hdr-h, 0px); z-index: 5; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; background: var(--bg, #fff); padding: 8px 0; margin-bottom: 8px; }
+  .pfind-bar input { max-width: 260px; }
+  .vedit tr.pfind-hit > td { background: #fff3b0 !important; }
+  .vedit tr.pfind-cur > td { outline: 2px solid #d97706; outline-offset: -2px; }
   .vedit .vdetail-title { display: none; }
   .padd-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .padd-form select, .padd-form input { width: auto; }
@@ -3788,10 +3792,12 @@
     need.forEach(function (t) { var k = t.name + '|' + t.unit; m[k] = { name: t.name, unit: t.unit, need: t.qty, qty: 0 }; keys.push(k); });
     act.forEach(function (t) { var k = t.name + '|' + t.unit; if (!m[k]) { m[k] = { name: t.name, unit: t.unit, need: 0, qty: 0 }; keys.push(k); } m[k].qty = t.qty; });
     var mixed = mixedNames(keys.map(function (k) { return m[k]; }));
-    return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th></tr></thead><tbody>' +
+    var sib = list[0] ? siblingVendor(list[0].vendor) : '';
+    return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th>' + (sib ? '<th class="noprint"></th>' : '') + '</tr></thead><tbody>' +
       keys.sort().map(function (k) {
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
-        return '<tr' + cls + '><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td></tr>';
+        var move = sib && t.need ? '<td class="noprint"><button type="button" class="btn ghost small" data-pmoveall="' + esc(t.name) + '" title="這家沒有賣，這段期間所有班的「' + esc(t.name) + '」都改跟' + esc(sib) + '叫">全部改跟' + esc(shortSplit(sib)) + '叫</button></td>' : sib ? '<td class="noprint"></td>' : '';
+        return '<tr' + cls + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td>' + move + '</tr>';
       }).join('') + '</tbody></table>';
   }
   function vStateText(v) {
@@ -3806,7 +3812,9 @@
     var groups = byVendorBatch(st.rows.map(function (r, i) { r.i = i; return r; }), st.only);
     var html = (st.wait ? '<div class="msg warn noprint">這段期間還有 ' + st.wait + ' 張「待處理」（未審核）的訂單，確定叫貨後也會改成「已叫貨」。</div>' : '') +
       '<div class="muted small noprint" style="margin-bottom:10px">照學生交回的扣貨單，在每一班的「實際叫貨」填要跟廠商叫的量（預設＝老師訂的）。填 0 代表不叫、用庫存；單位可以改。合計會自動重算。' +
-      '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。畫面上合計、明細都會顯示方便修改，列印時照上面的「列印內容」。</div>';
+      '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。畫面上合計、明細都會顯示方便修改，列印時照上面的「列印內容」。</div>' +
+      '<div class="noprint pfind-bar"><input id="pFind" type="search" placeholder="🔍 找食材，例如：乳酪絲" autocomplete="off" value="' + esc(st.find || '') + '">' +
+      '<button type="button" class="btn ghost small" id="pFindPrev">上一筆</button><button type="button" class="btn ghost small" id="pFindNext">下一筆</button><span id="pFindInfo" class="muted small"></span></div>';
     Object.keys(groups).sort().forEach(function (v) {
       html += '<div class="vpage vedit" data-vendor="' + esc(v) + '"><h1>' + esc(v) + ' 訂貨單</h1><div class="vsub">' + esc(rangeText(st.from, st.to)) + '</div>' + contactHtml(v) +
         '<div class="noprint vstate" style="text-align:center;margin-bottom:8px">' + vStateText(v) + '</div>' +
@@ -3848,7 +3856,40 @@
     var y = window.pageYOffset;
     $('vendorSheets').innerHTML = html;
     window.scrollTo(0, y);
+    pFindApply(false);
   }
+  // ② 找食材：符合的列標黃框，上一筆／下一筆跳過去（不隱藏其他列，表格合併的格子才不會亂）
+  var pFindIdx = -1;
+  function pFindHits() { return Array.prototype.slice.call($('vendorSheets').querySelectorAll('.pfind-hit')); }
+  function pFindApply(jump) {
+    var box = $('pFind');
+    if (!box || !pState) return;
+    var hd = document.querySelector('header');
+    if (hd) document.documentElement.style.setProperty('--hdr-h', hd.offsetHeight + 'px');   // 搜尋列黏在標題列下面
+    var q = normName(box.value);
+    pState.find = box.value;
+    Array.prototype.forEach.call($('vendorSheets').querySelectorAll('.vedit tr[data-pi], .vedit tr[data-pname]'), function (tr) {
+      var name = tr.hasAttribute('data-pi') ? (pState.rows[Number(tr.getAttribute('data-pi'))] || {}).name : tr.getAttribute('data-pname');
+      tr.classList.toggle('pfind-hit', !!q && normName(name).indexOf(q) >= 0);
+    });
+    var hits = pFindHits();
+    $('pFindInfo').textContent = q ? (hits.length ? '找到 ' + hits.length + ' 列' : '找不到') : '';
+    if (jump && hits.length) { pFindIdx = 0; pFindGo(); }
+  }
+  function pFindGo() {
+    var hits = pFindHits();
+    if (!hits.length) return;
+    pFindIdx = (pFindIdx + hits.length) % hits.length;
+    hits.forEach(function (h, i) { h.classList.toggle('pfind-cur', i === pFindIdx); });
+    hits[pFindIdx].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    $('pFindInfo').textContent = '第 ' + (pFindIdx + 1) + '／' + hits.length + ' 列';
+  }
+  $('vendorSheets').addEventListener('input', function (e) { if (e.target.id === 'pFind') pFindApply(true); });
+  $('vendorSheets').addEventListener('keydown', function (e) { if (e.target.id === 'pFind' && e.key === 'Enter') { e.preventDefault(); pFindIdx++; pFindGo(); } });
+  $('vendorSheets').addEventListener('click', function (e) {
+    if (e.target.id === 'pFindNext') { pFindIdx++; pFindGo(); }
+    if (e.target.id === 'pFindPrev') { pFindIdx--; pFindGo(); }
+  });
   // 分科廠商的另一家（E中餐乾貨 ↔ E烘焙乾貨）；蛋商兩間教室都會送，不用轉
   function siblingVendor(v) {
     var sp = (data.vendorSplit || {})['E乾貨'];
@@ -3880,6 +3921,7 @@
     pState.dirty[r.vendor] = true;
     var page = vBox(r.vendor, 'data-vendor');
     if (page) page.querySelector('.vstate').innerHTML = vStateText(r.vendor);
+    if (box) pFindApply(false);
   }
   // 跟老師訂貨頁一樣用一般文字框（不設 inputmode，Windows 的注音才不會被切成英文）；選字中不重算，選完再算
   function pOnInput(e) {
@@ -3915,7 +3957,13 @@
     if (!pState) return;
     var t = e.target, b;
     if ((b = t.closest('[data-padd]'))) { var p = b.getAttribute('data-padd').split('|'); pAdd(p[0], p[1], p[2]); return; }
-    if ((b = t.closest('[data-pmove]'))) { pMove(pState.rows[Number(b.getAttribute('data-pmove'))]); return; }
+    if ((b = t.closest('[data-pmove]'))) { pMove([pState.rows[Number(b.getAttribute('data-pmove'))]]); return; }
+    if ((b = t.closest('[data-pmoveall]'))) {
+      var pv = b.closest('.vedit').getAttribute('data-vendor'), pn = b.getAttribute('data-pmoveall');
+      var grp = (b.closest('.ptot-wrap').getAttribute('data-pday') || '').split('|')[1] || '';
+      pMove(pState.rows.filter(function (x) { return x.vendor === pv && x.name === pn && x.kind === '訂單' && (x.group || '') === grp; }));
+      return;
+    }
     if ((b = t.closest('[data-pdel]'))) { var r = pState.rows[Number(b.getAttribute('data-pdel'))]; pState.dirty[r.vendor] = true; pState.rows.splice(Number(b.getAttribute('data-pdel')), 1); renderPurchase(); return; }
     if (t.id === 'paAdd') {
       // 送貨組別空白時：這家廠商有分組別（菜商、肉商、海鮮），就照日期自動帶入
@@ -3933,24 +3981,27 @@
     if ((b = t.closest('[data-psave]'))) savePurchase(b, b.getAttribute('data-psave'), b.getAttribute('data-mode') === 'confirm');
   });
   // 臨時轉單：這家廠商沒有賣，這一班的這個食材改跟另一科的乾貨叫（東西送到另一間教室，印 ④ 跨教室領料單）
-  function pMove(r) {
-    var to = siblingVendor(r.vendor), from = r.vendor;
+  function pMove(rs) {
+    if (!rs.length) return;
+    var r = rs[0], to = siblingVendor(r.vendor), from = r.vendor;
     if (!to) return;
+    var who = rs.map(function (x) { return shortDate(x.date) + ' ' + x.className + ' ' + x.teacher; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
     ask('', '改跟' + shortSplit(to) + '叫', { noText: '取消', html: '<div class="info-check"><h3>' + esc(r.name) + ' 改跟「' + esc(to) + '」叫？</h3>' +
-      '<div style="text-align:left">' + esc(shortDate(r.date) + ' ' + r.className + ' ' + r.teacher) + ' 的「' + esc(r.name) + '」從' + esc(from) + '搬到' + esc(to) + '的訂貨單、叫貨單，東西會送到' + esc(shortSplit(to)) + '教室，' +
+      '<div style="text-align:left">' + (who.length > 1 ? '這 ' + who.length + ' 班：' : '') + esc(who.join('、')) + ' 的「' + esc(r.name) + '」從' + esc(from) + '搬到' + esc(to) + '的訂貨單、叫貨單，東西會送到' + esc(shortSplit(to)) + '教室，' +
       '請印「④ 跨教室領料單」讓學生去拿。</div>' +
       '<label style="display:flex;gap:6px;align-items:center;margin-top:10px;text-align:left"><input type="checkbox" id="pMoveAll" style="width:auto"> 以後「' + esc(r.name) + '」都跟' + esc(shortSplit(to)) + '乾貨叫（' + esc(shortSplit(from)) + '乾貨沒有賣）</label></div>' }).then(function (ok) {
       if (!ok) return;
       var all = !!($('pMoveAll') && $('pMoveAll').checked);
-      call('adminMoveLineVendor', token, r.orderNo, r.name, from, to, all).then(function (res) {
+      var nos = rs.map(function (x) { return x.orderNo; });
+      call('adminMoveLineVendor', token, nos, r.name, from, to, all).then(function (res) {
         pState.rows.forEach(function (x) {
           if (x.vendor !== from || x.kind !== '訂單') return;
-          if ((x.orderNo === r.orderNo && x.name === r.name) || (all && res.id && x.id === res.id)) x.vendor = to;
+          if ((nos.indexOf(x.orderNo) >= 0 && x.name === r.name) || (all && res.id && x.id === res.id)) x.vendor = to;
         });
         pState.dirty[from] = true; pState.dirty[to] = true;
         if (pState.only && pState.only !== to) { pState.only = ''; $('vVendor').value = ''; }
         renderPurchase();
-        msg('vendorMsg', 'ok', '已把' + r.className + '的「' + r.name + '」改跟' + to + '叫' + (res.remembered ? '，以後也都跟' + shortSplit(to) + '乾貨叫' + (res.more ? '（其他還沒叫貨的訂單也改了 ' + res.more + ' 筆）' : '') : '') +
+        msg('vendorMsg', 'ok', '已把' + (who.length > 1 ? who.length + ' 班' : r.className) + '的「' + r.name + '」改跟' + to + '叫' + (res.remembered ? '，以後也都跟' + shortSplit(to) + '乾貨叫' + (res.more ? '（其他還沒叫貨的訂單也改了 ' + res.more + ' 筆）' : '') : '') +
           '。' + from + '和' + to + '都要再按一次「儲存」或「確定叫貨」。');
       }).catch(function (e) { msg('vendorMsg', 'error', e.message); });
     });

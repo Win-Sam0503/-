@@ -1806,13 +1806,15 @@ function adminSetDryGoods(token, base, changes) {
 }
 
 /**
- * 管理者（② 訂貨單）：臨時轉單。某張訂單的某個食材，原本那一科的乾貨廠商沒有賣，改跟另一科的乾貨廠商叫
+ * 管理者（② 訂貨單）：臨時轉單。某張（orderNo 也可以是陣列：好幾張）訂單的某個食材，原本那一科的乾貨廠商沒有賣，改跟另一科的乾貨廠商叫
  * （例如中餐課的乳酪絲改跟烘焙乾貨叫、送到烘焙教室）。只能在同一組分科廠商之間換（E中餐乾貨 ↔ E烘焙乾貨）。
  * remember：以後這個食材都這樣（食材總表的廠商改成那一科，還沒叫貨的訂單也跟著改）。
  */
 function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remember) {
   auth_(token, true);
-  orderNo = String(orderNo || '').trim(); name = String(name || '').trim();
+  const nos = {};
+  (Array.isArray(orderNo) ? orderNo : [orderNo]).forEach(function (n) { n = String(n || '').trim(); if (n) nos[n] = true; });
+  name = String(name || '').trim();
   fromVendor = String(fromVendor || '').trim(); toVendor = String(toVendor || '').trim();
   const base = Object.keys(VENDOR_SPLIT).find(function (k) {
     const sp = VENDOR_SPLIT[k], set = [sp.baking, sp.other];
@@ -1825,7 +1827,7 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
   try {
     const t = readTable_(SHEET.orders, ['訂單編號', '食材名稱', '廠商']);
     t.rows.forEach(function (r) {
-      if (String(r['訂單編號']).trim() !== orderNo || String(r['食材名稱']).trim() !== name || String(r['廠商']).trim() !== fromVendor) return;
+      if (!nos[String(r['訂單編號']).trim()] || String(r['食材名稱']).trim() !== name || String(r['廠商']).trim() !== fromVendor) return;
       if (String(r['狀態'] || '').trim() === '已取消') return;
       setCell_(t, r._row, '廠商', toVendor);
       id = id || String(r['食材ID'] || '').trim();
