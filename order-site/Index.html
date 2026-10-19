@@ -2793,14 +2793,18 @@
   // 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；其他廠商換成公斤
   var EGG_GRAMS = 50;
   function isEgg(name) { return String(name || '').trim() === '雞蛋'; }
-  function convertUnit(qty, unit, vendor, name) {
+  // 學生扣貨用（① 扣貨單、② 訂貨單）：乾貨、飲調的重量換成克（整數），比公斤好秤
+  function gramVendor(v) { return /^[EF]/.test(v || ''); }
+  function convertUnit(qty, unit, vendor, name, forStudents) {
     if (GRAMS[unit] && isEgg(name)) return { qty: Math.round(qty * GRAMS[unit] / EGG_GRAMS * 100) / 100, unit: '顆' };
     if (!GRAMS[unit]) return { qty: qty, unit: COUNT_UNITS[unit] || unit };
+    if (forStudents && gramVendor(vendor)) return { qty: Math.round(qty * GRAMS[unit] * 100) / 100, unit: 'g' };   // 顯示時無條件進位到整數克
     var target = /^[AB]/.test(vendor || '') ? '兩' : '公斤';
     return { qty: Math.round(qty * GRAMS[unit] / GRAMS[target] * 100) / 100, unit: target };
   }
   // 給廠商看的明細（單筆）：菜商、肉商的重量換成斤兩、雞蛋的克換成顆，其他照老師原本的單位
-  function vendorQty(qty, unit, vendor, name) {
+  function vendorQty(qty, unit, vendor, name, forStudents) {
+    if (forStudents && gramVendor(vendor) && GRAMS[unit] && !isEgg(name)) return Math.ceil(Number(qty) * GRAMS[unit] - 1e-6) + ' g';
     var cv = convertUnit(Number(qty), unit, vendor, name);
     if (cv.unit === '兩' || (cv.unit === '顆' && isEgg(name) && GRAMS[unit])) return fmtTotal(cv.qty, cv.unit, name);
     return fmtQty(qty) + ' ' + unit;
@@ -2812,6 +2816,7 @@
       return jin ? jin + ' 斤' + (liang ? ' ' + liang + ' 兩' : '') : n + ' 兩';
     }
     if (unit === '顆' && isEgg(name)) return Math.ceil(qty - 1e-6) + ' 顆';
+    if (unit === 'g') return Math.ceil(qty - 1e-6) + ' g';
     return fmtQty(qty) + ' ' + unit;
   }
   function copyText(text) {
@@ -3674,12 +3679,12 @@
       (data.recipeUnits.indexOf(t.unit) >= 0 ? ' <span class="badge warn noprint" title="T、t、杯、ml 是配方單位，廠商沒辦法照這個送">配方單位，請換算</span>' : '');
   }
   // 合計（重量換算成同一種單位）：[{ name, unit, qty }]
-  function sumLines(list, field, unitField) {
+  function sumLines(list, field, unitField, forStudents) {
     var m = {}, keys = [];
     list.forEach(function (r) {
       var q = Number(r[field]);
       if (!(q > 0)) return;
-      var cv = convertUnit(q, r[unitField], r.vendor, r.name);
+      var cv = convertUnit(q, r[unitField], r.vendor, r.name, forStudents);
       var k = r.name + '|' + cv.unit;
       if (!m[k]) { m[k] = { name: r.name, unit: cv.unit, qty: 0 }; keys.push(k); }
       m[k].qty = Math.round((m[k].qty + cv.qty) * 100) / 100;
@@ -3712,7 +3717,7 @@
         '<tr><td></td><td></td><td></td><td></td></tr>'.repeat(4) + '</tbody></table>';
       var sumPage = head('扣貨單') +
         Object.keys(by[v]).sort().map(function (dk) {
-          var tot = sumLines(by[v][dk], 'need', 'needUnit'), mixed = mixedNames(tot);
+          var tot = sumLines(by[v][dk], 'need', 'needUnit', true), mixed = mixedNames(tot);
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
             '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
             tot.map(function (t) {
@@ -3724,7 +3729,7 @@
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
             blockTable(sortLines(by[v][dk]).map(function (r) { return Object.assign({}, r, { tag: r.dept }); }),   // 班級後面標科別【中餐】【烘焙】【飲調】…，同一種水果才不會搞混是哪一科的
               '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
-              return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(vendorQty(r.need, r.needUnit, r.vendor, r.name)) + '</td><td></td>';
+              return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(vendorQty(r.need, r.needUnit, r.vendor, r.name, true)) + '</td><td></td>';
             });
         }).join('') + extra + '</div>';
       return (part !== 'detail' ? sumPage : '') + (part !== 'sum' ? detailPage : '');
@@ -4015,7 +4020,7 @@
   }
   // 某一天的合計表（老師訂 → 實際叫貨），改數量時即時重算
   function pTotalsHtml(list) {
-    var need = sumLines(list, 'need', 'needUnit'), act = sumLines(list, 'qty', 'unit'), m = {}, keys = [];
+    var need = sumLines(list, 'need', 'needUnit', true), act = sumLines(list, 'qty', 'unit', true), m = {}, keys = [];
     need.forEach(function (t) { var k = t.name + '|' + t.unit; m[k] = { name: t.name, unit: t.unit, need: t.qty, qty: 0 }; keys.push(k); });
     act.forEach(function (t) { var k = t.name + '|' + t.unit; if (!m[k]) { m[k] = { name: t.name, unit: t.unit, need: 0, qty: 0 }; keys.push(k); } m[k].qty = t.qty; });
     var mixed = mixedNames(keys.map(function (k) { return m[k]; }));
@@ -4059,7 +4064,7 @@
             var add = r.kind === '補庫存', c = ' class="p-' + pDiff(r) + '"';
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
-              '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(vendorQty(r.need, r.needUnit, r.vendor, r.name))) + '</td>' +
+              '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(vendorQty(r.need, r.needUnit, r.vendor, r.name, true))) + '</td>' +
               '<td' + c + '><input class="pqty num-input" type="text" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
               '<td' + c + '><select class="punit">' + unitOptions(r.unit) + '</select></td>' +
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
