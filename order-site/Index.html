@@ -913,6 +913,21 @@
           <div id="dryPasteOut"></div>
         </details>
       </div>
+      <div class="panel" id="renamePanel">
+        <h2>食材改名／合併 <span class="muted small" style="font-weight:normal">不要直接在試算表改名，用這裡改，訂單才會一起改</span></h2>
+        <div class="muted small">改名或合併時，還沒叫貨的訂單（待處理、已審核）、老師的範本、今天以後的叫貨紀錄會一起改，舊名字自動加成別名（老師打舊名字也找得到）。已經叫貨、到貨的訂單不動。</div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="rnFrom">食材</label><input id="rnFrom" type="text" maxlength="40" list="subItems" placeholder="例：盒豆腐" autocomplete="off"></div>
+          <div><label for="rnTo">改名成</label><input id="rnTo" type="text" maxlength="40" placeholder="例：板豆腐" autocomplete="off"></div>
+          <button type="button" class="btn small" id="rnGo">改名</button>
+        </div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="mgFrom">把這項（會停用）</label><input id="mgFrom" type="text" maxlength="40" list="subItems" placeholder="例：盒豆腐" autocomplete="off"></div>
+          <div><label for="mgTo">合併到這項（留下來）</label><input id="mgTo" type="text" maxlength="40" list="subItems" placeholder="例：板豆腐" autocomplete="off"></div>
+          <button type="button" class="btn small secondary" id="mgGo">合併</button>
+        </div>
+        <div id="rnMsg"></div>
+      </div>
       <div class="panel" id="subPanel">
         <h2>科別替換 <span class="muted small" style="font-weight:normal">同一個叫法，不同科是不同東西</span></h2>
         <div class="muted small">例如烘焙課的「牛奶」其實是「保久乳」（跟烘焙乾貨叫），飲調課的「牛奶」是「鮮奶(全)」（跟飲調叫）。設好後，那一科的老師選到「食材」會自動換成「換成」那一項，送出時也會再檢查一次。存在試算表「科別替換」分頁。</div>
@@ -3101,6 +3116,40 @@
       loadDry();
     }).catch(function (e) { $('dryPasteOut').innerHTML = '<div class="msg error">' + esc(e.message) + '</div>'; })
       .then(function () { setBusy(btn, false); $('dryApply').disabled = true; });
+  });
+  // 食材改名／合併
+  function itemByName(n) { n = String(n || '').trim(); return data.items.find(function (x) { return x.name === n; }) || null; }
+  function relinkText(r) {
+    return [r.orders ? '訂單 ' + r.orders + ' 筆' : '', r.templates ? '範本 ' + r.templates + ' 項' : '', r.purchase ? '叫貨紀錄 ' + r.purchase + ' 筆' : ''].filter(Boolean).join('、') || '沒有還沒叫貨的訂單';
+  }
+  $('rnGo').addEventListener('click', function () {
+    var it = itemByName($('rnFrom').value), to = $('rnTo').value.trim(), btn = this;
+    if (!it) { msg('rnMsg', 'error', '食材總表找不到「' + $('rnFrom').value.trim() + '」，請從清單選。'); return; }
+    if (!to) { msg('rnMsg', 'error', '請填新名稱。'); return; }
+    ask('', '改名', { noText: '取消', html: '<div>把「<b>' + esc(it.name) + '</b>」改名成「<b>' + esc(to) + '</b>」？<div class="muted small">還沒叫貨的訂單、範本一起改，「' + esc(it.name) + '」加成別名。</div></div>' }).then(function (ok) {
+      if (!ok) return;
+      setBusy(btn, true, '改名中…');
+      call('adminRenameItem', token, it.id, to).then(function (r) {
+        refreshItems().then(function () { loadAliases(); loadSubs(); });
+        $('rnFrom').value = ''; $('rnTo').value = '';
+        msg('rnMsg', 'ok', '已把「' + r.oldName + '」改名成「' + to + '」，一起改了：' + relinkText(r) + '。');
+      }).catch(function (e) { msg('rnMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+    });
+  });
+  $('mgGo').addEventListener('click', function () {
+    var a = itemByName($('mgFrom').value), b = itemByName($('mgTo').value), btn = this;
+    if (!a || !b) { msg('rnMsg', 'error', '兩項都要從食材總表清單選。'); return; }
+    if (a.id === b.id) { msg('rnMsg', 'error', '請選兩項不同的食材。'); return; }
+    ask('', '合併', { noText: '取消', html: '<div>把「<b>' + esc(a.name) + '</b>」（' + esc(a.vendor) + '）合併到「<b>' + esc(b.name) + '</b>」（' + esc(b.vendor) + '）？' +
+      '<div class="muted small">「' + esc(a.name) + '」會停用並加成「' + esc(b.name) + '」的別名；還沒叫貨的訂單、範本都換成「' + esc(b.name) + '」' + (a.vendor !== b.vendor ? '，廠商也改成 ' + esc(b.vendor) : '') + '。</div></div>' }).then(function (ok) {
+      if (!ok) return;
+      setBusy(btn, true, '合併中…');
+      call('adminMergeItem', token, a.id, b.id).then(function (r) {
+        refreshItems().then(function () { loadAliases(); loadSubs(); });
+        $('mgFrom').value = ''; $('mgTo').value = '';
+        msg('rnMsg', 'ok', '已把「' + r.fromName + '」合併到「' + r.toName + '」，一起改了：' + relinkText(r) + '。');
+      }).catch(function (e) { msg('rnMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+    });
   });
   // 科別替換
   function renderSubs(list) {

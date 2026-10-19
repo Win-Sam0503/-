@@ -2032,6 +2032,107 @@ function adminDeleteDeptSub(token, row) {
   return listDeptSubs_();
 }
 
+/**
+ * 管理者：食材改名／合併，食材總表、還沒叫貨的訂單（待處理、已審核）、老師範本、今天以後的叫貨紀錄一起改，
+ * 舊名字自動加成別名（老師打舊名字也找得到）。直接在試算表改名的話，已經送出的訂單不會跟著改。
+ * adminRenameItem(id, 新名稱)；adminMergeItem(被合併的 id, 留下來的 id)：被合併的那項停用。
+ */
+function adminRenameItem(token, id, newName) {
+  auth_(token, true);
+  id = String(id || '').trim(); newName = clean_(newName, 40);
+  if (!newName) throw new Error('請填新名稱。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let res;
+  try {
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+    const r = t.rows.find(function (x) { return String(x['食材ID']).trim() === id; });
+    if (!r) throw new Error('找不到食材 ' + id + '。');
+    const oldName = String(r['食材名稱']).trim();
+    if (oldName === newName) throw new Error('名稱沒有改。');
+    if (t.rows.some(function (x) { return x !== r && String(x['食材名稱']).trim() === newName; })) {
+      throw new Error('食材總表已經有「' + newName + '」，兩項是同一樣東西的話請用「合併」。');
+    }
+    setCell_(t, r._row, '食材名稱', newName);
+    clearItemsCache_();
+    res = relinkItem_(id, id, newName, null);
+    res.alias = addAlias_(id, oldName);
+    res.oldName = oldName;
+  } finally {
+    lock.releaseLock();
+  }
+  return res;
+}
+
+function adminMergeItem(token, fromId, toId) {
+  auth_(token, true);
+  fromId = String(fromId || '').trim(); toId = String(toId || '').trim();
+  if (!fromId || !toId || fromId === toId) throw new Error('請選兩項不同的食材。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let res;
+  try {
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']);
+    const a = t.rows.find(function (x) { return String(x['食材ID']).trim() === fromId; });
+    const b = t.rows.find(function (x) { return String(x['食材ID']).trim() === toId; });
+    if (!a || !b) throw new Error('找不到食材，請重新整理。');
+    const aName = String(a['食材名稱']).trim(), bName = String(b['食材名稱']).trim();
+    if (t.cols['啟用'] !== undefined) setCell_(t, a._row, '啟用', false);
+    clearItemsCache_();
+    res = relinkItem_(fromId, toId, bName, String(b['廠商'] || '').trim());
+    res.alias = [aName].concat(String(a['別名'] || '').split(/[,，、]+/)).map(function (x) { return String(x).trim(); })
+      .filter(Boolean).filter(function (x) { return addAlias_(toId, x); });
+    res.fromName = aName; res.toName = bName;
+  } finally {
+    lock.releaseLock();
+  }
+  return res;
+}
+
+/** 把 fromId 的訂單（待處理、已審核）、範本、今天以後的叫貨紀錄換成 toId／name（vendor 有給就連廠商、送貨組別一起換）。回傳各改了幾筆 */
+function relinkItem_(fromId, toId, name, vendor) {
+  const out = { orders: 0, templates: 0, purchase: 0 };
+  const vendorGroups = readVendorGroups_();
+  const o = readTable_(SHEET.orders, ['訂單編號', '食材ID', '食材名稱']);
+  o.rows.forEach(function (x) {
+    if (String(x['食材ID'] || '').trim() !== fromId) return;
+    const st = String(x['狀態'] || '').trim();
+    if (st !== '待處理' && st !== '已審核') return;
+    if (toId !== fromId) setCell_(o, x._row, '食材ID', toId);
+    if (String(x['食材名稱']).trim() !== name) setCell_(o, x._row, '食材名稱', name);
+    if (vendor && o.cols['廠商'] !== undefined) {
+      const nv = orderVendor_(vendor, x['科別']), d = toDate_(x['使用日期']);
+      if (String(x['廠商'] || '').trim() !== nv) {
+        setCell_(o, x._row, '廠商', nv);
+        if (d && o.cols['送貨組別'] !== undefined) setCell_(o, x._row, '送貨組別', deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups));
+      }
+    }
+    out.orders++;
+  });
+  const tsh = ss_().getSheetByName(SHEET.templates);
+  if (tsh && tsh.getLastRow() >= 2) {
+    const t = readTable_(SHEET.templates, ['食材ID', '名稱']);
+    t.rows.forEach(function (x) {
+      if (String(x['食材ID'] || '').trim() !== fromId) return;
+      if (toId !== fromId) setCell_(t, x._row, '食材ID', toId);
+      setCell_(t, x._row, '名稱', name);
+      out.templates++;
+    });
+  }
+  const psh = ss_().getSheetByName(SHEET.purchase);
+  if (psh && psh.getLastRow() >= 2) {
+    const today = dateStr_(today_());
+    const p = readTable_(SHEET.purchase, ['送貨日期', '食材名稱', '食材ID']);
+    p.rows.forEach(function (x) {
+      if (String(x['食材ID'] || '').trim() !== fromId || purchaseDate_(x['送貨日期']) < today) return;
+      if (toId !== fromId) setCell_(p, x._row, '食材ID', toId);
+      setCell_(p, x._row, '食材名稱', name);
+      out.purchase++;
+    });
+  }
+  return out;
+}
+
 /** 比對用：去掉空白、括號，英文小寫（跟網頁的 normName 一樣） */
 function learnKey_(t) { return String(t || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }
 
