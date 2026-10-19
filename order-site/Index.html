@@ -2377,7 +2377,7 @@
       return;
     }
     msg('sumMsg', '', '');
-    // 依「廠商 > 上課日期 > 食材+單位」加總；重量單位換算成同一種（菜商、肉商用斤，其他用公斤）
+    // 依「廠商 > 上課日期 > 食材+單位」加總；重量單位換算成同一種（菜商、肉商用斤兩，乾貨、飲調用克，其他用公斤）
     var byVendor = {};
     var stockCount = 0;
     list.forEach(function (o) {
@@ -2790,21 +2790,21 @@
   var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
   // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
   var COUNT_UNITS = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
-  // 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；其他廠商換成公斤
+  // 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；乾貨、飲調換成克；其他廠商換成公斤
   var EGG_GRAMS = 50;
   function isEgg(name) { return String(name || '').trim() === '雞蛋'; }
-  // 學生扣貨用（① 扣貨單、② 訂貨單）：乾貨、飲調的重量換成克（整數），比公斤好秤
+  // 乾貨、飲調的重量一律換成克（顯示時無條件進位到整數），學生扣貨、廠商都看克數
   function gramVendor(v) { return /^[EF]/.test(v || ''); }
   function convertUnit(qty, unit, vendor, name, forStudents) {
     if (GRAMS[unit] && isEgg(name)) return { qty: Math.round(qty * GRAMS[unit] / EGG_GRAMS * 100) / 100, unit: '顆' };
     if (!GRAMS[unit]) return { qty: qty, unit: COUNT_UNITS[unit] || unit };
-    if (forStudents && gramVendor(vendor)) return { qty: Math.round(qty * GRAMS[unit] * 100) / 100, unit: 'g' };   // 顯示時無條件進位到整數克
+    if (gramVendor(vendor)) return { qty: Math.round(qty * GRAMS[unit] * 100) / 100, unit: 'g' };   // 顯示時無條件進位到整數克
     var target = /^[AB]/.test(vendor || '') ? '兩' : '公斤';
     return { qty: Math.round(qty * GRAMS[unit] / GRAMS[target] * 100) / 100, unit: target };
   }
   // 給廠商看的明細（單筆）：菜商、肉商的重量換成斤兩、雞蛋的克換成顆，其他照老師原本的單位
   function vendorQty(qty, unit, vendor, name, forStudents) {
-    if (forStudents && gramVendor(vendor) && GRAMS[unit] && !isEgg(name)) return Math.ceil(Number(qty) * GRAMS[unit] - 1e-6) + ' g';
+    if (gramVendor(vendor) && GRAMS[unit] && !isEgg(name)) return Math.ceil(Number(qty) * GRAMS[unit] - 1e-6) + ' g';
     var cv = convertUnit(Number(qty), unit, vendor, name);
     if (cv.unit === '兩' || (cv.unit === '顆' && isEgg(name) && GRAMS[unit])) return fmtTotal(cv.qty, cv.unit, name);
     return fmtQty(qty) + ' ' + unit;
@@ -3943,7 +3943,7 @@
         .then(function (ok) { if (ok) save(0, (t && t.unit) || ''); });
       return;
     }
-    var u = t && t.unit === '兩' ? '斤' : (t ? t.unit : ''), q = t ? (t.unit === '兩' ? Math.round(t.qty / 16 * 100) / 100 : t.qty) : '';
+    var u = t && t.unit === '兩' ? '斤' : (t ? t.unit : ''), q = t ? (t.unit === '兩' ? Math.round(t.qty / 16 * 100) / 100 : t.unit === 'g' ? Math.ceil(t.qty - 1e-6) : t.qty) : '';
     ask('', '儲存', { noText: '取消', html: '<div class="info-check"><h3>' + esc(v) + '「' + esc(name) + '」叫貨合計</h3>' +
       '<div class="muted small" style="margin-bottom:8px">現在：' + esc(t ? fmtTotal(t.qty, t.unit, t.name) : '') + (t && t.ovr ? '（各班加總：' + esc(t.orig) + '）' : '') + '</div>' +
       '<div style="display:flex;gap:8px"><input id="tQty" type="text" value="' + esc(String(q)) + '" style="flex:1" autocomplete="off"><select id="tUnit" style="width:auto">' + unitOptions(u) + '</select></div></div>' }).then(function (ok) {
