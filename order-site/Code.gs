@@ -1726,6 +1726,84 @@ function adminReviewItem(token, row, decision, edits, name) {
   }
 }
 
+/**
+ * 管理者：乾貨的進貨科別。食材總表的廠商寫「E乾貨」＝兩科都進（照訂單科別分開叫）；
+ * 寫「E烘焙乾貨」＝只有烘焙在進（中餐課訂的也跟烘焙叫、到烘焙教室拿）；「E中餐乾貨」反過來。
+ * 也回傳過去（訂單總表＋歷史訂單）烘焙課、其他課各訂過幾次，給管理者參考。
+ */
+function adminGetDryGoods(token, base) {
+  auth_(token, true);
+  base = base || 'E乾貨';
+  const sp = VENDOR_SPLIT[base];
+  if (!sp) throw new Error('「' + base + '」沒有分科。');
+  const hist = {};
+  [SHEET.orders, SHEET.history].forEach(function (name) {
+    if (!ss_().getSheetByName(name)) return;
+    readTable_(name, ['食材ID', '科別']).rows.forEach(function (r) {
+      const id = String(r['食材ID'] || '').trim();
+      if (!id || String(r['狀態'] || '').trim() === '已取消') return;
+      const h = hist[id] = hist[id] || { baking: 0, other: 0 };
+      if (BAKING_DEPTS.indexOf(String(r['科別'] || '').trim()) >= 0) h.baking++; else h.other++;
+    });
+  });
+  const list = [];
+  readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']).rows.forEach(function (r) {
+    if (r['啟用'] !== undefined && !isTrue_(r['啟用'])) return;
+    const v = String(r['廠商'] || '').trim();
+    const mode = v === base ? 'both' : v === sp.baking ? 'baking' : v === sp.other ? 'other' : '';
+    if (!mode) return;
+    const id = String(r['食材ID']).trim();
+    list.push({ id: id, name: String(r['食材名稱']).trim(), mode: mode, hist: hist[id] || { baking: 0, other: 0 } });
+  });
+  return { base: base, baking: sp.baking, other: sp.other, list: list.sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); }) };
+}
+
+/** 管理者：改乾貨的進貨科別。changes: [{ id, mode: 'both'|'baking'|'other' }] */
+function adminSetDryGoods(token, base, changes) {
+  auth_(token, true);
+  base = base || 'E乾貨';
+  const sp = VENDOR_SPLIT[base];
+  if (!sp) throw new Error('「' + base + '」沒有分科。');
+  const to = { both: base, baking: sp.baking, other: sp.other };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']);
+    const byId = {};
+    t.rows.forEach(function (r) { byId[String(r['食材ID']).trim()] = r; });
+    let n = 0;
+    (changes || []).forEach(function (c) {
+      const r = byId[String(c && c.id || '').trim()], v = to[c && c.mode];
+      if (!r || !v) return;
+      const cur = String(r['廠商'] || '').trim();
+      if ([base, sp.baking, sp.other].indexOf(cur) < 0 || cur === v) return;
+      setCell_(t, r._row, '廠商', v);
+      n++;
+    });
+    // 還沒叫貨的訂單（今天以後的課、狀態待處理）跟著換廠商，不然這週已經送出的還是跟原本那科叫
+    let lines = 0;
+    const moved = {};
+    (changes || []).forEach(function (c) { if (to[c && c.mode]) moved[String(c.id).trim()] = to[c.mode]; });
+    if (n) {
+      clearItemsCache_();
+      const o = readTable_(SHEET.orders, ['訂單編號', '食材ID', '廠商']);
+      const today = today_();
+      o.rows.forEach(function (r) {
+        const v = moved[String(r['食材ID'] || '').trim()];
+        const d = toDate_(r['使用日期']);
+        if (!v || !d || d < today || String(r['狀態'] || '').trim() !== '待處理') return;
+        const nv = orderVendor_(v, r['科別']);
+        if (String(r['廠商'] || '').trim() === nv) return;
+        setCell_(o, r._row, '廠商', nv);
+        lines++;
+      });
+    }
+    return { changed: n, lines: lines, data: adminGetDryGoods(token, base) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** 比對用：去掉空白、括號，英文小寫（跟網頁的 normName 一樣） */
 function learnKey_(t) { return String(t || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }
 

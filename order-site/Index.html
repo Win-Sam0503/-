@@ -870,6 +870,20 @@
       </div>
       <div id="pendUnits"></div>
       <div id="pendList"></div>
+      <div class="panel" id="dryPanel">
+        <h2>乾貨進貨科別 <span class="muted small" style="font-weight:normal">有些乾貨只有一科在進（例如乳酪絲只跟烘焙乾貨叫）</span></h2>
+        <div class="muted small">「兩科都進」：照訂單科別分開跟烘焙乾貨、中餐乾貨叫。「只有烘焙進」：中餐課訂的也跟烘焙乾貨叫、送到烘焙教室，印「④ 跨教室領料單」給學生去拿；「只有中餐進」反過來。
+          「過去訂過」是訂單裡烘焙課、其他課各訂過幾次，<span class="badge warn">建議</span> 表示過去只有一科訂過，給你參考。改的是食材總表的「廠商」欄（E乾貨／E烘焙乾貨／E中餐乾貨）。</div>
+        <div id="dryMsg"></div>
+        <details id="dryBox" style="margin-top:8px"><summary id="drySum" style="cursor:pointer">展開清單</summary>
+          <div class="status-chips" id="dryFilter" style="margin:8px 0;align-items:center">
+            <input id="dryFind" type="search" placeholder="找食材，例如：起司" style="max-width:220px" autocomplete="off">
+            <button type="button" data-dry="" class="on">全部</button><button type="button" data-dry="baking">只有烘焙進</button><button type="button" data-dry="other">只有中餐進</button><button type="button" data-dry="hint">有建議的</button>
+          </div>
+          <div class="tablewrap"><table class="sum-vt" id="dryTable"></table></div>
+          <div class="actions"><button type="button" class="btn" id="drySave" disabled>儲存變更</button></div>
+        </details>
+      </div>
       <div class="panel" id="aliasPanel">
         <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
         <div class="muted small">只有「完全一樣」的字才會換；同一個叫法對到兩種以上食材（標 ⚠）就不自動換，讓老師自己選。學錯了按 ✕ 刪掉（存在食材總表的「別名」欄）。</div>
@@ -2885,12 +2899,72 @@
       }).catch(function (err) { msg('aliasMsg', 'error', err.message); });
     });
   });
+  // 乾貨進貨科別
+  var dry = null, dryEdit = {}, dryFilter = '';
+  var DRY_LABEL = { both: '兩科都進', baking: '只有烘焙進', other: '只有中餐進' };
+  function dryHint(x) {
+    var h = x.hist;
+    if (x.mode !== 'both') return '';
+    if (h.baking >= 2 && !h.other) return 'baking';
+    if (h.other >= 2 && !h.baking) return 'other';
+    return '';
+  }
+  function renderDry() {
+    if (!dry) return;
+    var q = $('dryFind').value.trim().toLowerCase();
+    var cnt = { baking: 0, other: 0, hint: 0 };
+    dry.list.forEach(function (x) { var m = dryEdit[x.id] || x.mode; if (cnt[m] !== undefined) cnt[m]++; if (dryHint(x)) cnt.hint++; });
+    $('drySum').textContent = '展開清單（' + dry.list.length + ' 項乾貨：只有烘焙進 ' + cnt.baking + '、只有中餐進 ' + cnt.other + (cnt.hint ? '、有建議 ' + cnt.hint : '') + '）';
+    var rows = dry.list.filter(function (x) {
+      var m = dryEdit[x.id] || x.mode;
+      if (q && x.name.toLowerCase().indexOf(q) < 0) return false;
+      if (dryFilter === 'hint') return !!dryHint(x);
+      return !dryFilter || m === dryFilter;
+    });
+    $('dryTable').innerHTML = '<thead><tr><th>食材</th><th>過去訂過</th><th style="width:150px">進貨科別</th></tr></thead><tbody>' + (rows.length ? rows.map(function (x) {
+      var m = dryEdit[x.id] || x.mode, hint = dryHint(x);
+      return '<tr' + (dryEdit[x.id] ? ' style="background:#fff6d6"' : '') + '><td>' + esc(x.name) + (hint ? ' <span class="badge warn" title="過去只有' + (hint === 'baking' ? '烘焙' : '中餐等其他') + '課訂過">建議：' + esc(DRY_LABEL[hint]) + '</span>' : '') + '</td>' +
+        '<td class="small">烘焙 ' + x.hist.baking + ' 次、其他科 ' + x.hist.other + ' 次</td>' +
+        '<td><select data-dryid="' + esc(x.id) + '">' + ['both', 'baking', 'other'].map(function (k) { return '<option value="' + k + '"' + (k === m ? ' selected' : '') + '>' + DRY_LABEL[k] + '</option>'; }).join('') + '</select></td></tr>';
+    }).join('') : '<tr><td colspan="3" class="muted">沒有符合的乾貨。</td></tr>') + '</tbody>';
+    var n = Object.keys(dryEdit).length;
+    $('drySave').disabled = !n;
+    $('drySave').textContent = n ? '儲存變更（' + n + ' 項）' : '儲存變更';
+  }
+  function loadDry() {
+    call('adminGetDryGoods', token, 'E乾貨').then(function (r) { dry = r; dryEdit = {}; renderDry(); })
+      .catch(function (e) { msg('dryMsg', 'error', e.message); });
+  }
+  $('dryFind').addEventListener('input', renderDry);
+  $('dryFilter').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-dry]');
+    if (!b) return;
+    dryFilter = b.getAttribute('data-dry');
+    Array.prototype.forEach.call(this.querySelectorAll('button[data-dry]'), function (x) { x.classList.toggle('on', x === b); });
+    renderDry();
+  });
+  $('dryTable').addEventListener('change', function (e) {
+    var sel = e.target.closest('select[data-dryid]');
+    if (!sel) return;
+    var id = sel.getAttribute('data-dryid'), x = dry.list.find(function (y) { return y.id === id; });
+    if (sel.value === x.mode) delete dryEdit[id]; else dryEdit[id] = sel.value;
+    renderDry();
+  });
+  $('drySave').addEventListener('click', function () {
+    var btn = this, changes = Object.keys(dryEdit).map(function (id) { return { id: id, mode: dryEdit[id] }; });
+    setBusy(btn, true, '儲存中…');
+    call('adminSetDryGoods', token, 'E乾貨', changes).then(function (r) {
+      dry = r.data; dryEdit = {}; renderDry();
+      msg('dryMsg', 'ok', '已更新 ' + r.changed + ' 項乾貨的進貨科別' + (r.lines ? '，還沒叫貨的訂單也跟著改了 ' + r.lines + ' 筆' : '') + '。已經叫貨、到貨的訂單不變。');
+    }).catch(function (e) { msg('dryMsg', 'error', e.message); }).then(function () { setBusy(btn, false); renderDry(); });
+  });
   function loadPending(note) {
     msg('pendMsg', 'info', '載入中…');
     $('pendList').innerHTML = '';
     loadPendingUnits();
     loadUnitPanel();
     loadAliases();
+    loadDry();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));
