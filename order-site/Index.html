@@ -2607,7 +2607,8 @@
       '<div class="tablewrap"><table class="edit-table" data-dept="' + esc(o.dept) + '"><thead><tr><th>品項（食材／器具）</th><th>數量</th><th>單位</th><th>備註</th><th>有貨</th><th>刪除</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<button type="button" class="btn ghost small" data-act="edit-add" data-no="' + esc(o.orderNo) + '" style="margin-top:6px">＋ 新增品項</button>' +
       '<div class="muted small">儲存後會記錄審核人。勾「刪除」的品項會改成已取消，刪錯了可以勾「復原」再儲存。食材跑到器具（或相反）時，左邊改成「食材」並從清單選食材名稱；食材總表沒有的，選好廠商後會自動加入食材總表。</div>' +
-      reasonHtml(EDIT_REASONS, '修改原因（會跟改了什麼一起用 LINE 告訴老師）') +
+      reasonHtml(EDIT_REASONS, '修改原因（勾了通知就會跟改了什麼一起用 LINE 告訴老師）') +
+      '<label class="check" style="margin-top:6px"><input type="checkbox" data-notify checked> LINE 通知老師（' + esc(o.onBehalfOf || o.teacher) + '）</label>' +
       '<div class="actions"><button type="button" class="btn ghost small" data-act="edit-cancel" data-no="' + esc(o.orderNo) + '">取消</button>' +
       '<button type="button" class="btn small" data-act="edit-save" data-no="' + esc(o.orderNo) + '">儲存修改</button></div>';
     Array.prototype.forEach.call(card.querySelectorAll('.edit-table tr[data-row]'), syncEditRow);
@@ -2726,7 +2727,8 @@
     if (!changes.length && !info) { renderSummary(); return; }
     setBusy(btn, true, '儲存中…');
     var created = changes.filter(function (c) { return c.newItem; }).map(function (c) { return c.newItem.name; });
-    call('adminUpdateOrder', token, o.orderNo, changes, info, readReason(card)).then(function (r) {
+    var notifyT = !card.querySelector('[data-notify]') || card.querySelector('[data-notify]').checked;
+    call('adminUpdateOrder', token, o.orderNo, changes, info, readReason(card), notifyT).then(function (r) {
       msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已儲存：' + [changes.length ? '修改 ' + changes.length + ' 個品項' : '', info ? '上課資訊已更新' : ''].filter(Boolean).join('、') + '。' +
         (r && r.notify ? r.notify : '') +
         (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));

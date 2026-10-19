@@ -1494,7 +1494,7 @@ function notifyTeacherOfEdit_(orderNo, admin, changes, reason, kind) {
  * changes: [{ row, qty, unit, note, noOrder, cancel, kind, itemId, name }]，row 是訂單總表的列號（由 adminGetOrders 提供）
  *   kind = 'tool'：改成使用器具（name = 器具名稱）；kind = 'food' + itemId：改成食材總表的這樣食材
  */
-function adminUpdateOrder(token, orderNo, changes, info, reason) {
+function adminUpdateOrder(token, orderNo, changes, info, reason, notify) {
   const admin = auth_(token, true);
   orderNo = String(orderNo || '').trim();
   if (!Array.isArray(changes)) changes = [];
@@ -1618,7 +1618,8 @@ function adminUpdateOrder(token, orderNo, changes, info, reason) {
   } finally {
     lock.releaseLock();
   }
-  return { ok: true, notify: changesDone.length ? notifyTeacherOfEdit_(orderNo, admin, changesDone, clean_(reason, 100)) : '' };   // 傳 LINE 放在鎖外面，不讓別人等
+  // 傳 LINE 放在鎖外面，不讓別人等；管理者沒勾「LINE 通知老師」就不傳（notify === false）
+  return { ok: true, notify: changesDone.length && notify !== false ? notifyTeacherOfEdit_(orderNo, admin, changesDone, clean_(reason, 100)) : changesDone.length ? '沒有通知老師。' : '' };
 }
 
 /**
