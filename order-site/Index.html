@@ -2402,7 +2402,7 @@
     $('sumVendors').innerHTML = vendors.map(function (vName) {
       var days = Object.keys(byVendor[vName]).sort();
       var body = days.map(function (dk) {
-        var rows = Object.keys(byVendor[vName][dk]).sort().map(function (k) { return byVendor[vName][dk][k]; });
+        var rows = Object.keys(byVendor[vName][dk]).sort(byItemKey).map(function (k) { return byVendor[vName][dk][k]; });
         var mixed = mixedNames(rows);
         return '<div class="vendor-title" style="color:var(--text)">' + esc(batchLabel(dk)) + '</div>' +
           '<div class="tablewrap"><table class="sum-vt"><thead><tr><th>食材</th><th class="num">合計</th><th>明細（班級 數量）</th></tr></thead><tbody>' +
@@ -2776,7 +2776,7 @@
     var vName = b.getAttribute('data-copy');
     var v = $('sumVendors')._data[vName];
     var text = Object.keys(v).sort().map(function (dk) {
-      var lines = Object.keys(v[dk]).sort().map(function (k) {
+      var lines = Object.keys(v[dk]).sort(byItemKey).map(function (k) {
         var r = v[dk][k];
         return r.name + ' ' + fmtTotal(r.qty, r.unit, r.name);
       });
@@ -2788,6 +2788,8 @@
     }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
   });
   var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+  // 食材排序（「名稱|單位」）：訂單彙整、① 扣貨單、② 訂貨單、③ 叫貨單都用同一種順序（中文筆畫），找起來位置一樣
+  function byItemKey(a, b) { return String(a).localeCompare(String(b), 'zh-Hant'); }
   // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
   var COUNT_UNITS = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
   // 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；乾貨、飲調換成克；其他廠商換成公斤
@@ -3689,7 +3691,7 @@
       if (!m[k]) { m[k] = { name: r.name, unit: cv.unit, qty: 0 }; keys.push(k); }
       m[k].qty = Math.round((m[k].qty + cv.qty) * 100) / 100;
     });
-    return keys.sort().map(function (k) { return m[k]; });
+    return keys.sort(byItemKey).map(function (k) { return m[k]; });
   }
   // 明細表：同一張訂單的班級、老師合併成一格，訂單之間粗線；cells(r) 回傳後面幾欄的 HTML
   function blockTable(list, head, cells) {
@@ -3912,7 +3914,7 @@
       var cv = Number(o.qty) > 0 ? convertUnit(Number(o.qty), o.unit, v, o.name) : { qty: 0, unit: o.unit };
       tot.push({ name: o.name, unit: cv.unit, qty: cv.qty, ovr: true, orig: orig, deleted: !(Number(o.qty) > 0) });
     });
-    return tot.sort(function (a, b) { return (a.name + '|' + a.unit).localeCompare(b.name + '|' + b.unit); });
+    return tot.sort(function (a, b) { return byItemKey(a.name + '|' + a.unit, b.name + '|' + b.unit); });
   }
   // ③ 直接改合計／刪除／恢復：存成類型「合計」的叫貨紀錄（各班明細不變），不再傳 LINE
   function purchaseOverride(key, mode) {
@@ -4025,7 +4027,7 @@
     act.forEach(function (t) { var k = t.name + '|' + t.unit; if (!m[k]) { m[k] = { name: t.name, unit: t.unit, need: 0, qty: 0 }; keys.push(k); } m[k].qty = t.qty; });
     var mixed = mixedNames(keys.map(function (k) { return m[k]; }));
     return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th><th class="noprint"></th></tr></thead><tbody>' +
-      keys.sort().map(function (k) {
+      keys.sort(byItemKey).map(function (k) {
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
         var move = '<td class="noprint">' + (t.need ? '<button type="button" class="btn ghost small" data-pmoveall="' + esc(t.name) + '" title="這家沒有賣，這段期間所有班的「' + esc(t.name) + '」都改跟別家叫">全部換廠商</button>' : '') + '</td>';
         var ov = list[0] && (pState.overrides || []).filter(function (o) { return o.vendor === list[0].vendor && (o.group || '') === (list[0].group || '') && o.name === t.name; })[0];
