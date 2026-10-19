@@ -913,6 +913,19 @@
           <div id="dryPasteOut"></div>
         </details>
       </div>
+      <div class="panel" id="subPanel">
+        <h2>科別替換 <span class="muted small" style="font-weight:normal">同一個叫法，不同科是不同東西</span></h2>
+        <div class="muted small">例如烘焙課的「牛奶」其實是「保久乳」（跟烘焙乾貨叫），飲調課的「牛奶」是「鮮奶(全)」（跟飲調叫）。設好後，那一科的老師選到「食材」會自動換成「換成」那一項，送出時也會再檢查一次。存在試算表「科別替換」分頁。</div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="subDept">科別</label><select id="subDept"></select></div>
+          <div><label for="subFrom">老師選的食材</label><input id="subFrom" type="text" maxlength="40" list="subItems" placeholder="例：牛奶" autocomplete="off"></div>
+          <div><label for="subTo">換成</label><input id="subTo" type="text" maxlength="40" list="subItems" placeholder="例：保久乳" autocomplete="off"></div>
+          <button type="button" class="btn small" id="subAdd">新增</button>
+        </div>
+        <datalist id="subItems"></datalist>
+        <div id="subMsg"></div>
+        <div id="subList" class="small" style="margin-top:8px;line-height:2"></div>
+      </div>
       <div class="panel" id="aliasPanel">
         <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
         <div class="muted small">只有「完全一樣」的字才會換；同一個叫法對到兩種以上食材（標 ⚠）就不自動換，讓老師自己選。學錯了按 ✕ 刪掉（存在食材總表的「別名」欄）。</div>
@@ -1422,7 +1435,7 @@
     if (sb) { addExisting(itemById[sb.getAttribute('data-sid')]); $('search').value = ''; renderResults(); return; }
     var b = e.target.closest('.item');
     if (!b) return;
-    var it = itemById[b.getAttribute('data-id')];
+    var it = deptSub(itemById[b.getAttribute('data-id')]);
     // 同一樣食材可以重複加入，每次都是獨立的一列（各自的數量、單位、備註）
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
@@ -1524,7 +1537,16 @@
       return '<button type="button" class="chipbtn" data-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(it.vendor) + '</span></button>';
     }).join('') + '</div>';
   }
+  // 科別替換（管理者在「審核食材 → 科別替換」設定）：例如烘焙課選「牛奶」→ 換成「保久乳」
+  function deptSub(it) {
+    var m = it && (data.deptSubs || {})[$('fDept').value], to = m && m[normName(it.name)];
+    var t = to && data.items.find(function (x) { return x.name === to; });
+    if (!t || t.id === it.id) return it;
+    toast($('fDept').value + '課的「' + it.name + '」用「' + t.name + '」');
+    return t;
+  }
   function addExisting(it, qty, unit) {
+    it = deptSub(it);
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: qty || '',
       unit: validUnit(unit) || validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
@@ -2071,7 +2093,7 @@
       $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
         (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '') +
         (res.tools ? '、' + res.tools + ' 項器具' : '') +
-        (res.learned && res.learned.length ? '。已自動換成正式食材：' + res.learned.map(function (x) { return x.from + '→' + x.to; }).join('、') : '');
+        (res.learned && res.learned.length ? '。已自動換成：' + res.learned.map(function (x) { return x.from + '→' + x.to + (x.dept ? '（' + x.dept + '課）' : ''); }).join('、') : '');
       lastSubmitted = res.orderNo;
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
       var keepMode = draft.qtyMode;
@@ -3073,6 +3095,32 @@
     }).catch(function (e) { $('dryPasteOut').innerHTML = '<div class="msg error">' + esc(e.message) + '</div>'; })
       .then(function () { setBusy(btn, false); $('dryApply').disabled = true; });
   });
+  // 科別替換
+  function renderSubs(list) {
+    data.deptSubs = {};
+    list.forEach(function (x) { (data.deptSubs[x.dept] = data.deptSubs[x.dept] || {})[normName(x.from)] = x.to; });
+    $('subList').innerHTML = list.length ? list.map(function (x) {
+      return '<div><b>' + esc(x.dept) + '</b> 課選「' + esc(x.from) + '」→ 換成「<b>' + esc(x.to) + '</b>」 <button type="button" class="btn ghost small" data-subdel="' + x.row + '">刪除</button></div>';
+    }).join('') : '<span class="muted">還沒有設定。</span>';
+  }
+  function loadSubs() {
+    $('subDept').innerHTML = data.departments.map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('');
+    $('subItems').innerHTML = data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('');
+    call('adminGetDeptSubs', token).then(renderSubs).catch(function (e) { msg('subMsg', 'error', e.message); });
+  }
+  $('subAdd').addEventListener('click', function () {
+    var btn = this;
+    setBusy(btn, true, '儲存中…');
+    call('adminSetDeptSub', token, $('subDept').value, $('subFrom').value.trim(), $('subTo').value.trim(), '').then(function (list) {
+      renderSubs(list); $('subFrom').value = ''; $('subTo').value = ''; msg('subMsg', 'ok', '已儲存。');
+    }).catch(function (e) { msg('subMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  });
+  $('subList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-subdel]');
+    if (!b) return;
+    call('adminDeleteDeptSub', token, Number(b.getAttribute('data-subdel'))).then(function (list) { renderSubs(list); msg('subMsg', 'ok', '已刪除。'); })
+      .catch(function (err) { msg('subMsg', 'error', err.message); });
+  });
   function loadPending(note) {
     msg('pendMsg', 'info', '載入中…');
     $('pendList').innerHTML = '';
@@ -3080,6 +3128,7 @@
     loadUnitPanel();
     loadAliases();
     loadDry();
+    loadSubs();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));

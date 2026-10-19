@@ -100,7 +100,10 @@ const SHEET = {
   prints: '列印紀錄',
   contacts: '廠商聯絡',
   holidays: '放假日',
+  subs: '科別替換',
 };
+// 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
+const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
@@ -362,6 +365,7 @@ function getBootstrap(token) {
     orderUnits: unitLists_().order,
     recipeUnits: unitLists_().recipe,
     pendingUnits: unitLists_().pending,
+    deptSubs: readDeptSubs_(),
     missingSetup: isAdmin ? missingSetup_() : [],
     vendorContacts: isAdmin ? readVendorContacts_() : {},
     holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
@@ -721,6 +725,22 @@ function validateOrder_(p, account, isAdmin) {
     });
   });
 
+  // 科別替換：這一科老師選的（或新增的）食材換成另一項（例如烘焙課的牛奶 → 保久乳）
+  const subs = readDeptSubs_()[dept];
+  if (subs) {
+    const byName = {};
+    Object.keys(catalog).forEach(function (id) { byName[learnKey_(catalog[id]['食材名稱'])] = id; });
+    lines.forEach(function (l, i) {
+      if (l.id === TOOL_ID) return;
+      const to = subs[learnKey_(l.name)], id = to && byName[learnKey_(to)];
+      if (!id || id === l.id) return;
+      const r = catalog[id], realVendor = String(r['廠商']).trim(), realName = String(r['食材名稱']).trim();
+      const prev = learned.find(function (x) { return x.to === l.name; });   // 牛奶 → 鮮奶(全) → 保久乳：合成一筆
+      if (prev) { prev.to = realName; prev.dept = dept; } else learned.push({ from: l.name, to: realName, dept: dept });
+      lines[i] = Object.assign({}, l, { id: id, name: realName, vendor: orderVendor_(realVendor, dept), catVendor: realVendor,
+        group: deliveryGroup_(realVendor, dow, vendorGroups), noOrder: l.noOrder || realVendor === SELF_VENDOR });
+    });
+  }
   (Array.isArray(p.tools) ? p.tools : []).forEach(function (t) {
     const name = clean_(t && t.name, 40);
     if (!name) throw new Error('請填寫使用器具的名稱。');
@@ -1951,6 +1971,65 @@ function setItemVendor_(id, vendor) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** 科別替換：{ 科別: { 食材(比對用): 換成的食材名稱 } } */
+function readDeptSubs_() {
+  const out = {};
+  try {
+    if (!ss_().getSheetByName(SHEET.subs)) return out;
+    readTable_(SHEET.subs, ['科別', '食材', '換成']).rows.forEach(function (r) {
+      const d = String(r['科別'] || '').trim(), from = String(r['食材'] || '').trim(), to = String(r['換成'] || '').trim();
+      if (d && from && to) (out[d] = out[d] || {})[learnKey_(from)] = to;
+    });
+  } catch (e) { console.error('readDeptSubs_ ' + e.message); }
+  return out;
+}
+
+function listDeptSubs_() {
+  if (!ss_().getSheetByName(SHEET.subs)) return [];
+  return readTable_(SHEET.subs, ['科別', '食材', '換成']).rows.map(function (r) {
+    return { row: r._row, dept: String(r['科別'] || '').trim(), from: String(r['食材'] || '').trim(), to: String(r['換成'] || '').trim(), note: String(r['備註'] || '') };
+  }).filter(function (x) { return x.dept && x.from && x.to; });
+}
+
+/** 管理者：科別替換清單 */
+function adminGetDeptSubs(token) { auth_(token, true); return listDeptSubs_(); }
+
+/** 管理者：新增或修改一條科別替換（同科別同食材就覆蓋） */
+function adminSetDeptSub(token, dept, from, to, note) {
+  auth_(token, true);
+  dept = clean_(dept, 20); from = clean_(from, 40); to = clean_(to, 40);
+  if (!dept || !from || !to) throw new Error('請填科別、食材、換成。');
+  if (learnKey_(from) === learnKey_(to)) throw new Error('「食材」和「換成」不能一樣。');
+  const ok = cachedItems_().some(function (it) { return it.name === to; });
+  if (!ok) throw new Error('食材總表沒有「' + to + '」（或已停用），請用正式名稱。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.subs, SUB_HEADERS);
+    const t = readTable_(SHEET.subs, ['科別', '食材', '換成']);
+    const r = t.rows.find(function (x) { return String(x['科別']).trim() === dept && learnKey_(x['食材']) === learnKey_(from); });
+    if (r) { setCell_(t, r._row, '換成', to); if (t.cols['備註'] !== undefined) setCell_(t, r._row, '備註', clean_(note, 60)); }
+    else appendRows_(SHEET.subs, [{ '科別': dept, '食材': from, '換成': to, '備註': clean_(note, 60) }]);
+  } finally {
+    lock.releaseLock();
+  }
+  return listDeptSubs_();
+}
+
+function adminDeleteDeptSub(token, row) {
+  auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ss_().getSheetByName(SHEET.subs);
+    if (!sh || !(Number(row) >= 2)) throw new Error('找不到這條規則，請重新整理。');
+    deleteRows_(sh, [Number(row)]);
+  } finally {
+    lock.releaseLock();
+  }
+  return listDeptSubs_();
 }
 
 /** 比對用：去掉空白、括號，英文小寫（跟網頁的 normName 一樣） */
