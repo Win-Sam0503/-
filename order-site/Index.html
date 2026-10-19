@@ -3819,7 +3819,7 @@
       Object.keys(groups[v]).sort().forEach(function (dk) {
         var list = sortLines(groups[v][dk]);
         html += '<h3>' + esc(batchLabel(dk)) + '</h3>' +
-          '<div class="tablewrap ptable">' + blockTable(list, '<th>食材</th><th class="num" style="width:11%">老師訂</th><th style="width:12%">實際叫貨</th><th style="width:12%">單位</th><th style="width:16%">備註</th><th class="noprint" style="width:7%"></th>', function (r) {
+          '<div class="tablewrap ptable">' + blockTable(list, '<th>食材</th><th class="num" style="width:11%">老師訂</th><th style="width:12%">實際叫貨</th><th style="width:12%">單位</th><th style="width:16%">備註</th><th class="noprint" style="width:10%"></th>', function (r) {
             var add = r.kind === '補庫存', c = ' class="p-' + pDiff(r) + '"';
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
@@ -3827,7 +3827,8 @@
               '<td' + c + '><input class="pqty num-input" type="text" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
               '<td' + c + '><select class="punit">' + unitOptions(r.unit) + '</select></td>' +
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
-              '<td class="noprint p-' + pDiff(r) + '">' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' : '') + '</td>';
+              '<td class="noprint p-' + pDiff(r) + '">' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' :
+                siblingVendor(r.vendor) ? '<button type="button" class="btn ghost small" data-pmove="' + r.i + '" title="這家廠商沒有賣，改跟' + esc(siblingVendor(r.vendor)) + '叫">改跟' + esc(shortSplit(siblingVendor(r.vendor))) + '叫</button>' : '') + '</td>';
           }) + '</div>' +
           '<button type="button" class="btn ghost small noprint" data-padd="' + esc(v + '|' + list[0].date + '|' + dk) + '">＋ 補庫存（' + esc(batchLabel(dk)) + '）</button>';
       });
@@ -3848,6 +3849,13 @@
     $('vendorSheets').innerHTML = html;
     window.scrollTo(0, y);
   }
+  // 分科廠商的另一家（E中餐乾貨 ↔ E烘焙乾貨）；蛋商兩間教室都會送，不用轉
+  function siblingVendor(v) {
+    var sp = (data.vendorSplit || {})['E乾貨'];
+    if (!sp) return '';
+    return v === sp.baking ? sp.other : v === sp.other ? sp.baking : '';
+  }
+  function shortSplit(v) { var sp = (data.vendorSplit || {})['E乾貨'] || {}; return v === sp.baking ? '烘焙' : v === sp.other ? '中餐' : v; }
   function pRowFromInput(tr) {
     var r = pState.rows[Number(tr.getAttribute('data-pi'))];
     // 純文字輸入（注音輸入法不會跑掉）：全形數字、「半」「兩」都看得懂；看不懂的先記成 NaN，儲存時提醒
@@ -3907,6 +3915,7 @@
     if (!pState) return;
     var t = e.target, b;
     if ((b = t.closest('[data-padd]'))) { var p = b.getAttribute('data-padd').split('|'); pAdd(p[0], p[1], p[2]); return; }
+    if ((b = t.closest('[data-pmove]'))) { pMove(pState.rows[Number(b.getAttribute('data-pmove'))]); return; }
     if ((b = t.closest('[data-pdel]'))) { var r = pState.rows[Number(b.getAttribute('data-pdel'))]; pState.dirty[r.vendor] = true; pState.rows.splice(Number(b.getAttribute('data-pdel')), 1); renderPurchase(); return; }
     if (t.id === 'paAdd') {
       // 送貨組別空白時：這家廠商有分組別（菜商、肉商、海鮮），就照日期自動帶入
@@ -3923,6 +3932,29 @@
     }
     if ((b = t.closest('[data-psave]'))) savePurchase(b, b.getAttribute('data-psave'), b.getAttribute('data-mode') === 'confirm');
   });
+  // 臨時轉單：這家廠商沒有賣，這一班的這個食材改跟另一科的乾貨叫（東西送到另一間教室，印 ④ 跨教室領料單）
+  function pMove(r) {
+    var to = siblingVendor(r.vendor), from = r.vendor;
+    if (!to) return;
+    ask('', '改跟' + shortSplit(to) + '叫', { noText: '取消', html: '<div class="info-check"><h3>' + esc(r.name) + ' 改跟「' + esc(to) + '」叫？</h3>' +
+      '<div style="text-align:left">' + esc(shortDate(r.date) + ' ' + r.className + ' ' + r.teacher) + ' 的「' + esc(r.name) + '」從' + esc(from) + '搬到' + esc(to) + '的訂貨單、叫貨單，東西會送到' + esc(shortSplit(to)) + '教室，' +
+      '請印「④ 跨教室領料單」讓學生去拿。</div>' +
+      '<label style="display:flex;gap:6px;align-items:center;margin-top:10px;text-align:left"><input type="checkbox" id="pMoveAll" style="width:auto"> 以後「' + esc(r.name) + '」都跟' + esc(shortSplit(to)) + '乾貨叫（' + esc(shortSplit(from)) + '乾貨沒有賣）</label></div>' }).then(function (ok) {
+      if (!ok) return;
+      var all = !!($('pMoveAll') && $('pMoveAll').checked);
+      call('adminMoveLineVendor', token, r.orderNo, r.name, from, to, all).then(function (res) {
+        pState.rows.forEach(function (x) {
+          if (x.vendor !== from || x.kind !== '訂單') return;
+          if ((x.orderNo === r.orderNo && x.name === r.name) || (all && res.id && x.id === res.id)) x.vendor = to;
+        });
+        pState.dirty[from] = true; pState.dirty[to] = true;
+        if (pState.only && pState.only !== to) { pState.only = ''; $('vVendor').value = ''; }
+        renderPurchase();
+        msg('vendorMsg', 'ok', '已把' + r.className + '的「' + r.name + '」改跟' + to + '叫' + (res.remembered ? '，以後也都跟' + shortSplit(to) + '乾貨叫' + (res.more ? '（其他還沒叫貨的訂單也改了 ' + res.more + ' 筆）' : '') : '') +
+          '。' + from + '和' + to + '都要再按一次「儲存」或「確定叫貨」。');
+      }).catch(function (e) { msg('vendorMsg', 'error', e.message); });
+    });
+  }
   function savePurchase(btn, v, confirm) {
     var err = '', bad = null, page = vBox(v, 'data-vendor');
     Array.prototype.forEach.call(page.querySelectorAll('tr[data-pi]'), function (tr) { pRowFromInput(tr); });
