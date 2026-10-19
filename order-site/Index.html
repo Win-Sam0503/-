@@ -1754,7 +1754,7 @@
       input.value = ok;
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    input.classList.toggle('invalid', !!v && !ok);
+    input.classList.toggle('invalid', !!v && !ok && !input.getAttribute('data-free'));   // 管理者的訂貨單可以打清單以外的單位
   }
   document.addEventListener('focusin', function (e) {
     if (e.target.classList && e.target.classList.contains('unit-input')) {
@@ -3997,11 +3997,11 @@
     var u = t && t.unit === '兩' ? '斤' : (t ? t.unit : ''), q = t ? (t.unit === '兩' ? Math.round(t.qty / 16 * 100) / 100 : t.unit === 'g' ? Math.ceil(t.qty - 1e-6) : t.qty) : '';
     ask('', '儲存', { noText: '取消', html: '<div class="info-check"><h3>' + esc(v) + '「' + esc(name) + '」叫貨合計</h3>' +
       '<div class="muted small" style="margin-bottom:8px">現在：' + esc(t ? fmtTotal(t.qty, t.unit, t.name) : '') + (t && t.ovr ? '（各班加總：' + esc(t.orig) + '）' : '') + '</div>' +
-      '<div style="display:flex;gap:8px"><input id="tQty" type="text" value="' + esc(String(q)) + '" style="flex:1" autocomplete="off"><select id="tUnit" style="width:auto">' + unitOptions(u) + '</select></div></div>' }).then(function (ok) {
+      '<div style="display:flex;gap:8px"><input id="tQty" type="text" value="' + esc(String(q)) + '" style="flex:1" autocomplete="off"><input id="tUnit" type="text" class="unit-input" data-free="1" maxlength="10" autocomplete="off" placeholder="單位" style="width:110px" value="' + esc(u) + '"></div></div>' }).then(function (ok) {
       if (!ok) return;
-      var nq = normNum($('tQty').value), nu = $('tUnit').value;
+      var nq = normNum($('tQty').value), nu = validUnit($('tUnit').value) || $('tUnit').value.trim();
       if (nq === null || nq === '' || !(Number(nq) >= 0)) { notice('請填數字，例如 3、1.5、半（不叫填 0）。'); return; }
-      if (Number(nq) > 0 && (!nu || nu === '__other')) { notice('請選單位。'); return; }
+      if (Number(nq) > 0 && !nu) { notice('請填單位。'); return; }
       save(Number(nq), nu);
     });
     setTimeout(function () { var el = $('tQty'); if (el) { el.focus(); el.select(); } }, 50);
@@ -4060,15 +4060,6 @@
     pState.rows.forEach(function (r) { if (r.vendor !== v) return; var d = pDiff(r); if (r.kind === '訂單') c.n++; if (d) c[d]++; });
     return '老師訂 ' + c.n + ' 筆；<span class="pd-diff">改量 ' + c.diff + ' 筆</span>；<span class="pd-zero">不叫（用庫存）' + c.zero + ' 筆</span>；<span class="pd-add">補庫存 ' + c.add + ' 筆</span>';
   }
-  function unitsAll() { return data.orderUnits.concat(data.recipeUnits).filter(function (u, i, a) { return a.indexOf(u) === i; }); }
-  // 單位用下拉選單（不用 datalist：建議清單開著時，第一下點按鈕會被吃掉）；最後一個選項可以自己打新單位
-  function unitOptions(cur) {
-    var list = unitsAll();
-    if (cur && list.indexOf(cur) < 0) list.unshift(cur);
-    return (cur ? '' : '<option value="">選單位</option>') + list.map(function (u) {
-      return '<option' + (u === cur ? ' selected' : '') + '>' + esc(u) + '</option>';
-    }).join('') + '<option value="__other">其他單位…</option>';
-  }
   // 某一天的合計表（老師訂 → 實際叫貨），改數量時即時重算
   function pTotalsHtml(list) {
     var need = sumLines(list, 'need', 'needUnit', true), act = sumLines(list, 'qty', 'unit', true), m = {}, keys = [];
@@ -4117,7 +4108,7 @@
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
               '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(vendorQty(r.need, r.needUnit, r.vendor, r.name, true))) + '</td>' +
               '<td' + c + '><input class="pqty num-input" type="text" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
-              '<td' + c + '><select class="punit">' + unitOptions(r.unit) + '</select></td>' +
+              '<td' + c + '><input type="text" class="punit unit-input" data-free="1" autocomplete="off" maxlength="10" placeholder="單位" value="' + esc(r.unit || '') + '"></td>' +   // 可以直接打字，也可以從清單選
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
               '<td class="noprint p-' + pDiff(r) + '">' + (add ? '<button type="button" class="btn ghost small" data-pdel="' + r.i + '">刪除</button>' :
                 '<button type="button" class="btn ghost small" data-pmove="' + r.i + '" title="這家廠商沒有賣，改跟別家叫">換廠商</button>') + '</td>';
@@ -4186,8 +4177,7 @@
     // 純文字輸入（注音輸入法不會跑掉）：全形數字、「半」「兩」都看得懂；看不懂的先記成 NaN，儲存時提醒
     var q = normNum(tr.querySelector('.pqty').value);
     r.qty = q === '' ? '' : q === null ? NaN : Number(q);
-    var uv = tr.querySelector('.punit').value;
-    if (uv !== '__other') r.unit = uv.trim();
+    r.unit = tr.querySelector('.punit').value.trim();
     r.note = tr.querySelector('.pnote').value.trim();
     if (tr.querySelector('.pname')) r.name = tr.querySelector('.pname').value.trim();
     var cls = 'p-' + pDiff(r);
@@ -4215,18 +4205,9 @@
   }
   $('vendorSheets').addEventListener('input', pOnInput);
   $('vendorSheets').addEventListener('compositionend', pOnInput);
-  $('vendorSheets').addEventListener('change', function (e) {
-    var sel = pState && e.target.closest('.vedit select.punit');
-    if (!sel) return;
-    var tr = sel.closest('tr[data-pi]'), r = pState.rows[Number(tr.getAttribute('data-pi'))];
-    if (sel.value !== '__other') { pRefresh(pRowFromInput(tr)); return; }
-    ask('', '確定', { noText: '取消', html: '<div style="margin-bottom:8px">輸入單位（例如：箱、桶、盒）</div><input type="text" id="askInput" maxlength="10">' }).then(function (ok) {
-      var v = ok && $('askInput') ? $('askInput').value.trim().slice(0, 10) : '';
-      if (v) r.unit = v;
-      sel.innerHTML = unitOptions(r.unit);
-      pRefresh(pRowFromInput(tr));
-    });
-    setTimeout(function () { var el = $('askInput'); if (el) el.focus(); }, 50);
+  $('vendorSheets').addEventListener('change', function (e) {   // 從單位清單選的
+    var inp = pState && e.target.closest('.vedit input.punit');
+    if (inp) pRefresh(pRowFromInput(inp.closest('tr[data-pi]')));
   });
   function pAdd(v, date, group) {
     pState.rows.push({ date: date, group: group, vendor: v, name: '', id: '', need: '', needUnit: '', kind: '補庫存', qty: '', unit: '', note: '' });
