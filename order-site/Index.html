@@ -197,8 +197,6 @@
   .setup-warn { background: var(--warn-soft); color: var(--warn); }
   .edit-table input, .edit-table select { padding: 5px 6px; font-size: 14px; }
   .edit-table td { vertical-align: middle; }
-  .timepick { display: flex; gap: 6px; align-items: center; }
-  .timepick select { flex: 1; min-width: 0; padding-left: 6px; padding-right: 2px; }
   .tools-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
   .tool-row { grid-template-columns: 1.6fr 90px 1.4fr 36px; }
   /* 訂單彙整：字大一點 */
@@ -552,11 +550,8 @@
           <div><label for="fDate">上課日期 <span class="req">*</span></label><input id="fDate" type="date"><div class="hint" id="dateHint"></div></div>
           <div><label for="fDept">科別 <span class="req">*</span></label><select id="fDept"></select></div>
           <div><label for="fAmpm">上課時間 <span class="req">*</span></label>
-            <div class="timepick">
-              <select id="fAmpm" aria-label="上午、下午或晚上"><option value="">時段</option><option>上午</option><option>下午</option><option>晚上</option></select>
-              <select id="fHour" aria-label="幾點"></select>
-              <select id="fMin" aria-label="幾分"></select>
-            </div><input type="hidden" id="fTime"></div>
+            <select id="fAmpm" aria-label="上午、下午或夜間"><option value="">請選擇</option><option>上午</option><option>下午</option><option value="晚上">夜間</option></select>
+            <input type="hidden" id="fTime"></div>
           <div><label for="fRoom">上課教室</label><input id="fRoom" type="text" maxlength="30"></div>
           <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"></div>
           <div><label for="fGroups">組數</label><input id="fGroups" type="text" class="num-input" data-int="1" autocomplete="off" maxlength="4" placeholder="例：6"></div>
@@ -1236,12 +1231,6 @@
     $('nVendor').innerHTML = '<option value="">請選擇</option>' + data.vendors.map(function (v) {
       return '<option>' + esc(v) + '</option>';
     }).join('');
-    var hours = '<option value="">點</option>';
-    for (var h = 1; h <= 12; h++) hours += '<option value="' + h + '">' + h + ' 點</option>';
-    $('fHour').innerHTML = hours;
-    var mins = '<option value="">分</option>';
-    for (var m = 0; m < 60; m += 5) mins += '<option value="' + ('0' + m).slice(-2) + '">' + m + ' 分</option>';
-    $('fMin').innerHTML = mins;
     $('lockBanner').innerHTML = data.isAdmin
       ? '管理者不受鎖單限制，可以訂今天起 30 天內的課。'
       : '<b>訂貨規則：</b>' + esc(data.lockRule) + '。目前最早可以訂 <b>' + esc(shortDate(data.minDate)) +
@@ -1343,22 +1332,15 @@
   function writeInfo() {
     Object.keys(INFO_FIELDS).forEach(function (k) { $(INFO_FIELDS[k]).value = draft.info[k] || ''; });
     if (draft.info.useDate && (draft.info.useDate < data.minDate || draft.info.useDate > data.maxDate)) $('fDate').value = '';
-    if (!TIME_RE.test(draft.info.classTime || '')) $('fTime').value = '';
-    timeToSelects();
+    var tm = String(draft.info.classTime || '').match(TIME_RE);   // 以前存的「下午 1:05」只留時段
+    $('fTime').value = tm ? tm[1] : '';
+    if (tm) draft.info.classTime = tm[1];
+    $('fAmpm').value = $('fTime').value;
     syncForBox();
   }
-  var TIME_RE = /^(上午|下午|晚上) (1[0-2]|[1-9]):([0-5][05])$/;
-  function timeToSelects() {
-    var m = $('fTime').value.match(TIME_RE);
-    $('fAmpm').value = m ? m[1] : ''; $('fHour').value = m ? m[2] : ''; $('fMin').value = m ? m[3] : '';
-  }
-  ['fAmpm', 'fHour', 'fMin'].forEach(function (id) {
-    $(id).addEventListener('change', function () {
-      var a = $('fAmpm').value, h = $('fHour').value, m = $('fMin').value;
-      $('fTime').value = a && h && m ? a + ' ' + h + ':' + m : '';
-      saveDraft();
-    });
-  });
+  // 上課時間只選時段（上午／下午／夜間，夜間存成「晚上」）
+  var TIME_RE = /^(上午|下午|晚上)(?: (?:1[0-2]|[1-9]):[0-5][05])?$/;
+  $('fAmpm').addEventListener('change', function () { $('fTime').value = this.value; saveDraft(); });
   function deliveryCode(d) { return d.getDay() <= 2 ? '一二' : '三四五'; }
   function updateDateHint() {
     var d = parseDate($('fDate').value);
@@ -2020,7 +2002,7 @@
       : i.useDate > data.maxDate ? '上課日期最晚只能選 ' + shortDate(data.maxDate) + '。'
       : (d.getDay() === 0 || d.getDay() === 6) ? '上課日期是週末，廠商不送貨，請改選平日。'
       : !i.dept ? '請選擇科別。'
-      : !i.classTime ? '請選擇上課時間（上午／下午／晚上、幾點、幾分）。'
+      : !i.classTime ? '請選擇上課時間（上午／下午／夜間）。'
       : !i.className ? '請填寫上課班級。'
       : (i.groups && !(/^\d+$/.test(i.groups) && +i.groups >= 1 && +i.groups <= 99)) ? '組數需為 1 到 99 的整數。'
       : !i.project ? '請填寫實作項目。'
@@ -4962,6 +4944,8 @@
       info.classTime = timeStr(m[1] === '晚上' ? 'night' : m[1] === '下午' ? 'pm' : 'am', +m[2], +(m[3] || 0));
     } else if ((m = t.match(/時間\s*[:：]?\s*(\d{1,2})\s*[:：]\s*(\d{2})/))) {
       info.classTime = timeStr(+m[1] >= 12 ? 'pm' : 'am', +m[1] > 12 ? +m[1] - 12 : +m[1], +m[2]);
+    } else if ((m = t.match(/(上午|早上|下午|晚上|夜間)/))) {
+      info.classTime = m[1] === '下午' ? '下午' : /晚上|夜間/.test(m[1]) ? '晚上' : '上午';
     }
     info.className = classFromText(t);
     var cellGroups = groupsFromCells(tables || []);
@@ -5022,10 +5006,10 @@
   function tidyProject(v) {
     return String(v).split(/[\n\t]+/).map(function (s) { return s.trim(); }).filter(Boolean).join('、');
   }
-  function timeStr(ap, h, mi) {
+  // 檔案裡的上課時間只取時段（上午／下午／晚上），不用幾點幾分
+  function timeStr(ap, h) {
     if (!(h >= 1 && h <= 12)) return '';
-    mi = Math.round(mi / 5) * 5; if (mi >= 60) mi = 55;
-    return (ap === 'night' ? '晚上' : ap === 'pm' ? '下午' : '上午') + ' ' + h + ':' + ('0' + mi).slice(-2);
+    return ap === 'night' || (ap === 'pm' && h >= 5 && h < 12) ? '晚上' : ap === 'pm' ? '下午' : '上午';
   }
 
   // ---- 表格 ----
@@ -6067,15 +6051,13 @@
       if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
       if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
       readInfo();
-      var keepTime = TIME_RE.test(draft.info.classTime || '') && draft.info.classTime.indexOf(x.session) === 0;
       draft.info.useDate = x.date;
       draft.info.className = x.className || draft.info.className;
       draft.info.room = x.room || draft.info.room;
       draft.info.project = x.course;
       draft.info.onBehalfOf = viewingOther() && Array.prototype.some.call($('fFor').options, function (o) { return o.value === lessonAs; }) ? lessonAs : '';
-      if (!keepTime) draft.info.classTime = '';
+      draft.info.classTime = x.session;
       writeInfo(); saveDraft();
-      if (!keepTime) $('fAmpm').value = x.session;
       updateDateHint(); renderResults();
       show('viewOrder');
       msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請選擇幾點幾分、科別，再選食材。');

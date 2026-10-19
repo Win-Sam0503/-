@@ -26,8 +26,8 @@ const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';
 const SITE_TITLE = '三信家商餐飲科訂貨系統';
 const ADMIN_ACCOUNTS = ['管理者'];          // 這些帳號登入後會看到管理功能（其他老師可以在網站上設成管理者，存在「帳號設定」的「管理者」欄）
 const DEPARTMENTS = ['中餐', '西餐', '日料', '烘焙', '飲調', '果雕', '刀功'];
-// 上課時間格式：「上午／下午 幾點:幾分」，分鐘每 5 分鐘，例如「下午 1:05」
-const CLASS_TIME_PATTERN = /^(上午|下午|晚上) (1[0-2]|[1-9]):[0-5][05]$/;
+// 上課時間：只選時段「上午／下午／晚上」（夜間＝晚上）；以前的訂單有「下午 1:05」這種幾點幾分，也還是看得懂
+const CLASS_TIME_PATTERN = /^(上午|下午|晚上)( (1[0-2]|[1-9]):[0-5][05])?$/;
 const SESSIONS = ['上午', '下午', '晚上'];
 // 課表類別：總課表分頁籤；空白＝日間部。彈性課程可以設開始、結束日期（只有那幾週）
 const SCHEDULE_KINDS = ['日間部', '夜間部', '彈性課程'];
@@ -657,7 +657,7 @@ function validateOrder_(p, account, isAdmin) {
   const className = clean_(p.className, 30);
   const project = clean_(p.project, 60);
   if (!dept) throw new Error('請選擇科別。');
-  if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午／晚上、幾點、幾分）。');
+  if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午／夜間）。');
   if (!className) throw new Error('請填寫上課班級。');
   if (!project) throw new Error('請填寫實作項目。');
   let groups = '';
