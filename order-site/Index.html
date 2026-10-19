@@ -374,6 +374,7 @@
   .vpage th, .vpage td { border: 1px solid #999; padding: 4px 6px; }
   .vpage th { background: #f2f2f2; color: #000; font-size: inherit; }
   .vpage td.vm { vertical-align: middle; }
+  .vpage .dtag { white-space: nowrap; }
   .vpage.deduct td { height: 10mm; }
   .vedit .vfoot { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
   .vedit .ptable input, .vedit .ptable select { padding: 6px 8px; min-width: 0; width: 100%; font-size: inherit; }
@@ -3579,7 +3580,7 @@
         var key = [o.orderNo, it.name, it.unit, it.group || ''].join('|');
         if (!map[key]) {
           map[key] = { key: key, date: o.useDate, group: it.group || '', vendor: it.vendor, orderNo: o.orderNo, className: o.className,
-            teacher: o.onBehalfOf || o.teacher, name: it.name, id: it.id === '待審核' ? '' : it.id, need: 0, needUnit: it.unit, note: it.note || '', kind: '訂單' };
+            teacher: o.onBehalfOf || o.teacher, dept: o.dept || '', name: it.name, id: it.id === '待審核' ? '' : it.id, need: 0, needUnit: it.unit, note: it.note || '', kind: '訂單' };
           list.push(map[key]);
         }
         map[key].need = Math.round((map[key].need + it.qty) * 100) / 100;
@@ -3645,7 +3646,7 @@
         var first = i === 0 || blockOf(list[i - 1]) !== blockOf(r);
         var rs = ' class="vm" rowspan="' + span[blockOf(r)] + '"';
         return '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(r.className) + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? ' <b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
           cells(r) + '</tr>';
       }).join('') + '</tbody></table>';
   }
@@ -3672,7 +3673,8 @@
       var detailPage = head('扣貨明細（各班）') +
         Object.keys(by[v]).sort().map(function (dk) {
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
-            blockTable(sortLines(by[v][dk]), '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
+            blockTable(sortLines(by[v][dk]).map(function (r) { return Object.assign({}, r, { tag: r.dept }); }),   // 班級後面標科別【中餐】【烘焙】【飲調】…，同一種水果才不會搞混是哪一科的
+              '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
               return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(vendorQty(r.need, r.needUnit, r.vendor, r.name)) + '</td><td></td>';
             });
         }).join('') + extra + '</div>';
