@@ -1805,10 +1805,27 @@ function adminSetDryGoods(token, base, changes) {
   }
 }
 
+/** 訂單上可以用的廠商（食材總表的廠商，分科的換成兩家：E乾貨 → E烘焙乾貨、E中餐乾貨），不含自備 */
+function orderVendors_() {
+  const out = [];
+  cachedItems_().forEach(function (it) {
+    const v = String(it.vendor || '').trim();
+    if (!v || v === SELF_VENDOR) return;
+    (VENDOR_SPLIT[v] ? [VENDOR_SPLIT[v].baking, VENDOR_SPLIT[v].other] : [v]).forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
+  });
+  return out;
+}
+
+/** 送貨組別用的廠商名稱（E烘焙乾貨、E中餐乾貨 照 E乾貨 的設定） */
+function groupVendor_(v) {
+  const base = Object.keys(VENDOR_SPLIT).find(function (k) { return VENDOR_SPLIT[k].baking === v || VENDOR_SPLIT[k].other === v; });
+  return base || v;
+}
+
 /**
- * 管理者（② 訂貨單）：臨時轉單。某張（orderNo 也可以是陣列：好幾張）訂單的某個食材，原本那一科的乾貨廠商沒有賣，改跟另一科的乾貨廠商叫
- * （例如中餐課的乳酪絲改跟烘焙乾貨叫、送到烘焙教室）。只能在同一組分科廠商之間換（E中餐乾貨 ↔ E烘焙乾貨）。
- * remember：以後這個食材都這樣（食材總表的廠商改成那一科，還沒叫貨的訂單也跟著改）。
+ * 管理者（② 訂貨單）：臨時轉單。某張（orderNo 也可以是陣列：好幾張）訂單的某個食材，原本的廠商沒有賣，改跟別家叫
+ * （例如中餐課的乳酪絲改跟烘焙乾貨叫、送到烘焙教室；火腿肉商沒有，改跟菜商或烘焙乾貨叫）。送貨組別跟著新廠商重算。
+ * remember：以後這個食材都跟這家叫（食材總表的廠商改掉，還沒叫貨的訂單也跟著改）。
  */
 function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remember) {
   auth_(token, true);
@@ -1816,12 +1833,11 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
   (Array.isArray(orderNo) ? orderNo : [orderNo]).forEach(function (n) { n = String(n || '').trim(); if (n) nos[n] = true; });
   name = String(name || '').trim();
   fromVendor = String(fromVendor || '').trim(); toVendor = String(toVendor || '').trim();
-  const base = Object.keys(VENDOR_SPLIT).find(function (k) {
-    const sp = VENDOR_SPLIT[k], set = [sp.baking, sp.other];
-    return set.indexOf(fromVendor) >= 0 && set.indexOf(toVendor) >= 0 && fromVendor !== toVendor;
-  });
-  if (!base) throw new Error('只能在烘焙、中餐兩家分科廠商之間換。');
+  if (!toVendor || toVendor === fromVendor) throw new Error('請選另一家廠商。');
+  if (orderVendors_().indexOf(toVendor) < 0) throw new Error('沒有「' + toVendor + '」這家廠商。');
+  const vendorGroups = readVendorGroups_();
   let lines = 0, id = '';
+  const moved = [];
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -1830,6 +1846,10 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
       if (!nos[String(r['訂單編號']).trim()] || String(r['食材名稱']).trim() !== name || String(r['廠商']).trim() !== fromVendor) return;
       if (String(r['狀態'] || '').trim() === '已取消') return;
       setCell_(t, r._row, '廠商', toVendor);
+      const d = toDate_(r['使用日期']);
+      const g = d ? deliveryGroup_(groupVendor_(toVendor), d.getDay(), vendorGroups) : '';
+      if (t.cols['送貨組別'] !== undefined) setCell_(t, r._row, '送貨組別', g);
+      moved.push({ orderNo: String(r['訂單編號']).trim(), group: g });
       id = id || String(r['食材ID'] || '').trim();
       lines++;
     });
@@ -1837,12 +1857,39 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
     lock.releaseLock();
   }
   if (!lines) throw new Error('找不到這筆訂單品項（可能已經被修改或取消），請重新產生。');
-  let remembered = 0;
-  if (remember && id && id !== PENDING_ID) {
-    const mode = toVendor === VENDOR_SPLIT[base].baking ? 'baking' : 'other';
-    remembered = adminSetDryGoods(token, base, [{ id: id, mode: mode }]).lines;
+  const keep = !!(remember && id && id !== PENDING_ID);
+  const more = keep ? setItemVendor_(id, toVendor) : [];
+  return { lines: lines, id: id, moved: moved, remembered: keep, more: more.length, moreMoved: more };
+}
+
+/** 食材總表的廠商改成 vendor（訂單上的廠商名稱，例如 E烘焙乾貨、A菜商），還沒叫貨的訂單（今天以後、待處理或已審核）也跟著改。回傳改了的訂單品項 [{ orderNo, vendor, group }] */
+function setItemVendor_(id, vendor) {
+  const vendorGroups = readVendorGroups_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']);
+    const r = t.rows.find(function (x) { return String(x['食材ID']).trim() === id; });
+    if (!r) return [];
+    if (String(r['廠商'] || '').trim() !== vendor) { setCell_(t, r._row, '廠商', vendor); clearItemsCache_(); }
+    const o = readTable_(SHEET.orders, ['訂單編號', '食材ID', '廠商']);
+    const today = today_();
+    const out = [];
+    o.rows.forEach(function (x) {
+      if (String(x['食材ID'] || '').trim() !== id) return;
+      const d = toDate_(x['使用日期']), st = String(x['狀態'] || '').trim();
+      if (!d || d < today || (st !== '待處理' && st !== '已審核')) return;
+      const nv = orderVendor_(vendor, x['科別']);
+      if (String(x['廠商'] || '').trim() === nv) return;
+      const g = deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups);
+      setCell_(o, x._row, '廠商', nv);
+      if (o.cols['送貨組別'] !== undefined) setCell_(o, x._row, '送貨組別', g);
+      out.push({ orderNo: String(x['訂單編號']).trim(), vendor: nv, group: g });
+    });
+    return out;
+  } finally {
+    lock.releaseLock();
   }
-  return { lines: lines, id: id, remembered: !!(remember && id && id !== PENDING_ID), more: remembered };
 }
 
 /** 比對用：去掉空白、括號，英文小寫（跟網頁的 normName 一樣） */
