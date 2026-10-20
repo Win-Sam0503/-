@@ -5882,6 +5882,29 @@
     var cur = x.manual ? 'ordered' : x.marked && x.status === 'skipped' ? 'skipped' : 'auto';
     return mark === cur && (mark !== 'ordered' || note.trim() === (x.manual ? x.manual.note : '')) ? null : { mark: mark, note: note.trim() };
   }
+  function showLessonOrders(x) {
+    var nos = x.orders.map(function (o) { return o.orderNo; });
+    msg('gridMsg', 'info', '載入料單中…');
+    return call('adminGetOrders', token, x.date, x.date).then(function (list) {
+      msg('gridMsg', '', '');
+      var orders = list.filter(function (o) { return nos.indexOf(o.orderNo) >= 0; });
+      var body = orders.length ? orders.map(function (o) {
+        var items = o.items.filter(function (it) { return it.status !== '已取消'; });
+        var food = items.filter(function (it) { return it.id !== TOOL; }), tools = items.filter(function (it) { return it.id === TOOL; });
+        return '<div style="text-align:left;margin-top:10px">' +
+          '<div><b>' + esc(o.project) + '</b> <span class="badge">' + esc(o.status) + '</span> <span class="muted small">' + esc(o.orderNo) + '</span></div>' +
+          '<div class="muted small">' + esc(shortDate(o.useDate) + ' ' + String(o.classTime || '').replace(/^晚上/, '夜間') + '・' + o.className + (o.room ? '・' + o.room : '') + '・' + (o.onBehalfOf || o.teacher) + (o.onBehalfOf ? '（' + o.teacher + ' 代訂）' : '') + '・' + o.dept + (o.groups ? '・' + o.groups + ' 組' : '')) + '</div>' +
+          '<div class="tablewrap" style="max-height:50vh;overflow:auto;margin-top:6px"><table><thead><tr><th>食材</th><th style="text-align:right">數量</th><th>單位</th><th>廠商</th><th>備註</th></tr></thead><tbody>' +
+          food.map(function (it) {
+            return '<tr><td>' + esc(it.name) + (it.noOrder ? ' <span class="badge">有貨</span>' : '') + '</td><td style="text-align:right">' + esc(fmtQty(it.qty)) + '</td><td>' + esc(it.unit) + '</td><td class="muted small">' + esc(it.vendor) + '</td><td>' + esc(it.note || '') + '</td></tr>';
+          }).join('') +
+          (tools.length ? '<tr><td colspan="5" class="muted small">器具：' + esc(tools.map(function (t) { return t.name + ' ' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : ''); }).join('、')) + '</td></tr>' : '') +
+          '</tbody></table></div></div>';
+      }).join('') : '<div class="muted">找不到這堂課的訂單（可能已取消或日期被改過），請到「訂單彙整」查詢。</div>';
+      return ask('', '修改這堂課', { noText: '關閉', html: '<div style="font-weight:700;font-size:17px">' + esc(x.teacher + ' 的料單：' + x.course) + '</div>' +
+        '<div class="muted small" style="text-align:left">要改料單請到「訂單彙整」按「修改明細」。</div>' + body });
+    }).catch(function (err) { msg('gridMsg', 'error', '載入料單失敗：' + err.message); return false; });
+  }
   function saveGridMark(x, m) {
     return call('adminSetLessonMark', token, x.teacher, x.date, x.session, x.course, m.mark, m.note, gridWeekOf());
   }
@@ -5986,7 +6009,7 @@
               var cls = 'slesson' + (off ? ' off' : '') + (x.status ? ' st-' + x.status : '') + (x.extra ? ' extra' : '') + (hl ? (x.teacher === hl ? ' hl' : ' dim') : '');
               var ord = (x.orders || []).map(function (o) { return o.project; }).filter(Boolean).join('、');
               return '<button type="button" class="' + cls + '" ' + (x.extra ? 'data-gextra="' + x.ei + '"' : 'data-grow="' + x.row + '"') +
-                ' title="' + (x.extra ? esc(x.source === '國技' ? '國技排班' : '老師自己新增的課') + '，課程請到「我的課」修改；點一下可以改叫料狀態' : '點一下修改') + (ord ? '\n叫料：' + esc(ord) : '') + (x.manual ? '\n手動標記：' + esc(x.manual.by) + (x.manual.note ? '，' + esc(x.manual.note) : '') : '') + '">' +
+                ' title="' + ((x.orders || []).length ? '點一下看料單' : x.extra ? esc(x.source === '國技' ? '國技排班' : '老師自己新增的課') + '，課程請到「我的課」修改；點一下可以改叫料狀態' : '點一下修改') + (ord ? '\n叫料：' + esc(ord) : '') + (x.manual ? '\n手動標記：' + esc(x.manual.by) + (x.manual.note ? '，' + esc(x.manual.note) : '') : '') + '">' +
                 (x.extra ? '<span class="src">' + esc(x.source) + '</span>' : '') + '<b style="display:inline">' + esc(x.course) + '</b><br>' +
                 (x.className ? '<span>' + esc(x.className) + '</span> ' : '') + (x.period ? '<span class="muted">' + esc(x.period) + '</span>' : '') +
                 '<div class="t' + (x.noAccount ? ' warn-t' : '') + '"' + (x.noAccount ? ' title="帳號設定沒有這位老師"' : '') + '>' + esc(x.teacher) + (x.noAccount ? ' ⚠' : '') + '</div>' +
@@ -6028,6 +6051,19 @@
       var p = a.getAttribute('data-gadd').split('|');
       gridAdd({ room: p[0], weekday: p[1], session: p[2] });
       return;
+    }
+    // 有叫料的課：先看老師的料單，再決定要不要修改這堂課
+    var lb = e.target.closest('button[data-gextra],button[data-grow]');
+    if (lb && !lb.hasAttribute('data-direct')) {
+      var lx = lb.hasAttribute('data-gextra') ? (gridData.extras || [])[Number(lb.getAttribute('data-gextra'))]
+        : gridRows.find(function (y) { return y.row === Number(lb.getAttribute('data-grow')); });
+      if (lx && (lx.orders || []).length) {
+        showLessonOrders(lx).then(function (edit) {
+          if (!edit) return;
+          lb.setAttribute('data-direct', '1'); lb.click(); lb.removeAttribute('data-direct');
+        });
+        return;
+      }
     }
     var ex = e.target.closest('button[data-gextra]');
     if (ex) {
