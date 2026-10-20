@@ -101,9 +101,12 @@ const SHEET = {
   contacts: '廠商聯絡',
   holidays: '放假日',
   subs: '科別替換',
+  pickups: '跨教室領料',
 };
 // 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
 const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
+// 跨教室領料單：管理者自己加的（系統自動抓不到的，例如臨時跟別間教室借的食材）
+const PICKUP_HEADERS = ['使用日期', '上課時間', '班級', '老師', '科別', '教室', '領取地點', '食材名稱', '數量', '單位', '備註', '建立者', '建立時間'];
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
@@ -2051,6 +2054,65 @@ function adminDeleteDeptSub(token, row) {
     lock.releaseLock();
   }
   return listDeptSubs_();
+}
+
+/** 管理者：這段期間手動加的跨教室領料 */
+function listPickups_(start, end) {
+  if (!ss_().getSheetByName(SHEET.pickups)) return [];
+  return readTable_(SHEET.pickups, ['使用日期', '食材名稱']).rows.map(function (r) {
+    return { row: r._row, date: dateStr_(toDate_(r['使用日期'])), time: String(r['上課時間'] || ''), className: String(r['班級'] || ''),
+      teacher: String(r['老師'] || ''), dept: String(r['科別'] || ''), room: String(r['教室'] || ''), place: String(r['領取地點'] || '').trim(),
+      name: String(r['食材名稱'] || '').trim(), qty: r['數量'], unit: String(r['單位'] || ''), note: String(r['備註'] || '') };
+  }).filter(function (x) {
+    const d = parseDate_(x.date);
+    return x.name && x.place && d && d >= start && d <= end;
+  });
+}
+
+function adminGetPickups(token, from, to) {
+  auth_(token, true);
+  const start = parseDate_(from), end = parseDate_(to) || start;
+  if (!start) throw new Error('請選擇日期。');
+  return listPickups_(start, end);
+}
+
+function adminAddPickup(token, rec) {
+  const me = auth_(token, true);
+  rec = rec || {};
+  const d = parseDate_(rec.date);
+  if (!d) throw new Error('請選擇日期。');
+  const time = clean_(rec.time, 10);
+  if (time && !CLASS_TIME_PATTERN.test(time)) throw new Error('上課時間請選上午／下午／夜間。');
+  const place = clean_(rec.place, 20), name = clean_(rec.name, 40);
+  if (!place) throw new Error('請填領取地點。');
+  if (!name) throw new Error('請填食材。');
+  const qty = Number(rec.qty);
+  if (!(qty > 0)) throw new Error('數量要大於 0。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.pickups, PICKUP_HEADERS);
+    appendRows_(SHEET.pickups, [{ '使用日期': d, '上課時間': time, '班級': clean_(rec.className, 20), '老師': clean_(rec.teacher, 20),
+      '科別': clean_(rec.dept, 20), '教室': clean_(rec.room, 20), '領取地點': place, '食材名稱': name, '數量': qty,
+      '單位': clean_(rec.unit, 10), '備註': clean_(rec.note, 60), '建立者': me, '建立時間': new Date() }]);
+  } finally {
+    lock.releaseLock();
+  }
+  return true;
+}
+
+function adminDeletePickup(token, row) {
+  auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ss_().getSheetByName(SHEET.pickups);
+    if (!sh || !(Number(row) >= 2)) throw new Error('找不到這筆，請重新產生。');
+    deleteRows_(sh, [Number(row)]);
+  } finally {
+    lock.releaseLock();
+  }
+  return true;
 }
 
 /**

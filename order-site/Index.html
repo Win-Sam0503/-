@@ -3636,11 +3636,12 @@
         !safeConfirm('訂貨單有修改還沒儲存，重新產生會不見。確定要繼續？')) { setBusy(btn, false); msg('vendorMsg', '', ''); return; }
     pState = null;
     var kind = $('vKind').value, only = $('vVendor').value;
-    var fetch = kind === 'deduct' || kind === 'pickup' ? Promise.all([call('adminGetOrders', token, from, to)])
+    var fetch = kind === 'deduct' ? Promise.all([call('adminGetOrders', token, from, to)])
+      : kind === 'pickup' ? Promise.all([call('adminGetOrders', token, from, to), call('adminGetPickups', token, from, to)])
       : Promise.all([call('adminGetOrders', token, from, to), call('adminGetPurchase', token, from, to)]);
     var job = fetch.then(function (res) {
       var orders = res[0], pur = res[1];
-      if (kind === 'pickup') return pickupSheets(orders, from, to, only);
+      if (kind === 'pickup') { lastSheet = { fn: pickupSheets, args: [orders, from, to, only, res[1] || []] }; return pickupSheets.apply(null, lastSheet.args); }
       return pendingGate(orders, only, kind).then(function (go) {
         if (!go) return null;
         lastSheet = null;
@@ -3660,11 +3661,17 @@
       });
     });
     job.then(function (html) {
+      if (kind === 'pickup') {
+        $('vendorSheets').innerHTML = pickupBar() + html;
+        msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要跨教室領的食材。只有某一科在進的食材（例如乳酪絲只跟烘焙乾貨叫），請到「審核食材 → 乾貨進貨科別」設成「只有烘焙進」，或在「② 訂貨單」按「換廠商」改跟烘焙乾貨叫，中餐課訂的就會列在這張領料單。系統抓不到的，也可以按「＋ 新增領料」自己加。');
+        $('vPrint').disabled = !html;
+        return;
+      }
       if (html === null) { pState = null; msg('vendorMsg', 'warn', '還有未審核的食材，已先停止產生。審核完再回來按「產生」。'); return; }
       if (kind !== 'order' || !html) $('vendorSheets').innerHTML = html;
       if (kind === 'order' && !html) pState = null;
       if (vKeepMsg) { $('vendorMsg').innerHTML = vKeepMsg; vKeepMsg = ''; } else msg('vendorMsg', html ? '' : 'info', html ? '' : kind === 'purchase' ? '這段期間還沒有確定的叫貨，請先到「② 訂貨單」改好數量後按「確定叫貨」。' :
-        kind === 'pickup' ? '這段期間沒有要跨教室領的食材。只有某一科在進的食材（例如乳酪絲只跟烘焙乾貨叫），請到「審核食材 → 乾貨進貨科別」設成「只有烘焙進」，或在「② 訂貨單」按「換廠商」改跟烘焙乾貨叫，中餐課訂的就會列在這張領料單。' : '這段期間沒有需要叫貨的品項。');
+        '這段期間沒有需要叫貨的品項。');
       $('vPrint').disabled = !html;
     }).catch(function (e) { msg('vendorMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
@@ -3852,8 +3859,13 @@
     if (isOtherV && baking) return '中餐教室';
     return '';
   }
-  function pickupSheets(orders, from, to, only) {
+  function pickupSheets(orders, from, to, only, manual) {
     var by = {};
+    // 管理者手動加的（系統抓不到的），標「手動」、可以刪除
+    (manual || []).forEach(function (m) {
+      (by[m.place] = by[m.place] || []).push({ date: m.date, time: m.time, className: m.className, teacher: m.teacher, dept: m.dept, room: m.room,
+        name: m.name, qty: fmtQty(Number(m.qty) || 0) + ' ' + m.unit, note: m.note || '', row: m.row });
+    });
     orders.forEach(function (o) {
       if (o.status === '已取消') return;
       o.items.forEach(function (it) {
@@ -3874,12 +3886,65 @@
         list.map(function (r, i) {
           var first = i === 0 || key(list[i - 1]) !== key(r), rs = ' class="vm" rowspan="' + span[key(r)] + '"';
           return '<tr' + (first ? ' class="vfirst"' : '') + '>' +
-            (first ? '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(r.time) + '</td><td' + rs + '>' + esc(r.className) + (r.room ? '<div class="small">' + esc(r.room) + '</div>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '<div class="small">' + esc(r.dept) + '</div></td>' : '') +
-            '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(r.qty) + '</td><td>' + esc(r.note) + '</td>' +
+            (first ? '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(String(r.time || '').replace(/^晚上/, '夜間')) + '</td><td' + rs + '>' + esc(r.className) + (r.room ? '<div class="small">' + esc(r.room) + '</div>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '<div class="small">' + esc(r.dept) + '</div></td>' : '') +
+            '<td>' + esc(r.name) + (r.row ? ' <span class="badge noprint">手動</span> <button type="button" class="btn ghost small noprint" data-pkdel="' + r.row + '">刪除</button>' : '') +
+            '</td><td class="vq" style="text-align:right">' + esc(r.qty) + '</td><td>' + esc(r.note) + '</td>' +
             (first ? '<td' + rs + '></td>' : '') + '</tr>';
         }).join('') + '</tbody></table></div>';
     }).join('');
   }
+
+  function pickupBar() {
+    return '<div class="noprint" style="display:flex;justify-content:flex-end;margin-bottom:8px"><button type="button" class="btn secondary small" data-pkadd="1">＋ 新增領料</button></div>';
+  }
+  function pickupAdd() {
+    var args = lastSheet && lastSheet.fn === pickupSheets ? lastSheet.args : null;
+    if (!args) return;
+    var names = {};
+    (data.items || []).forEach(function (it) { names[it.name] = 1; });
+    var f = function (id, label, input) { return '<label for="' + id + '" style="display:block;margin-top:8px">' + label + '</label>' + input; };
+    var txt = function (id, ph, max) { return '<input id="' + id + '" type="text" maxlength="' + (max || 20) + '" autocomplete="off" placeholder="' + esc(ph || '') + '">'; };
+    ask('', '新增', { noText: '取消', html: '<div class="info-check"><h3>新增跨教室領料</h3>' +
+      '<div class="muted small">系統自動抓不到、但學生要到別間教室拿的食材，加在這裡就會一起印在領料單上（不會叫貨）。</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">' +
+      '<div>' + f('pkDate', '日期 *', '<input id="pkDate" type="date" min="' + esc(args[1]) + '" max="' + esc(args[2]) + '" value="' + esc(args[1]) + '">') + '</div>' +
+      '<div>' + f('pkTime', '上課時間', '<select id="pkTime"><option value="">（不填）</option><option value="上午">上午</option><option value="下午">下午</option><option value="晚上">夜間</option></select>') + '</div>' +
+      '<div>' + f('pkClass', '班級', txt('pkClass', '例：301')) + '</div>' +
+      '<div>' + f('pkTeacher', '老師', txt('pkTeacher')) + '</div>' +
+      '<div>' + f('pkDept', '科別', txt('pkDept', '例：中餐')) + '</div>' +
+      '<div>' + f('pkPlace', '領取地點 *', '<input id="pkPlace" type="text" maxlength="20" list="pkPlaces" autocomplete="off" value="烘焙教室"><datalist id="pkPlaces"><option value="烘焙教室"><option value="中餐教室"></datalist>') + '</div>' +
+      '</div>' +
+      f('pkName', '食材 *', '<input id="pkName" type="text" maxlength="40" list="pkNames" autocomplete="off" placeholder="打字搜尋食材總表，也可以自己填"><datalist id="pkNames">' +
+        Object.keys(names).sort(byItemKey).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>') +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1">' + f('pkQty', '數量 *', '<input id="pkQty" type="text" autocomplete="off">') + '</div>' +
+      '<div style="width:120px">' + f('pkUnit', '單位', '<input id="pkUnit" type="text" class="unit-input" data-free="1" maxlength="10" autocomplete="off">') + '</div></div>' +
+      f('pkNote', '備註', txt('pkNote', '', 60)) + '</div>' }).then(function (ok) {
+      if (!ok) return;
+      var v = function (id) { return $(id).value.trim(); };
+      var q = normNum(v('pkQty'));
+      if (!v('pkDate')) { notice('請選擇日期。'); return; }
+      if (!v('pkName')) { notice('請填食材。'); return; }
+      if (!v('pkPlace')) { notice('請填領取地點。'); return; }
+      if (q === null || q === '' || !(Number(q) > 0)) { notice('數量請填大於 0 的數字。'); return; }
+      msg('vendorMsg', 'info', '儲存中…');
+      call('adminAddPickup', token, { date: v('pkDate'), time: v('pkTime'), className: v('pkClass'), teacher: v('pkTeacher'), dept: v('pkDept'),
+        place: v('pkPlace'), name: v('pkName'), qty: Number(q), unit: validUnit(v('pkUnit')) || v('pkUnit'), note: v('pkNote') })
+        .then(function () { $('vLoad').click(); }).catch(function (e) { msg('vendorMsg', 'error', '儲存失敗：' + e.message); });
+    });
+    setTimeout(function () { var el = $('pkName'); if (el) el.focus(); }, 50);
+  }
+  $('vendorSheets').addEventListener('click', function (e) {
+    var a = e.target.closest('[data-pkadd]'), d = e.target.closest('[data-pkdel]');
+    if (a) { pickupAdd(); return; }
+    if (!d) return;
+    ask('刪除這筆手動加的領料？', '刪除').then(function (ok) {
+      if (!ok) return;
+      msg('vendorMsg', 'info', '刪除中…');
+      call('adminDeletePickup', token, Number(d.getAttribute('data-pkdel')))
+        .then(function () { $('vLoad').click(); }).catch(function (e2) { msg('vendorMsg', 'error', '刪除失敗：' + e2.message); });
+    });
+  });
 
   // 叫貨單：合計（給廠商）和各班明細分開成不同頁，「叫貨單內容」選要印哪一種；叫貨量 0 的不列
   function purchaseSheets(rows, from, to, only) {
