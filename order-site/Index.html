@@ -1869,6 +1869,7 @@
     var code = !c.isNew && itemById[c.id] && itemById[c.id].code ? '<span class="muted small">' + esc(itemById[c.id].code) + ' </span>' : '';
     return '<div class="cart-row" data-key="' + esc(c.key) + '">' +
       '<div class="c-nm">' + code + '<span class="nm">' + esc(c.name) + '</span> ' + (c.isNew ? '<span class="badge warn">待審核</span>' : '') +
+        '<button type="button" class="btn ghost small" data-swap title="選錯食材？換成別的，數量、單位、備註保留" style="padding:1px 8px;margin-left:2px">換</button>' +
         '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div>' + secSel + '</div>' +
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
       '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
@@ -1943,6 +1944,31 @@
     var key = e.target.closest('.cart-row').getAttribute('data-key');
     draft.cart = draft.cart.filter(function (x) { return x.key !== key; });
     saveDraft(); renderCart(); renderResults();
+  });
+  // 選錯食材（例如盒豆腐→板豆腐）：直接換成另一項，數量、單位、備註保留
+  $('cart').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-swap]');
+    if (!b) return;
+    var key = b.closest('.cart-row').getAttribute('data-key');
+    var c = draft.cart.find(function (x) { return x.key === key; });
+    if (!c) return;
+    ask('', '換過去', { noText: '取消', html: '<div class="info-check"><h3>「' + esc(c.name) + '」換成哪一項？</h3>' +
+      '<div class="muted small" style="margin-bottom:8px">數量、單位、備註會保留。</div>' +
+      '<input id="swapName" type="text" maxlength="40" list="swapItems" autocomplete="off" placeholder="打字搜尋食材總表">' +
+      '<datalist id="swapItems">' + data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist></div>' }).then(function (ok) {
+      if (!ok) return;
+      var name = $('swapName').value.trim();
+      if (!name) return;
+      var it = itemByNameExact(name);
+      if (!it) { notice('食材總表沒有「' + name + '」，請從清單選；真的沒有的話用「找不到食材？提交新食材」。'); return; }
+      it = deptSub(it);
+      var old = c.name;
+      c.id = it.id; c.name = it.name; c.vendor = it.vendor; c.isNew = false; delete c.keepNew;
+      if (!String(c.unit || '').trim()) c.unit = validUnit(it.unit);
+      saveDraft(); renderCart(); renderResults();
+      toast('「' + old + '」已換成「' + it.name + '」');
+    });
+    setTimeout(function () { var el = $('swapName'); if (el) el.focus(); }, 50);
   });
   $('clearCart').addEventListener('click', function () {
     if ((!draft.cart.length && !draft.tools.length) || !safeConfirm('確定要清空訂購清單（食材和器具）？')) return;
