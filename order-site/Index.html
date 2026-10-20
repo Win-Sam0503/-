@@ -4602,7 +4602,9 @@
           (i === 0 ? ' <span class="badge ok">最新</span>' : '') + (c.sha === cur.sha ? ' <span class="badge">網站目前</span>' : '') + '</span></div>';
       }).join('') + '</div>';
       if (updPending) {
-        html += '<div class="msg info" style="margin-top:8px">驗證碼已經傳到你的 LINE（5 分鐘內有效）。' +
+        html += '<div class="msg info" style="margin-top:8px">' + (updPending.push ? '驗證碼已經傳到你的 LINE（5 分鐘內有效）。'
+          : '請在 LINE 官方帳號（綁定管理者通知的那個聊天室）傳「<b>驗證碼</b>」三個字，系統會回覆 6 位數驗證碼（回覆不算 LINE 則數，5 分鐘內有效）。' +
+            ' <button type="button" class="btn ghost small" id="updPush">收不到？改用推播傳送（算 1 則）</button>') +
           '<div class="tpl-row" style="margin-top:6px"><div><label for="updCode">LINE 驗證碼</label><input id="updCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>' +
           '<button type="button" class="btn small" id="updConfirm">' + (updPending.action === 'update' ? '確定更新到 ' + esc(updPending.sha.slice(0, 7)) : '確定還原') + '</button>' +
           '<button type="button" class="btn ghost small" id="updCancel">取消</button></div></div>';
@@ -4633,8 +4635,15 @@
     if (b) {
       var action = b.getAttribute('data-upd'), sha = b.getAttribute('data-sha') || '';
       setBusy(b, true, '傳送驗證碼…');
-      call('adminRequestUpdateCode', token, action, sha).then(function () { updPending = { action: action, sha: sha }; renderUpdate(updInfo); setTimeout(function () { var i = $('updCode'); if (i) i.focus(); }, 50); })
+      call('adminRequestUpdateCode', token, action, sha, false).then(function () { updPending = { action: action, sha: sha }; renderUpdate(updInfo); setTimeout(function () { var i = $('updCode'); if (i) i.focus(); }, 50); })
         .catch(function (err) { msg('updMsg', 'error', err.message); setBusy(b, false); });
+      return;
+    }
+    if (e.target.id === 'updPush' && updPending) {
+      var pp = updPending;
+      setBusy(e.target, true, '傳送中…');
+      call('adminRequestUpdateCode', token, pp.action, pp.sha, true).then(function () { pp.push = true; renderUpdate(updInfo); setTimeout(function () { var i = $('updCode'); if (i) i.focus(); }, 50); })
+        .catch(function (err) { msg('updMsg', 'error', err.message); setBusy(e.target, false); });
       return;
     }
     if (e.target.id === 'updCancel') { updPending = null; renderUpdate(updInfo); return; }

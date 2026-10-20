@@ -2666,6 +2666,10 @@ function doPost(e) {
     (body.events || []).forEach(function (ev) {
       if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !lineToken) return;
       const userId = ev.source && ev.source.userId;
+      if (/^驗證碼$/.test(String(ev.message.text).trim())) {
+        const codeAns = updateCodeReply_(ev, props);
+        if (codeAns) { lineReply_(ev.replyToken, codeAns); return; }
+      }
       const m = String(ev.message.text).trim().match(/^綁定\s*(群組)?\s*(\d{6})$/);
       if (!m) {
         // 選單按鈕（我的未訂貨課程、我的訂單、截止時間說明）：免費回覆；群組裡不回
@@ -2838,7 +2842,8 @@ function updateLog_(action, version, note, result, who) {
     appendRows_('更新紀錄', [{ '時間': new Date(), '動作': action, '版本': version, '說明': String(note || '').slice(0, 200), '結果': result, '操作人': who }],
       { '時間': 'yyyy/mm/dd hh:mm' });
   } catch (e) { console.error('updateLog_ ' + e.message); }
-  linePush_(PropertiesService.getScriptProperties().getProperty('LINE_TO'), '【訂貨系統更新】' + action + '：' + result + (version ? '（' + version + '）' : '') + (note ? '\n' + note : ''));
+  // 結果在網站上和「更新紀錄」看得到，不另外推播（省 LINE 則數）；只有驗證碼錯太多次被鎖定時通知
+  if (/^拒絕/.test(String(result))) linePush_(PropertiesService.getScriptProperties().getProperty('LINE_TO'), '【訂貨系統更新】' + action + '：' + result + (version ? '（' + version + '）' : '') + (note ? '\n' + note : ''));
 }
 
 /** 管理者：更新程式的狀態（目前版本、GitHub 上的版本） */
@@ -2876,8 +2881,12 @@ function adminSaveUpdateSettings(token, ghToken, branch) {
   return adminUpdateInfo(token, b);
 }
 
-/** 管理者：要更新或還原前，先把 6 位數驗證碼傳到管理者的 LINE（5 分鐘有效） */
-function adminRequestUpdateCode(token, action, sha) {
+/**
+ * 管理者：要更新或還原前，先產生 6 位數驗證碼（5 分鐘有效）。
+ * 預設不主動推播（推播會算 LINE 則數）：管理者在綁定通知的 LINE 聊天室傳「驗證碼」，webhook 免費回覆。
+ * push = true：收不到回覆時改用推播（算 1 則）。
+ */
+function adminRequestUpdateCode(token, action, sha, push) {
   updateOwner_(token);
   const p = PropertiesService.getScriptProperties();
   if (Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) > Date.now()) throw new Error('驗證碼錯太多次，已鎖定 1 小時，請稍後再試。');
@@ -2886,11 +2895,25 @@ function adminRequestUpdateCode(token, action, sha) {
   if (!to || !p.getProperty('LINE_TOKEN')) throw new Error('要先設定 LINE 通知（自動化 → LINE 官方帳號通知），才收得到驗證碼。');
   const code = String(Math.floor(100000 + Math.random() * 900000));
   CacheService.getScriptCache().put('updCode', JSON.stringify({ code: code, action: action, sha: String(sha || ''), tries: 0 }), 300);
-  const what = action === 'update' ? '更新程式到版本 ' + String(sha || '').slice(0, 7) : '還原成上一版';
-  if (!linePush_(to, '【訂貨系統】' + what + ' 的驗證碼：' + code + '\n5 分鐘內有效。\n如果不是你按的，請不要告訴任何人，並馬上修改管理者密碼。')) {
+  if (!push) return { sent: false };
+  if (!linePush_(to, updateCodeText_(action, sha, code))) {
     throw new Error('驗證碼傳送失敗，請確認 LINE 設定或本月則數。');
   }
   return { sent: true };
+}
+
+function updateCodeText_(action, sha, code) {
+  const what = action === 'update' ? '更新程式到版本 ' + String(sha || '').slice(0, 7) : '還原成上一版';
+  return '【訂貨系統】' + what + ' 的驗證碼：' + code + '\n5 分鐘內有效。\n如果不是你按的，請不要告訴任何人，並馬上修改管理者密碼。';
+}
+
+/** LINE 傳「驗證碼」：只有綁定成管理者通知的那個聊天室（LINE_TO）會回覆，回覆不算則數 */
+function updateCodeReply_(ev, props) {
+  const src = ev.source && (ev.source.groupId || ev.source.roomId || ev.source.userId);
+  if (!src || src !== props.getProperty('LINE_TO')) return null;
+  const s = JSON.parse(CacheService.getScriptCache().get('updCode') || 'null');
+  if (!s) return '目前沒有要更新或還原的動作。請先到網站「更新程式」按「⟳ 更新到…」，再傳「驗證碼」。';
+  return updateCodeText_(s.action, s.sha, s.code);
 }
 
 function verifyUpdateCode_(action, sha, code, who) {
