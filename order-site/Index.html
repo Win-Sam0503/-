@@ -3938,7 +3938,8 @@
       '<div>' + f('pkClass', '班級', txt('pkClass', '例：301')) + '</div>' +
       '<div>' + f('pkTeacher', '老師', txt('pkTeacher')) + '</div>' +
       '<div>' + f('pkDept', '科別', txt('pkDept', '例：中餐')) + '</div>' +
-      '<div>' + f('pkPlace', '領取地點 *', '<input id="pkPlace" type="text" maxlength="20" list="pkPlaces" autocomplete="off" value="烘焙教室"><datalist id="pkPlaces"><option value="烘焙教室"><option value="中餐教室"></datalist>') + '</div>' +
+      '<div>' + f('pkPlaceSel', '領取地點 *', '<select id="pkPlaceSel"><option>烘焙教室</option><option>中餐教室</option><option value="">其他（自己填）</option></select>' +
+        '<input id="pkPlace" type="text" class="hidden" maxlength="20" autocomplete="off" placeholder="例：西餐教室" style="margin-top:4px">') + '</div>' +
       '</div>' +
       f('pkName', '食材 *', '<input id="pkName" type="text" maxlength="40" list="pkNames" autocomplete="off" placeholder="打字搜尋食材總表，也可以自己填"><datalist id="pkNames">' +
         Object.keys(names).sort(byItemKey).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>') +
@@ -3951,14 +3952,19 @@
       var q = normNum(v('pkQty'));
       if (!v('pkDate')) { notice('請選擇日期。'); return; }
       if (!v('pkName')) { notice('請填食材。'); return; }
-      if (!v('pkPlace')) { notice('請填領取地點。'); return; }
+      var place = v('pkPlaceSel') || v('pkPlace');
+      if (!place) { notice('請填領取地點。'); return; }
       if (q === null || q === '' || !(Number(q) > 0)) { notice('數量請填大於 0 的數字。'); return; }
       msg('vendorMsg', 'info', '儲存中…');
       call('adminAddPickup', token, { date: v('pkDate'), time: v('pkTime'), className: v('pkClass'), teacher: v('pkTeacher'), dept: v('pkDept'),
-        place: v('pkPlace'), name: v('pkName'), qty: Number(q), unit: validUnit(v('pkUnit')) || v('pkUnit'), note: v('pkNote') })
+        place: place, name: v('pkName'), qty: Number(q), unit: validUnit(v('pkUnit')) || v('pkUnit'), note: v('pkNote') })
         .then(function () { $('vLoad').click(); }).catch(function (e) { msg('vendorMsg', 'error', '儲存失敗：' + e.message); });
     });
-    setTimeout(function () { var el = $('pkName'); if (el) el.focus(); }, 50);
+    setTimeout(function () {
+      var el = $('pkName'); if (el) el.focus();
+      var sel = $('pkPlaceSel');
+      if (sel) sel.addEventListener('change', function () { $('pkPlace').classList.toggle('hidden', sel.value !== ''); if (!sel.value) $('pkPlace').focus(); });
+    }, 50);
   }
   $('vendorSheets').addEventListener('click', function (e) {
     var a = e.target.closest('[data-pkadd]'), d = e.target.closest('[data-pkdel]');
