@@ -4183,8 +4183,13 @@
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
         var move = '<td class="noprint">' + (t.need ? '<button type="button" class="btn ghost small" data-pmoveall="' + esc(t.name) + '" title="這家沒有賣，這段期間所有班的「' + esc(t.name) + '」都改跟別家叫">全部換廠商</button>' : '') + '</td>';
         var ov = list[0] && (pState.overrides || []).filter(function (o) { return o.vendor === list[0].vendor && (o.group || '') === (list[0].group || '') && o.name === t.name; })[0];
-        return '<tr' + cls + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
-          (ov ? ' <span class="badge warn noprint" title="在 ③ 叫貨單直接改過合計，給廠商的是這個數字">叫貨單改成 ' + esc(Number(ov.qty) > 0 ? fmtQty(ov.qty) + ' ' + ov.unit : '不叫') + '</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td>' + move + '</tr>';
+        var shown = !ov ? esc(fmtTotal(t.qty, t.unit, t.name))
+          : Number(ov.qty) > 0 ? (function (cv) { return esc(fmtTotal(cv.qty, cv.unit, t.name)); })(convertUnit(Number(ov.qty), ov.unit, ov.vendor, t.name, true)) : '不叫';
+        var edit = '<button type="button" class="btn ghost small noprint" data-povr="' + esc(t.name) + '" title="直接改這段期間的合計（各班明細不變）">改合計</button>' +
+          (ov ? '<button type="button" class="btn ghost small noprint" data-povrreset="' + esc(t.name) + '">恢復</button>' : '');
+        return '<tr' + (ov ? ' class="p-diff"' : cls) + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
+          (ov ? ' <span class="badge warn noprint" title="直接改過合計，給廠商的是這個數字">已改（各班加總 ' + esc(fmtTotal(t.qty, t.unit, t.name)) + '）</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + shown + '</td>' +
+          move.replace('<td class="noprint">', '<td class="noprint" style="white-space:nowrap">' + edit) + '</tr>';
       }).join('') + '</tbody></table>';
   }
   function vStateText(v) {
@@ -4298,6 +4303,36 @@
     });
     return r;
   }
+  // ② 合計表直接改「實際叫貨合計」：存成類型「合計」的叫貨紀錄（跟 ③ 改合計一樣），按儲存／確定叫貨才存進去
+  function pOverride(b) {
+    var day = b.closest('.ptot-wrap').getAttribute('data-pday').split('|'), v = day[0], dk = day.slice(1).join('|');
+    var name = b.getAttribute('data-povr') || b.getAttribute('data-povrreset');
+    var same = function (o) { return o.vendor === v && (o.group || '') === dk && o.name === name; };
+    var done = function () { pRefresh({ vendor: v, group: dk }); };
+    if (b.hasAttribute('data-povrreset')) {
+      pState.overrides = (pState.overrides || []).filter(function (o) { return !same(o); });
+      done(); toast('「' + name + '」恢復成各班加總，記得按儲存或確定叫貨。');
+      return;
+    }
+    var lines = pState.rows.filter(function (r) { return r.vendor === v && (r.group || '') === dk && r.name === name; });
+    var tot = sumLines(lines, 'qty', 'unit', true), cur = (pState.overrides || []).filter(same)[0];
+    var u0 = cur ? cur.unit : tot.length === 1 ? tot[0].unit : '', q0 = cur ? cur.qty : tot.length === 1 ? tot[0].qty : '';
+    if (u0 === '兩') { u0 = '斤'; q0 = Math.round(q0 / 16 * 100) / 100; } else if (u0 === 'g' && q0 !== '') q0 = Math.ceil(q0 - 1e-6);
+    ask('', '套用', { noText: '取消', html: '<div class="info-check"><h3>' + esc(v) + '「' + esc(name) + '」實際叫貨合計</h3>' +
+      '<div class="muted small" style="margin-bottom:8px">各班加總：' + esc(tot.map(function (x) { return fmtTotal(x.qty, x.unit, name); }).join('＋') || '沒有') +
+      '。直接改合計，給廠商的叫貨單用這個數字，各班明細不變；不叫填 0。</div>' +
+      '<div style="display:flex;gap:8px"><input id="tQty" type="text" value="' + esc(String(q0)) + '" style="flex:1" autocomplete="off"><input id="tUnit" type="text" class="unit-input" data-free="1" maxlength="10" autocomplete="off" placeholder="單位" style="width:110px" value="' + esc(u0) + '"></div></div>' }).then(function (ok) {
+      if (!ok) return;
+      var nq = normNum($('tQty').value), nu = validUnit($('tUnit').value) || $('tUnit').value.trim();
+      if (nq === null || nq === '' || !(Number(nq) >= 0)) { notice('請填數字，例如 3、1.5（不叫填 0）。'); return; }
+      if (Number(nq) > 0 && !nu) { notice('請填單位。'); return; }
+      var base = lines[0] || pState.rows.filter(function (r) { return r.vendor === v && (r.group || '') === dk; })[0] || {};
+      pState.overrides = (pState.overrides || []).filter(function (o) { return !same(o); });
+      pState.overrides.push({ date: base.date || pState.from, group: dk, vendor: v, name: name, id: base.id || '', qty: Number(nq), unit: nu, kind: '合計', note: '' });
+      done(); toast('「' + name + '」合計改成 ' + (Number(nq) > 0 ? fmtQty(Number(nq)) + ' ' + nu : '不叫') + '，記得按儲存或確定叫貨。');
+    });
+    setTimeout(function () { var el = $('tQty'); if (el) { el.focus(); el.select(); } }, 50);
+  }
   function vBox(v, attr) { return Array.prototype.filter.call($('vendorSheets').querySelectorAll('[' + attr + ']'), function (el) { return el.getAttribute(attr) === v; })[0]; }
   function pRefresh(r) {
     var box = vBox(r.vendor + '|' + (r.group || ''), 'data-pday');
@@ -4334,6 +4369,7 @@
     if (!pState) return;
     var t = e.target, b;
     if ((b = t.closest('[data-padd]'))) { var p = b.getAttribute('data-padd').split('|'); pAdd(p[0], p[1], p[2]); return; }
+    if ((b = t.closest('[data-povr],[data-povrreset]'))) { pOverride(b); return; }
     if ((b = t.closest('[data-pmove]'))) { pMove([pState.rows[Number(b.getAttribute('data-pmove'))]]); return; }
     if ((b = t.closest('[data-pmoveall]'))) {
       var pv = b.closest('.vedit').getAttribute('data-vendor'), pn = b.getAttribute('data-pmoveall');
