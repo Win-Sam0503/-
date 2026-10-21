@@ -2436,7 +2436,7 @@ function deleteTemplateRows_(account, name) {
 // =====================================================================
 //
 // 第一次使用：在 Apps Script 編輯器選函式「setupAutomation」按「執行」並授權，
-// 之後就會每週一中午、每天早上自動執行。也可以在網站「廠商訂貨單」頁管理。
+// 之後就會每週一中午、每天早上自動執行。也可以在網站「系統設定」頁管理。
 
 const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance', 'remindTeachers'];
 

@@ -361,6 +361,28 @@
   .mode-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 14px; }
   .tot { font-size: 12px; color: var(--info); margin-top: 2px; white-space: nowrap; }
   .unit-pop .opt.add { color: var(--info); border-top: 1px dashed var(--line); }
+  .vhelp { display: inline-block; font-size: 14px; font-weight: normal; margin-left: 8px; vertical-align: middle; }
+  .vhelp summary { cursor: pointer; color: var(--brand); font-weight: 600; }
+  .vhelp[open] > div { position: absolute; z-index: 30; max-width: min(640px, 90vw); background: var(--card, #fff); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.15); line-height: 1.7; }
+  .vweek { margin: 0 0 6px; }
+  .vsteps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 4px; }
+  .vsteps button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff; cursor: pointer; font-size: 16px; color: inherit; }
+  .vsteps button span { font-size: 12px; color: var(--muted); }
+  .vsteps button.on { border-color: var(--brand); background: var(--brand); color: #fff; }
+  .vsteps button.on span { color: #fde; }
+  @media (max-width: 640px) { .vsteps { grid-template-columns: repeat(2, 1fr); } }
+  .vact { align-items: center; flex-wrap: wrap; }
+  .vprint-opt { margin-right: auto; }
+  .vprint-opt summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 14px; }
+  .vprint-opt[open] { flex-basis: 100%; }
+  .vtabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .vtabs button { border: 1.5px solid var(--line); background: #fff; border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 14px; color: inherit; }
+  .vtabs button.on { border-color: var(--brand); color: var(--brand); font-weight: 700; }
+  .vtabs .st { font-size: 12px; margin-left: 4px; }
+  .vtabs .st.ok { color: #067647; } .vtabs .st.draft { color: #b54708; } .vtabs .st.dirty { color: #b42318; } .vtabs .st.none { color: var(--muted); }
+  .vpage.vtab-hide { display: none; }
+  .vfold { float: right; }
+  @media screen { .vpage.vcollapsed > :not(h1):not(.vfold):not(.vstate) { display: none; } .vpage.vcollapsed { padding-bottom: 8px; } }
   .vpage { background: #fff; color: #000; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
   .vpage h1 { font-size: 20px; margin: 0; text-align: center; }
   .vpage .vsub { text-align: center; color: #444; margin: 2px 0 12px; }
@@ -445,6 +467,7 @@
     body { background: #fff; }
     #viewLogin, #app > header, .noprint, #globalMsg, #watermark, .copyright { display: none !important; }
     .vpage { border: 0; border-radius: 0; padding: 0; margin: 0; page-break-after: always; }
+    .vtabs, .vfold { display: none !important; }
     .vpage:last-child { page-break-after: auto; }
     .vedit input, .vedit select { border: 0 !important; background: none !important; padding: 0 !important; -webkit-appearance: none; appearance: none; color: #000; }
     .vedit .ptable table { min-width: 0; }
@@ -508,6 +531,7 @@
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
+        <button type="button" data-view="viewSettings" class="admin-only hidden">系統設定</button>
         <button type="button" data-view="viewPassword">改密碼</button>
         <button type="button" id="helpBtn" data-help title="怎麼操作？看教學影片">▶ 教學</button>
         <button type="button" id="logoutBtn">登出</button>
@@ -774,34 +798,43 @@
     <!-- 管理者：廠商訂貨單 -->
     <section id="viewVendor" class="hidden">
       <div class="panel noprint">
-        <h2>廠商訂貨單</h2>
+        <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>上面的廠商籤可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
+        <div class="vweek status-chips" id="vWeeks"><button type="button" data-vw="0">本週</button><button type="button" data-vw="1">下週</button><button type="button" data-vw="2">下下週</button></div>
         <div class="grid2">
           <div><label for="vFrom">上課日期（起）</label><input id="vFrom" type="date"></div>
           <div><label for="vTo">上課日期（迄）</label><input id="vTo" type="date"></div>
           <div><label for="vVendor">廠商</label><select id="vVendor"></select></div>
-          <div><label for="vKind">要產生</label><select id="vKind">
-            <option value="deduct">① 扣貨單（給學生手寫庫存、實際叫貨）</option>
-            <option value="order">② 訂貨單（直接改實際叫貨量、儲存、確定）</option>
-            <option value="purchase">③ 叫貨單（給廠商，只有實際叫貨量）</option>
-            <option value="pickup">④ 跨教室領料單（中餐課到烘焙教室拿的、烘焙課到中餐教室拿的）</option>
-          </select></div>
-          <div id="vPartWrap"><label for="vPart">列印內容</label><select id="vPart">
-            <option value="sum">只有合計</option>
-            <option value="detail">只有各班明細</option>
-            <option value="both">合計＋各班明細（分開兩頁）</option>
-          </select></div>
         </div>
-        <div class="actions">
-          <button type="button" class="btn secondary" id="vLoad">產生</button>
+        <div class="vsteps" id="vSteps">
+          <button type="button" data-vk="deduct"><b>① 扣貨單</b><span>給學生扣庫存</span></button>
+          <button type="button" data-vk="order"><b>② 訂貨單</b><span>改實際叫貨、確定</span></button>
+          <button type="button" data-vk="purchase"><b>③ 叫貨單</b><span>給廠商</span></button>
+          <button type="button" data-vk="pickup"><b>④ 領料單</b><span>跨教室</span></button>
+        </div>
+        <select id="vKind" class="hidden" aria-hidden="true" tabindex="-1">
+          <option value="deduct">① 扣貨單</option><option value="order">② 訂貨單</option><option value="purchase">③ 叫貨單</option><option value="pickup">④ 跨教室領料單</option>
+        </select>
+        <div class="actions vact">
+          <details class="vprint-opt"><summary>列印設定</summary>
+            <div id="vPartWrap"><label for="vPart">列印內容</label><select id="vPart">
+              <option value="sum">只有合計</option>
+              <option value="detail">只有各班明細</option>
+              <option value="both">合計＋各班明細（分開兩頁）</option>
+            </select></div>
+            <div class="status-chips" id="vSize" style="margin:8px 0 0;align-items:center"><span class="muted small">字體大小：</span><button type="button" data-size="13">小</button><button type="button" data-size="14">中</button><button type="button" data-size="17">大</button><button type="button" data-size="20">特大</button></div>
+          </details>
+          <button type="button" class="btn ghost small" id="vLoad">↻ 重新產生</button>
           <button type="button" class="btn" id="vPrint" disabled>列印</button>
         </div>
-        <div class="muted small" style="margin-bottom:6px">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，直接改每班的實際叫貨量，每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商。</div>
-        <div class="status-chips" id="vSize" style="margin:0 0 8px;align-items:center"><span class="muted small">字體大小：</span><button type="button" data-size="13">小</button><button type="button" data-size="14">中</button><button type="button" data-size="17">大</button><button type="button" data-size="20">特大</button></div>
-        <div class="muted small">每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印內容」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。</div>
       </div>
       <div id="vendorMsg" class="noprint"></div>
+      <div id="vTabs" class="vtabs noprint hidden"></div>
       <div id="vendorSheets"></div>
 
+    </section>
+
+    <!-- 管理者：系統設定（自動化、管理者帳號、網址、LINE、更新程式） -->
+    <section id="viewSettings" class="hidden">
       <div class="panel noprint" id="autoPanel">
         <h2>自動化 <button type="button" class="btn ghost small" id="aReload">重新整理</button></h2>
         <div id="autoMsg"></div>
@@ -1269,7 +1302,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -1287,13 +1320,8 @@
     }
     if (view === 'viewPending') { fillAddItemForm(); loadPending(note); }
     if (view === 'viewPassword') resetPwForm();
-    if (view === 'viewVendor') loadAuto();
-    if (view === 'viewVendor' && !$('vFrom').value) {
-      // 預設：下週一到下週五
-      var t = new Date(), mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() + (8 - t.getDay()) % 7 + (t.getDay() === 1 ? 7 : 0));
-      var fri = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4);
-      $('vFrom').value = isoDate(mon); $('vTo').value = isoDate(fri);
-    }
+    if (view === 'viewSettings') loadAuto();
+    if (view === 'viewVendor' && !$('vFrom').value) setVendorWeek(1);   // 預設：下週一到下週五
   }
 
   // 離開訂單彙整時，還有已審核但沒列印的料單就提醒
@@ -3705,6 +3733,76 @@
       .then(function () { setBusy(btn, false); });
   });
   $('vPrint').addEventListener('click', function () { window.print(); });
+  // 日期快速鍵：本週／下週／下下週（星期一到星期五）
+  function setVendorWeek(n) {
+    var t = new Date(), mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() - (t.getDay() + 6) % 7 + 7 * n);
+    $('vFrom').value = isoDate(mon); $('vTo').value = isoDate(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4));
+    Array.prototype.forEach.call($('vWeeks').querySelectorAll('button'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-vw')) === n); });
+  }
+  $('vWeeks').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-vw]');
+    if (!b) return;
+    setVendorWeek(Number(b.getAttribute('data-vw')));
+    if ($('vendorSheets').innerHTML) $('vLoad').click();
+  });
+  ['vFrom', 'vTo'].forEach(function (id) { $(id).addEventListener('change', function () { Array.prototype.forEach.call($('vWeeks').querySelectorAll('button'), function (b) { b.classList.remove('on'); }); }); });
+  // ①②③④ 步驟按鈕：點一下就產生
+  function syncSteps() {
+    Array.prototype.forEach.call($('vSteps').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-vk') === $('vKind').value && !!$('vendorSheets').innerHTML); });
+  }
+  $('vSteps').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-vk]');
+    if (!b) return;
+    $('vKind').value = b.getAttribute('data-vk');
+    $('vKind').dispatchEvent(new Event('change'));
+    $('vLoad').click();
+  });
+  // 廠商籤：只看某一家（列印也只印那一家）；每家可以收合
+  var vTabSel = '', vFolded = {};
+  function vPageKey(pg) {
+    var h = pg.querySelector('h1');
+    return pg.getAttribute('data-vendor') || (h ? h.textContent.trim().split(/\s+/)[0] : '');
+  }
+  function buildVendorTabs() {
+    var pages = Array.prototype.slice.call($('vendorSheets').querySelectorAll('.vpage')), keys = [], st = {};
+    pages.forEach(function (pg) {
+      var k = vPageKey(pg);
+      if (!k) return;
+      if (keys.indexOf(k) < 0) keys.push(k);
+      var vs = pg.querySelector('.vstate');
+      if (vs) st[k] = /有修改還沒儲存/.test(vs.textContent) ? ['dirty', '未存'] : /已確定叫貨/.test(vs.textContent) ? ['ok', '✓'] : /草稿/.test(vs.textContent) ? ['draft', '草稿'] : ['none', '未存'];
+      if (!pg.querySelector(':scope > .vfold')) pg.insertAdjacentHTML('afterbegin', '<button type="button" class="btn ghost small vfold noprint"></button>');
+      var folded = !!vFolded[k];
+      pg.classList.toggle('vcollapsed', folded);
+      var fb = pg.querySelector(':scope > .vfold'), ft = folded ? '展開' : '收合';
+      if (fb.textContent !== ft) fb.textContent = ft;
+    });
+    if (keys.indexOf(vTabSel) < 0) vTabSel = '';
+    pages.forEach(function (pg) { pg.classList.toggle('vtab-hide', !!vTabSel && vPageKey(pg) !== vTabSel); });
+    var box = $('vTabs');
+    box.classList.toggle('hidden', keys.length < 2);
+    box.innerHTML = keys.length < 2 ? '' : '<button type="button" data-vt=""' + (vTabSel ? '' : ' class="on"') + '>全部（' + keys.length + '）</button>' +
+      keys.map(function (k) {
+        return '<button type="button" data-vt="' + esc(k) + '"' + (k === vTabSel ? ' class="on"' : '') + '>' + esc(k) + (st[k] ? '<span class="st ' + st[k][0] + '">' + st[k][1] + '</span>' : '') + '</button>';
+      }).join('');
+    syncSteps();
+  }
+  var vTabTimer = null;
+  new MutationObserver(function () { clearTimeout(vTabTimer); vTabTimer = setTimeout(buildVendorTabs, 60); })
+    .observe($('vendorSheets'), { childList: true, subtree: true, characterData: true });
+  $('vTabs').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-vt]');
+    if (!b) return;
+    vTabSel = b.getAttribute('data-vt');
+    buildVendorTabs();
+  });
+  $('vendorSheets').addEventListener('click', function (e) {
+    var b = e.target.closest('.vfold');
+    if (!b) return;
+    var k = vPageKey(b.closest('.vpage'));
+    vFolded[k] = !vFolded[k];
+    buildVendorTabs();
+  });
   // 字體大小：畫面和列印都跟著變，記在這台電腦
   function setVendorSize(px) {
     $('vendorSheets').style.setProperty('--vfs', px + 'px');
@@ -4205,8 +4303,8 @@
     var st = pState;
     var groups = byVendorBatch(st.rows.map(function (r, i) { r.i = i; return r; }), st.only);
     var html = (st.wait ? '<div class="msg warn noprint">這段期間還有 ' + st.wait + ' 張「待處理」（未審核）的訂單，確定叫貨後也會改成「已叫貨」。</div>' : '') +
-      '<div class="muted small noprint" style="margin-bottom:10px">照學生交回的扣貨單，在每一班的「實際叫貨」填要跟廠商叫的量（預設＝老師訂的）。填 0 代表不叫、用庫存；單位可以改。合計會自動重算。' +
-      '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。畫面上合計、明細都會顯示方便修改，列印時照上面的「列印內容」。</div>' +
+      '<details class="vhelp noprint" style="margin:0 0 8px"><summary>？② 怎麼填</summary><div class="muted small">照學生交回的扣貨單，在每一班的「實際叫貨」填要跟廠商叫的量（預設＝老師訂的）。填 0 代表不叫、用庫存；單位可以改。合計會自動重算。' +
+      '每家廠商下面可以「先儲存（草稿）」或「確定叫貨」，一家一家處理也可以。畫面上合計、明細都會顯示方便修改，列印時照「列印設定」的「列印內容」。</div></details>' +
       '<div class="noprint pfind-bar"><input id="pFind" type="search" placeholder="🔍 找食材，例如：乳酪絲" autocomplete="off" value="' + esc(st.find || '') + '">' +
       '<button type="button" class="btn ghost small" id="pFindPrev">上一筆</button><button type="button" class="btn ghost small" id="pFindNext">下一筆</button><span id="pFindInfo" class="muted small"></span></div>';
     Object.keys(groups).sort().forEach(function (v) {
