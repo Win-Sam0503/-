@@ -984,6 +984,11 @@
       <div class="panel" id="aliasPanel">
         <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
         <div class="muted small">只有「完全一樣」的字才會換；同一個叫法對到兩種以上食材（標 ⚠）就不自動換，讓老師自己選。學錯了按 ✕ 刪掉（存在食材總表的「別名」欄）。</div>
+        <div class="tpl-row" style="margin-top:8px">
+          <div><label for="alName">食材（正式名稱）</label><input id="alName" type="text" list="alItems" autocomplete="off" placeholder="例如：細砂糖"><datalist id="alItems"></datalist></div>
+          <div><label for="alText">老師可能的叫法（可以填好幾個，用逗號分開）</label><input id="alText" type="text" autocomplete="off" placeholder="例如：砂糖, 細糖, 糖"></div>
+          <button type="button" class="btn secondary small" id="alAdd">新增叫法</button>
+        </div>
         <div id="aliasMsg"></div>
         <details id="aliasBox" style="margin-top:8px"><summary id="aliasSum" style="cursor:pointer">展開清單</summary>
           <input id="aliasFind" type="search" placeholder="找食材或叫法，例如：糖" style="margin:8px 0;max-width:280px" autocomplete="off">
@@ -3089,7 +3094,23 @@
       el.classList.toggle('hidden', !!q && el.getAttribute('data-afind').indexOf(q) < 0);
     });
   });
+  $('alAdd').addEventListener('click', function () {
+    var n = $('alName').value.trim(), t = $('alText').value.trim(), b = this;
+    if (!n || !t) { msg('aliasMsg', 'error', '請填食材和叫法。'); return; }
+    setBusy(b, true, '新增中…');
+    call('adminAddAliases', token, n, t).then(function (r) {
+      renderAliases(r.list);
+      var parts = [];
+      if (r.added.length) parts.push('已新增「' + n + '」的叫法：' + r.added.join('、') + '，老師打這些字就會找到「' + n + '」。');
+      if (r.shared.length) parts.push('⚠ ' + r.shared.join('；') + '，兩項都有的叫法不會自動換，老師要自己選。');
+      if (r.skipped.length) parts.push('沒有加：' + r.skipped.join('；') + '。');
+      msg('aliasMsg', r.added.length ? 'ok' : 'warn', parts.join(' '));
+      if (r.added.length) { $('alText').value = ''; refreshItems(); }
+    }).catch(function (e) { msg('aliasMsg', 'error', e.message); })
+      .then(function () { setBusy(b, false); });
+  });
   function loadAliases() {
+    $('alItems').innerHTML = (data.items || []).map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('');
     $('aliasList').innerHTML = '<span class="muted">載入中…</span>';
     call('adminGetAliases', token).then(renderAliases).catch(function (e) { msg('aliasMsg', 'error', e.message); });
   }

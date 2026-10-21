@@ -2294,6 +2294,42 @@ function adminGetAliases(token) {
   return { ok: true, list: list.sort(function (a, b) { return a.name.localeCompare(b.name, 'zh-Hant'); }) };
 }
 
+/**
+ * 管理者：自己新增叫法（例如細砂糖 ← 砂糖、細糖、糖），老師打這些字會直接找到這項。
+ * 叫法本身是另一個正式食材的名稱就不加（要用「食材改名／合併」）；已經是別的食材的叫法會加，但會提醒（兩項都有就不自動換）。
+ */
+function adminAddAliases(token, name, text) {
+  auth_(token, true);
+  name = clean_(name, 40);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  const out = { added: [], skipped: [], shared: [] };
+  try {
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+    if (t.cols['別名'] === undefined) throw new Error('食材總表沒有「別名」欄。');
+    const live = t.rows.filter(function (x) { return x['啟用'] === undefined || isTrue_(x['啟用']); });
+    const r = live.find(function (x) { return String(x['食材名稱']).trim() === name; });
+    if (!r) throw new Error('食材總表沒有「' + name + '」（或已停用），請從清單選正式名稱。');
+    const id = String(r['食材ID']).trim();
+    const list = String(text || '').split(/[,，、;；\s]+/).map(function (x) { return clean_(x, 40); }).filter(Boolean)
+      .filter(function (x, i, a) { return a.indexOf(x) === i; });
+    if (!list.length) throw new Error('請填要新增的叫法。');
+    list.forEach(function (a) {
+      if (learnKey_(a) === learnKey_(name)) { out.skipped.push(a + '（就是正式名稱）'); return; }
+      const other = live.find(function (x) { return x !== r && learnKey_(x['食材名稱']) === learnKey_(a); });
+      if (other) { out.skipped.push(a + '（是另一項食材的名稱，請用「食材改名／合併」把「' + a + '」合併到「' + name + '」）'); return; }
+      const also = live.filter(function (x) { return x !== r && String(x['別名'] || '').split(/[,，、]+/).some(function (y) { return learnKey_(y) === learnKey_(a); }); })
+        .map(function (x) { return String(x['食材名稱']).trim(); });
+      if (addAlias_(id, a)) { out.added.push(a); if (also.length) out.shared.push(a + '（「' + also.join('、') + '」也有這個叫法）'); }
+      else out.skipped.push(a + '（已經有了）');
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  out.list = adminGetAliases(token);
+  return out;
+}
+
 /** 管理者：刪掉一個學錯的叫法 */
 function adminRemoveAlias(token, id, alias) {
   auth_(token, true);
