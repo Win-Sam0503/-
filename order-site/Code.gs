@@ -1465,7 +1465,7 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm, quiet) {
       '<p>' + escHtml_(admin) + ' 已確定 ' + escHtml_(range) + ' 的叫貨。</p><p>' + escHtml_(line) + '</p>' +
         (changedOrders ? '<p>' + changedOrders + ' 張訂單的廠商都確定了，改成「已叫貨」。</p>' : '') +
         '<p>明細在試算表「' + SHEET.purchase + '」分頁。</p>',
-      '【叫貨確定】' + range + '\n' + line + (changedOrders ? '\n' + changedOrders + ' 張訂單改成「已叫貨」' : ''));
+      null /* 只寄 Email，不傳 LINE（省則數）*/);
   } catch (e) { console.error(e.message); }
   return { saved: out.length, orders: changedOrders, notify: notify, status: status };
 }
@@ -3074,7 +3074,9 @@ function notify_(subject, html, lineText) {
   }
   const props = PropertiesService.getScriptProperties();
   const lineToken = props.getProperty('LINE_TOKEN'), lineTo = props.getProperty('LINE_TO');
-  if (lineToken && lineTo) {
+  if (lineText === null) {
+    out.line = '只寄 Email（不傳 LINE，省則數）';
+  } else if (lineToken && lineTo) {
     try {
       const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
         method: 'post', contentType: 'application/json', muteHttpExceptions: true,
@@ -4681,7 +4683,7 @@ function runDigest_(force) {
     edits.map(function (e) { return '<li>' + escHtml_(e.t + ' ' + e.who + ' 修改 ' + e.no + '：' + e.text) + '</li>'; }).join('') + '</ul>' : '';
   const errHtml = errors.length ? '<p><b style="color:#b91c1c">系統錯誤 ' + errors.length + ' 筆</b>（試算表「錯誤紀錄」分頁有完整紀錄）</p><ul>' +
     errors.slice(-20).map(function (e) { return '<li>' + escHtml_(e.time + ' ' + e.account + ' ' + e.fn + '：' + e.message) + '</li>'; }).join('') + '</ul>' : '';
-  const n = notify_('【訂貨每日摘要】' + day + '：新訂單 ' + newOrders.length + ' 張' + (edits.length ? '、修改 ' + edits.length + ' 張' : '') + (errors.length ? '、系統錯誤 ' + errors.length + ' 筆' : ''), html + editHtml + errHtml, lineText);
+  const n = notify_('【訂貨每日摘要】' + day + '：新訂單 ' + newOrders.length + ' 張' + (edits.length ? '、修改 ' + edits.length + ' 張' : '') + (errors.length ? '、系統錯誤 ' + errors.length + ' 筆' : ''), html + editHtml + errHtml, null);   // 只寄 Email，不傳 LINE（省則數）
   props.setProperty('DIGEST_LAST', String(now.getTime()));
   props.deleteProperty('ORDER_EDITS');
   return { sent: true, newOrders: newOrders.length, pendItems: pendItems, pendUnits: pendUnits, errors: errors.length, notify: n };
