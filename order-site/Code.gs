@@ -3111,6 +3111,13 @@ function runMaintenance_() {
   }
   if (!out.error) {
     try {
+      out.pendArchived = archivePendingReviews_();
+    } catch (e) {
+      out.pendError = '待審核食材紀錄封存失敗：' + e.message;   // 不影響其他維護
+    }
+  }
+  if (!out.error) {
+    try {
       out.history = exportHistoryMonths_();
     } catch (e) {
       out.error = '歷史訂單存檔失敗：' + e.message;
@@ -3119,6 +3126,8 @@ function runMaintenance_() {
   const lines = [];
   if (out.backup) lines.push('已備份試算表（保留最近 ' + BACKUP_KEEP + ' 份' + (out.backup.removed ? '，刪除 ' + out.backup.removed + ' 份舊備份' : '') + '）');
   if (!out.error) lines.push(out.orders ? '已把 ' + out.orders + ' 張舊訂單（上課日期 ' + out.before + ' 以前）搬到「' + SHEET.history + '」' : '沒有需要封存的舊訂單');
+  if (out.pendArchived) lines.push('已把 ' + out.pendArchived.rows + ' 筆審核完超過 ' + PENDING_KEEP_DAYS + ' 天的「待審核食材」紀錄搬到雲端硬碟「' + HISTORY_FOLDER_NAME + '」的「' + PENDING_ARCHIVE_NAME + '」');
+  if (out.pendError) lines.push('⚠ ' + out.pendError);
   if (out.history) lines.push.apply(lines, historyLines_(out.history));
   if (out.error) lines.push('⚠ ' + out.error);
   const text = lines.join('；');
@@ -3131,6 +3140,47 @@ function runMaintenance_() {
     '【每週維護】\n' + lines.join('\n'));
   out.text = text;
   return out;
+}
+
+// ---- 待審核食材：審核完（已核准、已對應、已退回）超過 PENDING_KEEP_DAYS 天的紀錄，搬到雲端硬碟的「待審核食材紀錄」檔案 ----
+const PENDING_KEEP_DAYS = 30;
+const PENDING_ARCHIVE_NAME = '待審核食材紀錄';
+function archivePendingReviews_() {
+  const sh = ss_().getSheetByName(SHEET.pending);
+  if (!sh || sh.getLastRow() < 2) return null;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const t = readTable_(SHEET.pending, ['食材名稱', '審核狀態']);
+    const cut = addDays_(today_(), -PENDING_KEEP_DAYS);
+    const old = t.rows.filter(function (r) {
+      const st = String(r['審核狀態'] || '').trim(), d = r['新增時間'] instanceof Date ? r['新增時間'] : null;
+      return st && st !== '待審核' && d && d < cut;
+    });
+    if (!old.length) return null;
+    const lastCol = sh.getLastColumn();
+    const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    const raw = sh.getRange(1, 1, sh.getLastRow(), lastCol).getValues();
+    const props = PropertiesService.getScriptProperties();
+    let file = null;
+    const id = props.getProperty('PEND_ARCHIVE_ID');
+    if (id) { try { file = SpreadsheetApp.openById(id); } catch (e) { file = null; } }
+    if (!file) {
+      file = SpreadsheetApp.create(PENDING_ARCHIVE_NAME);
+      DriveApp.getFileById(file.getId()).moveTo(folderNamed_(HISTORY_FOLDER_NAME));
+      file.getSheets()[0].getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
+      file.getSheets()[0].setFrozenRows(1);
+      props.setProperty('PEND_ARCHIVE_ID', file.getId());
+    }
+    const dst = file.getSheets()[0];
+    const vals = old.map(function (r) { return raw[r._row - 1]; });
+    dst.getRange(dst.getLastRow() + 1, 1, vals.length, header.length).setValues(vals);
+    SpreadsheetApp.flush();
+    deleteRows_(sh, old.map(function (r) { return r._row; }));   // 先寫進紀錄檔，成功了才刪
+    return { rows: old.length, url: file.getUrl() };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ---- 歷史訂單：每個月存成一個試算表，放在雲端硬碟「三信家商餐飲科歷史訂單」資料夾 ----
