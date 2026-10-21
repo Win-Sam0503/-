@@ -1445,7 +1445,7 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm, quiet) {
 }
 
 /** 管理者退單給老師：整張取消，LINE 告訴老師退單原因，請老師用「再訂一次」修改後重新送出 */
-function adminReturnOrder(token, orderNo, reason) {
+function adminReturnOrder(token, orderNo, reason, notify) {
   const admin = auth_(token, true);
   orderNo = String(orderNo || '').trim();
   reason = clean_(reason, 100);
@@ -1454,7 +1454,7 @@ function adminReturnOrder(token, orderNo, reason) {
     if (rows.every(function (r) { return String(r['狀態']).trim() === '已取消'; })) throw new Error('這張訂單已經取消了。');
   }, null);
   try { logOrderEdit_(orderNo, admin, ['退單'], reason); } catch (e) { console.error(e.message); }
-  return { ok: true, notify: notifyTeacherOfEdit_(orderNo, admin, ['退單'], reason, 'return') };
+  return { ok: true, notify: notify === false ? '沒有通知老師。' : notifyTeacherOfEdit_(orderNo, admin, ['退單'], reason, 'return') };
 }
 
 /**
