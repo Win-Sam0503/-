@@ -3348,7 +3348,7 @@ function historySheet_(ordersSheet) {
 
 /** 刪除多列（連續的列一次刪），從下往上刪列號才不會跑掉。 */
 function deleteRows_(sh, rows) {
-  bootDirty_(sh.getName());
+  try { bootDirty_(sh.getName()); } catch (e) {}
   rows = rows.slice().sort(function (a, b) { return b - a; });
   // 試算表至少要留一列沒凍結的列
   if (sh.getMaxRows() - sh.getFrozenRows() <= rows.length) sh.insertRowsAfter(sh.getMaxRows(), 1);
@@ -4831,7 +4831,7 @@ function appendRows_(name, objs, formats) {
 function setCell_(table, row, header, value) {
   const c = table.cols[header];
   if (c === undefined) throw new Error('分頁缺少「' + header + '」欄位。');
-  bootDirty_(table.sheet.getName());
+  try { bootDirty_(table.sheet.getName()); } catch (e) {}
   table.sheet.getRange(row, c).setValue(value);
 }
 
