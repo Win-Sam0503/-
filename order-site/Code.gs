@@ -140,11 +140,11 @@ function doGet(e) {
   // 一鍵更新後的自動測試：程式讀得到、畫面產生得出來就回 OK（不含任何資料）
   if (e && e.parameter && e.parameter.health) {
     let ok = false;
-    try { ok = HtmlService.createTemplateFromFile('Index').evaluate().getContent().length > 1000; } catch (err) { ok = false; }
+    try { ok = HtmlService.createHtmlOutputFromFile('Index').getContent().length > 1000; } catch (err) { ok = false; }
     return ContentService.createTextOutput(ok ? 'ORDER_SITE_OK' : 'ORDER_SITE_FAIL');
   }
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  // 網頁沒有用到範本語法，直接送出（不經過範本處理，比較快）
+  return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle(SITE_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     // 「加到主畫面」後像 App 一樣全螢幕打開（Apps Script 不允許設定主畫面名稱，加的時候可以自己改）
@@ -332,6 +332,34 @@ function auth_(token, needAdmin, allowMustChange) {
 // =====================================================================
 
 /** 登入後一次載入網站需要的資料。 */
+// 打開網站時要讀的、不常變的資料（老師名單、單位、科別替換、廠商聯絡、放假日）：暫存 5 分鐘，
+// 網站上改到這幾張分頁時自動清掉（appendRows_／setCell_／deleteRows_）；直接在試算表改的，最慢 5 分鐘後生效
+const BOOT_CACHE_KEY = 'boot:static:v1';
+const BOOT_SHEETS = ['帳號設定', '單位', '科別替換', '廠商聯絡', '放假日'];
+function bootStatic_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(BOOT_CACHE_KEY);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  const u = unitLists_();
+  const st = {
+    teachers: readTable_(SHEET.accounts, ['帳號', '啟用']).rows
+      .filter(function (r) { return isTrue_(r['啟用']); })
+      .map(function (r) { return String(r['帳號']).trim(); })
+      .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0; }),
+    units: { order: u.order, recipe: u.recipe, pending: u.pending },
+    deptSubs: readDeptSubs_(),
+    missingSetup: missingSetup_(),
+    vendorContacts: readVendorContacts_(),
+    holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
+  };
+  try { const j = JSON.stringify(st); if (j.length < 90000) cache.put(BOOT_CACHE_KEY, j, 300); } catch (e) {}
+  return st;
+}
+function bootDirty_(name) {
+  if (BOOT_SHEETS.indexOf(String(name)) < 0) return;
+  try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
+}
+
 function getBootstrap(token) {
   const account = auth_(token);
   const items = cachedItems_();
@@ -339,10 +367,8 @@ function getBootstrap(token) {
   items.forEach(function (it) { if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor); });
   vendors.sort();
 
-  const teachers = readTable_(SHEET.accounts, ['帳號', '啟用']).rows
-    .filter(function (r) { return isTrue_(r['啟用']); })
-    .map(function (r) { return String(r['帳號']).trim(); })
-    .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0; });
+  const st = bootStatic_();
+  const teachers = st.teachers;
 
   const depts = DEPARTMENTS.slice();
   items.forEach(function (it) { if (it.dept !== '通用' && depts.indexOf(it.dept) < 0) depts.push(it.dept); });
@@ -365,13 +391,13 @@ function getBootstrap(token) {
     lockRule: lockRuleText_(),
     deadline: nextDeadline_(now),
     statuses: ORDER_STATUSES,
-    orderUnits: unitLists_().order,
-    recipeUnits: unitLists_().recipe,
-    pendingUnits: unitLists_().pending,
-    deptSubs: readDeptSubs_(),
-    missingSetup: isAdmin ? missingSetup_() : [],
-    vendorContacts: isAdmin ? readVendorContacts_() : {},
-    holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
+    orderUnits: st.units.order,
+    recipeUnits: st.units.recipe,
+    pendingUnits: st.units.pending,
+    deptSubs: st.deptSubs,
+    missingSetup: isAdmin ? st.missingSetup : [],
+    vendorContacts: isAdmin ? st.vendorContacts : {},
+    holidays: st.holidays,
   };
 }
 
@@ -3322,6 +3348,7 @@ function historySheet_(ordersSheet) {
 
 /** 刪除多列（連續的列一次刪），從下往上刪列號才不會跑掉。 */
 function deleteRows_(sh, rows) {
+  bootDirty_(sh.getName());
   rows = rows.slice().sort(function (a, b) { return b - a; });
   // 試算表至少要留一列沒凍結的列
   if (sh.getMaxRows() - sh.getFrozenRows() <= rows.length) sh.insertRowsAfter(sh.getMaxRows(), 1);
@@ -3527,6 +3554,7 @@ function ensureSheet_(name, headers) {
     sh = ss_().insertSheet(name);
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
+    try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}   // 「缺少分頁」提醒要重算
   }
   return sh;
 }
@@ -4776,6 +4804,7 @@ function readTable_(name, required) {
 /** 依標題名稱新增多列；formats 指定某些欄位的數字格式。 */
 function appendRows_(name, objs, formats) {
   if (!objs.length) return;
+  bootDirty_(name);
   const sh = sheet_(name);
   const lastCol = Math.max(sh.getLastColumn(), 1);
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
@@ -4802,6 +4831,7 @@ function appendRows_(name, objs, formats) {
 function setCell_(table, row, header, value) {
   const c = table.cols[header];
   if (c === undefined) throw new Error('分頁缺少「' + header + '」欄位。');
+  bootDirty_(table.sheet.getName());
   table.sheet.getRange(row, c).setValue(value);
 }
 

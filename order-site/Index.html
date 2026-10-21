@@ -873,6 +873,11 @@
         </div>
         <div id="aBindInfo" class="small" style="margin-top:8px"></div>
       </div>
+      <div class="panel noprint" id="speedPanel">
+        <h2>速度紀錄（這台裝置） <button type="button" class="btn ghost small" id="spReload">重新整理</button> <button type="button" class="btn ghost small" id="spClear">清除</button></h2>
+        <div class="muted small">每個動作跟 Google 主機來回花幾秒（只記在這台手機／電腦）。覺得哪裡慢，截圖這裡給 Claude 看，就知道要改哪一個。</div>
+        <div id="spBox" class="small" style="margin-top:6px"></div>
+      </div>
       <div class="panel noprint hidden" id="updPanel">
         <h2>⟳ 更新程式 <button type="button" class="btn ghost small" id="updReload">重新整理</button></h2>
         <div class="muted small">從 GitHub 讀 Claude 改好的新程式，換掉網站的程式並部署（網址不變）。每次都要輸入傳到你 LINE 的驗證碼；部署後網站打不開會自動還原。只有內建的「管理者」帳號看得到。</div>
@@ -1008,9 +1013,25 @@
   var token = null;
   try { token = sessionStorage.getItem(TOKEN_KEY); } catch (e) {}
 
+  // 速度紀錄：每次跟主機來回花幾秒，記在這台裝置（最近 150 筆），系統設定頁看得到
+  function speedLog(fn, ms, ok) {
+    try {
+      var a = JSON.parse(localStorage.getItem('ckOrder.speed') || '[]');
+      a.push({ f: fn, ms: Math.round(ms), ok: ok ? 1 : 0, t: Date.now() });
+      localStorage.setItem('ckOrder.speed', JSON.stringify(a.slice(-150)));
+    } catch (e) {}
+  }
+  try {
+    window.addEventListener('load', function () {
+      var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+      speedLog('（打開網頁）', nav ? nav.loadEventStart || nav.duration : performance.now(), true);
+    });
+  } catch (e) {}
   function call(fn) {
-    var args = Array.prototype.slice.call(arguments, 1);
-    return new Promise(function (resolve, reject) {
+    var args = Array.prototype.slice.call(arguments, 1), t0 = Date.now();
+    return new Promise(function (resolve0, reject0) {
+      var resolve = function (v) { speedLog(fn, Date.now() - t0, true); resolve0(v); };
+      var reject = function (e) { speedLog(fn, Date.now() - t0, false); reject0(e); };
       var runner = google.script.run
         .withSuccessHandler(resolve)
         .withFailureHandler(function (err) {
@@ -1320,7 +1341,7 @@
     }
     if (view === 'viewPending') { fillAddItemForm(); loadPending(note); }
     if (view === 'viewPassword') resetPwForm();
-    if (view === 'viewSettings') loadAuto();
+    if (view === 'viewSettings') { loadAuto(); renderSpeed(); }
     if (view === 'viewVendor' && !$('vFrom').value) setVendorWeek(1);   // 預設：下週一到下週五
   }
 
@@ -4799,6 +4820,26 @@
     }
   });
 
+  var SPEED_NAMES = { '（打開網頁）': '打開網頁', loginAndLoad: '登入', getBootstrap: '讀取基本資料', getMyLessons: '我的課', loadTemplates: '我的範本', getTemplates: '我的範本',
+    submitOrder: '送出訂單', updateOrder: '修改訂單', getMyOrders: '我的訂單', adminGetOrders: '訂單彙整／產生單據', adminGetPurchase: '讀取叫貨紀錄', adminSavePurchase: '儲存／確定叫貨',
+    adminGetSchedule: '總課表', adminGetPending: '待審核食材', adminGetPendingUnits: '待審核單位', adminGetAutomation: '自動化狀態', adminUpdateOrder: '修改明細', importFile: '上傳料單' };
+  function renderSpeed() {
+    var a = [];
+    try { a = JSON.parse(localStorage.getItem('ckOrder.speed') || '[]'); } catch (e) {}
+    if (!a.length) { $('spBox').innerHTML = '<span class="muted">還沒有紀錄，用一陣子再來看。</span>'; return; }
+    var by = {};
+    a.forEach(function (x) { var g = by[x.f] = by[x.f] || { f: x.f, n: 0, sum: 0, max: 0 }; g.n++; g.sum += x.ms; g.max = Math.max(g.max, x.ms); });
+    var sec = function (ms) { return (ms / 1000).toFixed(1) + ' 秒'; };
+    var list = Object.keys(by).map(function (k) { return by[k]; }).sort(function (x, y) { return y.sum / y.n - x.sum / x.n; });
+    $('spBox').innerHTML = '<div class="tablewrap"><table><thead><tr><th>動作</th><th style="text-align:right">次數</th><th style="text-align:right">平均</th><th style="text-align:right">最慢</th></tr></thead><tbody>' +
+      list.map(function (g) {
+        var avg = g.sum / g.n;
+        return '<tr><td>' + esc(SPEED_NAMES[g.f] || g.f) + ' <span class="muted">' + esc(SPEED_NAMES[g.f] ? g.f : '') + '</span></td><td style="text-align:right">' + g.n + '</td>' +
+          '<td style="text-align:right' + (avg > 4000 ? ';color:var(--bad);font-weight:700' : '') + '">' + sec(avg) + '</td><td style="text-align:right">' + sec(g.max) + '</td></tr>';
+      }).join('') + '</tbody></table></div><div class="muted">最近 ' + a.length + ' 次，從 ' + esc(new Date(a[0].t).toLocaleString()) + ' 起。</div>';
+  }
+  $('spReload').addEventListener('click', renderSpeed);
+  $('spClear').addEventListener('click', function () { try { localStorage.removeItem('ckOrder.speed'); } catch (e) {} renderSpeed(); });
   function loadAuto(keepMsg) {
     if (keepMsg !== true) msg('autoMsg', '', '');
     loadAdmins();
