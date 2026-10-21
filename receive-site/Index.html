@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --brand: #8f2a1b; --bg: #f5f6f8; --line: #d0d5dd; --text: #1d2939; --muted: #667085; --ok: #067647; --okbg: #dcfae6; --bad: #b42318; --badbg: #fde2e1; --warn: #b54708; --warnbg: #fef0c7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); font-size: 17px; line-height: 1.5; }
+  header { background: var(--brand); color: #fff; padding: 12px 16px; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header nav button { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,.6); border-radius: 999px; padding: 6px 16px; font-size: 16px; cursor: pointer; }
+  header nav button.on { background: #fff; color: var(--brand); font-weight: 700; }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px; }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip { border: 1.5px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 16px; cursor: pointer; color: inherit; }
+  .chip.on { border-color: var(--brand); color: var(--brand); font-weight: 700; }
+  input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  .btn { font: inherit; border: 0; border-radius: 12px; padding: 10px 18px; background: var(--brand); color: #fff; cursor: pointer; font-weight: 700; }
+  .btn.ghost { background: #fff; color: var(--brand); border: 1.5px solid var(--brand); }
+  .btn.small { padding: 6px 12px; font-size: 15px; }
+  .btn:disabled { opacity: .5; }
+  .muted { color: var(--muted); } .small { font-size: 14px; }
+  .msg { padding: 10px 14px; border-radius: 10px; margin: 8px 0; }
+  .msg.ok { background: var(--okbg); color: var(--ok); } .msg.error { background: var(--badbg); color: var(--bad); } .msg.warn { background: var(--warnbg); color: var(--warn); } .msg.info { background: #eef4ff; color: #1849a9; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .card { background: #fff; border: 2px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .card b { font-size: 19px; }
+  .card.done { border-color: #47cd89; background: #f6fef9; } .card.issue { border-color: #f97066; background: #fff6f5; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 700; }
+  .badge.ok { background: var(--okbg); color: var(--ok); } .badge.bad { background: var(--badbg); color: var(--bad); } .badge.none { background: #f2f4f7; color: var(--muted); }
+  .grp { margin: 16px 0 6px; font-weight: 700; color: var(--brand); border-bottom: 2px solid var(--brand); padding-bottom: 4px; }
+  .item { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; padding: 10px 6px; border-bottom: 1px solid #eaecf0; }
+  .item .nm { font-size: 18px; font-weight: 600; } .item .ex { font-size: 18px; font-weight: 700; white-space: nowrap; }
+  .item .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .st { border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 16px; cursor: pointer; color: inherit; min-width: 64px; }
+  .st.on[data-s="到齊"] { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .st.on[data-s="少送"], .st.on[data-s="多送"] { background: var(--warn); border-color: var(--warn); color: #fff; }
+  .st.on[data-s="沒送"], .st.on[data-s="送錯"] { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .item.ok { background: #f6fef9; } .item.bad { background: #fff6f5; }
+  .item input.got { width: 120px; } .item input.note { flex: 1; min-width: 160px; }
+  .bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 -16px -16px; border-radius: 0 0 14px 14px; }
+  .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
+  .hidden { display: none !important; }
+  table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eaecf0; vertical-align: top; }
+  @media (max-width: 600px) { body { font-size: 16px; } .card b { font-size: 17px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>進貨驗收</h1>
+  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button></nav>
+</header>
+<main>
+  <!-- 選週、選一張叫貨單 -->
+  <section id="vCheck">
+    <div class="panel">
+      <div class="row">
+        <button type="button" class="chip" data-w="-1">上週</button><button type="button" class="chip" data-w="0">本週</button><button type="button" class="chip" data-w="1">下週</button>
+        <input id="weekDate" type="date" aria-label="哪一週">
+        <span id="weekText" class="muted"></span>
+      </div>
+      <div class="muted small" style="margin-top:6px">列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。</div>
+    </div>
+    <div id="doneMsg"></div>
+    <div id="listMsg"></div>
+    <div id="cards" class="cards"></div>
+  </section>
+
+  <!-- 點一張 -->
+  <section id="vDo" class="hidden">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div><b id="doTitle" style="font-size:20px"></b><div id="doSub" class="muted small"></div></div>
+        <button type="button" class="btn ghost small" id="doBack">← 回列表</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="btn small" id="allOk">✓ 全部到齊</button>
+        <span class="muted small">先按全部到齊，再改有問題的那幾項。</span>
+      </div>
+      <div id="doList"></div>
+      <div style="margin-top:14px">
+        <div class="row">
+          <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
+          <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
+          <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。</span>
+        </div>
+        <div id="thumbs" class="thumbs"></div>
+        <textarea id="doNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註（選填），例如：司機說洋蔥明天補"></textarea>
+      </div>
+      <div id="doMsg"></div>
+      <div class="bar"><span id="doProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn" id="doSave">完成驗收</button></div>
+    </div>
+  </section>
+
+  <!-- 問題追蹤 -->
+  <section id="vIssues" class="hidden">
+    <div class="panel">
+      <div class="row"><button type="button" class="chip on" data-all="0">還沒處理的</button><button type="button" class="chip" data-all="1">最近 60 天全部</button></div>
+      <div class="muted small" style="margin-top:6px">驗收時標成少送、沒送、送錯、多送的都會列在這裡。按「複製給廠商」貼到 LINE 或照著打電話，處理完記下結果（已補送、扣款、不用補）。</div>
+    </div>
+    <div id="issueMsg"></div>
+    <div id="issueList"></div>
+  </section>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  function msg(id, type, text) { $(id).innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : ''; }
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+        reject(new Error(String(e && e.message || e).replace(/^(Error|Exception):\s*/, '')));
+      })[fn].apply(null, args);
+    });
+  }
+  var iso = function (d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); };
+  var md = function (s) { var p = String(s).split('-'); return Number(p[1]) + '/' + Number(p[2]); };
+  var WD = ['日', '一', '二', '三', '四', '五', '六'];
+  var mdw = function (s) { var p = String(s).split('-'); return md(s) + '（' + WD[new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])).getDay()] + '）'; };
+  function mondayOf(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7); }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return new Promise(function (ok, no) {
+      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy') ? ok() : no(); } catch (e) { no(e); } document.body.removeChild(ta);
+    });
+  }
+
+  // ---------------- 分頁 ----------------
+  function show(v) {
+    ['vCheck', 'vDo', 'vIssues'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
+    Array.prototype.forEach.call(document.querySelectorAll('header nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === (v === 'vDo' ? 'vCheck' : v)); });
+    window.scrollTo(0, 0);
+  }
+  document.querySelector('header nav').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-v]');
+    if (!b) return;
+    if (b.getAttribute('data-v') === 'vIssues') { show('vIssues'); loadIssues(); } else { show('vCheck'); loadWeek(); }
+  });
+
+  // ---------------- 這週的叫貨單 ----------------
+  var week = null;
+  function setWeek(offset) {
+    var m = mondayOf(new Date());
+    m.setDate(m.getDate() + 7 * offset);
+    $('weekDate').value = iso(m);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-w')) === offset); });
+    loadWeek();
+  }
+  document.querySelector('#vCheck .row').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-w]');
+    if (b) setWeek(Number(b.getAttribute('data-w')));
+  });
+  $('weekDate').addEventListener('change', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.remove('on'); });
+    loadWeek();
+  });
+  function loadWeek() {
+    var d = $('weekDate').value;
+    if (!d) return;
+    var p = d.split('-'), mon = iso(mondayOf(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))));
+    msg('listMsg', 'info', '載入中…');
+    $('cards').innerHTML = '';
+    return call('getWeek', mon).then(function (w) {
+      week = w;
+      $('weekText').textContent = mdw(w.from) + '～' + mdw(w.to);
+      msg('listMsg', w.drafts.length ? 'warn' : '', w.drafts.length ? w.drafts.join('、') + ' 還是草稿、還沒「確定叫貨」，確定後才會出現在這裡。' : '');
+      if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
+      $('cards').innerHTML = w.batches.map(function (b, i) {
+        var c = b.check, n = b.lines.length;
+        var st = !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
+        return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
+          (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
+          '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
+      }).join('');
+    }).catch(function (e) { msg('listMsg', 'error', '載入失敗：' + e.message); });
+  }
+  $('cards').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-b]');
+    if (b) openBatch(week.batches[Number(b.getAttribute('data-b'))]);
+  });
+
+  // ---------------- 點一張叫貨單 ----------------
+  var cur = null;   // { b, marks: { key: { status, got, note } }, photos: [url] }
+  function openBatch(b) {
+    msg('doneMsg', '', '');
+    var marks = {};
+    if (b.check) b.check.lines.forEach(function (l) {
+      var x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name; })[0];
+      if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' ? '' : l.got, note: l.note };
+    });
+    cur = { b: b, marks: marks, photos: b.check ? b.check.photos.slice() : [] };
+    $('doTitle').textContent = b.vendor + (b.group ? '　送貨組別 ' + b.group : '');
+    $('doSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + b.lines.length + ' 項・' + (b.perClass ? '照班級點' : '點品項總量') +
+      (b.check ? '・上次驗收 ' + b.check.time + '（重新存會蓋掉）' : '');
+    $('doNote').value = b.check ? b.check.note : '';
+    msg('doMsg', '', '');
+    renderDo();
+    renderThumbs();
+    show('vDo');
+  }
+  function renderDo() {
+    var b = cur.b, last = null, html = '';
+    b.lines.forEach(function (x) {
+      if (b.perClass) {
+        var g = (x.date ? mdw(x.date) + '　' : '') + x.cls + (x.teacher ? '　' + x.teacher : '');
+        if (g !== last) { html += '<div class="grp">' + esc(g) + '</div>'; last = g; }
+      }
+      var m = cur.marks[x.key] || {}, s = m.status || '';
+      var cls = s === '到齊' ? ' ok' : s ? ' bad' : '';
+      html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm">' + esc(x.name) + '</span>' +
+        (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') + '</div>' +
+        '<div class="ex">' + esc(x.expect) + '</div><div class="acts">' +
+        ['到齊', '少送', '沒送', '送錯', '多送'].map(function (t) {
+          return '<button type="button" class="st' + (s === t ? ' on' : '') + '" data-s="' + t + '">' + (t === '到齊' ? '✓ 到齊' : t) + '</button>';
+        }).join('') +
+        (s === '少送' || s === '多送' ? '<input class="got" type="text" placeholder="實到多少" value="' + esc(m.got || '') + '">' : '') +
+        (s && s !== '到齊' ? '<input class="note" type="text" maxlength="100" placeholder="備註，例如：送成牛番茄" value="' + esc(m.note || '') + '">' : '') +
+        '</div></div>';
+    });
+    $('doList').innerHTML = html;
+    progress();
+  }
+  function progress() {
+    var n = cur.b.lines.length, done = 0, bad = 0;
+    cur.b.lines.forEach(function (x) { var m = cur.marks[x.key]; if (m && m.status) { done++; if (m.status !== '到齊') bad++; } });
+    $('doProgress').textContent = '已點 ' + done + '／' + n + (bad ? '，問題 ' + bad + ' 項' : '');
+  }
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('.st');
+    if (!b) return;
+    var k = b.closest('[data-k]').getAttribute('data-k'), s = b.getAttribute('data-s');
+    var m = cur.marks[k] = cur.marks[k] || {};
+    m.status = m.status === s && s !== '到齊' ? '' : s;
+    renderDo();
+    var inp = document.querySelector('[data-k="' + CSS.escape(k) + '"] input.got');
+    if (inp) inp.focus();
+  });
+  $('doList').addEventListener('input', function (e) {
+    var k = e.target.closest('[data-k]').getAttribute('data-k'), m = cur.marks[k] = cur.marks[k] || {};
+    if (e.target.classList.contains('got')) m.got = e.target.value;
+    if (e.target.classList.contains('note')) m.note = e.target.value;
+  });
+  $('allOk').addEventListener('click', function () {
+    cur.b.lines.forEach(function (x) { var m = cur.marks[x.key] = cur.marks[x.key] || {}; if (!m.status) m.status = '到齊'; });
+    renderDo();
+  });
+  $('doBack').addEventListener('click', function () { show('vCheck'); loadWeek(); });
+
+  // 銷貨單照片：在平板上先縮小（長邊 1600），再上傳到雲端硬碟
+  function renderThumbs() {
+    $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　');
+  }
+  function shrink(file) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var s = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
+      };
+      img.onerror = function () { reject(new Error('照片讀不到，請再拍一次。')); };
+      img.src = url;
+    });
+  }
+  $('photoIn').addEventListener('change', function () {
+    var files = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    if (!files.length) return;
+    $('photoMsg').textContent = '上傳中…（' + files.length + ' 張）';
+    files.reduce(function (p, f) {
+      return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor); })
+        .then(function (r) { cur.photos.push(r.url); renderThumbs(); });
+    }, Promise.resolve()).then(function () { $('photoMsg').textContent = '已上傳，按「完成驗收」才會跟這次驗收存在一起。'; })
+      .catch(function (e) { $('photoMsg').textContent = '上傳失敗：' + e.message; });
+  });
+
+  $('doSave').addEventListener('click', function () {
+    var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
+    if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
+    var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '' }; });
+    var btn = this;
+    btn.disabled = true; btn.textContent = '儲存中…';
+    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items }).then(function (r) {
+      msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : '，全部到齊。'));
+      show('vCheck'); loadWeek(); refreshIssueCount();
+    }).catch(function (e) { msg('doMsg', 'error', e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = '完成驗收'; });
+  });
+
+  // ---------------- 問題追蹤 ----------------
+  var issueAll = false, issues = null;
+  function refreshIssueCount() {
+    call('getIssues', false).then(function (r) { $('issueCount').textContent = r.list.length ? '（' + r.list.length + '）' : ''; }).catch(function () {});
+  }
+  document.querySelector('#vIssues .row').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-all]');
+    if (!b) return;
+    issueAll = b.getAttribute('data-all') === '1';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-all]'), function (x) { x.classList.toggle('on', x === b); });
+    loadIssues();
+  });
+  function issueLine(x) {
+    var what = x.status === '沒送' ? '沒送（應到 ' + x.expect + '）' : x.status === '送錯' ? '送錯（應到 ' + x.expect + '）' : x.status + '：應到 ' + x.expect + '，實到 ' + x.got;
+    return (x.cls ? x.cls + ' ' : '') + x.name + '：' + what + (x.note ? '，' + x.note : '');
+  }
+  function loadIssues() {
+    msg('issueMsg', 'info', '載入中…');
+    $('issueList').innerHTML = '';
+    call('getIssues', issueAll).then(function (r) {
+      issues = r;
+      $('issueCount').textContent = '';
+      msg('issueMsg', r.list.length ? '' : 'ok', r.list.length ? '' : issueAll ? '最近 60 天沒有問題。' : '沒有還沒處理的問題 👍');
+      var by = {}, order = [];
+      r.list.forEach(function (x) { if (!by[x.id]) { by[x.id] = []; order.push(x.id); } by[x.id].push(x); });
+      $('issueList').innerHTML = order.map(function (id) {
+        var g = by[id], h = g[0];
+        return '<div class="panel" data-id="' + esc(id) + '"><div class="row" style="justify-content:space-between"><div><b style="font-size:19px">' + esc(h.vendor) + '</b>' +
+          (h.group ? ' <span class="muted">送貨組別 ' + esc(h.group) + '</span>' : '') + '<div class="muted small">' + esc(h.from ? md(h.from) + '～' + md(h.to) : '') + '・驗收 ' + esc(h.time) +
+          (h.photos.length ? '・' + h.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank">銷貨單' + (h.photos.length > 1 ? i + 1 : '') + '</a>'; }).join(' ') : '') + '</div></div>' +
+          '<button type="button" class="btn ghost small" data-copy="' + esc(id) + '">📋 複製給廠商</button></div>' +
+          '<table><tbody>' + g.map(function (x) {
+            return '<tr><td>' + esc(issueLine(x)) + (x.doneTime ? '<div class="muted small">' + esc(x.state + '・' + x.doneTime + (x.doneNote ? '・' + x.doneNote : '')) + '</div>' : '') + '</td>' +
+              '<td style="white-space:nowrap"><input type="text" data-note="' + x.row + '" placeholder="處理備註（選填）" style="width:150px" value="' + esc(x.doneNote) + '"> <select data-row="' + x.row + '">' + r.states.map(function (s) { return '<option' + (s === x.state ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></td></tr>';
+          }).join('') + '</tbody></table></div>';
+      }).join('');
+    }).catch(function (e) { msg('issueMsg', 'error', '載入失敗：' + e.message); });
+  }
+  $('issueList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-copy]');
+    if (!b) return;
+    var g = issues.list.filter(function (x) { return x.id === b.getAttribute('data-copy'); }), h = g[0];
+    var text = h.vendor + ' 您好，三信家商餐飲科 ' + (h.from ? md(h.from) + '～' + md(h.to) : '') + ' 的貨：\n' +
+      g.filter(function (x) { return x.state === '待處理'; }).map(function (x) { return '・' + issueLine(x); }).join('\n') + '\n麻煩補送或更正，謝謝！';
+    copyText(text).then(function () { b.textContent = '已複製 ✓'; setTimeout(function () { b.textContent = '📋 複製給廠商'; }, 1500); })
+      .catch(function () { msg('issueMsg', 'warn', '請長按選取複製：' + text); });
+  });
+  $('issueList').addEventListener('change', function (e) {
+    var s = e.target.closest('select[data-row]');
+    if (!s) return;
+    var ni = document.querySelector('[data-note="' + s.getAttribute('data-row') + '"]'), note = ni ? ni.value.trim() : '';
+    s.disabled = true;
+    call('setIssues', [Number(s.getAttribute('data-row'))], s.value, note).then(function () { loadIssues(); refreshIssueCount(); })
+      .catch(function (err) { msg('issueMsg', 'error', err.message); s.disabled = false; });
+  });
+
+  setWeek(0);
+  refreshIssueCount();
+})();
+</script>
+</body>
+</html>
