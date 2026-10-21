@@ -2510,6 +2510,7 @@ function automationStatus_() {
     archiveDays: ARCHIVE_AFTER_DAYS,
     backupKeep: BACKUP_KEEP,
     emails: notifyEmails_(),
+    emailsCustom: !!PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS'),
     lineTokenSet: !!props.getProperty('LINE_TOKEN'),
     lineBound: !!props.getProperty('LINE_TO'),
     webhookUrl: webAppUrl_(),
@@ -2748,6 +2749,8 @@ function doPost(e) {
 // ---- 通知 ----
 
 function notifyEmails_() {
+  const saved = String(PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '').split(',').filter(Boolean);
+  if (saved.length) return saved;   // 「系統設定 → Email 通知」設定的
   if (NOTIFY_EMAILS.length) return NOTIFY_EMAILS.slice();
   const me = Session.getEffectiveUser().getEmail();
   return me ? [me] : [];
@@ -2774,6 +2777,25 @@ function autoUrl_() {
 }
 
 /** 管理者設定網站網址（LINE 通知、選單、摘要裡的連結都用這個）；空白 = 改回自動判斷 */
+/** 管理者：設定收通知的 Email（最多 5 個，逗號分開）；空白＝改回寄給部署網站的帳號 */
+function adminSetNotifyEmails(token, text) {
+  auth_(token, true);
+  const list = String(text || '').split(/[\s,，、;；]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean)
+    .filter(function (x, i, a) { return a.indexOf(x) === i; });
+  if (list.length > 5) throw new Error('最多 5 個 Email。');
+  list.forEach(function (x) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) throw new Error('「' + x + '」不是正確的 Email。'); });
+  const props = PropertiesService.getScriptProperties();
+  if (list.length) props.setProperty('NOTIFY_EMAILS', list.join(',')); else props.deleteProperty('NOTIFY_EMAILS');
+  return automationStatus_();
+}
+
+/** 管理者：只寄一封測試信（不傳 LINE，不花則數） */
+function adminTestEmail(token) {
+  auth_(token, true);
+  return notify_('【測試】三信家商餐飲科訂貨系統 Email 通知',
+    '<p>這是測試信。收到這封信表示 Email 通知設定正常，之後的每日摘要、叫貨確定等通知都會寄到這裡。</p>', null);
+}
+
 function adminSetSiteUrl(token, url) {
   auth_(token, true);
   url = String(url || '').trim().replace(/[?#].*$/, '');

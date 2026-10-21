@@ -856,6 +856,13 @@
           <div><label for="admPick">新增管理者</label><select id="admPick"></select></div>
           <button type="button" class="btn secondary small" id="admAdd">設為管理者</button>
         </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">Email 通知</h3>
+        <div class="muted small">每日摘要、叫貨確定、每週維護等通知寄到這些 Email（最多 5 個，用逗號分開）。空白＝寄給部署網站的 Google 帳號。寄 Email 不花 LINE 則數。</div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="aEmails">收通知的 Email</label><input id="aEmails" type="text" autocomplete="off" placeholder="例如：abc@gmail.com, def@school.edu.tw"></div>
+          <button type="button" class="btn secondary small" id="aEmailSave">儲存</button>
+          <button type="button" class="btn ghost small" id="aEmailTest">寄測試信</button>
+        </div>
         <h3 style="font-size:16px;margin:18px 0 6px">網站網址</h3>
         <div class="muted small">LINE 通知、官方帳號選單、每日摘要裡的連結都會用這個網址。請貼上「部署 → 管理部署」裡<b>正在使用</b>的網頁應用程式網址（結尾是 /exec），存好後再按一次「設定官方帳號選單」。</div>
         <div class="tpl-row" style="margin-top:6px">
@@ -4698,6 +4705,8 @@
       (st.vendorTrigger && st.digestTrigger && (!st.maintTrigger || !st.remindTrigger) ? '<br><b style="color:var(--bad)">有新的排程，請按一下「啟用排程」才會建立。</b>' : '');
     $('aToggle').textContent = on ? '停用排程' : '啟用排程';
     if (document.activeElement !== $('aSiteUrl')) $('aSiteUrl').value = st.webhookUrl || '';
+    if (document.activeElement !== $('aEmails')) $('aEmails').value = st.emailsCustom ? (st.emails || []).join(', ') : '';
+    $('aEmails').placeholder = st.emailsCustom ? '' : '目前寄給：' + ((st.emails || []).join('、') || '（無）');
     $('aSiteInfo').innerHTML = st.siteUrlSaved
       ? '<span style="color:var(--ok)">✓ 已指定網址</span>' + (st.autoUrl && st.autoUrl !== st.webhookUrl ? '<span class="muted">（系統自動判斷的是另一個舊網址，已改用你指定的）</span>' : '')
       : '<span style="color:var(--bad)">尚未指定，目前用系統自動判斷的網址；部署很多個時可能是舊的，建議貼上正確網址後儲存。</span>';
@@ -4900,6 +4909,13 @@
   });
   $('aTest').addEventListener('click', function () {
     autoCall(this, 'adminTestNotify', function (r) { return '測試通知已送出。' + notifyText(r); });
+  });
+  $('aEmailSave').addEventListener('click', function () {
+    var v = $('aEmails').value.trim();
+    autoCall(this, 'adminSetNotifyEmails', function (st) { return v ? 'Email 已儲存：' + (st.emails || []).join('、') + '。可以按「寄測試信」試試看。' : '已改回寄給部署網站的帳號。'; }, v);
+  });
+  $('aEmailTest').addEventListener('click', function () {
+    autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
   });
   $('aSiteSave').addEventListener('click', function () {
     var v = $('aSiteUrl').value.trim();
