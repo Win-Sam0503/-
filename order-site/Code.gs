@@ -1660,7 +1660,7 @@ function adminGetPending(token) {
   auth_(token, true);
   const groups = {}, list = [];
   const g = function (name) {
-    if (!groups[name]) { groups[name] = { name: name, rows: [], teachers: [], orderNos: [], lines: 0, time: '', vendor: '', unit: '' }; list.push(groups[name]); }
+    if (!groups[name]) { groups[name] = { name: name, rows: [], teachers: [], orderNos: [], depts: [], lines: 0, time: '', vendor: '', unit: '' }; list.push(groups[name]); }
     return groups[name];
   };
   const add = function (arr, v) { if (v && arr.indexOf(v) < 0) arr.push(v); };
@@ -1682,13 +1682,14 @@ function adminGetPending(token) {
     const x = g(name);
     x.lines++;
     add(x.orderNos, String(r['訂單編號']).trim());
+    add(x.depts, String(r['科別'] || '').trim());
     add(x.teachers, String(r['代訂對象老師'] || r['操作老師'] || '').trim());
     if (!x.vendor) { x.vendor = String(r['廠商'] || ''); x.unit = String(r['單位'] || ''); }
   });
   return list.map(function (x) {
     return {
       row: x.rows[0] || 0, name: x.name, time: x.time, teacher: x.teachers.join('、'), vendor: x.vendor, unit: x.unit,
-      orderNo: x.orderNos.join('、'), orders: x.orderNos.length, lines: x.lines, records: x.rows.length, orphan: !x.rows.length,
+      orderNo: x.orderNos.join('、'), orders: x.orderNos.length, lines: x.lines, records: x.rows.length, orphan: !x.rows.length, depts: x.depts,
     };
   }).sort(function (a, b) { return a.orphan === b.orphan ? 0 : a.orphan ? 1 : -1; });
 }

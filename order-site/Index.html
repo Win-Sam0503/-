@@ -3297,6 +3297,7 @@
     call('adminDeleteDeptSub', token, Number(b.getAttribute('data-subdel'))).then(function (list) { renderSubs(list); msg('subMsg', 'ok', '已刪除。'); })
       .catch(function (err) { msg('subMsg', 'error', err.message); });
   });
+  var DRY_VENDOR_LABEL = { 'E烘焙乾貨': '只跟旺來興（烘焙）E烘焙乾貨', 'E中餐乾貨': '只跟銘哲（中餐）E中餐乾貨', 'E乾貨': '兩家都叫（各科跟自己教室的）E乾貨' };
   function loadPending(note) {
     msg('pendMsg', 'info', '載入中…');
     $('pendList').innerHTML = '';
@@ -3317,17 +3318,32 @@
           head = '<div class="panel" style="padding:12px 16px;margin-top:18px"><h2 style="margin:0;font-size:17px">訂單裡還是「待審核」的食材</h2>' +
             '<div class="muted small">這些食材之前退回過或重複送審，但訂單裡還沒換成正式食材，廠商訂貨單的合計會分成兩項。請「對應既有食材」或「核准」，所有訂單會一起更新；真的不要的話，請到訂單彙整用「修改明細」取消那一項。</div></div>';
         }
+        // 審核把關 1：乾貨一定要確認跟誰叫（預設照訂這項的科別）
+        var dry = /^E/.test(p.vendor || ''), depts = p.depts || [];
+        var bake = depts.filter(function (d) { return (data.bakingDepts || []).indexOf(d) >= 0; }).length, other = depts.length - bake;
+        var defVendor = !dry ? p.vendor : bake && !other ? 'E烘焙乾貨' : other && !bake ? 'E中餐乾貨' : 'E乾貨';
+        var dryHint = !depts.length ? '老師選的是「' + (DRY_VENDOR_LABEL[p.vendor] || p.vendor) + '」，請確認。'
+          : '訂這項的是' + depts.join('、') + '課，預設「' + DRY_VENDOR_LABEL[defVendor] + '」；另一家也有賣的話選「兩家都叫」。';
+        var vendorOpts = data.vendors.slice();
+        ['E烘焙乾貨', 'E中餐乾貨', 'E乾貨'].forEach(function (v) { if (vendorOpts.indexOf(v) < 0) vendorOpts.push(v); });
+        if (p.vendor && vendorOpts.indexOf(p.vendor) < 0) vendorOpts.push(p.vendor);
+        // 審核把關 2：食材總表已經有類似的，一鍵對應
+        var sim = similarItems(p.name, 4).filter(function (it) { return it.name !== p.name; });
+        var simHtml = sim.length ? '<div class="msg warn" style="margin:6px 0">⚠ 食材總表已經有類似的，是同一樣就直接對應（「' + esc(p.name) + '」會變成它的叫法，以後不用再審）：<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">' +
+          sim.map(function (it) {
+            return '<button type="button" class="btn secondary small" data-act="map" data-mapid="' + esc(it.id) + '">對應到「' + esc(it.name) + '」<span class="muted small">（' + esc(({ 'E烘焙乾貨': '只跟旺來興', 'E中餐乾貨': '只跟銘哲', 'E乾貨': '兩家都叫' })[it.vendor] || it.vendor) + '）</span></button>';
+          }).join('') + '</div><div class="small muted" style="margin-top:4px">都不是才按下面的「核准並加入食材總表」。</div></div>' : '';
         return head + '<div class="pending-card" data-row="' + p.row + '" data-name="' + esc(p.name) + '">' +
           '<div class="head" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>' + esc(p.name) + '</b>' +
           '<span class="muted small">' + esc(p.teacher) + (p.time ? '・' + esc(p.time) : '') + '・' +
             (p.orders > 1 ? '<b style="color:var(--brand)">' + p.orders + ' 張訂單</b>' : '訂單') + ' ' + esc(p.orderNo) +
             (p.lines ? '・訂單裡 ' + p.lines + ' 筆' : '') + '</span></div>' +
-          (p.orders > 1 ? '<div class="msg info" style="margin:6px 0">審核一次，這 ' + p.orders + ' 張訂單裡的「' + esc(p.name) + '」會一起更新。</div>' : '') +
+          (p.orders > 1 ? '<div class="msg info" style="margin:6px 0">審核一次，這 ' + p.orders + ' 張訂單裡的「' + esc(p.name) + '」會一起更新。</div>' : '') + simHtml +
           '<div class="grid2">' +
             '<div><label>正式名稱</label><input type="text" data-f="name" maxlength="40" value="' + esc(p.name) + '"></div>' +
-            '<div><label>廠商</label><select data-f="vendor">' + data.vendors.map(function (v) {
-              return '<option' + (v === p.vendor ? ' selected' : '') + '>' + esc(v) + '</option>';
-            }).join('') + '</select></div>' +
+            '<div><label>廠商' + (dry ? '（乾貨：請確認跟誰叫）' : '') + '</label><select data-f="vendor"' + (dry ? ' style="border-color:var(--warn);border-width:2px"' : '') + '>' + vendorOpts.map(function (v) {
+              return '<option value="' + esc(v) + '"' + (v === defVendor ? ' selected' : '') + '>' + esc(DRY_VENDOR_LABEL[v] || v) + '</option>';
+            }).join('') + '</select>' + (dry ? '<div class="small muted">' + esc(dryHint) + '</div>' : '') + '</div>' +
             '<div><label>單位</label>' + unitInput(p.unit, p.name + ' 單位') + '</div>' +
             '<div class="wide" style="grid-column:1/-1"><label>或對應到既有食材（輸入名稱搜尋）</label><input type="text" data-f="existing" list="itemList" placeholder="例：I0007 青蔥"></div>' +
           '</div>' +
@@ -3348,7 +3364,7 @@
     var val = function (f) { return card.querySelector('[data-f="' + f + '"]').value.trim(); };
     var edits = { name: val('name'), vendor: val('vendor'), unit: val('unit') };
     if (act === 'map') {
-      var id = (val('existing').match(/^(I\d+)/) || [])[1];
+      var id = b.getAttribute('data-mapid') || (val('existing').match(/^(I\d+)/) || [])[1];
       if (!id || !itemById[id]) { notice('請從清單選擇既有食材。'); return; }
       edits.existingId = id;
     }
