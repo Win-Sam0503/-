@@ -220,7 +220,7 @@ function saveCheck(p) {
   const issues = items.filter(function (x) { return x.status !== '到齊'; });
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
-      code: clean_(x.code, 20).toUpperCase() };
+      code: normCode_(clean_(x.code, 20)) };
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const slipSum = slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0);
   const slipTotal = p.slip ? num_(p.slip.total) : '';
@@ -361,7 +361,7 @@ function slipKeys_(vendor, names) {
     if (String(r['廠商']).trim() !== vendor) return;
     const n = String(r['食材名稱']).trim();
     add(r['銷貨單品名'], n);
-    const c = String(r['貨品編號'] || '').trim().toUpperCase();
+    const c = normCode_(r['貨品編號']);
     if (c && want[n]) codes[c] = n;
   });
   if (ss_().getSheetByName(SHEET.items)) {
@@ -383,7 +383,7 @@ function normKey_(s) {
 
 const SLIP_UNITS = /(公斤|kg|台斤|斤|兩|包|箱|盒|顆|粒|罐|瓶|把|袋|條|支|個|片|桶|打|盤|籃|件|組|g|克)/i;
 const SLIP_UNIT_SAME = { '台斤': '斤', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '克': 'g', 'G': 'g' };
-const SLIP_CODE = /(?:^|\s)(?:\d{1,2}\s+)?([A-Za-z]{1,3}\d{1,5}(?:-\d{1,3})?)(?=\s)/;   // 貨品編號，例如 B01-2、A28、L06
+const SLIP_CODE = /(?:^|\s)(?:\d{1,2}\s+)?([A-Za-z]{1,3}\d{1,5}(?:[-~～]\d{1,3})?)(?=\s)/;   // 貨品編號，例如 B01-2、A28、L06、A116~02
 const SLIP_TOTAL = /(合計|總計|總金額|金額合計|應收|小計|總額|本單)/;
 
 function parseSlip_(text, keys) {
@@ -395,9 +395,16 @@ function parseSlip_(text, keys) {
   const nums = function (s) {
     return (s.match(/\d+(?:,\d{3})*(?:\.\d+)?/g) || []).map(function (x) { return Number(x.replace(/,/g, '')); });
   };
+  // 每個數字後面緊接的單位（「0.1 kg 650 65」→ 0.1 的單位是 kg；規格欄的「1.66斤」不會被當成數量的單位）
+  const unitsAfter = function (s) {
+    const out = [], re = new RegExp('(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*' + SLIP_UNITS.source + '?', 'gi');
+    let m;
+    while ((m = re.exec(s))) out.push(m[2] || '');
+    return out;
+  };
   const codes = keys.codes || {};
   const findKey = function (l) {
-    const cm = l.match(SLIP_CODE), code = cm ? cm[1].toUpperCase() : '';
+    const cm = l.match(SLIP_CODE), code = cm ? normCode_(cm[1]) : '';
     if (code && codes[code]) {   // 以前存過的貨品編號：最準
       const nm = codes[code], rest = l.slice(l.indexOf(cm[1]) + cm[1].length).replace(/^\s*[^\d\s]+/, '');
       return { k: { key: '', name: nm }, code: code, rest: rest, partial: false };
@@ -427,8 +434,8 @@ function parseSlip_(text, keys) {
     let rest = hit ? (hit.rest !== undefined ? hit.rest : afterKey_(l, hit.k.key)) : l;
     let ns = nums(rest);
     if (hit && !ns.length && lines[i + 1] && !findKey(lines[i + 1]) && !SLIP_TOTAL.test(lines[i + 1])) { rest = lines[i + 1]; ns = nums(rest); i++; }
-    const u0 = (rest.match(SLIP_UNITS) || [])[1] || '', u = SLIP_UNIT_SAME[u0] || u0;
     const v = slipNumbers_(ns);
+    const u0 = (v.qi !== undefined && unitsAfter(rest)[v.qi]) || (rest.match(SLIP_UNITS) || [])[1] || '', u = SLIP_UNIT_SAME[u0] || SLIP_UNIT_SAME[u0.toLowerCase()] || u0;
     if (hit) {
       const r = rows[hit.k.name];
       const slipName = slipNameOf_(l);
@@ -439,16 +446,19 @@ function parseSlip_(text, keys) {
       }
     } else if (ns.length >= 2 && /[\u4e00-\u9fff]{2,}/.test(l) && !/(日期|電話|傳真|統一編號|統編|地址|單號|編號|客戶|頁)/.test(l)) {
       const nm = slipNameOf_(l), cm = l.match(SLIP_CODE);
-      if (nm) extras.push({ slipName: nm, qty: v.qty, unit: u, price: v.price, amount: v.amount, sure: v.sure, code: cm ? cm[1].toUpperCase() : '' });
+      if (nm) extras.push({ slipName: nm, qty: v.qty, unit: u, price: v.price, amount: v.amount, sure: v.sure, code: cm ? normCode_(cm[1]) : '' });
     }
   }
   return { text: lines.slice(0, 300).join('\n'), rows: rows, extras: extras.slice(0, 40), total: total };
 }
 
+/** 貨品編號統一寫法：大寫，「~」「～」都當成「-」 */
+function normCode_(c) { return String(c || '').trim().toUpperCase().replace(/[~～]/g, '-'); }
+
 /** 一行裡的品名：去掉序號、貨品編號、數字、單位 */
 function slipNameOf_(l) {
   return l.replace(SLIP_CODE, ' ').replace(/\d+(?:,\d{3})*(?:\.\d+)?/g, ' ').replace(new RegExp(SLIP_UNITS.source, 'gi'), ' ')
-    .replace(/[:：|]/g, ' ').replace(/\s+/g, ' ').trim().split(' ')[0].slice(0, 40);
+    .replace(/[:：|]/g, ' ').replace(/\s+/g, ' ').trim().split(' ')[0].replace(/^(.{2,}?)[(（].*$/, '$1').slice(0, 40);
 }
 
 function afterKey_(line, key) {
@@ -465,10 +475,13 @@ function afterKey_(line, key) {
 function slipNumbers_(ns) {
   const out = { qty: '', price: '', amount: '', sure: false };
   if (!ns.length) return out;
+  const ok = function (a, b, c) { return ns[c] > 0 && Math.abs(ns[a] * ns[b] - ns[c]) <= Math.max(0.6, ns[c] * 0.01); };
+  // 先找連在一起的「數量 單價 金額」（從後面找，前面規格欄的數字比較不會誤判）
+  for (let i = ns.length - 3; i >= 0; i--) if (ok(i, i + 1, i + 2)) return { qty: ns[i], price: ns[i + 1], amount: ns[i + 2], sure: true, qi: i };
   for (let a = 0; a < ns.length; a++) for (let b = a + 1; b < ns.length; b++) for (let c = b + 1; c < ns.length; c++) {
-    if (ns[c] > 0 && Math.abs(ns[a] * ns[b] - ns[c]) <= Math.max(1, ns[c] * 0.02)) return { qty: ns[a], price: ns[b], amount: ns[c], sure: true };
+    if (ns[c] > 0 && Math.abs(ns[a] * ns[b] - ns[c]) <= Math.max(0.6, ns[c] * 0.01)) return { qty: ns[a], price: ns[b], amount: ns[c], sure: true, qi: a };
   }
-  out.qty = ns[0];
+  out.qty = ns[0]; out.qi = 0;
   if (ns.length >= 3) { out.price = ns[ns.length - 2]; out.amount = ns[ns.length - 1]; }
   else if (ns.length === 2) { out.amount = ns[1]; out.price = ns[0] ? round2_(ns[1] / ns[0]) : ''; }
   return out;
