@@ -7,8 +7,10 @@
 const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';   // 訂貨系統的試算表
 const SITE_TITLE = '三信家商餐飲科 進貨驗收';
 const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單照片放在雲端硬碟這個資料夾（每週一個子資料夾）
-const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細' };
-const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人'];
+const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表' };
+const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計'];
+const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額'];
+const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號'];
 const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註'];
 // 照班級點貨的廠商（其他廠商點品項總量）
 const PER_CLASS = /^[ABD]/;
@@ -109,12 +111,25 @@ function readChecks_(from) {
   const out = {};
   const sh = ss_().getSheetByName(SHEET.checks);
   if (!sh || sh.getLastRow() < 2) return out;
-  const lines = linesById_();
+  const lines = linesById_(), slips = slipsById_();
   readTable_(SHEET.checks, ['驗收編號']).rows.forEach(function (r) {
     if (purchaseDate_(r['送貨日期（起）']) !== from) return;
     const id = String(r['驗收編號']).trim();
     out[id] = { time: fmtDateTime_(r['驗收時間']), items: Number(r['品項數']) || 0, issues: Number(r['問題數']) || 0,
-      photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), note: String(r['備註'] || ''), lines: lines[id] || [] };
+      photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), note: String(r['備註'] || ''), lines: lines[id] || [],
+      amount: Number(r['銷貨單金額']) || 0, slip: slips[id] ? { rows: slips[id], total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']) } : null };
+  });
+  return out;
+}
+
+function slipsById_() {
+  const out = {};
+  const sh = ss_().getSheetByName(SHEET.slip);
+  if (!sh || sh.getLastRow() < 2) return out;
+  readTable_(SHEET.slip, ['驗收編號']).rows.forEach(function (r) {
+    const id = String(r['驗收編號']).trim();
+    (out[id] = out[id] || []).push({ name: String(r['食材名稱'] || ''), slipName: String(r['銷貨單品名'] || ''), qty: String(r['數量'] === undefined ? '' : r['數量']),
+      unit: String(r['單位'] || ''), price: String(r['單價'] === undefined ? '' : r['單價']), amount: String(r['金額'] === undefined ? '' : r['金額']) });
   });
   return out;
 }
@@ -138,7 +153,8 @@ function checkId_(from, vendor, group) { return 'R' + from.replace(/-/g, '') + '
 // ---------------------------------------------------------------------
 
 /**
- * p = { from, to, vendor, group, note, photos: [url], items: [{ cls, name, expect, got, status, note }] }
+ * p = { from, to, vendor, group, note, photos: [url], items: [{ cls, name, expect, got, status, note }],
+ *       slip: { total, rows: [{ name（食材名稱，空白＝叫貨單沒有的）, slipName, qty, unit, price, amount }] }（選填，銷貨單金額） }
  * status：到齊／少送／沒送／送錯／多送。同一張叫貨單重新驗收會蓋掉上次的（已經處理過的問題保留處理狀態）。
  */
 function saveCheck(p) {
@@ -154,11 +170,17 @@ function saveCheck(p) {
   });
   const id = checkId_(from, vendor, group);
   const issues = items.filter(function (x) { return x.status !== '到齊'; });
+  const slip = (p.slip && p.slip.rows || []).map(function (x) {
+    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount) };
+  }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
+  const slipSum = slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0);
+  const slipTotal = p.slip ? num_(p.slip.total) : '';
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.checks, CHECK_HEADERS);
     ensureSheet_(SHEET.lines, LINE_HEADERS);
+    ensureSheet_(SHEET.slip, SLIP_HEADERS);
     // 上次驗收過的問題，處理狀態保留
     const keep = {};
     const lt = readTable_(SHEET.lines, ['驗收編號']);
@@ -172,7 +194,17 @@ function saveCheck(p) {
     if (oldChecks.length) deleteRows_(ct.sheet, oldChecks.map(function (r) { return r._row; }));
     appendRows_(SHEET.checks, [{ '驗收編號': id, '送貨日期（起）': from, '送貨日期（迄）': to, '廠商': vendor, '送貨組別': group,
       '驗收時間': new Date(), '品項數': items.length, '問題數': issues.length, '銷貨單照片': (p.photos || []).join('\n'),
-      '備註': clean_(p.note, 200), '驗收人': Session.getActiveUser().getEmail() || '' }]);
+      '備註': clean_(p.note, 200), '驗收人': Session.getActiveUser().getEmail() || '',
+      '銷貨單金額': slip.length ? Math.round(slipSum * 100) / 100 : '', '銷貨單合計': slipTotal }]);
+    const st = readTable_(SHEET.slip, ['驗收編號']);
+    const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
+    if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
+    if (slip.length) {
+      appendRows_(SHEET.slip, slip.map(function (x) {
+        return { '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '食材名稱': x.name, '銷貨單品名': x.slipName, '數量': x.qty, '單位': x.unit, '單價': x.price, '金額': x.amount };
+      }));
+      savePrices_(vendor, from, id, slip);
+    }
     appendRows_(SHEET.lines, items.map(function (x) {
       const k = keep[x.cls + '|' + x.name];
       const issue = x.status !== '到齊';
@@ -196,7 +228,7 @@ function saveCheck(p) {
       }
     } catch (e) { mail = 'Email 寄送失敗：' + e.message; }
   }
-  return { id: id, items: items.length, issues: issues.length, mail: mail };
+  return { id: id, items: items.length, issues: issues.length, mail: mail, amount: slip.length ? Math.round(slipSum * 100) / 100 : 0 };
 }
 
 function issueText_(x) {
@@ -225,6 +257,178 @@ function folderNamed_(name, parent) {
   const it = parent ? parent.getFoldersByName(name) : DriveApp.getFoldersByName(name);
   return it.hasNext() ? it.next() : (parent ? parent.createFolder(name) : DriveApp.createFolder(name));
 }
+
+// ---------------------------------------------------------------------
+// 第 2 階段：讀銷貨單（Google 雲端硬碟內建的文字辨識，免費）→ 品名、數量、單價、金額
+// ---------------------------------------------------------------------
+
+/**
+ * photos：這次拍的銷貨單照片網址；names：這張叫貨單的食材名稱。
+ * 回傳 { text, rows: { 食材名稱: { slipName, qty, unit, price, amount, sure } }, extras: [{ slipName, qty, unit, price, amount }], total }
+ */
+function readSlip(photos, vendor, names) {
+  const ids = (photos || []).map(fileIdOf_).filter(Boolean);
+  if (!ids.length) throw new Error('請先拍銷貨單。');
+  const text = ids.slice(0, 6).map(ocrText_).join('\n');
+  return parseSlip_(text, slipKeys_(clean_(vendor, 30), (names || []).map(function (n) { return clean_(n, 40); }).filter(Boolean)));
+}
+
+function fileIdOf_(url) {
+  const m = String(url || '').match(/\/d\/([\w-]{20,})/) || String(url || '').match(/[?&]id=([\w-]{20,})/);
+  return m ? m[1] : '';
+}
+
+/** 照片 → 文字：轉成 Google 文件（會做中文文字辨識）、匯出純文字，再把暫存的文件丟到垃圾桶 */
+function ocrText_(fileId) {
+  const blob = DriveApp.getFileById(fileId).getBlob();
+  const boundary = 'slip' + Date.now();
+  const meta = JSON.stringify({ name: '[銷貨單辨識暫存]', mimeType: 'application/vnd.google-apps.document' });
+  const head = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
+    '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.getContentType() || 'image/jpeg') + '\r\n\r\n').getBytes();
+  const tail = Utilities.newBlob('\r\n--' + boundary + '--').getBytes();
+  const auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+  const res = retry_(function () {
+    return UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&ocrLanguage=zh-TW', {
+      method: 'post', contentType: 'multipart/related; boundary=' + boundary, payload: head.concat(blob.getBytes(), tail), headers: auth, muteHttpExceptions: true });
+  });
+  if (res.getResponseCode() >= 300) throw new Error('銷貨單辨識失敗（' + res.getResponseCode() + '），請再試一次或手動填。');
+  const docId = JSON.parse(res.getContentText()).id;
+  try {
+    const out = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + docId + '/export?mimeType=text/plain', { headers: auth, muteHttpExceptions: true });
+    return out.getResponseCode() < 300 ? out.getContentText('UTF-8') : '';
+  } finally {
+    try { DriveApp.getFileById(docId).setTrashed(true); } catch (e) {}
+  }
+}
+
+/** 要找的字：食材名稱、食材總表的「別名」、這家廠商以前銷貨單上的品名（單價表記下來的）。回傳 [{ key, name }]，長的先比 */
+function slipKeys_(vendor, names) {
+  const want = {}, keys = [];
+  names.forEach(function (n) { want[n] = true; });
+  const add = function (k, n) { k = normKey_(k); if (k && want[n] && !keys.some(function (x) { return x.key === k; })) keys.push({ key: k, name: n }); };
+  names.forEach(function (n) { add(n, n); });
+  if (ss_().getSheetByName(SHEET.prices)) readTable_(SHEET.prices, ['廠商', '食材名稱']).rows.forEach(function (r) {
+    if (String(r['廠商']).trim() === vendor) add(r['銷貨單品名'], String(r['食材名稱']).trim());
+  });
+  if (ss_().getSheetByName(SHEET.items)) {
+    const t = readTable_(SHEET.items, ['食材名稱']);
+    if (t.cols['別名'] !== undefined) t.rows.forEach(function (r) {
+      const n = String(r['食材名稱']).trim();
+      if (want[n]) String(r['別名'] || '').split(/[,，、]+/).forEach(function (a) { add(a, n); });
+    });
+  }
+  return keys.sort(function (a, b) { return b.key.length - a.key.length; });
+}
+
+function normKey_(s) {
+  return String(s || '').replace(/[\uFF01-\uFF5E]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[\s　()（）\[\]【】*＊]/g, '').toLowerCase();
+}
+
+const SLIP_UNITS = /(公斤|kg|台斤|斤|兩|包|箱|盒|顆|粒|罐|瓶|把|袋|條|支|個|片|桶|打|盤|籃|件|組|g|克)/i;
+const SLIP_TOTAL = /(合計|總計|總金額|金額合計|應收|小計|總額|本單)/;
+
+function parseSlip_(text, keys) {
+  const lines = String(text || '').split(/\r?\n/).map(function (l) {
+    return l.replace(/[\uFF01-\uFF5E]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/\u3000/g, ' ').trim();
+  }).filter(Boolean);
+  const rows = {}, extras = [];
+  let total = '';
+  const nums = function (s) {
+    return (s.match(/\d+(?:,\d{3})*(?:\.\d+)?/g) || []).map(function (x) { return Number(x.replace(/,/g, '')); });
+  };
+  const findKey = function (l) {
+    const n = normKey_(l);
+    for (let i = 0; i < keys.length; i++) {
+      const at = n.indexOf(keys[i].key);
+      if (at < 0) continue;
+      // 品名前後還連著別的中文字（例如「二砂糖」找到「砂糖」）：可能是別的東西，標「請確認」
+      // 括號裡的是規格（例如「高麗菜(初秋)」），不算
+      const m = normKey_(l.replace(/[(（][^)）]*[)）]/g, ' ')), at2 = m.indexOf(keys[i].key), t = at2 >= 0 ? m : n, p = at2 >= 0 ? at2 : at;
+      const cjk = /[\u4e00-\u9fff]/, before = t.charAt(p - 1), after = t.charAt(p + keys[i].key.length);
+      return { k: keys[i], at: at, partial: cjk.test(before) || cjk.test(after) };
+    }
+    return null;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (SLIP_TOTAL.test(l)) {
+      let ns = nums(l.replace(/.*?(合計|總計|總金額|金額合計|應收|小計|總額|本單)/, ''));
+      if (!ns.length && lines[i + 1] && !findKey(lines[i + 1])) ns = nums(lines[i + 1]);
+      if (ns.length) total = ns[ns.length - 1];
+      continue;
+    }
+    const hit = findKey(l);
+    let rest = hit ? afterKey_(l, hit.k.key) : l;
+    let ns = nums(rest);
+    if (hit && !ns.length && lines[i + 1] && !findKey(lines[i + 1]) && !SLIP_TOTAL.test(lines[i + 1])) { rest = lines[i + 1]; ns = nums(rest); i++; }
+    const u = (rest.match(SLIP_UNITS) || [])[1] || '';
+    const v = slipNumbers_(ns);
+    if (hit) {
+      const r = rows[hit.k.name];
+      const slipName = l.replace(/[\d,.]+/g, ' ').replace(SLIP_UNITS, ' ').replace(/^[A-Za-z\-]+\s+/, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      if (!r) rows[hit.k.name] = { slipName: slipName, qty: v.qty, unit: u, price: v.price, amount: v.amount, sure: v.sure && !hit.partial, partial: !!hit.partial };
+      else if (r.unit === u && v.qty !== '') {   // 同一樣分好幾行（例如分兩箱）：數量、金額加起來
+        r.qty = round2_((Number(r.qty) || 0) + v.qty);
+        if (v.amount !== '') r.amount = round2_((Number(r.amount) || 0) + v.amount);
+      }
+    } else if (ns.length >= 2 && /[\u4e00-\u9fff]{2,}/.test(l) && !/(日期|電話|傳真|統一編號|統編|地址|單號|編號|客戶|頁)/.test(l)) {
+      const nm = (l.match(/^[^\d]*?([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z()（）\-]+)/) || [])[1] || '';
+      if (nm) extras.push({ slipName: nm.slice(0, 40), qty: v.qty, unit: u, price: v.price, amount: v.amount, sure: v.sure });
+    }
+  }
+  return { text: lines.slice(0, 300).join('\n'), rows: rows, extras: extras.slice(0, 40), total: total };
+}
+
+function afterKey_(line, key) {
+  // 品名後面的字（品名前面常有貨號，不要算進數量）
+  let acc = '';
+  for (let i = 0; i < line.length; i++) {
+    acc += line[i];
+    if (normKey_(acc).indexOf(key) >= 0) return line.slice(i + 1);
+  }
+  return line;
+}
+
+/** 一行裡的數字 → 數量、單價、金額：有三個數字且「數量×單價≈金額」最準 */
+function slipNumbers_(ns) {
+  const out = { qty: '', price: '', amount: '', sure: false };
+  if (!ns.length) return out;
+  for (let a = 0; a < ns.length; a++) for (let b = a + 1; b < ns.length; b++) for (let c = b + 1; c < ns.length; c++) {
+    if (ns[c] > 0 && Math.abs(ns[a] * ns[b] - ns[c]) <= Math.max(1, ns[c] * 0.02)) return { qty: ns[a], price: ns[b], amount: ns[c], sure: true };
+  }
+  out.qty = ns[0];
+  if (ns.length >= 3) { out.price = ns[ns.length - 2]; out.amount = ns[ns.length - 1]; }
+  else if (ns.length === 2) { out.amount = ns[1]; out.price = ns[0] ? round2_(ns[1] / ns[0]) : ''; }
+  return out;
+}
+
+/** 單價表：每家廠商每樣食材（同一單位）留最新的單價，之後算成本用 */
+function savePrices_(vendor, from, id, slip) {
+  const list = slip.filter(function (x) { return x.name && Number(x.price) > 0; });
+  if (!list.length) return;
+  ensureSheet_(SHEET.prices, PRICE_HEADERS);
+  const t = readTable_(SHEET.prices, ['廠商', '食材名稱']);
+  const add = [];
+  list.forEach(function (x) {
+    const r = t.rows.find(function (y) { return String(y['廠商']).trim() === vendor && String(y['食材名稱']).trim() === x.name && String(y['單位'] || '').trim() === x.unit; });
+    if (r) {
+      if (purchaseDate_(r['更新日期']) > from) return;   // 已經有更新的價格
+      setCell_(t, r._row, '單價', x.price); setCell_(t, r._row, '更新日期', from); setCell_(t, r._row, '驗收編號', id);
+      if (x.slipName) setCell_(t, r._row, '銷貨單品名', x.slipName);
+    } else add.push({ '廠商': vendor, '食材名稱': x.name, '單位': x.unit, '單價': x.price, '銷貨單品名': x.slipName, '更新日期': from, '驗收編號': id });
+  });
+  if (add.length) appendRows_(SHEET.prices, add);
+}
+
+function num_(v) {
+  const s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, '');
+  if (s === '') return '';
+  const n = Number(s);
+  if (!isFinite(n) || n < 0) throw new Error('金額或數量「' + v + '」不是數字。');
+  return round2_(n);
+}
+function round2_(n) { return Math.round(Number(n) * 100) / 100; }
 
 // ---------------------------------------------------------------------
 // 問題追蹤
@@ -343,6 +547,11 @@ function ensureSheet_(name, headers) {
     sh = ss_().insertSheet(name);
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
+  } else if (sh.getLastColumn()) {
+    // 舊的分頁缺新欄位：補在最後面
+    const have = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (h) { return String(h).trim(); });
+    const miss = headers.filter(function (h) { return have.indexOf(h) < 0; });
+    if (miss.length) sh.getRange(1, have.length + 1, 1, miss.length).setValues([miss]).setFontWeight('bold');
   }
   return sh;
 }
