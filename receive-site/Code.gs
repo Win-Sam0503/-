@@ -13,6 +13,8 @@ const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食�
 // 照班級點貨的廠商（其他廠商點品項總量）
 const PER_CLASS = /^[ABD]/;
 const ISSUE_STATES = ['待處理', '已補送', '扣款', '不用補'];
+// 同一家廠商、送兩個地方：訂貨系統裡分開記（C烘焙蛋／C中餐蛋），驗收時合成一張，分「送烘焙教室」「送中餐教室」兩段
+const SITE_VENDORS = { 'C烘焙蛋': { base: 'C蛋商', site: '送烘焙教室' }, 'C中餐蛋': { base: 'C蛋商', site: '送中餐教室' } };
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -40,19 +42,33 @@ function getWeek(monday) {
 
   const drafts = {}, by = {};
   rows.forEach(function (r) {
-    if (r.status === '草稿') { drafts[r.vendor] = true; return; }
-    const k = r.vendor + '|' + r.group;
+    const sv = SITE_VENDORS[r.vendor];
+    if (r.status === '草稿') { drafts[sv ? sv.base : r.vendor] = true; return; }
+    const k = sv ? sv.base + '|' : r.vendor + '|' + r.group;
     (by[k] = by[k] || []).push(r);
   });
   const checked = readChecks_(f);
   const batches = Object.keys(by).sort().map(function (k) {
-    const list = by[k], vendor = list[0].vendor, group = list[0].group;
+    const list = by[k], sv = SITE_VENDORS[list[0].vendor];
+    const vendor = sv ? sv.base : list[0].vendor, group = sv ? '' : list[0].group;
     const id = checkId_(f, vendor, group);
     const b = { id: id, vendor: vendor, group: group, label: vendor + (group ? '（送貨組別 ' + group + '，星期' + group.split('').join('、') + '）' : ''),
-      perClass: PER_CLASS.test(vendor), lines: batchLines_(list, vendor), check: checked[id] || null };
+      perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null };
     return b;
   });
   return { from: f, to: t, batches: batches, drafts: Object.keys(drafts).filter(function (v) { return !batches.some(function (b) { return b.vendor === v; }); }) };
+}
+
+/** 送兩個地方的廠商：各地方分開算總量，班級欄放「送烘焙教室／送中餐教室」 */
+function siteLines_(list) {
+  const out = [];
+  Object.keys(SITE_VENDORS).map(function (v) { return [v, SITE_VENDORS[v].site]; })
+    .sort(function (a, b) { return a[1].localeCompare(b[1], 'zh-Hant'); }).forEach(function (p) {
+      batchLines_(list.filter(function (r) { return r.vendor === p[0]; }), p[0]).forEach(function (x) {
+        out.push(Object.assign({}, x, { key: p[1] + x.key, cls: p[1] }));
+      });
+    });
+  return out;
 }
 
 /** 一張叫貨單要點的品項：A／B／D 照班級（各班明細），其他照品項總量（跟 ③ 叫貨單的合計一樣，含在 ③ 直接改過的合計） */

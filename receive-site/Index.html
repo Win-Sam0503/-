@@ -175,7 +175,7 @@
         var c = b.check, n = b.lines.length;
         var st = !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
         return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
-          (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
+          (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
           '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
       }).join('');
     }).catch(function (e) { msg('listMsg', 'error', '載入失敗：' + e.message); });
@@ -207,7 +207,7 @@
   function renderDo() {
     var b = cur.b, last = null, html = '';
     b.lines.forEach(function (x) {
-      if (b.perClass) {
+      if (b.perClass || x.cls) {
         var g = (x.date ? mdw(x.date) + '　' : '') + x.cls + (x.teacher ? '　' + x.teacher : '');
         if (g !== last) { html += '<div class="grp">' + esc(g) + '</div>'; last = g; }
       }
