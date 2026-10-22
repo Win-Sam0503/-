@@ -2270,6 +2270,17 @@ function learnMatch_(idx, name) {
   return a && a.length === 1 ? a[0] : '';
 }
 
+/** 食材總表現在寫「自備」的食材ID（例如水）：舊訂單當時記成別家廠商的，也一律不叫貨 */
+let SELF_IDS_ = null;   // 同一次執行只讀一次
+function selfItemIds_() {
+  if (SELF_IDS_) return SELF_IDS_;
+  const out = SELF_IDS_ = {};
+  readTable_(SHEET.items, ['食材ID', '廠商']).rows.forEach(function (r) {
+    if (String(r['廠商']).trim() === SELF_VENDOR) out[String(r['食材ID']).trim()] = true;
+  });
+  return out;
+}
+
 /** 管理者：系統學到的叫法（食材總表的「別名」）。[{ id, name, vendor, aliases: [], shared: {別名: [其他食材名稱]} }] */
 function adminGetAliases(token) {
   auth_(token, true);
@@ -4822,6 +4833,7 @@ function escHtml_(s) {
 function groupOrders_(rows, account) {
   const map = {};
   const list = [];
+  const selfIds = rows.length ? selfItemIds_() : {};
   const vendorGroups = readVendorGroups_();
   // 舊訂單可能所有廠商都寫了送貨組別；廠商設定沒有分組別的廠商一律不分
   const groupOf = function (r) {
@@ -4850,16 +4862,17 @@ function groupOrders_(rows, account) {
       };
       list.push(map[no]);
     }
+    const iid = String(r['食材ID'] || '').trim(), self = !!selfIds[iid];
     map[no].items.push({
       id: String(r['食材ID'] || ''),
       name: String(r['食材名稱'] || ''),
-      vendor: String(r['廠商'] || ''),
+      vendor: self ? SELF_VENDOR : String(r['廠商'] || ''),
       group: groupOf(r),
       qty: Number(r['數量']) || 0,
       unit: String(r['單位'] || ''),
       note: String(r['備註'] || ''),
       status: String(r['狀態'] || ''),
-      noOrder: isTrue_(r['不叫貨']),
+      noOrder: isTrue_(r['不叫貨']) || self,
       section: String(r['段落'] || ''),
       row: r._archived ? null : r._row,
     });
