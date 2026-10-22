@@ -395,12 +395,18 @@ function parseSlip_(text, keys) {
   const nums = function (s) {
     return (s.match(/\d+(?:,\d{3})*(?:\.\d+)?/g) || []).map(function (x) { return Number(x.replace(/,/g, '')); });
   };
-  // 每個數字後面緊接的單位（「0.1 kg 650 65」→ 0.1 的單位是 kg；規格欄的「1.66斤」不會被當成數量的單位）
-  const unitsAfter = function (s) {
-    const out = [], re = new RegExp('(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*' + SLIP_UNITS.source + '?', 'gi');
-    let m;
-    while ((m = re.exec(s))) out.push(m[2] || '');
-    return out;
+  // 第 qi 個數字的單位：緊接在後面的（「0.1 kg 650 65」），沒有就取緊接在前面的（旺來興「袋 2 590」）；品名規格裡的「22kg」「1.66斤」不會被當成數量的單位
+  const unitNear = function (s, qi) {
+    const re = /\d+(?:,\d{3})*(?:\.\d+)?/g, after = new RegExp('^\\s*' + SLIP_UNITS.source, 'i'), before = new RegExp(SLIP_UNITS.source + '\\s*$', 'i');
+    let m, k = 0;
+    while ((m = re.exec(s))) {
+      if (k++ !== qi) continue;
+      const a = s.slice(m.index + m[0].length).match(after);
+      if (a) return a[1];
+      const b = s.slice(0, m.index).match(before);
+      return b ? b[1] : '';
+    }
+    return '';
   };
   const codes = keys.codes || {};
   const findKey = function (l) {
@@ -435,7 +441,7 @@ function parseSlip_(text, keys) {
     let ns = nums(rest);
     if (hit && !ns.length && lines[i + 1] && !findKey(lines[i + 1]) && !SLIP_TOTAL.test(lines[i + 1])) { rest = lines[i + 1]; ns = nums(rest); i++; }
     const v = slipNumbers_(ns);
-    const u0 = (v.qi !== undefined && unitsAfter(rest)[v.qi]) || (rest.match(SLIP_UNITS) || [])[1] || '', u = SLIP_UNIT_SAME[u0] || SLIP_UNIT_SAME[u0.toLowerCase()] || u0;
+    const u0 = (v.qi !== undefined && unitNear(rest, v.qi)) || (rest.match(SLIP_UNITS) || [])[1] || '', u = SLIP_UNIT_SAME[u0] || SLIP_UNIT_SAME[u0.toLowerCase()] || u0;
     if (hit) {
       const r = rows[hit.k.name];
       const slipName = slipNameOf_(l);
@@ -457,8 +463,12 @@ function normCode_(c) { return String(c || '').trim().toUpperCase().replace(/[~�
 
 /** 一行裡的品名：去掉序號、貨品編號、數字、單位 */
 function slipNameOf_(l) {
-  return l.replace(SLIP_CODE, ' ').replace(/\d+(?:,\d{3})*(?:\.\d+)?/g, ' ').replace(new RegExp(SLIP_UNITS.source, 'gi'), ' ')
-    .replace(/[:：|]/g, ' ').replace(/\s+/g, ' ').trim().split(' ')[0].replace(/^(.{2,}?)[(（].*$/, '$1').slice(0, 40);
+  const parts = l.replace(/^\s*\d{1,2}\s*[.、]/, ' ').replace(SLIP_CODE, ' ').replace(/[A-Za-z]?\d{5,}/g, ' ')   // 序號、貨號、條碼
+    .replace(/^([^(（]*?)[(（][^)）]*[)）]\s*(?=[\u4e00-\u9fff])/, '$1')   // 品名前面的括號，例如「(PET瓶)公賣局米酒」
+    .replace(/\d+(?:,\d{3})*(?:\.\d+)?/g, ' ').replace(new RegExp(SLIP_UNITS.source, 'gi'), ' ')
+    .replace(/[:：|]/g, ' ').replace(/([\u4e00-\u9fff]) (?=[\u4e00-\u9fff])/g, '$1').replace(/\s+/g, ' ').trim().split(' ');
+  const nm = parts.filter(function (x) { return /[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}/.test(x); })[0] || parts[0] || '';
+  return nm.replace(/^(.{2,}?)[(（].*$/, '$1').slice(0, 40);
 }
 
 function afterKey_(line, key) {
