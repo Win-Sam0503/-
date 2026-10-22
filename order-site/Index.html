@@ -5691,6 +5691,12 @@
         var noCode = seg.replace(/[A-Za-z]+\d{2,}/g, ' ');   // 編號（例如 A85）不是數量
         var q = findQty(noCode);
         var pureQty = !!q && q.at === 0 && q.len >= noCode.trim().length;
+        // 「顆 2」「斤 0.5」：前面只有單位、後面是數量（Word 文字方塊裡的表格轉出來，名稱和「單位 數量」會拆成兩行）
+        var lead = q && q.at > 0 ? noCode.slice(0, q.at).trim() : '';
+        if (!pureQty && lead && new RegExp('^(' + unitWords() + ')$').test(lead) && q.at + q.len >= noCode.trim().length) {
+          pureQty = true;
+          q.unit = q.unit || stdUnit(lead);
+        }
         // 中餐請料單「需求量 單價 單位 全班 價格」：單位後面那個數字才是全班的量
         var tm = hasTotal && !tool && !pureQty ? noCode.match(UNIT_THEN_NUM) : null;
         var nameEnd = tm ? tm.index : q ? q.at : noCode.length;
