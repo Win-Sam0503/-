@@ -49,16 +49,51 @@ function getWeek(monday) {
     const k = sv ? sv.base + '|' : r.vendor + '|' + r.group;
     (by[k] = by[k] || []).push(r);
   });
-  const checked = readChecks_(f);
+  const checked = readChecks_(f), prices = readPrices_();
   const batches = Object.keys(by).sort().map(function (k) {
     const list = by[k], sv = SITE_VENDORS[list[0].vendor];
     const vendor = sv ? sv.base : list[0].vendor, group = sv ? '' : list[0].group;
     const id = checkId_(f, vendor, group);
     const b = { id: id, vendor: vendor, group: group, label: vendor + (group ? '（送貨組別 ' + group + '，星期' + group.split('').join('、') + '）' : ''),
-      perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null };
+      perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null,
+      totals: nameTotals_(list), prices: prices[vendor] || {} };
     return b;
   });
   return { from: f, to: t, batches: batches, drafts: Object.keys(drafts).filter(function (v) { return !batches.some(function (b) { return b.vendor === v; }); }) };
+}
+
+/** 每樣食材這張叫貨單一共叫多少（同一樣有好幾種單位就不算）：{ 食材名稱: { qty, unit } }，給銷貨單金額「手動填」先帶數量 */
+function nameTotals_(list) {
+  const tot = {};
+  const byVendor = {};
+  list.forEach(function (r) { (byVendor[r.vendor] = byVendor[r.vendor] || []).push(r); });
+  Object.keys(byVendor).forEach(function (v) {
+    const rows = byVendor[v], ovr = {};
+    rows.forEach(function (r) { if (r.kind === '合計') ovr[r.name] = r; });
+    const add = function (n, qty, unit) {
+      const cv = convertUnit_(qty, unit, v, n), t = tot[n];
+      if (!t) tot[n] = { qty: cv.qty, unit: cv.unit };
+      else if (t.unit === cv.unit) t.qty = Math.round((t.qty + cv.qty) * 100) / 100;
+      else t.mixed = true;
+    };
+    rows.forEach(function (r) { if (r.kind !== '合計' && r.qty > 0 && !ovr[r.name]) add(r.name, r.qty, r.unit); });
+    Object.keys(ovr).forEach(function (n) { if (ovr[n].qty > 0) add(n, ovr[n].qty, ovr[n].unit); });
+  });
+  Object.keys(tot).forEach(function (n) { if (tot[n].mixed) delete tot[n]; });
+  return tot;
+}
+
+/** 單價表：{ 廠商: { 食材名稱: { price, unit, date } } }（同一樣有好幾種單位時取最新的） */
+function readPrices_() {
+  const out = {};
+  if (!ss_().getSheetByName(SHEET.prices)) return out;
+  readTable_(SHEET.prices, ['廠商', '食材名稱', '單價']).rows.forEach(function (r) {
+    const v = String(r['廠商']).trim(), n = String(r['食材名稱']).trim(), pr = Number(r['單價']);
+    if (!v || !n || !(pr > 0)) return;
+    const d = purchaseDate_(r['更新日期']), m = out[v] = out[v] || {};
+    if (!m[n] || d >= m[n].date) m[n] = { price: pr, unit: String(r['單位'] || '').trim(), date: d };
+  });
+  return out;
 }
 
 /** 送兩個地方的廠商：各地方分開算總量，班級欄放「送烘焙教室／送中餐教室」 */

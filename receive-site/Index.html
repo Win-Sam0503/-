@@ -414,9 +414,12 @@
     var html = '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th></tr>';
     slipNames().forEach(function (n) {
       var r = sl.rows[n] || {}, has = r.qty !== undefined && (r.qty !== '' || r.amount !== '');
+      var lp = (cur.b.prices || {})[n], pv = numv(r.price);
+      var hint = lp && pv !== null && Math.abs(pv - lp.price) >= 0.01 && (!r.unit || r.unit === lp.unit) ?
+        ' <span class="badge ' + (pv > lp.price ? 'bad' : 'ok') + '">' + (pv > lp.price ? '比上次貴' : '比上次便宜') + '（上次 $' + money(lp.price) + '）</span>' : '';
       var flag = r.partial ? '<span class="badge warn">⚠ 請確認品名</span>' : has && r.sure === false ? '<span class="badge warn">請確認數字</span>'
         : sl.ocr && !has ? '<span class="badge none">銷貨單上沒看到</span>' : '';
-      html += '<tr><td><b>' + esc(n) + '</b> ' + flag + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
+      html += '<tr' + (r.pre ? ' style="background:#fffbea"' : '') + '><td><b>' + esc(n) + '</b> ' + flag + hint + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
         '<td class="small">' + esc(expect[n].length > 3 ? expect[n].length + ' 筆' : expect[n].join('＋')) + '</td>' +
         ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('sn', n, f, r[f]); }).join('') + '</tr>';
     });
@@ -454,8 +457,24 @@
     sl.extras.forEach(function (x) { if (x.map === '+') rows.push({ name: '', slipName: x.slipName || '', qty: x.qty, unit: x.unit || '', price: x.price, amount: x.amount, code: x.code || '' }); });
     return { total: sl.total, rows: rows };
   }
+  // 手動填：沒填過的品項先帶叫貨的數量和單價表的價格（手寫收據的廠商只要改不一樣的地方）
+  var W = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+  function prefill(n) {
+    var t = (cur.b.totals || {})[n], p = (cur.b.prices || {})[n], unit = p ? p.unit : t ? ({ '兩': '斤', 'g': '公斤' }[t.unit] || t.unit) : '';
+    var qty = '';
+    if (t) qty = t.unit === unit ? t.qty : W[t.unit] && W[unit] ? r2(t.qty * W[t.unit] / W[unit]) : '';
+    var price = p ? p.price : '';
+    return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? r2(qty * price) : '', sure: true, pre: true };
+  }
   $('slipManual').addEventListener('click', function () {
     if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] };
+    var n0 = 0;
+    slipNames().forEach(function (n) {
+      var r = cur.slip.rows[n];
+      if (r && (r.qty !== '' || r.amount !== '')) return;
+      cur.slip.rows[n] = prefill(n); n0++;
+    });
+    $('slipMsg').textContent = n0 ? '已先帶入叫貨數量' + (Object.keys(cur.b.prices || {}).length ? '和單價表的價格' : '') + '（淡黃色），請對照收據改不一樣的地方。' : '';
     renderSlip(); saveDraft();
   });
   $('slipRead').addEventListener('click', function () {
@@ -480,7 +499,7 @@
     var t = e.target, sl = cur.slip, f = t.getAttribute('data-f'), o = null;
     if (t.id === 'slipTotal') { sl.total = t.value; slipFooter(); saveDraft(); return; }
     if (t.hasAttribute('data-xn')) { sl.extras[Number(t.getAttribute('data-xn'))].slipName = t.value; saveDraft(); return; }
-    if (t.hasAttribute('data-sn')) { var n = t.getAttribute('data-sn'); o = sl.rows[n] = sl.rows[n] || {}; o.sure = true; o.partial = false; }
+    if (t.hasAttribute('data-sn')) { var n = t.getAttribute('data-sn'); o = sl.rows[n] = sl.rows[n] || {}; o.sure = true; o.partial = false; delete o.pre; t.closest('tr').style.background = ''; }
     else if (t.hasAttribute('data-x')) o = sl.extras[Number(t.getAttribute('data-x'))];
     if (!o || !f) return;
     o[f] = t.value;
