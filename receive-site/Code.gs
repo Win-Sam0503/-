@@ -745,7 +745,7 @@ function dropDraft_(id) {
 /** all = true 連處理完的一起列（最近 60 天） */
 function getIssues(all) {
   const sh = ss_().getSheetByName(SHEET.lines);
-  if (!sh || sh.getLastRow() < 2) return { list: [], states: ISSUE_STATES };
+  if (!sh || sh.getLastRow() < 2) return { list: [], states: ISSUE_STATES, pending: draftIssues_() };
   const checks = {};
   if (ss_().getSheetByName(SHEET.checks)) readTable_(SHEET.checks, ['驗收編號']).rows.forEach(function (r) {
     checks[String(r['驗收編號']).trim()] = { from: purchaseDate_(r['送貨日期（起）']), to: purchaseDate_(r['送貨日期（迄）']),
@@ -765,7 +765,29 @@ function getIssues(all) {
       status: String(r['狀態'] || ''), note: String(r['備註'] || ''), state: String(r['處理狀態'] || '待處理') || '待處理',
       doneTime: fmtDateTime_(r['處理時間']), doneNote: String(r['處理備註'] || ''), itemPhotos: photoList_(r['照片']) };
   });
-  return { list: list, states: ISSUE_STATES };
+  return { list: list, states: ISSUE_STATES, pending: draftIssues_() };
+}
+
+/** 暫時儲存（還沒完成驗收）裡標了缺貨、少送…的品項，先列在問題追蹤，免得忘記 */
+function draftIssues_() {
+  const out = [], drafts = readDrafts_();
+  Object.keys(drafts).forEach(function (id) {
+    const m = id.match(/^R(\d{4})(\d{2})(\d{2})-(.+)$/);
+    if (!m) return;
+    let d = null;
+    try { d = JSON.parse(drafts[id].data); } catch (e) { return; }
+    const items = [];
+    Object.keys(d && d.marks || {}).forEach(function (k) {
+      const x = d.marks[k], st = x && x.status;
+      if (!st || st === '到齊' || st === '停送') return;
+      const p = k.split('|');
+      items.push({ cls: p[0] || '', name: p[1] || k, status: st, got: String(x.got || ''), note: String(x.note || '') });
+    });
+    if (!items.length) return;
+    const rest = m[4].split('-');
+    out.push({ id: id, from: m[1] + '-' + m[2] + '-' + m[3], vendor: rest[0], group: rest.slice(1).join('-'), at: drafts[id].at, items: items });
+  });
+  return out.sort(function (a, b) { return a.from < b.from ? -1 : a.from > b.from ? 1 : 0; });
 }
 
 /** 記錄問題的處理結果：rows = 驗收明細的列號 */

@@ -360,7 +360,21 @@
       var t = new Date();
       localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, sig: cur.sig, signer: $('sigName').value,
         ts: t.getTime(), at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
+      autoRemoteDraft();
     } catch (e) {}
+  }
+  // 標了缺貨、少送…：自動也存一份到試算表（問題追蹤馬上看得到），不用記得按「暫時儲存」
+  var autoHold = null;
+  function autoRemoteDraft() {
+    if (!cur) return;
+    var b = cur.b, bad = Object.keys(cur.marks).some(function (k) { var st = cur.marks[k].status; return st && st !== '到齊' && st !== '停送'; });
+    if (!bad && !b.draft) return;
+    clearTimeout(autoHold);
+    autoHold = setTimeout(function () {
+      if (!cur || cur.b !== b) return;
+      var data = JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, signer: $('sigName').value });
+      call('saveDraftRemote', b.id, data).then(function (r) { b.draft = { ts: r.ts, at: r.at, data: data }; refreshIssueCount(); }).catch(function () {});
+    }, 2500);
   }
   function dropDraft(b) { try { localStorage.removeItem(draftKey(b)); } catch (e) {} }
   $('draftMsg').addEventListener('click', function (e) {
@@ -484,6 +498,7 @@
       .then(function () { btn.disabled = false; btn.textContent = '💾 暫時儲存'; });
   });
   $('doSave').addEventListener('click', function () {
+    clearTimeout(autoHold);
     var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
     var stopN = b.lines.filter(function (x) { return cur.marks[x.key].status === '停送'; }).length, allStop = stopN === b.lines.length;
@@ -769,7 +784,10 @@
   // ---------------- 問題追蹤 ----------------
   var issueAll = false, issues = null;
   function refreshIssueCount() {
-    call('getIssues', false).then(function (r) { $('issueCount').textContent = r.list.length ? '（' + r.list.length + '）' : ''; }).catch(function () {});
+    call('getIssues', false).then(function (r) {
+      var n = r.list.length + (r.pending || []).reduce(function (a, g) { return a + g.items.length; }, 0);
+      $('issueCount').textContent = n ? '（' + n + '）' : '';
+    }).catch(function () {});
   }
   document.querySelector('#vIssues .row').addEventListener('click', function (e) {
     var b = e.target.closest('[data-all]');
@@ -789,10 +807,19 @@
     call('getIssues', issueAll).then(function (r) {
       issues = r;
       $('issueCount').textContent = '';
-      msg('issueMsg', r.list.length ? '' : 'ok', r.list.length ? '' : issueAll ? '最近 60 天沒有問題。' : '沒有還沒處理的問題 👍');
+      var pend = r.pending || [];
+      msg('issueMsg', r.list.length || pend.length ? '' : 'ok', r.list.length || pend.length ? '' : issueAll ? '最近 60 天沒有問題。' : '沒有還沒處理的問題 👍');
       var by = {}, order = [];
       r.list.forEach(function (x) { if (!by[x.id]) { by[x.id] = []; order.push(x.id); } by[x.id].push(x); });
-      $('issueList').innerHTML = order.map(function (id) {
+      var pendHtml = pend.length ? '<div class="panel" style="border:2px solid var(--warn)"><b style="font-size:18px">📝 還沒完成驗收（暫存中）</b>' +
+        '<div class="muted small">標了缺貨、少送…但還沒按「完成驗收」的。處理好後打開那張點完、簽名、完成驗收，就會移到下面。</div>' +
+        pend.map(function (g) {
+          return '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><div><b>' + esc(g.vendor) + '</b>' +
+            (g.group ? ' <span class="muted">送貨組別 ' + esc(g.group) + '</span>' : '') + ' <span class="muted small">' + esc(md(g.from)) + ' 那週・' + esc(g.at) + ' 暫存</span></div>' +
+            '<button type="button" class="btn ghost small" data-openid="' + esc(g.id) + '" data-from="' + esc(g.from) + '">打開這張</button></div>' +
+            g.items.map(function (x) { return '<div>・' + esc((x.cls ? x.cls + ' ' : '') + x.name + '：' + (x.status === '缺貨' ? '廠商缺貨' : x.status) + (x.got && (x.status === '少送' || x.status === '多送') ? '（實到 ' + x.got + '）' : '') + (x.note ? '，' + x.note : '')) + '</div>'; }).join('') + '</div>';
+        }).join('') + '</div>' : '';
+      $('issueList').innerHTML = pendHtml + order.map(function (id) {
         var g = by[id], h = g[0];
         return '<div class="panel" data-id="' + esc(id) + '"><div class="row" style="justify-content:space-between"><div><b style="font-size:19px">' + esc(h.vendor) + '</b>' +
           (h.group ? ' <span class="muted">送貨組別 ' + esc(h.group) + '</span>' : '') + '<div class="muted small">' + esc(h.from ? md(h.from) + '～' + md(h.to) : '') + '・驗收 ' + esc(h.time) +
@@ -806,6 +833,14 @@
     }).catch(function (e) { msg('issueMsg', 'error', '載入失敗：' + e.message); });
   }
   $('issueList').addEventListener('click', function (e) {
+    var o = e.target.closest('[data-openid]');
+    if (o) {
+      var id = o.getAttribute('data-openid');
+      $('weekDate').value = o.getAttribute('data-from');
+      show('vCheck');
+      loadWeek().then(function () { var b = week && week.batches.filter(function (x) { return x.id === id; })[0]; if (b) openBatch(b); });
+      return;
+    }
     var b = e.target.closest('[data-copy]');
     if (!b) return;
     var g = issues.list.filter(function (x) { return x.id === b.getAttribute('data-copy'); }), h = g[0];
