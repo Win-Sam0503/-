@@ -21,7 +21,7 @@ const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食�
 // 照班級點貨的廠商（其他廠商點品項總量）
 const PER_CLASS = /^[ABD]/;
 const ISSUE_STATES = ['待處理', '已補送', '換貨', '退貨', '扣款', '不用補'];
-const CHECK_STATUS = ['到齊', '少送', '沒送', '送錯', '多送', '品質不好'];
+const CHECK_STATUS = ['到齊', '少送', '沒送', '送錯', '多送', '品質不好', '缺貨', '其他'];
 // 同一家廠商、送兩個地方：訂貨系統裡分開記（C烘焙蛋／C中餐蛋），驗收時合成一張，分「送烘焙教室」「送中餐教室」兩段
 const SITE_VENDORS = { 'C烘焙蛋': { base: 'C蛋商', site: '送烘焙教室' }, 'C中餐蛋': { base: 'C蛋商', site: '送中餐教室' } };
 
@@ -223,7 +223,9 @@ function saveCheck(p) {
     const st = CHECK_STATUS.indexOf(x.status) >= 0 ? x.status : '';
     if (!st) throw new Error('「' + x.name + '」還沒點：請按 ✓ 或標記少送、沒送、送錯。');
     if ((st === '少送' || st === '多送') && !String(x.got || '').trim()) throw new Error('「' + x.name + '」' + st + '，請填實際送來多少。');
-    const got = st === '到齊' ? clean_(x.expect, 30) : st === '沒送' ? '0' : st === '品質不好' ? clean_(x.got, 30) || clean_(x.expect, 30) : clean_(x.got, 30);
+    if (st === '其他' && !String(x.note || '').trim()) throw new Error('「' + x.name + '」選了「其他」，請在備註寫是什麼狀況。');
+    const got = st === '到齊' ? clean_(x.expect, 30) : st === '沒送' || st === '缺貨' ? '0'
+      : st === '品質不好' || st === '其他' ? clean_(x.got, 30) || clean_(x.expect, 30) : clean_(x.got, 30);
     return { cls: clean_(x.cls, 30), name: clean_(x.name, 40), expect: clean_(x.expect, 30), got: got, status: st, note: clean_(x.note, 100),
       photos: (x.photos || []).filter(function (u) { return /^https:\/\/(drive|docs)\.google\.com\//.test(String(u)); }).slice(0, 6) };
   });
@@ -300,6 +302,8 @@ function saveCheck(p) {
 function issueText_(x) {
   if (x.status === '沒送') return '沒送（應到 ' + x.expect + '）' + (x.note ? '，' + x.note : '');
   if (x.status === '送錯') return '送錯（應到 ' + x.expect + '）' + (x.note ? '，' + x.note : '');
+  if (x.status === '缺貨') return '廠商缺貨（應到 ' + x.expect + '）' + (x.note ? '，' + x.note : '');
+  if (x.status === '其他') return '其他：' + x.note + (x.got !== x.expect ? '（實到 ' + x.got + '）' : '');
   if (x.status === '品質不好') return '品質不好（' + x.got + '）' + (x.note ? '，' + x.note : '') + (x.photos && x.photos.length ? '（有拍照）' : '');
   return x.status + '：應到 ' + x.expect + '，實到 ' + x.got + (x.note ? '，' + x.note : '');
 }
