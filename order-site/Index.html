@@ -4042,12 +4042,13 @@
 
   // 跨教室領料單：分科廠商（E烘焙乾貨、E中餐乾貨…）的食材被另一科的課訂了（例如中餐課訂乳酪絲，只有烘焙乾貨在進），
   // 東西會送到另一間教室，列出哪一天、哪一班、要去哪裡拿什麼、多少。照「領取地點」每處一頁，貼在那間教室。
-  // 各科上課的教室：烘焙課在烘焙教室、飲調課在飲調教室，其他科在中餐教室；分科廠商送到烘焙或中餐教室，不是自己教室的就要去領
+  // 各科上課的教室：烘焙課在烘焙教室、飲調課在飲調教室，其他科在中餐教室；分科廠商送到烘焙或中餐教室、飲調廠商送到飲調教室，不是自己教室的就要去領
   function pickupPlace(vendor, dept) {
     var sp = data.vendorSplit || {};
     var home = (data.bakingDepts || []).indexOf(dept) >= 0 ? '烘焙教室' : dept === '飲調' ? '飲調教室' : '中餐教室';
     var at = Object.keys(sp).some(function (k) { return sp[k].baking === vendor; }) ? '烘焙教室'
-      : Object.keys(sp).some(function (k) { return sp[k].other === vendor; }) ? '中餐教室' : '';
+      : Object.keys(sp).some(function (k) { return sp[k].other === vendor; }) ? '中餐教室'
+      : /^F/.test(vendor || '') ? '飲調教室' : '';   // 飲調廠商送到飲調教室
     return at && at !== home ? at : '';
   }
   function pickupSheets(orders, from, to, only, manual) {
