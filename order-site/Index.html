@@ -2906,7 +2906,8 @@
       setTimeout(function () { b.textContent = '複製叫貨文字'; }, 1500);
     }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
   });
-  var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+  // 大T（大匙）、小T（小匙）照本科慣例換成克：1 大T＝5 g、1 小T＝3 g（要改數字改這裡，Code.gs 的 GRAMS_ 和進貨驗收的 GRAMS 也要一起改）
+  var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 5, 't': 3 };
   // 食材排序（「名稱|單位」）：訂單彙整、① 扣貨單、② 訂貨單、③ 叫貨單都用同一種順序（中文筆畫），找起來位置一樣
   function byItemKey(a, b) { return String(a).localeCompare(String(b), 'zh-Hant'); }
   // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
