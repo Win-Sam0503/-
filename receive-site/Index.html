@@ -96,7 +96,8 @@
         <div class="row">
           <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
           <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
-          <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。</span>
+          <select id="photoRot" style="width:auto" title="照片拍成橫的，自動讀不出來時選"><option value="0">照片不轉</option><option value="90">向右轉 90°</option><option value="270">向左轉 90°</option><option value="180">轉 180°</option></select>
+          <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。字要是正的才讀得準（拍歪了先選轉向再拍）。</span>
         </div>
         <div id="thumbs" class="thumbs"></div>
         <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
@@ -332,7 +333,7 @@
   });
   $('doBack').addEventListener('click', function () { show('vCheck'); loadWeek(); });
 
-  // 銷貨單照片：在平板上先縮小（長邊 1600），再上傳到雲端硬碟
+  // 銷貨單照片：在平板上先縮小（長邊 2000），再上傳到雲端硬碟
   function renderThumbs() {
     $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　');
   }
@@ -340,9 +341,12 @@
     return new Promise(function (resolve, reject) {
       var img = new Image(), url = URL.createObjectURL(file);
       img.onload = function () {
-        var s = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
-        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        var s = Math.min(1, 2000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        var w = Math.round(img.width * s), h = Math.round(img.height * s), rot = Number($('photoRot').value) || 0, side = rot === 90 || rot === 270;
+        c.width = side ? h : w; c.height = side ? w : h;
+        var g = c.getContext('2d');
+        g.translate(c.width / 2, c.height / 2); g.rotate(rot * Math.PI / 180);
+        g.drawImage(img, -w / 2, -h / 2, w, h);
         URL.revokeObjectURL(url);
         resolve(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
       };
@@ -350,6 +354,8 @@
       img.src = url;
     });
   }
+  try { $('photoRot').value = localStorage.getItem('rcvRot') || '0'; } catch (e) {}
+  $('photoRot').addEventListener('change', function () { try { localStorage.setItem('rcvRot', this.value); } catch (e) {} });
   $('photoIn').addEventListener('change', function () {
     var files = Array.prototype.slice.call(this.files || []);
     this.value = '';
@@ -388,7 +394,7 @@
   function slipFromSaved(sv) {
     var sl = { ocr: false, text: '', total: sv.total || '', rows: {}, extras: [] };
     sv.rows.forEach(function (r) {
-      var v = { slipName: r.slipName, qty: r.qty, unit: r.unit, price: r.price, amount: r.amount, sure: true };
+      var v = { slipName: r.slipName, qty: r.qty, unit: r.unit, price: r.price, amount: r.amount, sure: true, code: r.code || '' };
       if (r.name) sl.rows[r.name] = v; else { v.map = '+'; sl.extras.push(v); }
     });
     return sl;
@@ -410,7 +416,7 @@
       var r = sl.rows[n] || {}, has = r.qty !== undefined && (r.qty !== '' || r.amount !== '');
       var flag = r.partial ? '<span class="badge warn">⚠ 請確認品名</span>' : has && r.sure === false ? '<span class="badge warn">請確認數字</span>'
         : sl.ocr && !has ? '<span class="badge none">銷貨單上沒看到</span>' : '';
-      html += '<tr><td><b>' + esc(n) + '</b> ' + flag + (r.slipName && r.slipName.replace(/\s/g, '') !== n ? '<div class="muted sn">銷貨單：' + esc(r.slipName) + '</div>' : '') + '</td>' +
+      html += '<tr><td><b>' + esc(n) + '</b> ' + flag + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
         '<td class="small">' + esc(expect[n].length > 3 ? expect[n].length + ' 筆' : expect[n].join('＋')) + '</td>' +
         ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('sn', n, f, r[f]); }).join('') + '</tr>';
     });
@@ -444,8 +450,8 @@
     var sl = cur.slip;
     if (!sl) return null;
     var rows = [];
-    slipNames().forEach(function (n) { var r = sl.rows[n]; if (r) rows.push({ name: n, slipName: r.slipName || '', qty: r.qty, unit: r.unit || '', price: r.price, amount: r.amount }); });
-    sl.extras.forEach(function (x) { if (x.map === '+') rows.push({ name: '', slipName: x.slipName || '', qty: x.qty, unit: x.unit || '', price: x.price, amount: x.amount }); });
+    slipNames().forEach(function (n) { var r = sl.rows[n]; if (r) rows.push({ name: n, slipName: r.slipName || '', qty: r.qty, unit: r.unit || '', price: r.price, amount: r.amount, code: r.code || '' }); });
+    sl.extras.forEach(function (x) { if (x.map === '+') rows.push({ name: '', slipName: x.slipName || '', qty: x.qty, unit: x.unit || '', price: x.price, amount: x.amount, code: x.code || '' }); });
     return { total: sl.total, rows: rows };
   }
   $('slipManual').addEventListener('click', function () {
@@ -490,7 +496,7 @@
     var i = Number(t.getAttribute('data-xmap')), x = cur.slip.extras[i], v = t.value;
     if (v.charAt(0) === '=') {   // 其實是叫貨單上的某一樣：搬過去，存檔時會記住這個叫法
       var n = v.slice(1);
-      cur.slip.rows[n] = { slipName: x.slipName, qty: x.qty, unit: x.unit, price: x.price, amount: x.amount, sure: true };
+      cur.slip.rows[n] = { slipName: x.slipName, qty: x.qty, unit: x.unit, price: x.price, amount: x.amount, sure: true, code: x.code || '' };
       cur.slip.extras.splice(i, 1);
       renderSlip();
     } else { x.map = v; slipFooter(); }
