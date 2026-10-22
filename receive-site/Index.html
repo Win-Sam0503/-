@@ -56,7 +56,7 @@
 <body>
 <header>
   <h1>進貨驗收</h1>
-  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button></nav>
+  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button><button type="button" data-v="vMonth">月結對帳</button></nav>
 </header>
 <main>
   <!-- 選週、選一張叫貨單 -->
@@ -123,6 +123,20 @@
     <div id="issueMsg"></div>
     <div id="issueList"></div>
   </section>
+
+  <!-- 月結對帳 -->
+  <section id="vMonth" class="hidden">
+    <div class="panel">
+      <div class="row">
+        <select id="monVendor" style="width:auto"><option value="">選廠商</option></select>
+        <input id="monYm" type="month" style="width:auto">
+        <button type="button" class="btn small" id="monGo">產生</button>
+      </div>
+      <div class="muted small" style="margin-top:6px">把這家廠商這個月每一次送貨的金額加起來，跟發票（或對帳單）比。驗收時有填銷貨單金額的用填的；沒填的用「實到數量 × 單價表的價格」估算（標「估」）；還沒驗收的照叫貨量估。</div>
+    </div>
+    <div id="monMsg"></div>
+    <div id="monBox"></div>
+  </section>
 </main>
 <script>
 (function () {
@@ -152,14 +166,15 @@
 
   // ---------------- 分頁 ----------------
   function show(v) {
-    ['vCheck', 'vDo', 'vIssues'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
+    ['vCheck', 'vDo', 'vIssues', 'vMonth'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
     Array.prototype.forEach.call(document.querySelectorAll('header nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === (v === 'vDo' ? 'vCheck' : v)); });
     window.scrollTo(0, 0);
   }
   document.querySelector('header nav').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-v]');
     if (!b) return;
-    if (b.getAttribute('data-v') === 'vIssues') { show('vIssues'); loadIssues(); } else { show('vCheck'); loadWeek(); }
+    var v = b.getAttribute('data-v');
+    if (v === 'vIssues') { show('vIssues'); loadIssues(); } else if (v === 'vMonth') { show('vMonth'); openMonth(); } else { show('vCheck'); loadWeek(); }
   });
 
   // ---------------- 這週的叫貨單 ----------------
@@ -525,6 +540,85 @@
     if (e.target.id !== 'slipAddX') return;
     cur.slip.extras.push({ slipName: '', qty: '', unit: '', price: '', amount: '', map: '+' });
     renderSlip(); saveDraft();
+  });
+
+  // ---------------- 月結對帳 ----------------
+  var mon = null, monPhotos = [];
+  function openMonth() {
+    if (!$('monYm').value) {
+      var d = new Date(), last = d.getDate() < 15 ? new Date(d.getFullYear(), d.getMonth() - 1, 1) : d;   // 月初通常在對上個月
+      $('monYm').value = last.getFullYear() + '-' + ('0' + (last.getMonth() + 1)).slice(-2);
+    }
+    if (!mon) loadMonth();
+  }
+  function loadMonth() {
+    var v = $('monVendor').value, ym = $('monYm').value;
+    msg('monMsg', 'info', '讀取中…'); $('monBox').innerHTML = '';
+    return call('getMonth', v, ym).then(function (r) {
+      mon = r; msg('monMsg', '', '');
+      $('monVendor').innerHTML = '<option value="">選廠商</option>' + r.vendors.map(function (x) { return '<option' + (x === v ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+      if (!v) { if (!r.vendors.length) msg('monMsg', 'info', '這個月沒有叫貨紀錄。'); else msg('monMsg', 'info', '請選廠商。'); return; }
+      monPhotos = r.record ? r.record.photos.slice() : [];
+      renderMonth();
+    }).catch(function (e) { msg('monMsg', 'error', e.message); });
+  }
+  function renderMonth() {
+    var r = mon, sum = 0, est = 0, unchecked = 0, noPrice = 0;
+    var html = '<div class="panel"><table><tr><th>送貨日期</th><th>叫貨單</th><th>金額</th></tr>';
+    r.entries.forEach(function (e, i) {
+      sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked) unchecked++; noPrice += e.noPrice.length;
+      html += '<tr><td>' + esc(mdw(e.date)) + '</td><td>' + esc(e.label) + ' ' +
+        (e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
+        '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {
+          return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">沒有單價</span>') +
+            '</td><td>' + (x.amount === null ? '—' : '$' + money(x.amount)) + '</td></tr>';
+        }).join('') + '</table></details></td><td style="white-space:nowrap"><b>$' + money(e.amount) + '</b>' + (e.estimated ? ' <span class="badge none">估</span>' : '') + '</td></tr>';
+    });
+    if (!r.entries.length) html += '<tr><td colspan="3" class="muted">這個月沒有這家廠商的叫貨單。</td></tr>';
+    sum = r2(sum);
+    html += '</table><div style="margin-top:10px;font-size:18px">系統合計 <b>$' + money(sum) + '</b></div><div class="muted small">' +
+      (est ? '其中 $' + money(r2(est)) + ' 是估算的。' : '') + (unchecked ? unchecked + ' 張還沒驗收（照叫貨量估）。' : '') +
+      (noPrice ? noPrice + ' 項沒有單價，沒算進去（驗收時填銷貨單金額，或在「單價表」補價格）。' : '') + '</div>' +
+      '<div class="row" style="margin-top:12px"><label for="monInv"><b>發票／對帳單金額</b></label><input id="monInv" inputmode="decimal" style="width:140px" value="' + esc(r.record ? r.record.invoice : '') + '">' +
+      '<span id="monDiff"></span></div>' +
+      '<div class="row" style="margin-top:8px"><label class="btn ghost small" for="monPhoto" style="cursor:pointer">📷 拍發票</label><input id="monPhoto" type="file" accept="image/*" capture="environment" multiple class="hidden">' +
+      '<span id="monPhotoMsg" class="muted small"></span><span id="monThumbs"></span></div>' +
+      '<textarea id="monNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註，例如：差 50 元是 10/14 運費">' + esc(r.record ? r.record.note : '') + '</textarea>' +
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn" id="monSave">✓ 確認對帳</button>' +
+      (r.record ? '<span class="muted small">上次對帳：' + esc(r.record.time) + '（發票 $' + money(r.record.invoice) + '）</span>' : '') + '</div></div>';
+    $('monBox').innerHTML = html;
+    mon.sum = sum;
+    monDiff(); monThumbs();
+  }
+  function monDiff() {
+    var v = numv($('monInv').value);
+    $('monDiff').innerHTML = v === null ? '' : Math.abs(v - mon.sum) < 1 ? '<span class="badge ok">✓ 對得上</span>'
+      : '<span class="badge bad">' + (v > mon.sum ? '發票多 $' : '發票少 $') + money(Math.abs(r2(v - mon.sum))) + '</span>';
+  }
+  function monThumbs() { $('monThumbs').innerHTML = monPhotos.map(function (u, i) { return ' <a href="' + esc(u) + '" target="_blank" class="small">📄 發票 ' + (i + 1) + '</a>'; }).join(''); }
+  $('monGo').addEventListener('click', function () { loadMonth(); });
+  $('monVendor').addEventListener('change', function () { loadMonth(); });
+  $('monYm').addEventListener('change', function () { if ($('monVendor').value) loadMonth(); });
+  $('monBox').addEventListener('input', function (e) { if (e.target.id === 'monInv') monDiff(); });
+  $('monBox').addEventListener('change', function (e) {
+    if (e.target.id !== 'monPhoto') return;
+    var files = Array.prototype.slice.call(e.target.files || []);
+    if (!files.length) return;
+    $('monPhotoMsg').textContent = '上傳中…';
+    files.reduce(function (p, f) {
+      return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', mon.ym + '-01', mon.vendor + ' 月結發票'); })
+        .then(function (r) { monPhotos.push(r.url); monThumbs(); });
+    }, Promise.resolve()).then(function () { $('monPhotoMsg').textContent = '已上傳，按「確認對帳」才會存在一起。'; })
+      .catch(function (err) { $('monPhotoMsg').textContent = '上傳失敗：' + err.message; });
+  });
+  $('monBox').addEventListener('click', function (e) {
+    if (e.target.id !== 'monSave') return;
+    var b = e.target;
+    b.disabled = true;
+    call('saveMonth', { vendor: mon.vendor, ym: mon.ym, system: mon.sum, invoice: $('monInv').value, note: $('monNote').value, photos: monPhotos }).then(function () {
+      var done = mon.vendor + ' ' + mon.ym + ' 對帳已存（試算表「月結對帳」分頁）。';
+      loadMonth().then(function () { msg('monMsg', 'ok', done); });
+    }).catch(function (err) { msg('monMsg', 'error', err.message); b.disabled = false; });
   });
 
   // ---------------- 問題追蹤 ----------------

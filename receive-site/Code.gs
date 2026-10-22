@@ -33,7 +33,14 @@ function getWeek(monday) {
   const from = parseDate_(monday) || mondayOf_(today_());
   const to = addDays_(from, 4);
   const f = dateStr_(from), t = dateStr_(to);
-  const rows = readTable_(SHEET.purchase, ['送貨日期', '廠商', '食材名稱']).rows.map(function (r) {
+  const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_());
+  out.batches.forEach(function (b) { delete b.list; });
+  return out;
+}
+
+/** 叫貨紀錄裡送貨日期在 f～t（'yyyy-MM-dd'）的 */
+function purchaseRows_(f, t) {
+  return readTable_(SHEET.purchase, ['送貨日期', '廠商', '食材名稱']).rows.map(function (r) {
     return {
       date: purchaseDate_(r['送貨日期']), group: String(r['送貨組別'] || '').trim(), vendor: String(r['廠商'] || '').trim(),
       className: String(r['上課班級'] || '').trim(), teacher: String(r['老師'] || '').trim(), name: String(r['食材名稱'] || '').trim(),
@@ -41,7 +48,12 @@ function getWeek(monday) {
       note: String(r['備註'] || '').trim(), status: String(r['狀態'] || '').trim(),
     };
   }).filter(function (r) { return r.date >= f && r.date <= t && r.vendor && r.name; });
+}
 
+/** 一週（f＝星期一）的叫貨紀錄 → 一張張 ③ 叫貨單（b.list 是原始的叫貨紀錄） */
+function weekBatches_(rows, f, checked, prices) {
+  const t = dateStr_(addDays_(parseDate_(f), 4));
+  rows = rows.filter(function (r) { return r.date >= f && r.date <= t; });
   const drafts = {}, by = {};
   rows.forEach(function (r) {
     const sv = SITE_VENDORS[r.vendor];
@@ -49,14 +61,13 @@ function getWeek(monday) {
     const k = sv ? sv.base + '|' : r.vendor + '|' + r.group;
     (by[k] = by[k] || []).push(r);
   });
-  const checked = readChecks_(f), prices = readPrices_();
   const batches = Object.keys(by).sort().map(function (k) {
     const list = by[k], sv = SITE_VENDORS[list[0].vendor];
     const vendor = sv ? sv.base : list[0].vendor, group = sv ? '' : list[0].group;
     const id = checkId_(f, vendor, group);
     const b = { id: id, vendor: vendor, group: group, label: vendor + (group ? '（送貨組別 ' + group + '，星期' + group.split('').join('、') + '）' : ''),
       perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null,
-      totals: nameTotals_(list), prices: prices[vendor] || {} };
+      totals: nameTotals_(list), prices: prices[vendor] || {}, list: list };
     return b;
   });
   return { from: f, to: t, batches: batches, drafts: Object.keys(drafts).filter(function (v) { return !batches.some(function (b) { return b.vendor === v; }); }) };
@@ -489,6 +500,125 @@ function num_(v) {
   return round2_(n);
 }
 function round2_(n) { return Math.round(Number(n) * 100) / 100; }
+
+// ---------------------------------------------------------------------
+// 月結對帳：一家廠商一個月送了多少錢（有填銷貨單金額用填的，沒填用「實到數量 × 單價表」估），跟發票／對帳單比
+// ---------------------------------------------------------------------
+
+const MONTH_HEADERS = ['廠商', '月份', '系統金額', '發票金額', '差額', '對帳時間', '發票照片', '備註'];
+
+/** vendor：叫貨單上的廠商（A菜商、C蛋商、E烘焙乾貨…）；ym：'yyyy-MM' */
+function getMonth(vendor, ym) {
+  const m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
+  if (!m) throw new Error('月份不正確。');
+  const start = new Date(Number(m[1]), Number(m[2]) - 1, 1), end = new Date(Number(m[1]), Number(m[2]), 0);
+  const ms = dateStr_(start), me = dateStr_(end);
+  const first = mondayOf_(start);
+  const rows = purchaseRows_(dateStr_(first), me), prices = readPrices_();
+  const vendors = {};
+  rows.forEach(function (r) { const sv = SITE_VENDORS[r.vendor]; vendors[sv ? sv.base : r.vendor] = true; });
+  vendor = clean_(vendor, 30);
+  const out = { vendor: vendor, ym: ym, vendors: Object.keys(vendors).sort(), entries: [], record: null };
+  if (!vendor) return out;
+  const pr = prices[vendor] || {};
+  for (let d = first; d <= end; d = addDays_(d, 7)) {
+    const f = dateStr_(d), wk = weekBatches_(rows, f, readChecks_(f), prices);
+    wk.batches.filter(function (b) { return b.vendor === vendor; }).forEach(function (b) {
+      const inMonth = b.list.filter(function (r) { return r.date >= ms && r.date <= me; });
+      if (!inMonth.length) return;
+      const dates = b.list.map(function (r) { return r.date; }).sort(), whole = inMonth.length === b.list.length;
+      // 點總量的（乾貨、蛋）一週只送一次：照第一天算在哪個月
+      if (!b.perClass && dates[0] < ms) return;
+      const e = { id: b.id, label: b.label, date: inMonth.map(function (r) { return r.date; }).sort()[0], checked: !!b.check, items: [], amount: 0, estimated: false, noPrice: [] };
+      const lineDate = {};
+      b.lines.forEach(function (x) { lineDate[x.cls + '|' + x.name] = x.date || dates[0]; });
+      if (b.check && b.check.slip && whole && b.check.amount > 0) {
+        // 驗收時填了銷貨單金額：照填的
+        b.check.slip.rows.forEach(function (x) {
+          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0 });
+        });
+        e.amount = b.check.amount;
+      } else if (b.check) {
+        b.check.lines.forEach(function (l) {
+          const dt = lineDate[l.cls + '|' + l.name] || dates[0];
+          if (dt < ms || dt > me) return;
+          e.items.push(estimateItem_(l.cls, l.name, l.got, pr[l.name], e));
+        });
+      } else {
+        // 還沒驗收：照叫貨量估
+        const tot = nameTotals_(b.perClass ? inMonth : b.list);
+        Object.keys(tot).forEach(function (n) {
+          const t0 = tot[n];
+          e.items.push(estimateItem_('', n, t0.unit === '兩' ? fmtTotal_(t0.qty, '兩', n) : fmtQty_(t0.qty) + ' ' + t0.unit, pr[n], e));
+        });
+      }
+      e.amount = round2_(e.amount);
+      out.entries.push(e);
+    });
+  }
+  out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
+  if (ss_().getSheetByName('月結對帳')) {
+    const r = readTable_('月結對帳', ['廠商', '月份']).rows.filter(function (x) { return String(x['廠商']).trim() === vendor && monthStr_(x['月份']) === ym; })[0];
+    if (r) out.record = { invoice: r['發票金額'], system: r['系統金額'], time: fmtDateTime_(r['對帳時間']), photos: String(r['發票照片'] || '').split(/\n+/).filter(Boolean), note: String(r['備註'] || '') };
+  }
+  return out;
+}
+
+function monthStr_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz_(), 'yyyy-MM');
+  return String(v || '').trim().replace(/^'/, '').replace(/\//g, '-').slice(0, 7);
+}
+
+/** 一項的金額 ≈ 數量 × 單價表的價格（單位不同時用重量換算） */
+function estimateItem_(cls, name, got, p, e) {
+  const q = parseQty_(got), it = { cls: cls, name: name, got: got, price: p ? p.price : '', amount: null, unit: p ? p.unit : '' };
+  if (q && q.qty === 0) { it.amount = 0; return it; }
+  if (!p) { e.noPrice.push(name); return it; }
+  let qty = null;
+  if (q && q.unit === p.unit) qty = q.qty;
+  else if (q && GRAMS[q.unit] && GRAMS[p.unit]) qty = q.qty * GRAMS[q.unit] / GRAMS[p.unit];
+  if (qty === null) { e.noPrice.push(name + '（單位對不上）'); return it; }
+  it.amount = round2_(qty * p.price);
+  e.amount += it.amount; e.estimated = true;
+  return it;
+}
+
+/** 「1 斤 8 兩」「2000 g」「10 顆」「2斤半」「半斤」「0」→ { qty, unit } */
+function parseQty_(s) {
+  s = String(s || '').replace(/\s+/g, '');
+  if (s === '' ) return null;
+  if (/^0+(\.0+)?$/.test(s)) return { qty: 0, unit: '' };
+  let m = s.match(/^半(斤|公斤)$/);
+  if (m) return { qty: 0.5, unit: m[1] };
+  m = s.match(/^([\d.]+)斤(半|([\d.]+)兩)?$/);
+  if (m) return { qty: Number(m[1]) + (m[2] === '半' ? 0.5 : m[3] ? Number(m[3]) / 16 : 0), unit: '斤' };
+  m = s.match(/^([\d.]+)(公斤|kg)半?$/i);
+  if (m) return { qty: Number(m[1]) + (/半$/.test(s) ? 0.5 : 0), unit: '公斤' };
+  m = s.match(/^([\d.]+)([^\d.]+)$/);
+  if (m) return { qty: Number(m[1]), unit: ({ '克': 'g', 'G': 'g', '台斤': '斤', 'KG': '公斤', 'kg': '公斤' })[m[2]] || m[2] };
+  return null;
+}
+
+/** 存對帳結果（同一家同一個月存一筆，重存會蓋掉） */
+function saveMonth(p) {
+  const vendor = clean_(p.vendor, 30), ym = String(p.ym || '');
+  if (!vendor || !/^\d{4}-\d{2}$/.test(ym)) throw new Error('資料不完整，請重新整理。');
+  const sys = num_(p.system), inv = num_(p.invoice);
+  if (inv === '') throw new Error('請填發票（或對帳單）上的金額。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_('月結對帳', MONTH_HEADERS);
+    const t = readTable_('月結對帳', ['廠商', '月份']);
+    const old = t.rows.filter(function (x) { return String(x['廠商']).trim() === vendor && monthStr_(x['月份']) === ym; });
+    if (old.length) deleteRows_(t.sheet, old.map(function (r) { return r._row; }));
+    appendRows_('月結對帳', [{ '廠商': vendor, '月份': "'" + ym, '系統金額': sys, '發票金額': inv, '差額': sys === '' ? '' : round2_(inv - sys),
+      '對帳時間': new Date(), '發票照片': (p.photos || []).join('\n'), '備註': clean_(p.note, 200) }]);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
 
 // ---------------------------------------------------------------------
 // 問題追蹤
