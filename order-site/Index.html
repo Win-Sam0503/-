@@ -4042,13 +4042,13 @@
 
   // 跨教室領料單：分科廠商（E烘焙乾貨、E中餐乾貨…）的食材被另一科的課訂了（例如中餐課訂乳酪絲，只有烘焙乾貨在進），
   // 東西會送到另一間教室，列出哪一天、哪一班、要去哪裡拿什麼、多少。照「領取地點」每處一頁，貼在那間教室。
+  // 各科上課的教室：烘焙課在烘焙教室、飲調課在飲調教室，其他科在中餐教室；分科廠商送到烘焙或中餐教室，不是自己教室的就要去領
   function pickupPlace(vendor, dept) {
-    var sp = data.vendorSplit || {}, baking = (data.bakingDepts || []).indexOf(dept) >= 0;
-    var isBakingV = Object.keys(sp).some(function (k) { return sp[k].baking === vendor; });
-    var isOtherV = Object.keys(sp).some(function (k) { return sp[k].other === vendor; });
-    if (isBakingV && !baking) return '烘焙教室';
-    if (isOtherV && baking) return '中餐教室';
-    return '';
+    var sp = data.vendorSplit || {};
+    var home = (data.bakingDepts || []).indexOf(dept) >= 0 ? '烘焙教室' : dept === '飲調' ? '飲調教室' : '中餐教室';
+    var at = Object.keys(sp).some(function (k) { return sp[k].baking === vendor; }) ? '烘焙教室'
+      : Object.keys(sp).some(function (k) { return sp[k].other === vendor; }) ? '中餐教室' : '';
+    return at && at !== home ? at : '';
   }
   function pickupSheets(orders, from, to, only, manual) {
     var by = {};
@@ -4103,7 +4103,7 @@
       '<div>' + f('pkClass', '班級', txt('pkClass', '例：301')) + '</div>' +
       '<div>' + f('pkTeacher', '老師', txt('pkTeacher')) + '</div>' +
       '<div>' + f('pkDept', '科別', txt('pkDept', '例：中餐')) + '</div>' +
-      '<div>' + f('pkPlaceSel', '領取地點 *', '<select id="pkPlaceSel"><option>烘焙教室</option><option>中餐教室</option><option value="">其他（自己填）</option></select>' +
+      '<div>' + f('pkPlaceSel', '領取地點 *', '<select id="pkPlaceSel"><option>烘焙教室</option><option>中餐教室</option><option>飲調教室</option><option value="">其他（自己填）</option></select>' +
         '<input id="pkPlace" type="text" class="hidden" maxlength="20" autocomplete="off" placeholder="例：西餐教室" style="margin-top:4px">') + '</div>' +
       '</div>' +
       f('pkName', '食材 *', '<input id="pkName" type="text" maxlength="40" list="pkNames" autocomplete="off" placeholder="打字搜尋食材總表，也可以自己填"><datalist id="pkNames">' +
