@@ -1,5 +1,11 @@
 /**
  * 三信家商餐飲科 進貨驗收（給管理者用平板點貨）
+ *
+ * © 2026 翁煒程 版權所有。
+ * 本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。
+ * 未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，
+ * 亦不得提供予校外人士使用。違者將依法追究相關法律責任。
+ *
  * 跟訂貨系統共用同一份試算表：讀「叫貨紀錄」（③ 叫貨單，已確定的），驗收結果寫進「驗收紀錄」「驗收明細」分頁。
  * 部署成網頁應用程式：執行身分「我」、存取權「只有我自己」（用你的 Google 帳號登入才打得開，不用另外的帳號密碼）。
  */
@@ -17,6 +23,9 @@ const PER_CLASS = /^[ABD]/;
 const ISSUE_STATES = ['待處理', '已補送', '扣款', '不用補'];
 // 同一家廠商、送兩個地方：訂貨系統裡分開記（C烘焙蛋／C中餐蛋），驗收時合成一張，分「送烘焙教室」「送中餐教室」兩段
 const SITE_VENDORS = { 'C烘焙蛋': { base: 'C蛋商', site: '送烘焙教室' }, 'C中餐蛋': { base: 'C蛋商', site: '送中餐教室' } };
+
+/** 浮水印用：現在登入的 Google 帳號 */
+function whoAmI() { return Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || ''; }
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')

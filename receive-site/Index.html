@@ -1,4 +1,11 @@
 <!DOCTYPE html>
+<!--
+  三信家商餐飲科進貨驗收（網頁）
+  © 2026 翁煒程 版權所有。
+  本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。
+  未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，
+  亦不得提供予校外人士使用。違者將依法追究相關法律責任。
+-->
 <html lang="zh-Hant">
 <head>
 <base target="_top">
@@ -44,6 +51,9 @@
   .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
   .hidden { display: none !important; }
+  .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
+  #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
+  @media print { #watermark, .copyright { display: none !important; } }
   table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eaecf0; vertical-align: top; }
   .slipt input { width: 100%; min-width: 56px; padding: 6px; font: inherit; font-size: 16px; }
   .slipt td.w1 { width: 72px; } .slipt td.w2 { width: 90px; }
@@ -138,6 +148,8 @@
     <div id="monBox"></div>
   </section>
 </main>
+<footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
+<div id="watermark" aria-hidden="true"></div>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -163,6 +175,19 @@
       try { document.execCommand('copy') ? ok() : no(); } catch (e) { no(e); } document.body.removeChild(ta);
     });
   }
+
+  // ---------------- 浮水印：登入的 Google 帳號＋目前時間（每分鐘更新），截圖時可以追查來源 ----------------
+  var wmWho = '';
+  function drawWatermark() {
+    var n = new Date(), p2 = function (x) { return ('0' + x).slice(-2); };
+    var text = (wmWho ? wmWho + '  ' : '') + n.getFullYear() + '/' + p2(n.getMonth() + 1) + '/' + p2(n.getDate()) + ' ' + p2(n.getHours()) + ':' + p2(n.getMinutes());
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="380" height="220">' +
+      '<text x="20" y="140" transform="rotate(-24 190 110)" font-size="17" font-family="sans-serif" fill="#000" fill-opacity="0.07">' + esc(text) + '</text></svg>';
+    $('watermark').style.backgroundImage = 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+  }
+  drawWatermark();
+  setInterval(drawWatermark, 60000);
+  call('whoAmI').then(function (e) { wmWho = e || ''; drawWatermark(); }).catch(function () {});
 
   // ---------------- 分頁 ----------------
   function show(v) {
