@@ -44,7 +44,7 @@
   .st { border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 16px; cursor: pointer; color: inherit; min-width: 64px; }
   .st.on[data-s="到齊"] { background: var(--ok); border-color: var(--ok); color: #fff; }
   .st.on[data-s="少送"], .st.on[data-s="多送"] { background: var(--warn); border-color: var(--warn); color: #fff; }
-  .st.on[data-s="沒送"], .st.on[data-s="送錯"] { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .st.on[data-s="沒送"], .st.on[data-s="送錯"], .st.on[data-s="品質不好"] { background: var(--bad); border-color: var(--bad); color: #fff; }
   .item.ok { background: #f6fef9; } .item.bad { background: #fff6f5; }
   .item input.got { width: 120px; } .item input.note { flex: 1; min-width: 160px; }
   .bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 -16px -16px; border-radius: 0 0 14px 14px; }
@@ -104,6 +104,7 @@
       </div>
       <div id="draftMsg"></div>
       <div id="doList"></div>
+      <input id="itemPhotoIn" type="file" accept="image/*" capture="environment" class="hidden">
       <div style="margin-top:14px">
         <div class="row">
           <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
@@ -137,7 +138,7 @@
   <section id="vIssues" class="hidden">
     <div class="panel">
       <div class="row"><button type="button" class="chip on" data-all="0">還沒處理的</button><button type="button" class="chip" data-all="1">最近 60 天全部</button></div>
-      <div class="muted small" style="margin-top:6px">驗收時標成少送、沒送、送錯、多送的都會列在這裡。按「複製給廠商」貼到 LINE 或照著打電話，處理完記下結果（已補送、扣款、不用補）。</div>
+      <div class="muted small" style="margin-top:6px">驗收時標成少送、沒送、送錯、多送、品質不好的都會列在這裡。按「複製給廠商」貼到 LINE 或照著打電話（有拍照的點 📷 打開照片傳給廠商），處理完記下結果（已補送、換貨、退貨、扣款、不用補）。</div>
     </div>
     <div id="issueMsg"></div>
     <div id="issueList"></div>
@@ -260,7 +261,7 @@
     var marks = {};
     if (b.check) b.check.lines.forEach(function (l) {
       var x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name; })[0];
-      if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' ? '' : l.got, note: l.note };
+      if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' || l.status === '品質不好' ? '' : l.got, note: l.note, photos: (l.photos || []).slice() };
     });
     cur = { b: b, marks: marks, photos: b.check ? b.check.photos.slice() : [] };
     cur.slip = b.check && b.check.slip ? slipFromSaved(b.check.slip) : null;
@@ -300,11 +301,13 @@
       html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm">' + esc(x.name) + '</span>' +
         (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') + '</div>' +
         '<div class="ex">' + esc(x.expect) + '</div><div class="acts">' +
-        ['到齊', '少送', '沒送', '送錯', '多送'].map(function (t) {
+        ['到齊', '少送', '沒送', '送錯', '多送', '品質不好'].map(function (t) {
           return '<button type="button" class="st' + (s === t ? ' on' : '') + '" data-s="' + t + '">' + (t === '到齊' ? '✓ 到齊' : t) + '</button>';
         }).join('') +
         (s === '少送' || s === '多送' ? '<input class="got" type="text" placeholder="實到多少" value="' + esc(m.got || '') + '">' : '') +
-        (s && s !== '到齊' ? '<input class="note" type="text" maxlength="100" placeholder="備註，例如：送成牛番茄" value="' + esc(m.note || '') + '">' : '') +
+        (s && s !== '到齊' ? '<input class="note" type="text" maxlength="100" placeholder="' + (s === '品質不好' ? '哪裡不好，例如：葉子爛、有異味' : '備註，例如：送成牛番茄') + '" value="' + esc(m.note || '') + '">' +
+          '<button type="button" class="btn ghost small" data-ph="1">📷 拍照</button>' +
+          (m.photos || []).map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">照片' + (i + 1) + '</a>'; }).join(' ') : '') +
         '</div></div>';
     });
     $('doList').innerHTML = html || '<div class="muted" style="padding:16px 0">沒有符合的品項。</div>';
@@ -378,6 +381,24 @@
     if (e.target.classList.contains('note')) m.note = e.target.value;
     saveDraft();
   });
+  // 有問題的品項拍照留證（品質不好、送錯…）
+  var phKey = null;
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ph]');
+    if (!b) return;
+    phKey = b.closest('[data-k]').getAttribute('data-k');
+    $('itemPhotoIn').click();
+  });
+  $('itemPhotoIn').addEventListener('change', function () {
+    var f = (this.files || [])[0], k = phKey;
+    this.value = '';
+    if (!f || !k) return;
+    var x = cur.b.lines.filter(function (y) { return y.key === k; })[0], btn = document.querySelector('[data-k="' + CSS.escape(k) + '"] [data-ph]');
+    if (btn) { btn.disabled = true; btn.textContent = '上傳中…'; }
+    shrink(f).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
+      .then(function (r) { var m = cur.marks[k] = cur.marks[k] || {}; (m.photos = m.photos || []).push(r.url); renderDo(); saveDraft(); })
+      .catch(function (err) { msg('doMsg', 'error', '照片上傳失敗：' + err.message); if (btn) { btn.disabled = false; btn.textContent = '📷 拍照'; } });
+  });
   $('allOk').addEventListener('click', function () {
     visibleLines().forEach(function (x) { var m = cur.marks[x.key] = cur.marks[x.key] || {}; if (!m.status) m.status = '到齊'; });
     renderDo();
@@ -425,7 +446,7 @@
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
     if (!cur.sig && !cur.sigUrl) { msg('doMsg', 'error', '請在「✍ 驗收人簽名」的框裡簽名。'); $('sigPad').scrollIntoView({ block: 'center' }); return; }
     try { localStorage.setItem('rcvSigner', $('sigName').value.trim()); } catch (e) {}
-    var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '' }; });
+    var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '', photos: m.photos || [] }; });
     var btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
     call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items, slip: slipToSave(),
@@ -715,7 +736,7 @@
     loadIssues();
   });
   function issueLine(x) {
-    var what = x.status === '沒送' ? '沒送（應到 ' + x.expect + '）' : x.status === '送錯' ? '送錯（應到 ' + x.expect + '）' : x.status + '：應到 ' + x.expect + '，實到 ' + x.got;
+    var what = x.status === '沒送' ? '沒送（應到 ' + x.expect + '）' : x.status === '送錯' ? '送錯（應到 ' + x.expect + '）' : x.status === '品質不好' ? '品質不好（' + x.got + '）' : x.status + '：應到 ' + x.expect + '，實到 ' + x.got;
     return (x.cls ? x.cls + ' ' : '') + x.name + '：' + what + (x.note ? '，' + x.note : '');
   }
   function loadIssues() {
@@ -734,7 +755,7 @@
           (h.photos.length ? '・' + h.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank">銷貨單' + (h.photos.length > 1 ? i + 1 : '') + '</a>'; }).join(' ') : '') + '</div></div>' +
           '<button type="button" class="btn ghost small" data-copy="' + esc(id) + '">📋 複製給廠商</button></div>' +
           '<table><tbody>' + g.map(function (x) {
-            return '<tr><td>' + esc(issueLine(x)) + (x.doneTime ? '<div class="muted small">' + esc(x.state + '・' + x.doneTime + (x.doneNote ? '・' + x.doneNote : '')) + '</div>' : '') + '</td>' +
+            return '<tr><td>' + esc(issueLine(x)) + (x.itemPhotos && x.itemPhotos.length ? ' ' + x.itemPhotos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📷' + (i + 1) + '</a>'; }).join(' ') : '') + (x.doneTime ? '<div class="muted small">' + esc(x.state + '・' + x.doneTime + (x.doneNote ? '・' + x.doneNote : '')) + '</div>' : '') + '</td>' +
               '<td style="white-space:nowrap"><input type="text" data-note="' + x.row + '" placeholder="處理備註（選填）" style="width:150px" value="' + esc(x.doneNote) + '"> <select data-row="' + x.row + '">' + r.states.map(function (s) { return '<option' + (s === x.state ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></td></tr>';
           }).join('') + '</tbody></table></div>';
       }).join('');
@@ -745,7 +766,7 @@
     if (!b) return;
     var g = issues.list.filter(function (x) { return x.id === b.getAttribute('data-copy'); }), h = g[0];
     var text = h.vendor + ' 您好，三信家商餐飲科 ' + (h.from ? md(h.from) + '～' + md(h.to) : '') + ' 的貨：\n' +
-      g.filter(function (x) { return x.state === '待處理'; }).map(function (x) { return '・' + issueLine(x); }).join('\n') + '\n麻煩補送或更正，謝謝！';
+      g.filter(function (x) { return x.state === '待處理'; }).map(function (x) { return '・' + issueLine(x) + (x.itemPhotos && x.itemPhotos.length ? '（照片另傳）' : ''); }).join('\n') + '\n麻煩補送或更正，謝謝！';
     copyText(text).then(function () { b.textContent = '已複製 ✓'; setTimeout(function () { b.textContent = '📋 複製給廠商'; }, 1500); })
       .catch(function () { msg('issueMsg', 'warn', '請長按選取複製：' + text); });
   });

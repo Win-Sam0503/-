@@ -17,10 +17,11 @@ const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號'];
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
-const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註'];
+const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註', '照片'];
 // 照班級點貨的廠商（其他廠商點品項總量）
 const PER_CLASS = /^[ABD]/;
-const ISSUE_STATES = ['待處理', '已補送', '扣款', '不用補'];
+const ISSUE_STATES = ['待處理', '已補送', '換貨', '退貨', '扣款', '不用補'];
+const CHECK_STATUS = ['到齊', '少送', '沒送', '送錯', '多送', '品質不好'];
 // 同一家廠商、送兩個地方：訂貨系統裡分開記（C烘焙蛋／C中餐蛋），驗收時合成一張，分「送烘焙教室」「送中餐教室」兩段
 const SITE_VENDORS = { 'C烘焙蛋': { base: 'C蛋商', site: '送烘焙教室' }, 'C中餐蛋': { base: 'C蛋商', site: '送中餐教室' } };
 
@@ -198,7 +199,7 @@ function linesById_() {
   readTable_(SHEET.lines, ['驗收編號']).rows.forEach(function (r) {
     const id = String(r['驗收編號']).trim();
     (out[id] = out[id] || []).push({ cls: String(r['班級'] || ''), name: String(r['食材名稱'] || ''),
-      got: String(r['實到'] || ''), status: String(r['狀態'] || ''), note: String(r['備註'] || '') });
+      got: String(r['實到'] || ''), status: String(r['狀態'] || ''), note: String(r['備註'] || ''), photos: photoList_(r['照片']) });
   });
   return out;
 }
@@ -219,11 +220,12 @@ function saveCheck(p) {
   const vendor = clean_(p.vendor, 30), group = clean_(p.group, 10);
   if (!from || !vendor) throw new Error('資料不完整，請重新整理。');
   const items = (p.items || []).map(function (x) {
-    const st = ['到齊', '少送', '沒送', '送錯', '多送'].indexOf(x.status) >= 0 ? x.status : '';
+    const st = CHECK_STATUS.indexOf(x.status) >= 0 ? x.status : '';
     if (!st) throw new Error('「' + x.name + '」還沒點：請按 ✓ 或標記少送、沒送、送錯。');
     if ((st === '少送' || st === '多送') && !String(x.got || '').trim()) throw new Error('「' + x.name + '」' + st + '，請填實際送來多少。');
-    return { cls: clean_(x.cls, 30), name: clean_(x.name, 40), expect: clean_(x.expect, 30), got: st === '到齊' ? clean_(x.expect, 30) : st === '沒送' ? '0' : clean_(x.got, 30),
-      status: st, note: clean_(x.note, 100) };
+    const got = st === '到齊' ? clean_(x.expect, 30) : st === '沒送' ? '0' : st === '品質不好' ? clean_(x.got, 30) || clean_(x.expect, 30) : clean_(x.got, 30);
+    return { cls: clean_(x.cls, 30), name: clean_(x.name, 40), expect: clean_(x.expect, 30), got: got, status: st, note: clean_(x.note, 100),
+      photos: (x.photos || []).filter(function (u) { return /^https:\/\/(drive|docs)\.google\.com\//.test(String(u)); }).slice(0, 6) };
   });
   const id = checkId_(from, vendor, group);
   const issues = items.filter(function (x) { return x.status !== '到齊'; });
@@ -273,7 +275,7 @@ function saveCheck(p) {
       const k = keep[x.cls + '|' + x.name];
       const issue = x.status !== '到齊';
       return { '驗收編號': id, '廠商': vendor, '送貨組別': group, '班級': x.cls, '食材名稱': x.name, '應到': x.expect,
-        '實到': x.got, '狀態': x.status, '備註': x.note,
+        '實到': x.got, '狀態': x.status, '備註': x.note, '照片': x.photos.join('\n'),
         '處理狀態': issue ? (k && k.st && k.st !== '' ? k.st : '待處理') : '', '處理時間': issue && k ? k.t || '' : '', '處理備註': issue && k ? k.n || '' : '' };
     }));
   } finally {
@@ -298,6 +300,7 @@ function saveCheck(p) {
 function issueText_(x) {
   if (x.status === '沒送') return '沒送（應到 ' + x.expect + '）' + (x.note ? '，' + x.note : '');
   if (x.status === '送錯') return '送錯（應到 ' + x.expect + '）' + (x.note ? '，' + x.note : '');
+  if (x.status === '品質不好') return '品質不好（' + x.got + '）' + (x.note ? '，' + x.note : '') + (x.photos && x.photos.length ? '（有拍照）' : '');
   return x.status + '：應到 ' + x.expect + '，實到 ' + x.got + (x.note ? '，' + x.note : '');
 }
 
@@ -306,10 +309,12 @@ function issueText_(x) {
 // ---------------------------------------------------------------------
 
 /** data：base64（不含 data: 開頭），回傳 { url, name } */
-function uploadPhoto(data, mime, from, vendor) {
+function uploadPhoto(data, mime, from, vendor, what) {
   if (!data) throw new Error('沒有照片。');
-  return saveImage_(data, mime || 'image/jpeg', from, vendor, '銷貨單', 'jpg');
+  return saveImage_(data, mime || 'image/jpeg', from, vendor, clean_(what, 40) || '銷貨單', 'jpg');
 }
+
+function photoList_(v) { return String(v || '').split(/\n+/).filter(Boolean); }
 
 /** 圖片存到雲端硬碟「進貨銷貨單」資料夾的那週子資料夾 */
 function saveImage_(data, mime, from, vendor, what, ext) {
@@ -699,7 +704,7 @@ function getIssues(all) {
     return { row: r._row, id: id, vendor: String(r['廠商'] || ''), group: String(r['送貨組別'] || ''), from: c.from || '', to: c.to || '', time: c.time || '',
       photos: c.photos || [], cls: String(r['班級'] || ''), name: String(r['食材名稱'] || ''), expect: String(r['應到'] || ''), got: String(r['實到'] || ''),
       status: String(r['狀態'] || ''), note: String(r['備註'] || ''), state: String(r['處理狀態'] || '待處理') || '待處理',
-      doneTime: fmtDateTime_(r['處理時間']), doneNote: String(r['處理備註'] || '') };
+      doneTime: fmtDateTime_(r['處理時間']), doneNote: String(r['處理備註'] || ''), itemPhotos: photoList_(r['照片']) };
   });
   return { list: list, states: ISSUE_STATES };
 }
