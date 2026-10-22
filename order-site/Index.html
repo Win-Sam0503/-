@@ -3758,9 +3758,9 @@
         !safeConfirm('訂貨單有修改還沒儲存，重新產生會不見。確定要繼續？')) { setBusy(btn, false); msg('vendorMsg', '', ''); return; }
     pState = null;
     var kind = $('vKind').value, only = $('vVendor').value;
-    var fetch = kind === 'deduct' ? Promise.all([call('adminGetOrders', token, from, to)])
-      : kind === 'pickup' ? Promise.all([call('adminGetOrders', token, from, to), call('adminGetPickups', token, from, to)])
-      : Promise.all([call('adminGetOrders', token, from, to), call('adminGetPurchase', token, from, to)]);
+    var fetch = kind === 'deduct' ? Promise.all([call('adminGetOrders', token, from, to, true)])
+      : kind === 'pickup' ? Promise.all([call('adminGetOrders', token, from, to, true), call('adminGetPickups', token, from, to)])
+      : Promise.all([call('adminGetOrders', token, from, to, true), call('adminGetPurchase', token, from, to)]);
     var job = fetch.then(function (res) {
       var orders = res[0], pur = res[1];
       if (kind === 'pickup') { lastSheet = { fn: pickupSheets, args: [orders, from, to, only, res[1] || []] }; return pickupSheets.apply(null, lastSheet.args); }

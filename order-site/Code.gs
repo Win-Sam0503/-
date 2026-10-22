@@ -1099,7 +1099,8 @@ function cancelOrderChecked_(account, isAdmin, orderNo) {
 // =====================================================================
 
 /** 指定上課日期的所有訂單。 */
-function adminGetOrders(token, from, to) {
+/** lite：廠商訂貨單（①②③④）用，不需要課表比對、修改紀錄、列印紀錄，少讀幾個分頁比較快 */
+function adminGetOrders(token, from, to, lite) {
   auth_(token, true);
   let start = parseDate_(from);
   let end = parseDate_(to) || start;
@@ -1112,6 +1113,7 @@ function adminGetOrders(token, from, to) {
   const list = groupOrders_(rows, null).sort(function (a, b) {
     return a.useDate === b.useDate ? (a.orderNo < b.orderNo ? -1 : 1) : (a.useDate < b.useDate ? -1 : 1);
   });
+  if (lite) return list;
   const nos = list.map(function (o) { return o.orderNo; });
   const edits = orderEditsFor_(nos), printed = printedFor_(nos);
   list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; });
@@ -2274,10 +2276,13 @@ function learnMatch_(idx, name) {
 let SELF_IDS_ = null;   // 同一次執行只讀一次
 function selfItemIds_() {
   if (SELF_IDS_) return SELF_IDS_;
+  const cache = CacheService.getScriptCache();
+  try { const c = cache.get('selfIds'); if (c) return SELF_IDS_ = JSON.parse(c); } catch (e) {}
   const out = SELF_IDS_ = {};
   readTable_(SHEET.items, ['食材ID', '廠商']).rows.forEach(function (r) {
     if (String(r['廠商']).trim() === SELF_VENDOR) out[String(r['食材ID']).trim()] = true;
   });
+  try { cache.put('selfIds', JSON.stringify(out), 600); } catch (e) {}   // 10 分鐘；食材總表改成自備後最晚 10 分鐘生效
   return out;
 }
 
