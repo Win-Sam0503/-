@@ -3359,14 +3359,17 @@
       .catch(function (err) { msg('subMsg', 'error', err.message); });
   });
   var DRY_VENDOR_LABEL = { 'E烘焙乾貨': '只跟旺來興（烘焙）E烘焙乾貨', 'E中餐乾貨': '只跟銘哲（中餐）E中餐乾貨', 'E乾貨': '兩家都叫（各科跟自己教室的）E乾貨' };
-  function loadPending(note) {
+  // light：審核完一筆只重讀待審核清單（別名有變才重讀別名），其他面板不用每次都重讀
+  function loadPending(note, light) {
     msg('pendMsg', 'info', '載入中…');
-    $('pendList').innerHTML = '';
-    loadPendingUnits();
-    loadUnitPanel();
-    loadAliases();
-    loadDry();
-    loadSubs();
+    if (!light) $('pendList').innerHTML = '';
+    if (!light) {
+      loadPendingUnits();
+      loadUnitPanel();
+      loadAliases();
+      loadDry();
+      loadSubs();
+    } else if (light === 'alias') loadAliases();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));
@@ -3437,7 +3440,7 @@
         // 重新載入食材，讓新食材馬上可以被搜尋到
         start().then(function () { show('viewPending', note); });
       } else {
-        loadPending(note);
+        loadPending(note, /別名/.test(res) ? 'alias' : true);
       }
     }).catch(function (err) { msg('pendMsg', 'error', err.message); setBusy(b, false); });
   });

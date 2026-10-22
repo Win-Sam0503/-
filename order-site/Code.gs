@@ -2429,13 +2429,13 @@ function fixPendingLines_(origName, to) {
   t.rows.forEach(function (r) {
     if (String(r['食材ID']).trim() !== PENDING_ID || String(r['食材名稱']).trim() !== origName) return;
     n++;
-    setCell_(t, r._row, '食材ID', to.id);
-    setCell_(t, r._row, '食材名稱', to.name);
+    const v = { '食材ID': to.id, '食材名稱': to.name };
     if (to.vendor && t.cols['廠商'] !== undefined) {
-      setCell_(t, r._row, '廠商', orderVendor_(to.vendor, r['科別']));
+      v['廠商'] = orderVendor_(to.vendor, r['科別']);
       const d = toDate_(r['使用日期']);
-      if (d && t.cols['送貨組別'] !== undefined) setCell_(t, r._row, '送貨組別', deliveryGroup_(to.vendor, d.getDay(), vendorGroups));
+      if (d && t.cols['送貨組別'] !== undefined) v['送貨組別'] = deliveryGroup_(to.vendor, d.getDay(), vendorGroups);
     }
+    setCells_(t, r._row, v);
   });
   return n;
 }
@@ -3559,6 +3559,7 @@ function historySheet_(ordersSheet) {
 /** 刪除多列（連續的列一次刪），從下往上刪列號才不會跑掉。 */
 function deleteRows_(sh, rows) {
   try { bootDirty_(sh.getName()); } catch (e) {}
+  memoClear_();
   rows = rows.slice().sort(function (a, b) { return b - a; });
   // 試算表至少要留一列沒凍結的列
   if (sh.getMaxRows() - sh.getFrozenRows() <= rows.length) sh.insertRowsAfter(sh.getMaxRows(), 1);
@@ -3722,6 +3723,9 @@ function readConvertedDoc_(id, ocr) {
 
 /** 讀課表：[{ day: 0~4（週一~週五）, session: '上午'|'下午', room, course, periods, className, teacher, note }]，只取要訂貨、有老師的課 */
 function readSchedule_() {
+  return memo_('readSchedule_', readScheduleRaw_).map(function (o) { return Object.assign({}, o); });
+}
+function readScheduleRaw_() {
   const sh = ss_().getSheetByName(SHEET.schedule);
   if (!sh || sh.getLastRow() < 2) return [];
   return readTable_(SHEET.schedule, ['星期', '時段', '老師']).rows.map(function (r) {
@@ -3770,6 +3774,9 @@ function ensureSheet_(name, headers) {
 }
 
 function readMyLessonRows_() {
+  return memo_('readMyLessonRows_', readMyLessonRowsRaw_).map(function (o) { return Object.assign({}, o); });
+}
+function readMyLessonRowsRaw_() {
   const sh = ss_().getSheetByName(SHEET.myLessons);
   if (!sh || sh.getLastRow() < 2) return [];
   return readTable_(SHEET.myLessons, ['老師', '類型', '時段', '課程']).rows.map(function (r) {
@@ -4047,6 +4054,9 @@ function deleteMyLesson(token, row, as) {
 // ---- 國技排班（國技班每週輪流上課的老師、實作名稱） ----
 
 function readGuoji_() {
+  return memo_('readGuoji_', readGuojiRaw_).map(function (o) { return Object.assign({}, o); });
+}
+function readGuojiRaw_() {
   const sh = ss_().getSheetByName(SHEET.guoji);
   if (!sh || sh.getLastRow() < 2) return [];
   return readTable_(SHEET.guoji, ['日期', '時段', '班級', '老師']).rows.map(function (r) {
@@ -5010,18 +5020,23 @@ function retry_(fn) {
   throw new Error('Google 試算表暫時沒有回應，請稍等一下再試一次。（' + (lastErr && lastErr.message) + '）');
 }
 
+let SHEETS_ = {};   // 同一次執行裡分頁物件只找一次
 function sheet_(name) {
-  const sh = ss_().getSheetByName(name);
-  if (!sh) throw new Error('找不到分頁「' + name + '」，請確認分頁名稱。');
+  const sh = SHEETS_[name] || (SHEETS_[name] = ss_().getSheetByName(name));
+  if (!sh) { delete SHEETS_[name]; throw new Error('找不到分頁「' + name + '」，請確認分頁名稱。'); }
   return sh;
 }
+
+// 課表、老師課表、國技排班：同一次執行讀一次就好（「我的課」一次要用好幾遍）；網站寫入任何分頁時清掉
+let MEMO_ = {};
+function memo_(key, fn) { return MEMO_.hasOwnProperty(key) ? MEMO_[key] : (MEMO_[key] = fn()); }
+function memoClear_() { MEMO_ = {}; }
 
 /** 讀整張表，回傳 { sheet, cols: {標題: 欄號(1起)}, rows: [{標題: 值, _row: 列號}] } */
 function readTable_(name, required) {
   const sh = sheet_(name);
-  const lastRow = sh.getLastRow();
-  const lastCol = Math.max(sh.getLastColumn(), 1);
-  const values = lastRow ? retry_(function () { return sh.getRange(1, 1, lastRow, lastCol).getValues(); }) : [[]];
+  // 一次讀完（以前是先問最後一列、最後一欄再讀，要連 Google 三次）
+  const values = retry_(function () { return sh.getDataRange().getValues(); });
   const cols = {};
   values[0].forEach(function (h, i) {
     const k = String(h).trim();
@@ -5047,6 +5062,7 @@ function readTable_(name, required) {
 function appendRows_(name, objs, formats) {
   if (!objs.length) return;
   bootDirty_(name);
+  memoClear_();
   const sh = sheet_(name);
   const lastCol = Math.max(sh.getLastColumn(), 1);
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
@@ -5070,10 +5086,28 @@ function appendRows_(name, objs, formats) {
   retry_(function () { sh.getRange(start, 1, objs.length, headers.length).setValues(data); });
 }
 
+/** 同一列改好幾格：相鄰的欄一次寫（少連幾次 Google） */
+function setCells_(table, row, values) {
+  const list = Object.keys(values).map(function (h) {
+    const c = table.cols[h];
+    if (c === undefined) throw new Error('分頁缺少「' + h + '」欄位。');
+    return { c: c, v: values[h] };
+  }).sort(function (a, b) { return a.c - b.c; });
+  try { bootDirty_(table.sheet.getName()); } catch (e) {}
+  memoClear_();
+  for (let i = 0; i < list.length;) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1].c === list[j].c + 1) j++;
+    table.sheet.getRange(row, list[i].c, 1, j - i + 1).setValues([list.slice(i, j + 1).map(function (x) { return x.v; })]);
+    i = j + 1;
+  }
+}
+
 function setCell_(table, row, header, value) {
   const c = table.cols[header];
   if (c === undefined) throw new Error('分頁缺少「' + header + '」欄位。');
   try { bootDirty_(table.sheet.getName()); } catch (e) {}
+  memoClear_();
   table.sheet.getRange(row, c).setValue(value);
 }
 
