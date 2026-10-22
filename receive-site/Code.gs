@@ -14,7 +14,7 @@ const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';   // 訂�
 const SITE_TITLE = '三信家商餐飲科 進貨驗收';
 const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單照片放在雲端硬碟這個資料夾（每週一個子資料夾）
 const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表' };
-const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計'];
+const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號'];
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
 const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註'];
@@ -173,7 +173,7 @@ function readChecks_(from) {
     const id = String(r['驗收編號']).trim();
     out[id] = { time: fmtDateTime_(r['驗收時間']), items: Number(r['品項數']) || 0, issues: Number(r['問題數']) || 0,
       photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), note: String(r['備註'] || ''), lines: lines[id] || [],
-      amount: Number(r['銷貨單金額']) || 0, slip: slips[id] ? { rows: slips[id], total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']) } : null };
+      amount: Number(r['銷貨單金額']) || 0, signer: String(r['簽名人'] || ''), signature: String(r['驗收人簽名'] || ''), slip: slips[id] ? { rows: slips[id], total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']) } : null };
   });
   return out;
 }
@@ -227,6 +227,11 @@ function saveCheck(p) {
   });
   const id = checkId_(from, vendor, group);
   const issues = items.filter(function (x) { return x.status !== '到齊'; });
+  // 驗收人簽名：新簽的存成圖片放雲端硬碟；沒重簽就沿用上次的
+  const signer = clean_(p.signer, 20);
+  let sigUrl = /^https:\/\/(drive|docs)\.google\.com\//.test(String(p.signatureUrl || '')) ? String(p.signatureUrl) : '';
+  if (p.signature) sigUrl = saveImage_(p.signature, 'image/png', from, vendor, '驗收簽名' + (signer ? ' ' + signer : ''), 'png').url;
+  if (!sigUrl) throw new Error('請在「驗收人簽名」簽名。');
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
       code: normCode_(clean_(x.code, 20)) };
@@ -253,7 +258,7 @@ function saveCheck(p) {
     appendRows_(SHEET.checks, [{ '驗收編號': id, '送貨日期（起）': from, '送貨日期（迄）': to, '廠商': vendor, '送貨組別': group,
       '驗收時間': new Date(), '品項數': items.length, '問題數': issues.length, '銷貨單照片': (p.photos || []).join('\n'),
       '備註': clean_(p.note, 200), '驗收人': Session.getActiveUser().getEmail() || '',
-      '銷貨單金額': slip.length ? Math.round(slipSum * 100) / 100 : '', '銷貨單合計': slipTotal }]);
+      '銷貨單金額': slip.length ? Math.round(slipSum * 100) / 100 : '', '銷貨單合計': slipTotal, '簽名人': signer, '驗收人簽名': sigUrl }]);
     const st = readTable_(SHEET.slip, ['驗收編號']);
     const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
@@ -280,7 +285,7 @@ function saveCheck(p) {
       const mailTo = Session.getEffectiveUser().getEmail();
       if (mailTo) {
         MailApp.sendEmail({ to: mailTo, subject: '【進貨驗收】' + vendor + ' 有 ' + issues.length + ' 項問題（' + rangeText_(from, to) + '）',
-          htmlBody: '<p>' + escHtml_(vendor + (group ? ' 送貨組別 ' + group : '') + '，' + rangeText_(from, to)) + '：</p><ul>' +
+          htmlBody: '<p>' + escHtml_(vendor + (group ? ' 送貨組別 ' + group : '') + '，' + rangeText_(from, to) + (signer ? '（驗收人：' + signer + '）' : '')) + '：</p><ul>' +
             issues.map(function (x) { return '<li>' + escHtml_((x.cls ? x.cls + ' ' : '') + x.name + '：' + issueText_(x)) + '</li>'; }).join('') + '</ul>' +
             '<p>到進貨驗收網站的「問題追蹤」複製給廠商的文字、記錄處理結果。</p>' });
         mail = '已寄 Email 提醒。';
@@ -303,11 +308,16 @@ function issueText_(x) {
 /** data：base64（不含 data: 開頭），回傳 { url, name } */
 function uploadPhoto(data, mime, from, vendor) {
   if (!data) throw new Error('沒有照片。');
+  return saveImage_(data, mime || 'image/jpeg', from, vendor, '銷貨單', 'jpg');
+}
+
+/** 圖片存到雲端硬碟「進貨銷貨單」資料夾的那週子資料夾 */
+function saveImage_(data, mime, from, vendor, what, ext) {
   const week = dateStr_(parseDate_(from) || today_());
   const root = folderNamed_(PHOTO_FOLDER_NAME, null);
   const sub = folderNamed_(week + ' 那週', root);
-  const name = week + ' ' + clean_(vendor, 30) + ' 銷貨單 ' + Utilities.formatDate(new Date(), tz_(), 'HHmmss') + '.jpg';
-  const blob = Utilities.newBlob(Utilities.base64Decode(data), mime || 'image/jpeg', name);
+  const name = week + ' ' + clean_(vendor, 30) + ' ' + what + ' ' + Utilities.formatDate(new Date(), tz_(), 'HHmmss') + '.' + ext;
+  const blob = Utilities.newBlob(Utilities.base64Decode(String(data).replace(/^data:[^,]*,/, '')), mime, name);
   const f = sub.createFile(blob);
   return { url: f.getUrl(), name: name, id: f.getId() };
 }

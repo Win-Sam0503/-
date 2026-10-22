@@ -51,6 +51,8 @@
   .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
   .hidden { display: none !important; }
+  #sigPad { display: block; width: 100%; height: 180px; background: #fff; border: 2px dashed var(--line); border-radius: 12px; touch-action: none; margin-top: 8px; }
+  #sigPad.signed { border-style: solid; border-color: var(--ok); }
   .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
   #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
   @media print { #watermark, .copyright { display: none !important; } }
@@ -118,6 +120,13 @@
           <div id="slipBox"></div>
         </div>
         <textarea id="doNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註（選填），例如：司機說洋蔥明天補"></textarea>
+      </div>
+      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+        <div class="row"><b>✍ 驗收人簽名</b>
+          <input id="sigName" maxlength="20" placeholder="姓名" style="width:140px">
+          <button type="button" class="btn ghost small" id="sigClear">清除重簽</button>
+          <span id="sigHint" class="muted small">用手指簽在下面的框裡</span></div>
+        <canvas id="sigPad"></canvas>
       </div>
       <div id="doMsg"></div>
       <div class="bar"><span id="doProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn" id="doSave">完成驗收</button></div>
@@ -275,6 +284,9 @@
     $('slipMsg').textContent = '選填。存起來的單價會進「單價表」，之後算成本用。';
     renderSlip();
     show('vDo');
+    cur.sig = d && d.sig || null; cur.sigUrl = b.check ? b.check.signature : '';
+    try { $('sigName').value = (d && d.signer) || (b.check && b.check.signer) || localStorage.getItem('rcvSigner') || ''; } catch (e) { $('sigName').value = (b.check && b.check.signer) || ''; }
+    sigReset();
   }
   function renderDo() {
     var b = cur.b, last = null, html = '', shown = visibleLines();
@@ -333,7 +345,7 @@
       var any = Object.keys(cur.marks).some(function (k) { return cur.marks[k].status; });
       if (!any && !cur.photos.length && !$('doNote').value && !cur.slip) { localStorage.removeItem(draftKey(cur.b)); return; }
       var t = new Date();
-      localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip,
+      localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, sig: cur.sig, signer: $('sigName').value,
         at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
     } catch (e) {}
   }
@@ -411,10 +423,13 @@
   $('doSave').addEventListener('click', function () {
     var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
+    if (!cur.sig && !cur.sigUrl) { msg('doMsg', 'error', '請在「✍ 驗收人簽名」的框裡簽名。'); $('sigPad').scrollIntoView({ block: 'center' }); return; }
+    try { localStorage.setItem('rcvSigner', $('sigName').value.trim()); } catch (e) {}
     var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '' }; });
     var btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items, slip: slipToSave() }).then(function (r) {
+    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items, slip: slipToSave(),
+      signer: $('sigName').value.trim(), signature: cur.sig || '', signatureUrl: cur.sig ? '' : cur.sigUrl }).then(function (r) {
       dropDraft(b);
       msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : '，全部到齊。') +
         (r.amount ? '銷貨單金額 $' + money(r.amount) + '。' : ''));
@@ -422,6 +437,44 @@
     }).catch(function (e) { msg('doMsg', 'error', e.message); })
       .then(function () { btn.disabled = false; btn.textContent = '完成驗收'; });
   });
+
+  // ---------------- 驗收人簽名 ----------------
+  // cur.sig：這次新簽的（PNG data URL）；cur.sigUrl：上次存的簽名（沒重簽就沿用）
+  var sigCtx = null, sigDrawing = false, sigInk = false;
+  function sigReset() {
+    var c = $('sigPad'), r = c.getBoundingClientRect(), k = window.devicePixelRatio || 1;
+    c.width = Math.max(1, Math.round(r.width * k)); c.height = Math.max(1, Math.round(r.height * k));
+    sigCtx = c.getContext('2d');
+    sigCtx.setTransform(k, 0, 0, k, 0, 0);
+    sigCtx.lineWidth = 2.6; sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round'; sigCtx.strokeStyle = '#111';
+    sigInk = false;
+    var src = cur && (cur.sig || '');
+    if (src) { var im = new Image(); im.onload = function () { sigCtx.drawImage(im, 0, 0, r.width, r.height); }; im.src = src; }
+    c.classList.toggle('signed', !!(cur && (cur.sig || cur.sigUrl)));
+    $('sigHint').innerHTML = cur && cur.sig ? '已簽名' : cur && cur.sigUrl ? '上次已簽名（<a href="' + esc(cur.sigUrl) + '" target="_blank">看簽名</a>），不重簽就沿用' : '用手指簽在下面的框裡';
+  }
+  function sigPos(e) { var r = $('sigPad').getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  $('sigPad').addEventListener('pointerdown', function (e) {
+    e.preventDefault(); this.setPointerCapture(e.pointerId);
+    sigDrawing = true; var p = sigPos(e);
+    sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y); sigCtx.lineTo(p.x + 0.1, p.y + 0.1); sigCtx.stroke();
+  });
+  $('sigPad').addEventListener('pointermove', function (e) {
+    if (!sigDrawing) return;
+    var p = sigPos(e); sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); sigInk = true;
+  });
+  function sigEnd() {
+    if (!sigDrawing) return;
+    sigDrawing = false;
+    if (!sigInk && !cur.sig) return;
+    cur.sig = $('sigPad').toDataURL('image/png');
+    $('sigPad').classList.add('signed'); $('sigHint').textContent = '已簽名'; msg('doMsg', '', '');
+    saveDraft();
+  }
+  $('sigPad').addEventListener('pointerup', sigEnd);
+  $('sigPad').addEventListener('pointercancel', sigEnd);
+  $('sigClear').addEventListener('click', function () { cur.sig = null; cur.sigUrl = ''; sigReset(); saveDraft(); });
+  $('sigName').addEventListener('input', saveDraft);
 
   // ---------------- 銷貨單金額（第 2 階段） ----------------
   // cur.slip = { ocr, text, total, rows: { 食材名稱: { slipName, qty, unit, price, amount, sure, partial } }, extras: [{ slipName, qty, unit, price, amount, map }] }
