@@ -1638,6 +1638,8 @@ function adminUpdateOrder(token, orderNo, changes, info, reason, notify) {
         if (!it) throw new Error('食材「' + c.itemId + '」已停用或不存在。');
         const vendor = String(it['廠商']).trim();
         const d = toDate_(r['使用日期']);
+        // 老師打的新叫法（待審核）被改成正式食材：自動記成別名，下次老師這樣打就直接對到
+        if (String(r['食材ID']).trim() === PENDING_ID && name) { try { addAlias_(String(c.itemId).trim(), name); } catch (e) { console.error('addAlias_ ' + e.message); } }
         name = String(it['食材名稱']).trim();
         setCell_(t, r._row, '食材ID', String(c.itemId).trim());
         setCell_(t, r._row, '食材名稱', name);

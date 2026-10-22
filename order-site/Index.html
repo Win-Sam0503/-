@@ -402,6 +402,12 @@
   .vedit .ptable table { table-layout: fixed; width: 100%; min-width: 720px; }
   .vedit .ptot-wrap { overflow-x: auto; }
   .vedit .ptot { width: auto; min-width: min(360px, 100%); margin: 4px 0 8px; }
+  .vedit .ptot .tin { display: inline-flex; gap: 4px; align-items: center; }
+  .vedit .ptot .tin input { width: 70px; padding: 4px 6px; text-align: right; }
+  .vedit .ptot .tin input.tu { width: 64px; text-align: left; }
+  .vedit .ptot tr.seen td:first-child::before { content: '✓ '; color: var(--ok, #067647); font-weight: 700; }
+  .print-only { display: none; }
+  @media print { .print-only { display: inline; } }
   .vedit .p-diff { background: #fff6d6; }
   .vedit .p-zero { background: #eef0f2; color: var(--muted); }
   .vedit .p-add { background: #e8f4ea; }
@@ -4439,19 +4445,40 @@
         var ov = list[0] && (pState.overrides || []).filter(function (o) { return o.vendor === list[0].vendor && (o.group || '') === (list[0].group || '') && o.name === t.name; })[0];
         var shown = !ov ? esc(fmtTotal(t.qty, t.unit, t.name))
           : Number(ov.qty) > 0 ? (function (cv) { return esc(fmtTotal(cv.qty, cv.unit, t.name)); })(convertUnit(Number(ov.qty), ov.unit, ov.vendor, t.name, true)) : '不叫';
-        var edit = '<button type="button" class="btn ghost small noprint" data-povr="' + esc(t.name) + '" title="直接改這段期間的合計（各班明細不變）">改合計</button>' +
-          (ov ? '<button type="button" class="btn ghost small noprint" data-povrreset="' + esc(t.name) + '">恢復</button>' : '');
-        return '<tr' + (ov ? ' class="p-diff"' : cls) + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
+        // 直接在格子裡改（Enter 跳下一項）；列印時印文字
+        var iv = ov ? { q: ov.qty, u: ov.unit } : totInput(t.qty, t.unit);
+        shown = '<span class="print-only">' + shown + '</span><span class="tin noprint"><input type="text" class="tq" data-tq="' + esc(t.name) + '" autocomplete="off" value="' + esc(String(iv.q)) + '" aria-label="' + esc(t.name) + ' 實際叫貨合計">' +
+          '<input type="text" class="tu unit-input" data-free="1" maxlength="10" autocomplete="off" value="' + esc(iv.u) + '" aria-label="' + esc(t.name) + ' 單位"></span>';
+        var edit = ov ? '<button type="button" class="btn ghost small noprint" data-povrreset="' + esc(t.name) + '">恢復</button>' : '';
+        var seenK = list[0] ? list[0].vendor + '|' + (list[0].group || '') + '|' + t.name : '';
+        var rc = (ov ? 'p-diff' : cls.replace(/^ class="|"$/g, '')) + (pState.seen && pState.seen[seenK] ? ' seen' : '');
+        return '<tr' + (rc.trim() ? ' class="' + rc.trim() + '"' : '') + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
           (ov ? ' <span class="badge warn noprint" title="直接改過合計，給廠商的是這個數字">已改（各班加總 ' + esc(fmtTotal(t.qty, t.unit, t.name)) + '）</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + shown + '</td>' +
           move.replace('<td class="noprint">', '<td class="noprint" style="white-space:nowrap">' + edit) + '</tr>';
       }).join('') + '</tbody></table>';
+  }
+  // 合計格子的預設值：兩換成斤、克取整數
+  function totInput(q, u) {
+    if (u === '兩') return { q: Math.round(q / 16 * 100) / 100, u: '斤' };
+    if (u === 'g') return { q: Math.ceil(q - 1e-6), u: u };
+    return { q: Math.round(q * 100) / 100, u: u };
+  }
+  function vSeenText(v) {
+    var n = 0, seen = 0, names = {};
+    pState.rows.forEach(function (r) {
+      if (r.vendor !== v) return;
+      var k = v + '|' + (r.group || '') + '|' + r.name;
+      if (names[k]) return;
+      names[k] = true; n++; if (pState.seen && pState.seen[k]) seen++;
+    });
+    return n ? ' <span class="badge' + (seen >= n ? ' ok' : '') + '">已看過 ' + seen + '／' + n + ' 項</span>' : '';
   }
   function vStateText(v) {
     var s = pState.vstate[v];
     var base = !s ? '<span class="badge">還沒儲存</span>'
       : s.status === '草稿' ? '<span class="badge warn">草稿</span> <span class="muted small">' + esc(s.time) + ' ' + esc(s.by) + ' 儲存</span>'
       : '<span class="badge ok">已確定叫貨</span> <span class="muted small">' + esc(s.time) + ' ' + esc(s.by) + ' 確定</span>';
-    return base + (pState.dirty[v] ? ' <span class="badge" style="background:#fde2e1;color:#b42318">有修改還沒儲存</span>' : '');
+    return base + vSeenText(v) + (pState.dirty[v] ? ' <span class="badge" style="background:#fde2e1;color:#b42318">有修改還沒儲存</span>' : '');
   }
   function renderPurchase() {
     var st = pState;
@@ -4587,6 +4614,76 @@
     });
     setTimeout(function () { var el = $('tQty'); if (el) { el.focus(); el.select(); } }, 50);
   }
+  // 合計格子：改完（離開格子或按 Enter）就存成「合計」；改回跟各班加總一樣就取消
+  function pTotCommit(inp) {
+    var tr = inp.closest('tr[data-pname]'), wrap = inp.closest('.ptot-wrap');
+    if (!tr || !wrap) return;
+    var day = wrap.getAttribute('data-pday').split('|'), v = day[0], dk = day.slice(1).join('|'), name = tr.getAttribute('data-pname');
+    var q = tr.querySelector('.tq').value, u = tr.querySelector('.tu').value;
+    var nq = normNum(q), nu = validUnit(u) || u.trim();
+    var same = function (o) { return o.vendor === v && (o.group || '') === dk && o.name === name; };
+    pState.seen = pState.seen || {};
+    pState.seen[v + '|' + dk + '|' + name] = true;
+    var lines = pState.rows.filter(function (r) { return r.vendor === v && (r.group || '') === dk && r.name === name; });
+    var tot = sumLines(lines, 'qty', 'unit', true), cur = (pState.overrides || []).filter(same)[0];
+    var base = tot.length === 1 ? totInput(tot[0].qty, tot[0].unit) : null;
+    if (nq === null || nq === '' || !(Number(nq) >= 0)) { toast('「' + name + '」請填數字，例如 3、1.5（不叫填 0）。'); return false; }
+    if (Number(nq) > 0 && !nu) { toast('「' + name + '」請填單位。'); return false; }
+    var isBase = base && Number(nq) === Number(base.q) && nu === base.u;
+    if (isBase && !cur) return true;
+    if (cur && Number(cur.qty) === Number(nq) && cur.unit === nu) return true;
+    pState.overrides = (pState.overrides || []).filter(function (o) { return !same(o); });
+    if (!isBase) {
+      var b0 = lines[0] || pState.rows.filter(function (r) { return r.vendor === v && (r.group || '') === dk; })[0] || {};
+      pState.overrides.push({ date: b0.date || pState.from, group: dk, vendor: v, name: name, id: b0.id || '', qty: Number(nq), unit: nu, kind: '合計', note: '' });
+    }
+    pState.dirty[v] = true;
+    return true;
+  }
+  // 重畫合計表後，游標回到原本（或下一個）格子
+  function pTotRefresh(inp, next) {
+    var wrap = inp.closest('.ptot-wrap'), day = wrap.getAttribute('data-pday').split('|');
+    var all = Array.prototype.slice.call($('vendorSheets').querySelectorAll('.vedit .ptot .tq'));
+    var idx = all.indexOf(inp) + (next ? 1 : 0), isUnit = inp.classList.contains('tu');
+    if (isUnit) idx = all.indexOf(inp.closest('tr').querySelector('.tq')) + (next ? 1 : 0);
+    pRefresh({ vendor: day[0], group: day.slice(1).join('|') });
+    var now = Array.prototype.slice.call($('vendorSheets').querySelectorAll('.vedit .ptot .tq'));
+    var el = now[Math.min(idx, now.length - 1)];
+    if (el && next !== null) { el.focus(); el.select(); }
+  }
+  $('vendorSheets').addEventListener('keydown', function (e) {
+    var inp = e.target.closest && e.target.closest('.vedit .ptot .tq, .vedit .ptot .tu');
+    if (!inp || e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    if (pTotCommit(inp) !== false) pTotRefresh(inp, true);
+  });
+  $('vendorSheets').addEventListener('change', function (e) {   // 從單位清單選的
+    var inp = e.target.closest && e.target.closest('.vedit .ptot .tu');
+    if (!inp || document.activeElement === inp) return;
+    if (pTotCommit(inp) !== false) pTotRefresh(inp, null);
+  });
+  $('vendorSheets').addEventListener('focusout', function (e) {
+    var inp = e.target.closest && e.target.closest('.vedit .ptot .tq, .vedit .ptot .tu');
+    if (!inp) return;
+    var to = e.relatedTarget;
+    if (to && to.closest && to.closest('tr') === inp.closest('tr')) return;   // 同一列（數量 → 單位）先不算
+    setTimeout(function () {
+      if (!document.body.contains(inp)) return;
+      var a = document.activeElement, keep = a && a !== document.body && a.closest && a.closest('.vedit .ptot') ? a : null;
+      if (pTotCommit(inp) === false) return;
+      var row = inp.closest('tr'), name = row.getAttribute('data-pname');
+      var keepName = keep && keep.closest('tr') ? keep.closest('tr').getAttribute('data-pname') : null, keepUnit = keep && keep.classList.contains('tu');
+      var keepDay = keep && keep.closest('.ptot-wrap') ? keep.closest('.ptot-wrap').getAttribute('data-pday') : null;
+      var day = inp.closest('.ptot-wrap').getAttribute('data-pday').split('|');
+      pRefresh({ vendor: day[0], group: day.slice(1).join('|') });
+      if (keepName && keepDay === day.join('|')) {
+        var w = vBox(keepDay, 'data-pday'), r2 = w && Array.prototype.filter.call(w.querySelectorAll('tr[data-pname]'), function (t) { return t.getAttribute('data-pname') === keepName; })[0];
+        var el = r2 && r2.querySelector(keepUnit ? '.tu' : '.tq');
+        if (el) el.focus();
+      }
+    }, 0);
+  });
+
   function vBox(v, attr) { return Array.prototype.filter.call($('vendorSheets').querySelectorAll('[' + attr + ']'), function (el) { return el.getAttribute(attr) === v; })[0]; }
   function pRefresh(r) {
     var box = vBox(r.vendor + '|' + (r.group || ''), 'data-pday');
@@ -4667,7 +4764,7 @@
       '<div style="text-align:left">' + (who.length > 1 ? '這 ' + who.length + ' 班：' : '') + esc(who.join('、')) + ' 的「' + esc(r.name) + '」（現在是 ' + esc(from) + '）</div>' +
       '<div style="text-align:left;margin-top:8px"><label for="pMoveTo">改跟</label><select id="pMoveTo">' + opts.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('') + '</select></div>' +
       '<div id="pMoveNote" class="muted small" style="text-align:left;margin-top:6px"></div>' +
-      '<label style="display:flex;gap:6px;align-items:center;margin-top:10px;text-align:left"><input type="checkbox" id="pMoveAll" style="width:auto"> <span id="pMoveAllText"></span></label></div>' }).then(function (ok) {
+      '<label style="display:flex;gap:6px;align-items:center;margin-top:10px;text-align:left"><input type="checkbox" id="pMoveAll" style="width:auto" checked> <span id="pMoveAllText"></span></label></div>' }).then(function (ok) {
       if (!ok) return;
       var to = $('pMoveTo').value, all = !!($('pMoveAll') && $('pMoveAll').checked);
       var nos = rs.map(function (x) { return x.orderNo; });
@@ -4692,7 +4789,7 @@
     });
     var sync = function () {
       var to = $('pMoveTo').value;
-      $('pMoveAllText').textContent = '以後「' + r.name + '」都跟' + to + '叫（' + from + '沒有賣）';
+      $('pMoveAllText').textContent = '以後「' + r.name + '」都跟' + to + '叫（' + from + '沒有賣；只有這次才換的話把勾拿掉）';
       var dept = siblingVendor(to) && to !== from ? (to === ((data.vendorSplit || {})['E乾貨'] || {}).baking ? '烘焙' : '中餐') : '';
       $('pMoveNote').textContent = dept ? '東西會送到' + dept + '教室，別科的班請印「④ 跨教室領料單」去拿。' : '';
     };
