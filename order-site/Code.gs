@@ -351,10 +351,36 @@ function bootStatic_() {
     missingSetup: missingSetup_(),
     vendorContacts: readVendorContacts_(),
     holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
+    prices: orderPrices_(),
   };
   try { const j = JSON.stringify(st); if (j.length < 90000) cache.put(BOOT_CACHE_KEY, j, 300); } catch (e) {}
   return st;
 }
+/**
+ * 單價表（進貨驗收網站記的）：{ 食材名稱: [{ v: 廠商, u: 單位, p: 單價, c: { q, u } 換算（1 個單位＝多少）, d: 更新日期 }] }
+ * 老師訂貨時顯示單價和大約金額。同一家同一單位只留最新的。
+ */
+function orderPrices_() {
+  const out = {};
+  try {
+    if (!ss_().getSheetByName('單價表')) return out;
+    const seen = {};
+    readTable_('單價表', ['廠商', '食材名稱', '單價']).rows.forEach(function (r) {
+      const n = String(r['食材名稱']).trim(), v = String(r['廠商']).trim(), u = String(r['單位'] || '').trim(), p = Number(r['單價']);
+      if (!n || !(p > 0)) return;
+      const d = r['更新日期'] instanceof Date ? dateStr_(toDate_(r['更新日期'])) : String(r['更新日期'] || '').trim();
+      const m = String(r['換算'] || '').trim().match(/^([\d.]+)\s*([^\d\s].*)$/);
+      const x = { v: v, u: u, p: p, c: m && Number(m[1]) > 0 ? { q: Number(m[1]), u: m[2].trim() } : null, d: d };
+      const k = v + '|' + n + '|' + u;
+      if (seen[k] && seen[k].d >= d) return;
+      if (seen[k]) out[n].splice(out[n].indexOf(seen[k]), 1);
+      seen[k] = x;
+      (out[n] = out[n] || []).push(x);
+    });
+  } catch (e) { console.error('orderPrices_ ' + e.message); }
+  return out;
+}
+
 function bootDirty_(name) {
   if (BOOT_SHEETS.indexOf(String(name)) < 0) return;
   try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
@@ -398,6 +424,7 @@ function getBootstrap(token) {
     missingSetup: isAdmin ? st.missingSetup : [],
     vendorContacts: isAdmin ? st.vendorContacts : {},
     holidays: st.holidays,
+    prices: st.prices || {},
   };
 }
 

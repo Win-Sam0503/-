@@ -610,7 +610,7 @@
       </div>
 
       <div class="panel" id="cartPanel">
-        <h2>訂購清單 <span class="muted small" id="cartCount"></span></h2>
+        <h2>訂購清單 <span class="muted small" id="cartCount"></span> <span class="small" id="cartCost" style="font-weight:600;color:var(--brand)"></span></h2>
         <div id="orderMsg"></div>
         <div class="mode-row" id="modeRow"></div>
         <div class="sec-chips" id="secChips"></div>
@@ -1931,13 +1931,63 @@
     return '<div class="cart-row" data-key="' + esc(c.key) + '">' +
       '<div class="c-nm">' + code + '<span class="nm">' + esc(c.name) + '</span> ' + (c.isNew ? '<span class="badge warn">待審核</span>' : '') +
         '<button type="button" class="btn ghost small" data-swap title="選錯食材？換成別的，數量、單位、備註保留" style="padding:1px 8px;margin-left:2px">換</button>' +
-        '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div>' + secSel + '</div>' +
+        '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div><div class="small c-price" style="color:#475467">' + priceText(c) + '</div>' + secSel + '</div>' +
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
       '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
       '<div class="c-s">' + (c.vendor === data.selfVendor ? '<span class="muted small" title="學校自備，不跟廠商叫貨，但會印在請料單上">自備</span>'
         : '<label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label>') + '</div>' +
       '<button type="button" class="x" title="移除" aria-label="移除 ' + esc(c.name) + '">×</button></div>';
+  }
+
+  // 單價（進貨驗收記的單價表）：優先用送出後實際那家廠商的價格，單位換得過去的
+  function priceOf(c) {
+    var list = (data.prices || {})[c.name];
+    if (!list || !list.length) return null;
+    var v = dispVendor(c.vendor), mine = list.filter(function (x) { return x.v === v; });
+    var pool = mine.length ? mine : list;
+    return pool.filter(function (x) { return qtyInPrice(1, c.unit, x) !== null; })[0] || pool[0];
+  }
+  // q 個 unit 換成單價的單位：同單位、重量互換、或用換算（1 K＝190 顆、1 袋＝22000 g）
+  function qtyInPrice(q, unit, x) {
+    if (!unit) return null;
+    if (unit === x.u) return q;
+    if (GRAMS[unit] && GRAMS[x.u]) return q * GRAMS[unit] / GRAMS[x.u];
+    if (x.c) {
+      if (unit === x.c.u) return q / x.c.q;
+      if (GRAMS[unit] && GRAMS[x.c.u]) return q * GRAMS[unit] / GRAMS[x.c.u] / x.c.q;
+    }
+    return null;
+  }
+  function estCost(c) {
+    var x = priceOf(c), q = toNum(c.qty);
+    if (!x || !(q > 0)) return null;
+    var n = qtyInPrice(q, c.unit, x);
+    return n === null ? null : Math.round(n * x.p);
+  }
+  function money0(n) { return Math.round(n).toLocaleString('en-US'); }
+  function priceText(c) {
+    if (c.vendor === data.selfVendor) return '';
+    var x = priceOf(c);
+    if (!x) return '<span class="muted">單價：還沒有資料</span>';
+    var a = estCost(c);
+    return '單價 $' + money0(x.p) + '／' + esc(x.u) + (x.c ? '<span class="muted">（' + esc(x.c.q + ' ' + x.c.u) + '）</span>' : '') +
+      (a !== null ? '・約 <b>$' + money0(a) + '</b>' + (c.noOrder ? '<span class="muted">（有貨，不算）</span>' : '') : '');
+  }
+  function renderCost() {
+    var sum = 0, none = 0, any = false;
+    draft.cart.forEach(function (c) {
+      if (c.noOrder || c.vendor === data.selfVendor) return;
+      any = true;
+      var a = estCost(c);
+      if (a === null) none++; else sum += a;
+    });
+    $('cartCost').innerHTML = any ? '預估約 $' + money0(sum) + (none ? '<span class="muted" style="font-weight:400">（' + none + ' 項沒有單價，沒算進去）</span>' : '') : '';
+  }
+  function updateRowCost(row, c) {
+    var el = row && row.querySelector('.c-price');
+    if (el) el.innerHTML = priceText(c);
+    renderCost();
   }
 
   // 訂購清單顯示送出後實際的廠商（E乾貨、C蛋商依科別分成烘焙／中餐）
@@ -1960,6 +2010,7 @@
     renderModeRow();
     renderSections();
     renderTools();
+    renderCost();
     if (!cart.length) {
       $('cart').innerHTML = '<div class="empty">還沒有選食材，從上方點選加入，或用「我的範本」帶入。</div>';
       return;
@@ -1981,11 +2032,12 @@
     if (!f) return;
     var key = e.target.closest('.cart-row').getAttribute('data-key');
     var c = draft.cart.find(function (x) { return x.key === key; });
-    if (c && f === 'per') { onPerInput(e.target, c); saveDraft(); }
+    if (c && f === 'per') { onPerInput(e.target, c); saveDraft(); updateRowCost(e.target.closest('.cart-row'), c); }
     else if (c) {
       c[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       saveDraft();
       if (f === 'section') renderCart();
+      else if (f === 'qty' || f === 'unit' || f === 'noOrder') updateRowCost(e.target.closest('.cart-row'), c);
     }
     if ($('orderMsg').querySelector('.msg.error')) msg('orderMsg', '', '');
   });
