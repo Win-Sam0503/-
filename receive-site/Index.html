@@ -417,6 +417,7 @@
   function money(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
   function numv(v) { var s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, ''); return s === '' || isNaN(Number(s)) ? null : Number(s); }
   function r2(n) { return Math.round(n * 100) / 100; }
+  function r4(n) { return Math.round(n * 10000) / 10000; }
   function slipCell(scope, i, f, v, mode) {
     return '<td class="' + (f === 'unit' ? 'w1' : 'w2') + '"><input data-' + scope + '="' + esc(String(i)) + '" data-f="' + f + '" value="' + esc(v === undefined || v === null ? '' : String(v)) + '"' +
       (f === 'unit' ? '' : ' inputmode="decimal"') + ' placeholder="' + { qty: '數量', unit: '單位', price: '單價', amount: '金額' }[f] + '"></td>';
@@ -477,7 +478,9 @@
   function prefill(n) {
     var t = (cur.b.totals || {})[n], p = (cur.b.prices || {})[n], unit = p ? p.unit : t ? ({ '兩': '斤', 'g': '公斤' }[t.unit] || t.unit) : '';
     var qty = '';
-    if (t) qty = t.unit === unit ? t.qty : W[t.unit] && W[unit] ? r2(t.qty * W[t.unit] / W[unit]) : '';
+    var c = p && p.conv;
+    if (t) qty = t.unit === unit ? t.qty : W[t.unit] && W[unit] ? r2(t.qty * W[t.unit] / W[unit])
+      : c && t.unit === c.unit ? r4(t.qty / c.qty) : c && W[t.unit] && W[c.unit] ? r4(t.qty * W[t.unit] / W[c.unit] / c.qty) : '';
     var price = p ? p.price : '';
     return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? r2(qty * price) : '', sure: true, pre: true };
   }

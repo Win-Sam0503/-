@@ -10,7 +10,7 @@ const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單
 const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表' };
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號'];
-const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號'];
+const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
 const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註'];
 // 照班級點貨的廠商（其他廠商點品項總量）
 const PER_CLASS = /^[ABD]/;
@@ -102,7 +102,8 @@ function readPrices_() {
     const v = String(r['廠商']).trim(), n = String(r['食材名稱']).trim(), pr = Number(r['單價']);
     if (!v || !n || !(pr > 0)) return;
     const d = purchaseDate_(r['更新日期']), m = out[v] = out[v] || {};
-    if (!m[n] || d >= m[n].date) m[n] = { price: pr, unit: String(r['單位'] || '').trim(), date: d };
+    const cv = parseQty_(r['換算']);
+    if (!m[n] || d >= m[n].date) m[n] = { price: pr, unit: String(r['單位'] || '').trim(), date: d, conv: cv && cv.qty > 0 ? cv : null };
   });
   return out;
 }
@@ -574,13 +575,24 @@ function estimateItem_(cls, name, got, p, e) {
   const q = parseQty_(got), it = { cls: cls, name: name, got: got, price: p ? p.price : '', amount: null, unit: p ? p.unit : '' };
   if (q && q.qty === 0) { it.amount = 0; return it; }
   if (!p) { e.noPrice.push(name); return it; }
-  let qty = null;
-  if (q && q.unit === p.unit) qty = q.qty;
-  else if (q && GRAMS[q.unit] && GRAMS[p.unit]) qty = q.qty * GRAMS[q.unit] / GRAMS[p.unit];
+  const qty = qtyIn_(q, p);
   if (qty === null) { e.noPrice.push(name + '（單位對不上）'); return it; }
   it.amount = round2_(qty * p.price);
   e.amount += it.amount; e.estimated = true;
   return it;
+}
+
+/** 數量 q（{qty, unit}）換成單價表那一項的單位：同單位、重量互換，或用「換算」（例如 1 K＝190 顆、1 罐＝1000 g）。換不了回傳 null */
+function qtyIn_(q, p) {
+  if (!q) return null;
+  if (q.unit === p.unit) return q.qty;
+  if (GRAMS[q.unit] && GRAMS[p.unit]) return q.qty * GRAMS[q.unit] / GRAMS[p.unit];
+  const c = p.conv;
+  if (c) {
+    if (q.unit === c.unit) return q.qty / c.qty;
+    if (GRAMS[q.unit] && GRAMS[c.unit]) return q.qty * GRAMS[q.unit] / GRAMS[c.unit] / c.qty;
+  }
+  return null;
 }
 
 /** 「1 斤 8 兩」「2000 g」「10 顆」「2斤半」「半斤」「0」→ { qty, unit } */
