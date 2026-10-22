@@ -22,7 +22,7 @@ const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食�
 // 照班級點貨的廠商（其他廠商點品項總量）
 const PER_CLASS = /^[ABD]/;
 const ISSUE_STATES = ['待處理', '已補送', '換貨', '退貨', '扣款', '不用補'];
-const CHECK_STATUS = ['到齊', '少送', '沒送', '送錯', '多送', '品質不好', '缺貨', '其他'];
+const CHECK_STATUS = ['到齊', '少送', '沒送', '送錯', '多送', '品質不好', '缺貨', '其他', '停送'];   // 停送：颱風假、停課，廠商沒送也不用送（不算問題、不算錢）
 // 同一家廠商、送兩個地方：訂貨系統裡分開記（C烘焙蛋／C中餐蛋），驗收時合成一張，分「送烘焙教室」「送中餐教室」兩段
 const SITE_VENDORS = { 'C烘焙蛋': { base: 'C蛋商', site: '送烘焙教室' }, 'C中餐蛋': { base: 'C蛋商', site: '送中餐教室' } };
 
@@ -226,18 +226,19 @@ function saveCheck(p) {
     if (!st) throw new Error('「' + x.name + '」還沒點：請按 ✓ 或標記少送、沒送、送錯。');
     if ((st === '少送' || st === '多送') && !String(x.got || '').trim()) throw new Error('「' + x.name + '」' + st + '，請填實際送來多少。');
     if (st === '其他' && !String(x.note || '').trim()) throw new Error('「' + x.name + '」選了「其他」，請在備註寫是什麼狀況。');
-    const got = st === '到齊' ? clean_(x.expect, 30) : st === '沒送' || st === '缺貨' ? '0'
+    const got = st === '到齊' ? clean_(x.expect, 30) : st === '沒送' || st === '缺貨' || st === '停送' ? '0'
       : st === '品質不好' || st === '其他' ? clean_(x.got, 30) || clean_(x.expect, 30) : clean_(x.got, 30);
     return { cls: clean_(x.cls, 30), name: clean_(x.name, 40), expect: clean_(x.expect, 30), got: got, status: st, note: clean_(x.note, 100),
       photos: (x.photos || []).filter(function (u) { return /^https:\/\/(drive|docs)\.google\.com\//.test(String(u)); }).slice(0, 6) };
   });
   const id = checkId_(from, vendor, group);
-  const issues = items.filter(function (x) { return x.status !== '到齊'; });
+  const issues = items.filter(function (x) { return x.status !== '到齊' && x.status !== '停送'; });
+  const allStopped = items.length && items.every(function (x) { return x.status === '停送'; });
   // 驗收人簽名：新簽的存成圖片放雲端硬碟；沒重簽就沿用上次的
   const signer = clean_(p.signer, 20);
   let sigUrl = /^https:\/\/(drive|docs)\.google\.com\//.test(String(p.signatureUrl || '')) ? String(p.signatureUrl) : '';
   if (p.signature) sigUrl = saveImage_(p.signature, 'image/png', from, vendor, '驗收簽名' + (signer ? ' ' + signer : ''), 'png').url;
-  if (!sigUrl) throw new Error('請在「驗收人簽名」簽名。');
+  if (!sigUrl && !allStopped) throw new Error('請在「驗收人簽名」簽名。');   // 整張停送（沒有貨）不用簽
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
       code: normCode_(clean_(x.code, 20)) };
@@ -753,7 +754,7 @@ function getIssues(all) {
   const since = dateStr_(addDays_(today_(), -60));
   const list = readTable_(SHEET.lines, ['驗收編號', '狀態']).rows.filter(function (r) {
     const st = String(r['狀態'] || '').trim();
-    if (!st || st === '到齊') return false;
+    if (!st || st === '到齊' || st === '停送') return false;
     const done = String(r['處理狀態'] || '').trim() && String(r['處理狀態']).trim() !== '待處理';
     const c = checks[String(r['驗收編號']).trim()];
     return all ? !c || c.from >= since : !done;

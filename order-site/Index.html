@@ -771,13 +771,15 @@
       </div>
       <details class="panel noprint" id="holBox" style="padding:10px 16px">
         <summary style="cursor:pointer;font-weight:700">📅 放假日設定（國定假日、補假、校慶補假…）</summary>
-        <div class="muted small" style="margin-top:6px">設定後，這幾天的課在老師的「我的課」顯示「放假」、不算未訂貨、也不會 LINE 提醒；老師選到這天訂貨會跳出提醒。連續放假可以填一段日期。</div>
+        <div class="muted small" style="margin-top:6px">設定後，這幾天的課在老師的「我的課」顯示「放假」、不算未訂貨、也不會 LINE 提醒；老師選到這天訂貨會跳出提醒。連續放假可以填一段日期。<br>颱風假、臨時停課：勾「同時取消這幾天的訂單」，已經送出的訂單會一起改成「已取消」（會先列出哪幾張）；已經叫的貨請打電話跟廠商取消，進貨驗收那張按「⛔ 停送」。</div>
         <div class="grid-tools">
           <div><label for="holFrom">開始日期</label><input id="holFrom" type="date"></div>
           <div><label for="holTo">結束日期（一天就不用填）</label><input id="holTo" type="date"></div>
           <div><label for="holName">名稱</label><input id="holName" type="text" maxlength="30" placeholder="例：國慶日補假"></div>
           <button type="button" class="btn secondary small" id="holAdd" style="margin-bottom:8px">新增</button>
         </div>
+        <label class="small" style="display:flex;gap:6px;align-items:center;margin:4px 0"><input type="checkbox" id="holCancel" style="width:auto"> 同時取消這幾天的訂單（颱風假、臨時停課）</label>
+        <div id="holPreview" class="small"></div>
         <div id="holList" class="hol-list small"></div>
       </details>
       <div class="status-chips noprint" id="gridKinds" style="margin:0 0 8px"></div>
@@ -6371,12 +6373,27 @@
         '<button type="button" class="btn ghost small" data-holdel="' + h.row + '" data-holfrom="' + esc(h.from) + '">刪除</button></div>';
     }).join('') : '<div class="muted">還沒有設定接下來的放假日。</div>';
   }
+  // 颱風假：勾「同時取消訂單」時先列出會取消哪些
+  var holPv = [];
+  function holPreview() {
+    var f = $('holFrom').value, t = $('holTo').value || f;
+    if (!$('holCancel').checked || !f) { $('holPreview').innerHTML = ''; holPv = []; return; }
+    $('holPreview').innerHTML = '<span class="muted">查詢中…</span>';
+    call('adminHolidayOrders', token, f, t).then(function (list) {
+      holPv = list;
+      $('holPreview').innerHTML = list.length ? '<div class="msg warn">會取消 ' + list.length + ' 張訂單：' + esc(list.map(function (o) { return shortDate(o.date) + ' ' + o.className + ' ' + o.teacher + (o.status === '已叫貨' ? '（已叫貨）' : ''); }).join('、')) +
+        '。已經跟廠商叫的貨請打電話取消；進貨驗收那天按「停送」。</div>' : '<div class="muted">這幾天沒有訂單。</div>';
+    }).catch(function (err) { $('holPreview').textContent = err.message; });
+  }
+  ['holFrom', 'holTo', 'holCancel'].forEach(function (id) { $(id).addEventListener('change', holPreview); });
   $('holAdd').addEventListener('click', function () {
-    var b = this;
+    var b = this, cancel = $('holCancel').checked;
+    if (cancel && holPv.length && !safeConfirm('新增放假日，並取消這幾天的 ' + holPv.length + ' 張訂單？')) return;
     setBusy(b, true, '新增中…');
-    call('adminAddHoliday', token, $('holFrom').value, $('holTo').value || $('holFrom').value, $('holName').value.trim()).then(function (list) {
-      renderHolidays(list); $('holFrom').value = ''; $('holTo').value = ''; $('holName').value = '';
-      setBusy(b, false); loadGrid('已新增放假日。');
+    call('adminAddHoliday', token, $('holFrom').value, $('holTo').value || $('holFrom').value, $('holName').value.trim(), cancel).then(function (r) {
+      var list = cancel ? r.list : r;
+      renderHolidays(list); $('holFrom').value = ''; $('holTo').value = ''; $('holName').value = ''; $('holCancel').checked = false; holPreview();
+      setBusy(b, false); loadGrid('已新增放假日。' + (cancel ? '取消了 ' + r.canceled + ' 張訂單（修改紀錄有記）。' : ''));
     }).catch(function (err) { msg('gridMsg', 'error', err.message); setBusy(b, false); });
   });
   $('holList').addEventListener('click', function (e) {

@@ -3805,25 +3805,55 @@ function holidaysBetween_(from, to) {
   return readHolidays_().filter(function (x) { return x.to >= a && x.from <= b; });
 }
 
-/** 管理者：新增放假日（from～to，名稱），回傳全部放假日 */
-function adminAddHoliday(token, from, to, name) {
+/** 管理者：from～to 還沒取消的訂單（颱風假、臨時停課要一起取消的），給畫面預覽 */
+function adminHolidayOrders(token, from, to) {
   auth_(token, true);
+  const a = parseDate_(from), b = parseDate_(to) || a;
+  if (!a) return [];
+  const map = {};
+  readTable_(SHEET.orders, ['訂單編號', '使用日期', '狀態']).rows.forEach(function (r) {
+    const d = toDate_(r['使用日期']);
+    if (!d || d < a || d > b || String(r['狀態']).trim() === '已取消') return;
+    const no = String(r['訂單編號']).trim();
+    map[no] = map[no] || { orderNo: no, date: dateStr_(d), className: String(r['上課班級'] || ''), teacher: String(r['代訂對象老師'] || r['操作老師'] || ''),
+      project: String(r['實作項目'] || ''), status: String(r['狀態'] || '') };
+  });
+  return Object.keys(map).map(function (k) { return map[k]; }).sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : 0; });
+}
+
+/** 管理者：新增放假日（from～to，名稱），回傳全部放假日。cancel = true：這幾天的訂單一起取消（颱風假、臨時停課） */
+function adminAddHoliday(token, from, to, name, cancel) {
+  const who = auth_(token, true);
   const a = parseDate_(from), b = parseDate_(to) || a;
   if (!a) throw new Error('請選擇放假日期。');
   if (b < a) throw new Error('結束日期不能早於開始日期。');
   const n = clean_(name, 30);
   if (!n) throw new Error('請填寫放假名稱，例如：國慶日、校慶補假。');
+  let canceled = 0;
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.holidays, HOLIDAY_HEADERS);
     appendRows_(SHEET.holidays, [{ '開始日期': a, '結束日期': b, '名稱': n }], { '開始日期': 'yyyy-mm-dd', '結束日期': 'yyyy-mm-dd' });
-    SpreadsheetApp.flush();
+    if (cancel) {
+      const t = readTable_(SHEET.orders, ['訂單編號', '使用日期', '狀態']), nos = {};
+      t.rows.forEach(function (r) {
+        const d = toDate_(r['使用日期']);
+        if (!d || d < a || d > b || String(r['狀態']).trim() === '已取消') return;
+        setCell_(t, r._row, '狀態', '已取消');
+        nos[String(r['訂單編號']).trim()] = true;
+      });
+      Object.keys(nos).forEach(function (no) { logOrderEdit_(no, who, ['整張取消（' + n + '停課）'], n); });
+      SpreadsheetApp.flush();
+      canceled = Object.keys(nos).length;
+    }
   } finally {
     lock.releaseLock();
   }
   holidayCache_ = null;
-  return readHolidays_();
+  const list = readHolidays_();
+  list.canceled = canceled;
+  return cancel ? { list: list, canceled: canceled } : list;
 }
 
 /** 管理者：刪除放假日（expect 是畫面上看到的開始日期，避免刪錯列） */

@@ -43,6 +43,8 @@
   .item .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .st { border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 16px; cursor: pointer; color: inherit; min-width: 64px; }
   .st.on[data-s="到齊"] { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .item.stop { background: #f2f4f7; } .item.stop .nm, .item.stop .ex { text-decoration: line-through; color: var(--muted); }
+  .grp .stopday { float: right; font-size: 13px; padding: 2px 10px; }
   .st.on[data-s="其他"] { background: #475467; border-color: #475467; color: #fff; }
   .st.on[data-s="少送"], .st.on[data-s="多送"], .st.on[data-s="缺貨"] { background: var(--warn); border-color: var(--warn); color: #fff; }
   .st.on[data-s="沒送"], .st.on[data-s="送錯"], .st.on[data-s="品質不好"] { background: var(--bad); border-color: var(--bad); color: #fff; }
@@ -96,6 +98,7 @@
       </div>
       <div class="row" style="margin-top:10px">
         <button type="button" class="btn small" id="allOk">✓ 全部到齊</button>
+        <button type="button" class="btn ghost small" id="allStop" title="颱風假、停課：廠商沒送也不用送">⛔ 整張停送</button>
         <span class="muted small" id="allOkHint">先按全部到齊，再改有問題的那幾項。</span>
       </div>
       <div class="row" style="margin-top:10px">
@@ -243,7 +246,8 @@
       if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
       $('cards').innerHTML = w.batches.map(function (b, i) {
         var c = b.check, n = b.lines.length;
-        var st = b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
+        var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
+        var st = stopAll ? '<span class="badge none">⛔ 停送</span>' : b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
         return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
           (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
           '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
@@ -295,18 +299,19 @@
     shown.forEach(function (x) {
       if (b.perClass || x.cls) {
         var g = (x.date ? mdw(x.date) + '　' : '') + x.cls + (x.teacher ? '　' + x.teacher : '');
-        if (g !== last) { html += '<div class="grp">' + esc(g) + '</div>'; last = g; }
+        if (g !== last) { html += '<div class="grp">' + esc(g) + (x.date ? '<button type="button" class="btn ghost small stopday" data-stopday="' + esc(x.date) + '">這天停送</button>' : '') + '</div>'; last = g; }
       }
       var m = cur.marks[x.key] || {}, s = m.status || '';
-      var cls = s === '到齊' ? ' ok' : s ? ' bad' : '';
+      var cls = s === '到齊' ? ' ok' : s === '停送' ? ' stop' : s ? ' bad' : '';
       html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm">' + esc(x.name) + '</span>' +
         (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') + '</div>' +
         '<div class="ex">' + esc(x.expect) + '</div><div class="acts">' +
+        (s === '停送' ? '<span class="badge none">⛔ 停送' + (m.note ? '（' + esc(m.note) + '）' : '') + '</span> ' : '') +
         ['到齊', '少送', '沒送', '送錯', '多送', '品質不好', '缺貨', '其他'].map(function (t) {
           return '<button type="button" class="st' + (s === t ? ' on' : '') + '" data-s="' + t + '">' + (t === '到齊' ? '✓ 到齊' : t) + '</button>';
         }).join('') +
         (s === '少送' || s === '多送' || s === '其他' ? '<input class="got" type="text" placeholder="' + (s === '其他' ? '實到多少（一樣就不用填）' : '實到多少') + '" value="' + esc(m.got || '') + '">' : '') +
-        (s && s !== '到齊' ? '<input class="note" type="text" maxlength="100" placeholder="' + ({ '品質不好': '哪裡不好，例如：葉子爛、有異味', '缺貨': '例如：廠商來電說缺貨，改下週送', '其他': '是什麼狀況（必填）' }[s] || '備註，例如：送成牛番茄') + '" value="' + esc(m.note || '') + '">' +
+        (s && s !== '到齊' && s !== '停送' ? '<input class="note" type="text" maxlength="100" placeholder="' + ({ '品質不好': '哪裡不好，例如：葉子爛、有異味', '缺貨': '例如：廠商來電說缺貨，改下週送', '其他': '是什麼狀況（必填）' }[s] || '備註，例如：送成牛番茄') + '" value="' + esc(m.note || '') + '">' +
           '<button type="button" class="btn ghost small" data-ph="1">📷 拍照</button>' +
           (m.photos || []).map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">照片' + (i + 1) + '</a>'; }).join(' ') : '') +
         '</div></div>';
@@ -367,8 +372,9 @@
   $('doNote').addEventListener('input', saveDraft);
   function progress() {
     var n = cur.b.lines.length, done = 0, bad = 0;
-    cur.b.lines.forEach(function (x) { var m = cur.marks[x.key]; if (m && m.status) { done++; if (m.status !== '到齊') bad++; } });
-    $('doProgress').textContent = '已點 ' + done + '／' + n + (bad ? '，問題 ' + bad + ' 項' : '');
+    var stop = 0;
+    cur.b.lines.forEach(function (x) { var m = cur.marks[x.key]; if (m && m.status) { done++; if (m.status === '停送') stop++; else if (m.status !== '到齊') bad++; } });
+    $('doProgress').textContent = '已點 ' + done + '／' + n + (bad ? '，問題 ' + bad + ' 項' : '') + (stop ? '，停送 ' + stop + ' 項' : '');
   }
   $('doList').addEventListener('click', function (e) {
     var b = e.target.closest('.st');
@@ -404,6 +410,26 @@
     shrink(f).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
       .then(function (r) { var m = cur.marks[k] = cur.marks[k] || {}; (m.photos = m.photos || []).push(r.url); renderDo(); saveDraft(); })
       .catch(function (err) { msg('doMsg', 'error', '照片上傳失敗：' + err.message); if (btn) { btn.disabled = false; btn.textContent = '📷 拍照'; } });
+  });
+  // 停送（颱風假、停課）：問一次原因，整張或這一天的品項標成停送
+  function askStopReason(what) {
+    var r = window.prompt(what + '標成「停送」（廠商沒送也不用送，不算問題、不算錢）。原因：', '颱風假');
+    return r === null ? null : (r.trim() || '停送');
+  }
+  $('allStop').addEventListener('click', function () {
+    var why = askStopReason('整張叫貨單的品項都');
+    if (why === null) return;
+    cur.b.lines.forEach(function (x) { cur.marks[x.key] = { status: '停送', note: why }; });
+    renderDo(); saveDraft();
+    msg('doMsg', 'info', '已全部標成停送（' + why + '）。按「完成驗收」存起來，不用簽名。');
+  });
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-stopday]');
+    if (!b) return;
+    var d = b.getAttribute('data-stopday'), why = askStopReason(mdw(d) + ' 的品項');
+    if (why === null) return;
+    cur.b.lines.forEach(function (x) { if (x.date === d) cur.marks[x.key] = { status: '停送', note: why }; });
+    renderDo(); saveDraft();
   });
   $('allOk').addEventListener('click', function () {
     visibleLines().forEach(function (x) { var m = cur.marks[x.key] = cur.marks[x.key] || {}; if (!m.status) m.status = '到齊'; });
@@ -460,7 +486,8 @@
   $('doSave').addEventListener('click', function () {
     var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
-    if (!cur.sig && !cur.sigUrl) { msg('doMsg', 'error', '請在「✍ 驗收人簽名」的框裡簽名。'); $('sigPad').scrollIntoView({ block: 'center' }); return; }
+    var stopN = b.lines.filter(function (x) { return cur.marks[x.key].status === '停送'; }).length, allStop = stopN === b.lines.length;
+    if (!allStop && !cur.sig && !cur.sigUrl) { msg('doMsg', 'error', '請在「✍ 驗收人簽名」的框裡簽名。'); $('sigPad').scrollIntoView({ block: 'center' }); return; }
     try { localStorage.setItem('rcvSigner', $('sigName').value.trim()); } catch (e) {}
     var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '', photos: m.photos || [] }; });
     var btn = this;
@@ -468,7 +495,7 @@
     call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items, slip: slipToSave(),
       signer: $('sigName').value.trim(), signature: cur.sig || '', signatureUrl: cur.sig ? '' : cur.sigUrl }).then(function (r) {
       dropDraft(b);
-      msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : '，全部到齊。') +
+      msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + (allStop ? ' 已標成停送（' + r.items + ' 項，不算錢）。' : ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : stopN ? '，其他都到齊。' : '，全部到齊。') + (stopN ? '停送 ' + stopN + ' 項（不算錢）。' : '')) +
         (r.amount ? '銷貨單金額 $' + money(r.amount) + '。' : ''));
       show('vCheck'); loadWeek(); refreshIssueCount();
     }).catch(function (e) { msg('doMsg', 'error', e.message); })
