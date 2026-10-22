@@ -2884,10 +2884,13 @@ function gh_(path, raw) {
   return raw ? res.getContentText('UTF-8') : JSON.parse(res.getContentText('UTF-8'));
 }
 
-function gas_(method, path, body) {
+function gas_(method, path, body) { return gasAt_(ScriptApp.getScriptId(), method, path, body); }
+
+/** Apps Script API：scriptId 空白＝建立新專案（POST /v1/projects） */
+function gasAt_(scriptId, method, path, body) {
   const opt = { method: method, contentType: 'application/json', headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true };
   if (body) opt.payload = JSON.stringify(body);
-  const res = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + ScriptApp.getScriptId() + path, opt);
+  const res = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects' + (scriptId ? '/' + scriptId : '') + path, opt);
   const code = res.getResponseCode(), text = res.getContentText('UTF-8');
   if (code >= 300) {
     let m = '';
@@ -2939,8 +2942,11 @@ function adminUpdateInfo(token, branch) {
   const out = { hasToken: !!p.getProperty('GITHUB_TOKEN'), lineReady: !!(p.getProperty('LINE_TOKEN') && p.getProperty('LINE_TO')),
     branch: branch, current: updateState_(), repo: UPDATE_REPO, lockedUntil: Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) };
   if (!out.hasToken) return out;
+  out.receive = { url: p.getProperty('RECEIVE_URL') || '', sha: p.getProperty('RECEIVE_SHA') || '', at: p.getProperty('RECEIVE_AT') || '' };
   try {
     out.branches = gh_('branches?per_page=100').map(function (b) { return b.name; });
+    const rc = gh_('commits?sha=' + encodeURIComponent(branch) + '&path=' + RECEIVE_DIR + '&per_page=1')[0];
+    if (rc) out.receive.latest = { sha: rc.sha, message: String(rc.commit.message || '').split('\n')[0].slice(0, 120), date: rc.commit.committer ? rc.commit.committer.date : '' };
     out.commits = gh_('commits?sha=' + encodeURIComponent(branch) + '&path=' + UPDATE_DIR + '&per_page=10').map(function (c) {
       return { sha: c.sha, message: String(c.commit.message || '').split('\n')[0].slice(0, 120), date: c.commit.committer ? c.commit.committer.date : '' };
     });
@@ -2975,7 +2981,7 @@ function adminRequestUpdateCode(token, action, sha, push) {
   updateOwner_(token);
   const p = PropertiesService.getScriptProperties();
   if (Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) > Date.now()) throw new Error('驗證碼錯太多次，已鎖定 1 小時，請稍後再試。');
-  if (action !== 'update' && action !== 'rollback') throw new Error('動作不正確。');
+  if (action !== 'update' && action !== 'rollback' && action !== 'receive') throw new Error('動作不正確。');
   const to = p.getProperty('LINE_TO');
   if (!to || !p.getProperty('LINE_TOKEN')) throw new Error('要先設定 LINE 通知（自動化 → LINE 官方帳號通知），才收得到驗證碼。');
   const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -2988,7 +2994,8 @@ function adminRequestUpdateCode(token, action, sha, push) {
 }
 
 function updateCodeText_(action, sha, code) {
-  const what = action === 'update' ? '更新程式到版本 ' + String(sha || '').slice(0, 7) : '還原成上一版';
+  const what = action === 'update' ? '更新程式到版本 ' + String(sha || '').slice(0, 7)
+    : action === 'receive' ? '建立／更新進貨驗收網站到版本 ' + String(sha || '').slice(0, 7) : '還原成上一版';
   return '【訂貨系統】' + what + ' 的驗證碼：' + code + '\n5 分鐘內有效。\n如果不是你按的，請不要告訴任何人，並馬上修改管理者密碼。';
 }
 
@@ -3005,7 +3012,7 @@ function verifyUpdateCode_(action, sha, code, who) {
   const cache = CacheService.getScriptCache(), p = PropertiesService.getScriptProperties();
   if (Number(p.getProperty('UPDATE_LOCK_UNTIL') || 0) > Date.now()) throw new Error('驗證碼錯太多次，已鎖定 1 小時，請稍後再試。');
   const s = JSON.parse(cache.get('updCode') || 'null');
-  if (!s || s.action !== action || (action === 'update' && s.sha !== sha)) throw new Error('驗證碼已過期或不是這個動作的，請重新按「傳驗證碼」。');
+  if (!s || s.action !== action || (action !== 'rollback' && s.sha !== sha)) throw new Error('驗證碼已過期或不是這個動作的，請重新按「傳驗證碼」。');
   if (String(code || '').trim() !== s.code) {
     s.tries++;
     if (s.tries >= 3) {
@@ -3090,6 +3097,53 @@ function adminRunUpdate(token, branch, sha, code) {
     return { ok: true, version: ver, message: msg, info: adminUpdateInfo(token, branch) };
   } catch (e) {
     if (!/已經自動還原/.test(e.message)) updateLog_('更新程式', short, e.message, '沒有更新', who);
+    throw e;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+const RECEIVE_DIR = 'receive-site';
+
+/**
+ * 管理者：輸入 LINE 驗證碼後，建立（第一次）或更新「進貨驗收」網站：
+ * 在你的 Google 帳號新增一個 Apps Script 專案、貼上 GitHub 上 receive-site 的程式、部署成「只有我自己」打得開的網頁應用程式。
+ */
+function adminReceiveSite(token, branch, sha, code) {
+  const who = updateOwner_(token);
+  branch = clean_(branch, 100) || UPDATE_DEFAULT_BRANCH;
+  if (!/^[0-9a-f]{40}$/.test(String(sha || ''))) throw new Error('版本不正確，請重新整理。');
+  verifyUpdateCode_('receive', sha, code, who);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) throw new Error('有人正在更新，請稍等一下再試。');
+  const p = PropertiesService.getScriptProperties(), short = sha.slice(0, 7);
+  try {
+    const head = gh_('commits?sha=' + encodeURIComponent(branch) + '&path=' + RECEIVE_DIR + '&per_page=1')[0];
+    if (!head || head.sha !== sha) throw new Error('GitHub 上的最新版本跟畫面上的不一樣，請按「重新整理」確認後再做。');
+    const msg = String(head.commit.message || '').split('\n')[0].slice(0, 80);
+    const get = function (f) { return gh_('contents/' + RECEIVE_DIR + '/' + f + '?ref=' + sha, true); };
+    const files = [{ name: 'appsscript', type: 'JSON', source: get('appsscript.json') },
+      { name: 'Code', type: 'SERVER_JS', source: get('Code.gs') }, { name: 'Index', type: 'HTML', source: get('Index.html') }];
+    if (!/function doGet\s*\(/.test(files[1].source) || !/<\/html>\s*$/i.test(files[2].source)) throw new Error('GitHub 上的進貨驗收程式看起來不完整，沒有更新。');
+    let id = p.getProperty('RECEIVE_SCRIPT_ID'), created = false;
+    if (!id) {
+      id = gasAt_('', 'post', '', { title: '進貨驗收' }).scriptId;
+      p.setProperty('RECEIVE_SCRIPT_ID', id);
+      created = true;
+    }
+    gasAt_(id, 'put', '/content', { files: files });
+    const ver = gasAt_(id, 'post', '/versions', { description: 'GitHub ' + short + '：' + msg }).versionNumber;
+    const cfg = { deploymentConfig: { scriptId: id, versionNumber: ver, manifestFileName: 'appsscript', description: '進貨驗收 ' + short } };
+    let dep = null, depId = p.getProperty('RECEIVE_DEPLOY_ID');
+    if (depId) { try { dep = gasAt_(id, 'put', '/deployments/' + depId, cfg); } catch (e) { dep = null; } }
+    if (!dep) { dep = gasAt_(id, 'post', '/deployments', cfg.deploymentConfig); depId = dep.deploymentId; }
+    const web = (dep.entryPoints || []).filter(function (x) { return x.entryPointType === 'WEB_APP'; })[0];
+    const url = web && web.webApp && web.webApp.url || 'https://script.google.com/macros/s/' + depId + '/exec';
+    p.setProperties({ RECEIVE_DEPLOY_ID: depId, RECEIVE_URL: url, RECEIVE_SHA: sha, RECEIVE_AT: fmtDateTime_(new Date()) });
+    updateLog_(created ? '建立進貨驗收網站' : '更新進貨驗收網站', short, msg, '成功（版本 ' + ver + '）', who);
+    return { ok: true, created: created, url: url, info: adminUpdateInfo(token, branch) };
+  } catch (e) {
+    updateLog_('進貨驗收網站', short, e.message, '沒有完成', who);
     throw e;
   } finally {
     lock.releaseLock();

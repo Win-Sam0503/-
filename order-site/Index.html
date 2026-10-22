@@ -4841,21 +4841,32 @@
         return '<div><span><b>' + esc(c.sha.slice(0, 7)) + '</b>　' + esc(c.message) + ' <span class="muted">' + esc(String(c.date).slice(0, 10)) + '</span>' +
           (i === 0 ? ' <span class="badge ok">最新</span>' : '') + (c.sha === cur.sha ? ' <span class="badge">網站目前</span>' : '') + '</span></div>';
       }).join('') + '</div>';
-      if (updPending) {
-        html += '<div class="msg info" style="margin-top:8px">' + (updPending.push ? '驗證碼已經傳到你的 LINE（5 分鐘內有效）。'
-          : '請在 LINE 官方帳號（綁定管理者通知的那個聊天室）傳「<b>驗證碼</b>」三個字，系統會回覆 6 位數驗證碼（回覆不算 LINE 則數，5 分鐘內有效）。' +
-            ' <button type="button" class="btn ghost small" id="updPush">收不到？改用推播傳送（算 1 則）</button>') +
-          '<div class="tpl-row" style="margin-top:6px"><div><label for="updCode">LINE 驗證碼</label><input id="updCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>' +
-          '<button type="button" class="btn small" id="updConfirm">' + (updPending.action === 'update' ? '確定更新到 ' + esc(updPending.sha.slice(0, 7)) : '確定還原') + '</button>' +
-          '<button type="button" class="btn ghost small" id="updCancel">取消</button></div></div>';
-      } else {
+      if (updPending && updPending.action !== 'receive') {
+        html += updCodeBox();
+      } else if (!updPending) {
         html += '<div class="actions" style="justify-content:flex-start">' +
           (isCur ? '<span class="muted">網站已經是最新版。</span>' : '<button type="button" class="btn small" data-upd="update" data-sha="' + esc(latest.sha) + '">⟳ 更新到 ' + esc(latest.sha.slice(0, 7)) + '</button>') +
           (cur.prevVersion ? '<button type="button" class="btn ghost small" data-upd="rollback">↶ 還原上一版</button>' : '') + '</div>' +
           '<div class="muted">請確認版本代碼跟 Claude 在對話裡告訴你的一樣再更新。</div>';
       }
     }
-    $('updBox').innerHTML = html;
+    var rc = r.receive || {}, rl = rc.latest;
+    html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)"><b>📦 進貨驗收網站</b>（平板點貨用，另一個網站、同一份試算表）<br>' +
+      (rc.url ? '網址：<a href="' + esc(rc.url) + '" target="_blank" rel="noopener">' + esc(rc.url) + '</a><br>目前版本：<b>' + esc(rc.sha.slice(0, 7)) + '</b>（' + esc(rc.at) + '）<br>'
+        : '<span class="muted">還沒建立。按下面的按鈕，系統會在你的 Google 帳號新增「進貨驗收」專案、貼好程式、部署好，不用自己複製貼上。</span><br>');
+    if (updPending && updPending.action === 'receive') html += updCodeBox();
+    else if (rl) html += rl.sha === rc.sha ? '<span class="muted">已經是最新版。</span>'
+      : '<button type="button" class="btn small" data-upd="receive" data-sha="' + esc(rl.sha) + '">' + (rc.url ? '⟳ 更新進貨驗收到 ' : '📦 建立進貨驗收網站（版本 ') + esc(rl.sha.slice(0, 7)) + (rc.url ? '' : '）') + '</button>';
+    $('updBox').innerHTML = html + '</div>';
+  }
+  function updCodeBox() {
+    var a = updPending.action;
+    return '<div class="msg info" style="margin-top:8px">' + (updPending.push ? '驗證碼已經傳到你的 LINE（5 分鐘內有效）。'
+      : '請在 LINE 官方帳號（綁定管理者通知的那個聊天室）傳「<b>驗證碼</b>」三個字，系統會回覆 6 位數驗證碼（回覆不算 LINE 則數，5 分鐘內有效）。' +
+        ' <button type="button" class="btn ghost small" id="updPush">收不到？改用推播傳送（算 1 則）</button>') +
+      '<div class="tpl-row" style="margin-top:6px"><div><label for="updCode">LINE 驗證碼</label><input id="updCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>' +
+      '<button type="button" class="btn small" id="updConfirm">' + (a === 'update' ? '確定更新到 ' + esc(updPending.sha.slice(0, 7)) : a === 'receive' ? '確定（進貨驗收 ' + esc(updPending.sha.slice(0, 7)) + '）' : '確定還原') + '</button>' +
+      '<button type="button" class="btn ghost small" id="updCancel">取消</button></div></div>';
   }
   $('updReload').addEventListener('click', function () { updPending = null; loadUpdate(); });
   $('updTokenSave').addEventListener('click', function () {
@@ -4890,10 +4901,13 @@
     if (e.target.id === 'updConfirm') {
       var code = $('updCode').value.trim(), c = e.target, p = updPending;
       if (!/^\d{6}$/.test(code)) { msg('updMsg', 'error', '請輸入 6 位數驗證碼。'); return; }
-      setBusy(c, true, p.action === 'update' ? '更新中，約 30 秒…' : '還原中…');
-      var job = p.action === 'update' ? call('adminRunUpdate', token, updInfo.branch, p.sha, code) : call('adminRollbackUpdate', token, code);
+      setBusy(c, true, p.action === 'rollback' ? '還原中…' : '處理中，約 30 秒…');
+      var job = p.action === 'update' ? call('adminRunUpdate', token, updInfo.branch, p.sha, code)
+        : p.action === 'receive' ? call('adminReceiveSite', token, updInfo.branch, p.sha, code) : call('adminRollbackUpdate', token, code);
       job.then(function (r) {
         updPending = null;
+        if (p.action === 'receive') { renderUpdate(r.info, (r.created ? '進貨驗收網站建立好了！' : '進貨驗收網站已更新（網址不變）。') +
+          (r.created ? '請點上面的網址，第一次會要你授權（選你的帳號 →「進階」→「前往進貨驗收（不安全）」→「允許」），之後在平板打開同一個網址、加到主畫面。' : '平板重新整理就是新版。')); return; }
         renderUpdate(r.info, (p.action === 'update' ? '已更新並部署（版本 ' + p.sha.slice(0, 7) + '）。' : '已還原成上一版。') + '請重新整理網頁（手機往下拉），再點幾個頁面確認正常。');
       }).catch(function (err) {
         if (/驗證碼不對/.test(err.message)) { setBusy(c, false); $('updCode').value = ''; }
