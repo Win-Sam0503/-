@@ -131,7 +131,7 @@
         <canvas id="sigPad"></canvas>
       </div>
       <div id="doMsg"></div>
-      <div class="bar"><span id="doProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn" id="doSave">完成驗收</button></div>
+      <div class="bar"><span id="doProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost" id="doHold">💾 暫時儲存</button><button type="button" class="btn" id="doSave">完成驗收</button></div>
     </div>
   </section>
 
@@ -243,7 +243,7 @@
       if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
       $('cards').innerHTML = w.batches.map(function (b, i) {
         var c = b.check, n = b.lines.length;
-        var st = !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
+        var st = b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
         return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
           (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
           '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
@@ -269,7 +269,7 @@
     var d = readDraft(b);
     if (d) {
       cur.marks = d.marks; cur.photos = d.photos; if (d.slip) cur.slip = d.slip;
-      $('draftMsg').innerHTML = '<div class="msg info">已恢復 ' + esc(d.at) + ' 點到一半的內容（' + Object.keys(d.marks).length + ' 項），點完按「完成驗收」才會存。 <button type="button" class="btn ghost small" id="draftDrop">清掉、重新點</button></div>';
+      $('draftMsg').innerHTML = '<div class="msg info">已恢復 ' + esc(d.at) + (d.remote ? ' 暫時儲存' : ' 點到一半') + '的內容（' + Object.keys(d.marks).length + ' 項），點完按「完成驗收」才會存。 <button type="button" class="btn ghost small" id="draftDrop">清掉、重新點</button></div>';
     } else msg('draftMsg', '', '');
     $('doQ').value = '';
     var cl = [];
@@ -331,9 +331,13 @@
 
   // 點到一半自動暫存在這台平板（網路斷掉、關掉網頁也不會不見）；完成驗收後清掉
   function draftKey(b) { return 'rcvDraft:' + b.id; }
+  // 這台平板自動暫存的，跟按「暫時儲存」存到試算表的，取比較新的
   function readDraft(b) {
     try {
-      var d = JSON.parse(localStorage.getItem(draftKey(b)) || 'null');
+      var d = null, r = null;
+      try { d = JSON.parse(localStorage.getItem(draftKey(b)) || 'null'); } catch (e) {}
+      if (b.draft && b.draft.data) { try { r = JSON.parse(b.draft.data); r.ts = b.draft.ts; r.at = b.draft.at; r.remote = true; } catch (e) {} }
+      if (r && (!d || !(d.ts > r.ts))) d = r;
       if (!d || !d.marks) return null;
       var keys = {};
       b.lines.forEach(function (x) { keys[x.key] = true; });
@@ -350,13 +354,14 @@
       if (!any && !cur.photos.length && !$('doNote').value && !cur.slip) { localStorage.removeItem(draftKey(cur.b)); return; }
       var t = new Date();
       localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, sig: cur.sig, signer: $('sigName').value,
-        at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
+        ts: t.getTime(), at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
     } catch (e) {}
   }
   function dropDraft(b) { try { localStorage.removeItem(draftKey(b)); } catch (e) {} }
   $('draftMsg').addEventListener('click', function (e) {
     if (e.target.id !== 'draftDrop') return;
     dropDraft(cur.b); msg('draftMsg', '', '');
+    if (cur.b.draft) { call('dropDraftRemote', cur.b.id).catch(function () {}); cur.b.draft = null; }
     openBatch(cur.b);
   });
   $('doNote').addEventListener('input', saveDraft);
@@ -442,6 +447,16 @@
       .catch(function (e) { $('photoMsg').textContent = '上傳失敗：' + e.message; });
   });
 
+  $('doHold').addEventListener('click', function () {
+    var b = cur.b, btn = this;
+    var data = JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, signer: $('sigName').value });
+    btn.disabled = true; btn.textContent = '儲存中…';
+    call('saveDraftRemote', b.id, data).then(function (r) {
+      b.draft = { ts: r.ts, at: r.at, data: data };
+      msg('doMsg', 'ok', '已暫時儲存（' + r.at + '）。可以先回列表，之後打開這張會接著點；點完記得簽名、按「完成驗收」。');
+    }).catch(function (e) { msg('doMsg', 'error', '暫時儲存失敗：' + e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = '💾 暫時儲存'; });
+  });
   $('doSave').addEventListener('click', function () {
     var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }

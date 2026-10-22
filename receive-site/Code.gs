@@ -13,7 +13,8 @@
 const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';   // 訂貨系統的試算表
 const SITE_TITLE = '三信家商餐飲科 進貨驗收';
 const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單照片放在雲端硬碟這個資料夾（每週一個子資料夾）
-const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表' };
+const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表', drafts: '驗收暫存' };
+const DRAFT_HEADERS = ['驗收編號', '暫存時間', '內容'];
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號'];
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
@@ -44,7 +45,8 @@ function getWeek(monday) {
   const to = addDays_(from, 4);
   const f = dateStr_(from), t = dateStr_(to);
   const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_());
-  out.batches.forEach(function (b) { delete b.list; });
+  const drafts = readDrafts_();
+  out.batches.forEach(function (b) { delete b.list; b.draft = drafts[b.id] || null; });
   return out;
 }
 
@@ -263,6 +265,7 @@ function saveCheck(p) {
       '驗收時間': new Date(), '品項數': items.length, '問題數': issues.length, '銷貨單照片': (p.photos || []).join('\n'),
       '備註': clean_(p.note, 200), '驗收人': Session.getActiveUser().getEmail() || '',
       '銷貨單金額': slip.length ? Math.round(slipSum * 100) / 100 : '', '銷貨單合計': slipTotal, '簽名人': signer, '驗收人簽名': sigUrl }]);
+    dropDraft_(id);
     const st = readTable_(SHEET.slip, ['驗收編號']);
     const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
@@ -681,6 +684,57 @@ function saveMonth(p) {
     lock.releaseLock();
   }
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------
+// 暫時儲存：點到一半先存到試算表（換平板、清掉瀏覽器資料也不會不見），完成驗收後刪掉
+// ---------------------------------------------------------------------
+
+function readDrafts_() {
+  const out = {};
+  if (!ss_().getSheetByName(SHEET.drafts)) return out;
+  readTable_(SHEET.drafts, ['驗收編號', '內容']).rows.forEach(function (r) {
+    const t = r['暫存時間'] instanceof Date ? r['暫存時間'] : null;
+    out[String(r['驗收編號']).trim()] = { ts: t ? t.getTime() : 0, at: t ? Utilities.formatDate(t, tz_(), 'M/d HH:mm') : '', data: String(r['內容'] || '') };
+  });
+  return out;
+}
+
+/** id：驗收編號；data：JSON 字串（點到哪裡、實到、備註、照片、銷貨單金額…，不含簽名） */
+function saveDraftRemote(id, data) {
+  id = String(id || '').trim();
+  if (!/^R\d{8}-/.test(id)) throw new Error('驗收編號不正確，請重新整理。');
+  data = String(data || '');
+  if (data.length > 45000) throw new Error('內容太多，存不進去（照片請少一點）。');
+  try { JSON.parse(data); } catch (e) { throw new Error('內容格式不正確。'); }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.drafts, DRAFT_HEADERS);
+    dropDraft_(id);
+    const now = new Date();
+    appendRows_(SHEET.drafts, [{ '驗收編號': id, '暫存時間': now, '內容': data }]);
+    return { ts: now.getTime(), at: Utilities.formatDate(now, tz_(), 'M/d HH:mm') };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 「清掉、重新點」：刪掉試算表裡的暫存 */
+function dropDraftRemote(id) {
+  id = String(id || '').trim();
+  if (!/^R\d{8}-/.test(id)) return { ok: true };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { dropDraft_(id); } finally { lock.releaseLock(); }
+  return { ok: true };
+}
+
+function dropDraft_(id) {
+  if (!ss_().getSheetByName(SHEET.drafts)) return;
+  const t = readTable_(SHEET.drafts, ['驗收編號']);
+  const old = t.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
+  if (old.length) deleteRows_(t.sheet, old.map(function (r) { return r._row; }));
 }
 
 // ---------------------------------------------------------------------
