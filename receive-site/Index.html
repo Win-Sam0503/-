@@ -78,8 +78,14 @@
       </div>
       <div class="row" style="margin-top:10px">
         <button type="button" class="btn small" id="allOk">✓ 全部到齊</button>
-        <span class="muted small">先按全部到齊，再改有問題的那幾項。</span>
+        <span class="muted small" id="allOkHint">先按全部到齊，再改有問題的那幾項。</span>
       </div>
+      <div class="row" style="margin-top:10px">
+        <input id="doQ" type="search" placeholder="🔍 搜尋食材、班級、老師" style="flex:1;min-width:180px">
+        <select id="doCls" style="width:auto"></select>
+        <span id="doCount" class="muted small"></span>
+      </div>
+      <div id="draftMsg"></div>
       <div id="doList"></div>
       <div style="margin-top:14px">
         <div class="row">
@@ -195,18 +201,28 @@
       if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' ? '' : l.got, note: l.note };
     });
     cur = { b: b, marks: marks, photos: b.check ? b.check.photos.slice() : [] };
+    var d = readDraft(b);
+    if (d) {
+      cur.marks = d.marks; cur.photos = d.photos;
+      $('draftMsg').innerHTML = '<div class="msg info">已恢復 ' + esc(d.at) + ' 點到一半的內容（' + Object.keys(d.marks).length + ' 項），點完按「完成驗收」才會存。 <button type="button" class="btn ghost small" id="draftDrop">清掉、重新點</button></div>';
+    } else msg('draftMsg', '', '');
+    $('doQ').value = '';
+    var cl = [];
+    b.lines.forEach(function (x) { if (x.cls && cl.indexOf(x.cls) < 0) cl.push(x.cls); });
+    $('doCls').innerHTML = '<option value="">全部班級</option>' + cl.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+    $('doCls').classList.toggle('hidden', cl.length < 2);
     $('doTitle').textContent = b.vendor + (b.group ? '　送貨組別 ' + b.group : '');
     $('doSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + b.lines.length + ' 項・' + (b.perClass ? '照班級點' : '點品項總量') +
       (b.check ? '・上次驗收 ' + b.check.time + '（重新存會蓋掉）' : '');
-    $('doNote').value = b.check ? b.check.note : '';
+    $('doNote').value = d ? d.note : b.check ? b.check.note : '';
     msg('doMsg', '', '');
     renderDo();
     renderThumbs();
     show('vDo');
   }
   function renderDo() {
-    var b = cur.b, last = null, html = '';
-    b.lines.forEach(function (x) {
+    var b = cur.b, last = null, html = '', shown = visibleLines();
+    shown.forEach(function (x) {
       if (b.perClass || x.cls) {
         var g = (x.date ? mdw(x.date) + '　' : '') + x.cls + (x.teacher ? '　' + x.teacher : '');
         if (g !== last) { html += '<div class="grp">' + esc(g) + '</div>'; last = g; }
@@ -223,9 +239,55 @@
         (s && s !== '到齊' ? '<input class="note" type="text" maxlength="100" placeholder="備註，例如：送成牛番茄" value="' + esc(m.note || '') + '">' : '') +
         '</div></div>';
     });
-    $('doList').innerHTML = html;
+    $('doList').innerHTML = html || '<div class="muted" style="padding:16px 0">沒有符合的品項。</div>';
+    var f = filtering();
+    $('doCount').textContent = f ? '顯示 ' + shown.length + '／' + b.lines.length + ' 項' : '';
+    $('allOk').textContent = f ? '✓ 這 ' + shown.length + ' 項都到齊' : '✓ 全部到齊';
+    $('allOkHint').textContent = f ? '只會改目前搜尋到、還沒點的品項。' : '先按全部到齊，再改有問題的那幾項。';
     progress();
   }
+  function filtering() { return !!($('doQ').value.trim() || $('doCls').value); }
+  function visibleLines() {
+    var q = $('doQ').value.trim().toLowerCase(), c = $('doCls').value;
+    return cur.b.lines.filter(function (x) {
+      if (c && x.cls !== c) return false;
+      return !q || q.split(/\s+/).every(function (w) { return [x.name, x.cls, x.teacher, x.note].join(' ').toLowerCase().indexOf(w) >= 0; });
+    });
+  }
+  $('doQ').addEventListener('input', function () { renderDo(); });
+  $('doCls').addEventListener('change', function () { renderDo(); });
+
+  // 點到一半自動暫存在這台平板（網路斷掉、關掉網頁也不會不見）；完成驗收後清掉
+  function draftKey(b) { return 'rcvDraft:' + b.id; }
+  function readDraft(b) {
+    try {
+      var d = JSON.parse(localStorage.getItem(draftKey(b)) || 'null');
+      if (!d || !d.marks) return null;
+      var keys = {};
+      b.lines.forEach(function (x) { keys[x.key] = true; });
+      Object.keys(d.marks).forEach(function (k) { if (!keys[k] || !d.marks[k].status) delete d.marks[k]; });
+      if (!Object.keys(d.marks).length && !(d.photos || []).length && !d.note) return null;
+      d.photos = d.photos || []; d.note = d.note || '';
+      return d;
+    } catch (e) { return null; }
+  }
+  function saveDraft() {
+    if (!cur) return;
+    try {
+      var any = Object.keys(cur.marks).some(function (k) { return cur.marks[k].status; });
+      if (!any && !cur.photos.length && !$('doNote').value) { localStorage.removeItem(draftKey(cur.b)); return; }
+      var t = new Date();
+      localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value,
+        at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
+    } catch (e) {}
+  }
+  function dropDraft(b) { try { localStorage.removeItem(draftKey(b)); } catch (e) {} }
+  $('draftMsg').addEventListener('click', function (e) {
+    if (e.target.id !== 'draftDrop') return;
+    dropDraft(cur.b); msg('draftMsg', '', '');
+    openBatch(cur.b);
+  });
+  $('doNote').addEventListener('input', saveDraft);
   function progress() {
     var n = cur.b.lines.length, done = 0, bad = 0;
     cur.b.lines.forEach(function (x) { var m = cur.marks[x.key]; if (m && m.status) { done++; if (m.status !== '到齊') bad++; } });
@@ -238,6 +300,7 @@
     var m = cur.marks[k] = cur.marks[k] || {};
     m.status = m.status === s && s !== '到齊' ? '' : s;
     renderDo();
+    saveDraft();
     var inp = document.querySelector('[data-k="' + CSS.escape(k) + '"] input.got');
     if (inp) inp.focus();
   });
@@ -245,10 +308,12 @@
     var k = e.target.closest('[data-k]').getAttribute('data-k'), m = cur.marks[k] = cur.marks[k] || {};
     if (e.target.classList.contains('got')) m.got = e.target.value;
     if (e.target.classList.contains('note')) m.note = e.target.value;
+    saveDraft();
   });
   $('allOk').addEventListener('click', function () {
-    cur.b.lines.forEach(function (x) { var m = cur.marks[x.key] = cur.marks[x.key] || {}; if (!m.status) m.status = '到齊'; });
+    visibleLines().forEach(function (x) { var m = cur.marks[x.key] = cur.marks[x.key] || {}; if (!m.status) m.status = '到齊'; });
     renderDo();
+    saveDraft();
   });
   $('doBack').addEventListener('click', function () { show('vCheck'); loadWeek(); });
 
@@ -277,7 +342,7 @@
     $('photoMsg').textContent = '上傳中…（' + files.length + ' 張）';
     files.reduce(function (p, f) {
       return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor); })
-        .then(function (r) { cur.photos.push(r.url); renderThumbs(); });
+        .then(function (r) { cur.photos.push(r.url); renderThumbs(); saveDraft(); });
     }, Promise.resolve()).then(function () { $('photoMsg').textContent = '已上傳，按「完成驗收」才會跟這次驗收存在一起。'; })
       .catch(function (e) { $('photoMsg').textContent = '上傳失敗：' + e.message; });
   });
@@ -289,6 +354,7 @@
     var btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
     call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items }).then(function (r) {
+      dropDraft(b);
       msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : '，全部到齊。'));
       show('vCheck'); loadWeek(); refreshIssueCount();
     }).catch(function (e) { msg('doMsg', 'error', e.message); })
