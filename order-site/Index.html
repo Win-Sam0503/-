@@ -270,6 +270,16 @@
   .sgrid thead th.room { z-index: 3; }
   .sgrid th.day-start, .sgrid td.day-start { border-left: 2px solid #98a2b3; }
   .sgrid td { min-width: 96px; }
+  /* 總課表大小：整張放進畫面（跟列印一樣縮小，不用左右滑）／小／大 */
+  #gridBox.gsize-fit .sgrid-wrap { overflow: visible; }
+  #gridBox.gsize-fit .sgrid { width: 100%; min-width: 0; table-layout: fixed; font-size: 10px; }
+  #gridBox.gsize-fit .sgrid th, #gridBox.gsize-fit .sgrid td { padding: 1px 2px; min-width: 0; }
+  #gridBox.gsize-fit .sgrid thead th { white-space: normal; font-size: 10px; }
+  #gridBox.gsize-fit .sgrid th.room { width: 40px; white-space: normal; }
+  #gridBox.gsize-fit .slesson { padding: 1px 3px; margin-bottom: 2px; font-size: 10px; line-height: 1.2; word-break: break-all; }
+  #gridBox.gsize-fit .slesson b { font-size: 10.5px; }
+  #gridBox.gsize-s .sgrid { font-size: 12px; } #gridBox.gsize-s .sgrid td { min-width: 76px; } #gridBox.gsize-s .slesson { padding: 2px 4px; }
+  #gridBox.gsize-l .sgrid { font-size: 16px; } #gridBox.gsize-l .sgrid td { min-width: 120px; }
   .slesson { display: block; width: 100%; text-align: left; border: 1px solid #b2ccff; background: #eff4ff; border-radius: 8px; padding: 4px 6px; margin: 0 0 4px; cursor: pointer; font: inherit; color: inherit; line-height: 1.3; }
   .slesson:last-child { margin-bottom: 0; }
   .sadd { display: block; width: 100%; min-height: 64px; border: 1px dashed transparent; background: none; border-radius: 8px; color: transparent; font-size: 22px; cursor: pointer; }
@@ -792,6 +802,7 @@
         <div id="holList" class="hol-list small"></div>
       </details>
       <div class="status-chips noprint" id="gridKinds" style="margin:0 0 8px"></div>
+      <div class="status-chips noprint" id="gridSize" style="margin:0 0 8px;align-items:center"><span class="muted small">大小：</span><button type="button" data-gsize="fit">整張放進畫面</button><button type="button" data-gsize="s">小</button><button type="button" data-gsize="m">中</button><button type="button" data-gsize="l">大</button></div>
       <div id="gridMsg" class="noprint"></div>
       <div id="gridBox"></div>
     </section>
@@ -6427,6 +6438,14 @@
       renderHolidays(list); loadGrid('已刪除放假日。');
     }).catch(function (err) { msg('gridMsg', 'error', err.message); });
   });
+  // 總課表大小（記在這台裝置）
+  function gridSize(v) {
+    try { if (v) localStorage.setItem('gridSize', v); else v = localStorage.getItem('gridSize') || 'm'; } catch (e) { v = v || 'm'; }
+    $('gridBox').className = 'gsize-' + v;
+    Array.prototype.forEach.call(document.querySelectorAll('#gridSize [data-gsize]'), function (b) { b.classList.toggle('on', b.getAttribute('data-gsize') === v); });
+  }
+  gridSize();
+  $('gridSize').addEventListener('click', function (e) { var b = e.target.closest('[data-gsize]'); if (b) gridSize(b.getAttribute('data-gsize')); });
   function renderGrid(r, note) {
     gridData = r;
     if (r.holidays) renderHolidays(r.holidays);
