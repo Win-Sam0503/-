@@ -434,6 +434,14 @@
   .lbl .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .lbl .qt { white-space: nowrap; font-weight: 900; }
   .lbl .l3 { font-size: calc(var(--lf) * 0.72); color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lbl.multi { justify-content: flex-start; gap: 0.4mm; }
+  .lbl.multi .cls { font-size: calc(var(--lf) * 1.3); }
+  .lbl.multi .tch { font-size: calc(var(--lf) * 0.95); font-weight: 700; margin-left: auto; }
+  .lbl .ls { display: grid; grid-template-columns: 1fr 1fr; column-gap: 3mm; font-size: var(--li); line-height: 1.2; }
+  .lbl .ls.one { grid-template-columns: 1fr; }
+  .lbl .ls div { display: flex; justify-content: space-between; gap: 1mm; white-space: nowrap; min-width: 0; }
+  .lbl .ls span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .lbl .ls b { white-space: nowrap; }
   @page labels { size: A4 portrait; margin: 0; }
   .vedit .vfoot { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
   .vedit .ptable input, .vedit .ptable select { padding: 6px 8px; min-width: 0; width: 100%; font-size: inherit; }
@@ -4400,11 +4408,12 @@
   }
   // ⑤ 分班標籤：每張訂單的每一樣東西印一張貼紙（班級、科別、品名、數量、老師、日期），貼在分好的東西上，
   // 同一班不同老師（例如 314 陳老師 2 顆蘋果、314 吳老師 3 顆蘋果）也分得出來。照廠商→品名→日期→班級排，校隊拆一箱就貼一輪。
-  var LABEL_LAYOUTS = { '24': { c: 3, r: 8, t: '24 格（3×8，7×3.7 公分）', f: 4.2 }, '21': { c: 3, r: 7, t: '21 格（3×7，7×4.2 公分）', f: 4.6 }, '12': { c: 2, r: 6, t: '12 格（2×6，10.5×5 公分）', f: 6 } };
+  // f：每樣一張的字級；li、n：每班一張清單的品項字級、一欄幾行（兩欄）
+  var LABEL_LAYOUTS = { '24': { c: 3, r: 8, t: '24 格（3×8，7×3.7 公分）', f: 4.2, li: 3.3, n: 5 }, '21': { c: 3, r: 7, t: '21 格（3×7，7×4.2 公分）', f: 4.6, li: 3.5, n: 6 }, '12': { c: 2, r: 6, t: '12 格（2×6，10.5×5 公分）', f: 6, li: 4.2, n: 5 } };
   function labelPrefs() {
     var p = {};
     try { p = JSON.parse(localStorage.getItem('ckOrder.labels') || '{}') || {}; } catch (e) {}
-    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0) };
+    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item' };
   }
   function setLabelPrefs(ch) {
     var p = labelPrefs();
@@ -4423,7 +4432,7 @@
     });
     var ses = function (x) { var i = SESSIONS_.indexOf(x); return i < 0 ? 9 : i; };
     return list.sort(function (a, b) {
-      return a.vendor.localeCompare(b.vendor) || a.name.localeCompare(b.name, 'zh-Hant') || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) ||
+      return a.vendor.localeCompare(b.vendor) || a.name.localeCompare(b.name, 'zh-Hant', { numeric: true }) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) ||
         ses(a.session) - ses(b.session) || a.className.localeCompare(b.className, 'zh-Hant', { numeric: true }) || a.teacher.localeCompare(b.teacher, 'zh-Hant');
     });
   }
@@ -4434,12 +4443,37 @@
     var pf = labelPrefs(), L = LABEL_LAYOUTS[pf.layout], per = L.c * L.r, skip = pf.skip % per;
     var cells = [];
     for (var i = 0; i < skip; i++) cells.push('<div class="lbl"></div>');
-    items.forEach(function (x) {
+    if (pf.mode === 'class') {
+      // 每班一張清單：同一天、同一時段、同一班、同一位老師的東西放同一籃；太多樣就接著印下一張（1/2、2/2）
+      var groups = [], byKey = {};
+      items.forEach(function (x) {
+        var k = [x.date, x.session, x.className, x.teacher, x.dept].join('|');
+        if (!byKey[k]) { byKey[k] = { x: x, list: [] }; groups.push(byKey[k]); }
+        byKey[k].list.push(x);
+      });
+      var ses = function (v) { var i = SESSIONS_.indexOf(v); return i < 0 ? 9 : i; };
+      groups.sort(function (a, b) {
+        return (a.x.date < b.x.date ? -1 : a.x.date > b.x.date ? 1 : 0) || ses(a.x.session) - ses(b.x.session) ||
+          a.x.className.localeCompare(b.x.className, 'zh-Hant', { numeric: true }) || a.x.teacher.localeCompare(b.x.teacher, 'zh-Hant');
+      });
+      var cap = L.n * 2;
+      groups.forEach(function (g) {
+        var parts = Math.ceil(g.list.length / cap), x = g.x;
+        for (var k = 0; k < parts; k++) {
+          var chunk = g.list.slice(k * cap, (k + 1) * cap);
+          cells.push('<div class="lbl multi"><div class="l1"><span class="cls">' + esc(x.className || '—') + '</span>' + (x.dept ? '<span class="dep">' + esc(x.dept) + '</span>' : '') +
+            '<span class="tch">' + esc(String(x.teacher).replace(/老師$/, '')) + ' 老師</span></div>' +
+            '<div class="l3">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '・共 ' + g.list.length + ' 樣' + (parts > 1 ? '（' + (k + 1) + '/' + parts + '）' : '') + '</div>' +
+            '<div class="ls' + (chunk.length <= L.n ? ' one' : '') + '" style="grid-template-rows:repeat(' + Math.min(L.n, chunk.length) + ',auto);grid-auto-flow:column">' +
+            chunk.map(function (y) { return '<div><span>□ ' + esc(y.name) + '</span><b>' + esc(y.qty) + '</b></div>'; }).join('') + '</div></div>');
+        }
+      });
+    } else items.forEach(function (x) {
       cells.push('<div class="lbl"><div class="l1"><span class="cls">' + esc(x.className || '—') + '</span>' + (x.dept ? '<span class="dep">' + esc(x.dept) + '</span>' : '') + '</div>' +
         '<div class="l2"><span class="nm">' + esc(x.name) + '</span><span class="qt">' + esc(x.qty) + '</span></div>' +
         '<div class="l3">' + esc(String(x.teacher).replace(/老師$/, '')) + ' 老師・' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '・' + esc(String(x.vendor).charAt(0)) + (x.note ? '・' + esc(x.note) : '') + '</div></div>');
     });
-    var html = '', style = 'grid-template-columns:repeat(' + L.c + ',1fr);grid-template-rows:repeat(' + L.r + ',1fr);--lf:' + L.f + 'mm';
+    var html = '', style = 'grid-template-columns:repeat(' + L.c + ',1fr);grid-template-rows:repeat(' + L.r + ',1fr);--lf:' + L.f + 'mm;--li:' + L.li + 'mm';
     for (var p = 0; p < cells.length; p += per) {
       var page = cells.slice(p, p + per);
       while (page.length < per) page.push('<div class="lbl"></div>');
@@ -4448,8 +4482,13 @@
     return html;
   }
   function labelBar() {
-    var pf = labelPrefs(), n = lastSheet && lastSheet.fn === labelSheets ? labelItems.apply(null, lastSheet.args).length : 0, per = LABEL_LAYOUTS[pf.layout].c * LABEL_LAYOUTS[pf.layout].r;
+    var pf = labelPrefs(), per = LABEL_LAYOUTS[pf.layout].c * LABEL_LAYOUTS[pf.layout].r;
+    var html0 = lastSheet && lastSheet.fn === labelSheets ? labelSheets.apply(null, lastSheet.args) : '';
+    var n = (html0.match(/<div class="lbl( multi)?"><div/g) || []).length;   // 有內容的標籤（不算跳過、空白格）
     return '<div class="noprint panel" style="padding:10px 14px;margin-bottom:10px">' +
+      '<div class="status-chips" style="margin:0 0 6px;align-items:center"><span class="muted small">印法：</span>' +
+      '<button type="button" data-lbmode="item" class="' + (pf.mode === 'item' ? 'on' : '') + '">每樣一張（分開裝袋）</button>' +
+      '<button type="button" data-lbmode="class" class="' + (pf.mode === 'class' ? 'on' : '') + '">每班一張清單（同一籃）</button></div>' +
       '<div class="status-chips" style="margin:0 0 6px;align-items:center"><span class="muted small">標籤紙：</span>' +
       ['24', '21', '12'].map(function (k) { return '<button type="button" data-lblayout="' + k + '" class="' + (pf.layout === k ? 'on' : '') + '">' + LABEL_LAYOUTS[k].t + '</button>'; }).join('') + '</div>' +
       '<div class="small" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
@@ -4464,6 +4503,8 @@
   $('vendorSheets').addEventListener('click', function (e) {
     var ly = e.target.closest('[data-lblayout]');
     if (ly) { setLabelPrefs({ layout: ly.getAttribute('data-lblayout') }); redrawLabels(); }
+    var lm = e.target.closest('[data-lbmode]');
+    if (lm) { setLabelPrefs({ mode: lm.getAttribute('data-lbmode') }); redrawLabels(); }
   });
   $('vendorSheets').addEventListener('change', function (e) {
     if (e.target.matches('[data-lblines]')) { setLabelPrefs({ lines: e.target.checked }); redrawLabels(); }
