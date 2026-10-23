@@ -3114,11 +3114,20 @@
       var no = cb.getAttribute('data-no'), name = cb.getAttribute('data-iflag'), on = cb.checked;
       var ord = sumCache.find(function (x) { return x.orderNo === no; });
       cb.disabled = true;
+      var tr = cb.closest('tr');
+      if (tr) tr.style.background = on ? '#fef3f2' : '';   // 先變色，不用等存好
+      toast((on ? '標記「' : '取消「') + name + '」異常中…');
       call('adminSetItemFlag', token, no, name, on, '').then(function (r) {
         ord.itemFlags = ord.itemFlags || {};
         if (r.flag) ord.itemFlags[name] = r.flag; else delete ord.itemFlags[name];
         renderSummary();
-      }).catch(function (err) { msg('sumMsg', 'error', err.message); cb.checked = !on; cb.disabled = false; });
+        toast(on ? '已標記「' + name + '」異常（只有管理者看得到）' : '已取消「' + name + '」的異常');
+      }).catch(function (err) {
+        cb.checked = !on; cb.disabled = false;
+        if (tr) tr.style.background = !on ? '#fef3f2' : '';
+        toast('沒有存到：' + err.message);
+        msg('sumMsg', 'error', '「' + name + '」異常標記沒有存到：' + err.message);
+      });
       return;
     }
     var s = e.target.closest('select[data-act="status"]');
