@@ -3906,16 +3906,18 @@ function ensureHeaders_(sh, headers) {
 
 /**
  * 管理者：從這一天有領料的訂單隨機抽 n 張（系統抽，不是管理者挑）。
- * 不含已取消、還料單、只有器具／有貨／自備的訂單。
+ * 不含已取消、還料單、只有器具／有貨／自備的訂單。scope 'cold'（預設）＝只算有 A～D（菜肉蛋海鮮）的訂單；'all'＝全部廠商
  */
-function adminAuditPick(token, date, n) {
+function adminAuditPick(token, date, n, scope) {
   auth_(token, true);
   const d = parseDate_(date);
   if (!d) throw new Error('請選擇日期。');
   n = Math.max(1, Math.min(10, Number(n) || 3));
   const pool = adminGetOrders(token, dateStr_(d), dateStr_(d), true).filter(function (o) {
     if (o.status === '已取消' || isReturn_(o.project)) return false;
-    return o.items.some(function (it) { return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR; });
+    return o.items.some(function (it) {
+      return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR && (scope === 'all' || PLACE_VENDORS.test(String(it.vendor || '')));
+    });
   });
   for (let i = pool.length - 1; i > 0; i--) {   // 洗牌
     const j = Math.floor(Math.random() * (i + 1)), t = pool[i];

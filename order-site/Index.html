@@ -1030,12 +1030,13 @@
     <!-- 管理者：今日抽查 -->
     <section id="viewAudit" class="hidden">
       <div class="panel noprint">
-        <h2>今日抽查 <details class="vhelp"><summary>？說明</summary><div class="muted small">按「隨機抽」由系統從這一天有領料的班隨機抽幾班（不是自己挑，大家比較不會覺得被針對），每班挑幾樣比較貴、容易被拿的。
+        <h2>今日抽查 <details class="vhelp"><summary>？說明</summary><div class="muted small">按「隨機抽」由系統從這一天有領料的班隨機抽幾班（不是自己挑，大家比較不會覺得被針對），每班挑幾樣比較貴、容易被拿的。預設只抽冷藏的 A 菜、B 肉、C 蛋、D 海鮮；偶爾可以改「全部廠商」抽一次乾貨、飲調。
           現場請<b>先拍照、看封條，再數實際數量</b>，填好才會顯示清單上的數量（盲點，避免「看到 3 顆就以為是 3 顆」）。存好後在袋子上貼「已抽查」貼紙。發現不對先不要當場指責，拍照記下來，再照驗收紀錄 → 分貨 → 封條 → 領料往回追。</div></details></h2>
         <div class="grid2">
           <div><label for="auDate">上課日期</label><input id="auDate" type="date"></div>
           <div><label for="auTiming">時間點</label><select id="auTiming"><option>分貨後、上課前</option><option>下課後（剩料）</option></select></div>
           <div><label for="auN">抽幾班</label><select id="auN"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+          <div><label for="auScope">抽查範圍</label><select id="auScope"><option value="cold" selected>只抽冷藏：A 菜、B 肉、C 蛋、D 海鮮</option><option value="all">全部廠商（含乾貨、飲調）</option></select></div>
           <div><label for="auK">每班抽幾樣</label><select id="auK"><option value="3">3 樣</option><option value="5" selected>5 樣</option><option value="99">全部</option></select></div>
           <div class="wide"><label for="auPartner">陪同的人（可不填）</label><input id="auPartner" type="text" maxlength="30" placeholder="例如：主任、某某老師"></div>
         </div>
@@ -4656,8 +4657,8 @@
     if (!$('auFrom').value) { var t = new Date(); $('auFrom').value = isoDate(new Date(t.getFullYear(), t.getMonth(), 1)); $('auTo').value = isoDate(t); auditHistory(); }
   }
   // 挑 k 樣：先照金額（沒有單價照廠商類別）排，最貴的一半一定抽，另一半從接下來的裡面隨機挑，每次抽到的不會都一樣
-  function auditPickItems(o, k) {
-    var list = o.items.filter(function (it) { return it.id !== TOOL && !it.noOrder && it.status !== '已取消' && it.vendor !== data.selfVendor; })
+  function auditPickItems(o, k, scope) {
+    var list = o.items.filter(function (it) { return it.id !== TOOL && !it.noOrder && it.status !== '已取消' && it.vendor !== data.selfVendor && (scope === 'all' || /^[ABCD]/.test(it.vendor || '')); })
       .map(function (it) { return { it: it, cost: estCost(it) || 0, pri: AUDIT_PRI[String(it.vendor || '').charAt(0)] || 9 }; })
       .sort(function (a, b) { return b.cost - a.cost || a.pri - b.pri; });
     if (list.length > k) {
@@ -4675,10 +4676,11 @@
     if (!date) { msg('auMsg', 'error', '請選擇上課日期。'); return; }
     if (auditDirty() && !safeConfirm('目前的抽查還沒存，重新抽會不見。確定要重抽？')) return;
     setBusy(b, true, '抽籤中…');
-    call('adminAuditPick', token, date, Number($('auN').value)).then(function (r) {
+    var scope = $('auScope').value;
+    call('adminAuditPick', token, date, Number($('auN').value), scope).then(function (r) {
       var k = Number($('auK').value) || 5;
-      audit = { date: date, timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k), seal: '', fridge: o.place ? o.place.place : '', note: '', photos: [] }; }) };
-      msg('auMsg', r.total ? 'ok' : 'info', r.total ? '這天有 ' + r.total + ' 班有領料，系統隨機抽了 ' + r.orders.length + ' 班（' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) + '）。請先拍照、看封條，再數實際數量。' : '這天沒有要領料的班。');
+      audit = { date: date, timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k, scope), seal: '', fridge: o.place ? o.place.place : '', note: '', photos: [] }; }) };
+      msg('auMsg', r.total ? 'ok' : 'info', r.total ? '這天有 ' + r.total + ' 班' + (scope === 'all' ? '有領料' : '有冷藏食材（A～D）') + '，系統隨機抽了 ' + r.orders.length + ' 班（' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) + '）。請先拍照、看封條，再數實際數量。' : (scope === 'all' ? '這天沒有要領料的班。' : '這天沒有冷藏食材（A～D）要抽查。'));
       renderAudit();
     }).catch(function (e) { msg('auMsg', 'error', '抽籤失敗：' + e.message); })
       .then(function () { setBusy(b, false); });
