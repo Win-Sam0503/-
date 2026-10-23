@@ -2409,13 +2409,17 @@
       buttons += '<select data-act="status" data-no="' + esc(o.orderNo) + '" class="' + stClass(o.status) + '" style="width:auto">' + data.statuses.map(function (s) {
         return '<option style="' + stStyle(s) + '"' + (s === o.status ? ' selected' : '') + '>' + esc(s) + '</option>';
       }).join('') + (data.statuses.indexOf(o.status) < 0 ? '<option selected disabled>' + esc(o.status) + '</option>' : '') + '</select>';
+      buttons += '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + esc(o.orderNo) + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記異常') + '</button>';
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
+        (opts.admin && o.flag ? '<span class="badge unprinted" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) +
         (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
-        (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' + (opts.admin ? lessonMatchHtml(o) : '') +
+        (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
+        (opts.admin && o.flag ? '<div class="msg error" style="margin:6px 0">⚠ 異常：' + esc(o.flag.note) + '<span class="muted small">（' + esc(o.flag.by + ' ' + o.flag.time) + '）</span></div>' : '') +
+        (opts.admin ? lessonMatchHtml(o) : '') +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
@@ -2543,6 +2547,8 @@
     var L = o.lesson;
     return o.status !== '已取消' && L && !L.match.length && !L.near.some(function (l) { return l.status === 'manual'; });
   } };
+  var FLAGGED = '__flag';
+  SPECIAL[FLAGGED] = { label: '⚠ 異常', test: function (o) { return !!o.flag; } };
   var RETURNS = '__return';
   SPECIAL[RETURNS] = { label: '🔁 還料單', test: function (o) { return String(o.project || '').indexOf(RETURN_TAG) === 0; } };
   function stLabel(st) { return SPECIAL[st] ? SPECIAL[st].label : st; }
@@ -2737,6 +2743,23 @@
     var o = sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); });
     var act = b.getAttribute('data-act');
     if (act === 'addlesson') { addLessonFromOrder(o, b); return; }
+    if (act === 'flag') {
+      ask('', '儲存', { noText: '取消', html: '<div class="info-check"><h3>⚠ 標記異常：' + esc(o.project || o.orderNo) + '</h3>' +
+        '<div class="muted small" style="margin-bottom:6px">寫下哪裡有問題，之後在訂單彙整按「⚠ 異常」篩選就找得到。只是標記，不影響叫貨和狀態。</div>' +
+        '<textarea id="flagNote" rows="3" maxlength="200" style="width:100%" placeholder="例：數量看起來太多，要問老師；廠商送錯要追">' + esc(o.flag ? o.flag.note : '') + '</textarea>' +
+        (o.flag ? '<label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="flagDone" style="width:auto"> 已經處理好了，解除異常</label>' : '') + '</div>' }).then(function (ok) {
+        if (!ok) return;
+        var note = $('flagNote').value.trim(), done = !!($('flagDone') && $('flagDone').checked);
+        if (!done && !note) { notice('請寫異常說明。'); return; }
+        call('adminSetFlag', token, o.orderNo, done ? '' : note, done).then(function (r) {
+          o.flag = r.flag;
+          renderSummary();
+          msg('sumMsg', 'ok', '訂單 ' + o.orderNo + (done ? ' 已解除異常。' : ' 已標記異常。'));
+        }).catch(function (err) { msg('sumMsg', 'error', err.message); });
+      });
+      setTimeout(function () { var t = $('flagNote'); if (t) t.focus(); }, 50);
+      return;
+    }
     if (act === 'lessonmark') {
       var l = o.lesson.near[Number(b.getAttribute('data-li'))];
       if (!l || !safeConfirm('把 ' + o.lesson.teacher + ' 的「' + lessonText(l) + '」標記為已叫料？\n（訂單 ' + o.orderNo + ' 填的是 ' + shortDate(o.useDate) + ' ' + o.lesson.session + '；只改總課表和提醒，訂單本身不變）')) return;
