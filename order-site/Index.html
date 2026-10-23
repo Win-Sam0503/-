@@ -4304,8 +4304,7 @@
       '<div>' + f('pkClass', '班級', txt('pkClass', '例：301')) + '</div>' +
       '<div>' + f('pkTeacher', '老師', txt('pkTeacher')) + '</div>' +
       '<div>' + f('pkDept', '科別', txt('pkDept', '例：中餐')) + '</div>' +
-      '<div>' + f('pkPlaceSel', '領取地點 *', '<select id="pkPlaceSel"><option>烘焙教室</option><option>中餐教室</option><option>飲調教室</option><option value="">其他（自己填）</option></select>' +
-        '<input id="pkPlace" type="text" class="hidden" maxlength="20" autocomplete="off" placeholder="例：西餐教室" style="margin-top:4px">') + '</div>' +
+      '<div>' + f('pkPlaceSel', '領取地點 *', '<select id="pkPlaceSel"><option>烘焙教室</option><option>中餐教室</option><option>飲調教室</option></select>') + '</div>' +
       '</div>' +
       f('pkName', '食材 *', '<input id="pkName" type="text" maxlength="40" list="pkNames" autocomplete="off" placeholder="打字搜尋食材總表，也可以自己填"><datalist id="pkNames">' +
         Object.keys(names).sort(byItemKey).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>') +
@@ -4318,7 +4317,7 @@
       var q = normNum(v('pkQty'));
       if (!v('pkDate')) { notice('請選擇日期。'); return; }
       if (!v('pkName')) { notice('請填食材。'); return; }
-      var place = v('pkPlaceSel') || v('pkPlace');
+      var place = v('pkPlaceSel');
       if (!place) { notice('請填領取地點。'); return; }
       if (q === null || q === '' || !(Number(q) > 0)) { notice('數量請填大於 0 的數字。'); return; }
       msg('vendorMsg', 'info', '儲存中…');
@@ -4328,8 +4327,6 @@
     });
     setTimeout(function () {
       var el = $('pkName'); if (el) el.focus();
-      var sel = $('pkPlaceSel');
-      if (sel) sel.addEventListener('change', function () { $('pkPlace').classList.toggle('hidden', sel.value !== ''); if (!sel.value) $('pkPlace').focus(); });
     }, 50);
   }
   $('vendorSheets').addEventListener('click', function (e) {

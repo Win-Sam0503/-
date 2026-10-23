@@ -107,6 +107,7 @@ const SHEET = {
 // 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
 const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
 // 跨教室領料單：管理者自己加的（系統自動抓不到的，例如臨時跟別間教室借的食材）
+const PICKUP_PLACES = ['烘焙教室', '中餐教室', '飲調教室'];   // 跨教室領料只有這三間
 const PICKUP_HEADERS = ['使用日期', '上課時間', '班級', '老師', '科別', '教室', '領取地點', '食材名稱', '數量', '單位', '備註', '建立者', '建立時間'];
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
@@ -2212,6 +2213,7 @@ function adminAddPickup(token, rec) {
   if (time && !CLASS_TIME_PATTERN.test(time)) throw new Error('上課時間請選上午／下午／夜間。');
   const place = clean_(rec.place, 20), name = clean_(rec.name, 40);
   if (!place) throw new Error('請填領取地點。');
+  if (PICKUP_PLACES.indexOf(place) < 0) throw new Error('領取地點只能選烘焙教室、中餐教室或飲調教室。');
   if (!name) throw new Error('請填食材。');
   const qty = Number(rec.qty);
   if (!(qty > 0)) throw new Error('數量要大於 0。');
