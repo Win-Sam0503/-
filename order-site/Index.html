@@ -443,6 +443,18 @@
   .lbl .ls span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .lbl .ls b { white-space: nowrap; }
   @page labels { size: A4 portrait; margin: 0; }
+  .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
+  /* 校隊：放置登記 */
+  .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .cr-card .cr-head b { font-size: 22px; }
+  .cr-card .cr-now { margin: 6px 0; font-size: 15px; }
+  .cr-card .cr-now.none { color: var(--bad); font-weight: 700; }
+  .cr-card details { margin: 4px 0 8px; font-size: 15px; }
+  .cr-card details li { margin: 2px 0; }
+  .cr-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .cr-chips button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 15px; cursor: pointer; }
+  .cr-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .cr-row input[type=text] { flex: 1 1 200px; font-size: 17px; }
   /* 今日抽查 */
   .au-card .au-head { font-size: 17px; margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
   .au-card .au-head b { font-size: 22px; }
@@ -616,6 +628,7 @@
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewAudit" class="admin-only hidden">抽查</button>
+        <button type="button" data-view="viewCrew" class="admin-only hidden">放置登記</button>
         <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSettings" class="admin-only hidden">系統設定</button>
@@ -962,6 +975,13 @@
           <div><label for="admPick">新增管理者</label><select id="admPick"></select></div>
           <button type="button" class="btn secondary small" id="admAdd">設為管理者</button>
         </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">校隊帳號</h3>
+        <div class="muted small">校隊登入後只看得到「放置登記」（登記每班的東西放在哪裡），看不到金額、不能訂貨。新帳號的密碼是 0000，第一次登入要自己改密碼。畢業或不做了就按「停用」。</div>
+        <div id="crewAdmList" class="hol-list small"></div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="crewNew">新增校隊（名字）</label><input id="crewNew" type="text" maxlength="30" autocomplete="off" placeholder="例如：王小明"></div>
+          <button type="button" class="btn secondary small" id="crewAdd">新增</button>
+        </div>
         <h3 style="font-size:16px;margin:18px 0 6px">Email 通知</h3>
         <div class="muted small">每日摘要、叫貨確定、每週維護等通知寄到這些 Email（最多 5 個，用逗號分開）。空白＝寄給部署網站的 Google 帳號。寄 Email 不花 LINE 則數。</div>
         <div class="tpl-row" style="margin-top:6px">
@@ -1035,6 +1055,18 @@
         <div id="auHist" class="small"></div>
       </div>
       <div id="auPrint"></div>
+    </section>
+
+    <!-- 校隊（和管理者）：放置登記 -->
+    <section id="viewCrew" class="hidden">
+      <div class="panel">
+        <h2>放置登記 <button type="button" class="btn ghost small" id="crReload">重新整理</button></h2>
+        <div class="muted small">分好一班的東西、放進冰箱後，在這裡登記放在哪裡（可以拍一張照片）。老師在「我的訂單」就看得到，不用在群組一則一則說。</div>
+        <div class="status-chips" id="crDays" style="margin:10px 0 6px"><button type="button" data-cd="0">今天</button><button type="button" data-cd="1">明天</button><button type="button" data-cd="2">後天</button></div>
+        <div class="grid2"><div><label for="crDate">上課日期</label><input id="crDate" type="date"></div></div>
+        <div id="crMsg"></div>
+      </div>
+      <div id="crList"></div>
     </section>
 
     <!-- 管理者：審核食材 -->
@@ -1405,6 +1437,7 @@
     var load = preloaded ? Promise.resolve(preloaded) : call('getBootstrap', token);
     return load.then(function (d) {
       data = d;
+      if (d.isCrew) { msg('globalMsg', '', ''); setupCrew(); return; }
       itemById = {};
       data.items.forEach(function (it) { itemById[it.id] = it; });
       msg('globalMsg', '', '');
@@ -1427,6 +1460,8 @@
   } catch (e) {}
   function setupApp() {
     $('who').textContent = data.account + (data.isAdmin ? '（管理者）' : '') + ' 已登入';
+    // 同一台裝置之前是校隊登入（只留放置登記）：老師的按鈕要顯示回來
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]:not(.admin-only)'), function (el) { el.classList.remove('hidden'); });
     Array.prototype.forEach.call(document.querySelectorAll('.admin-only'), function (el) {
       el.classList.toggle('hidden', !data.isAdmin);
     });
@@ -1478,7 +1513,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -1496,8 +1531,9 @@
     }
     if (view === 'viewPending') { fillAddItemForm(); loadPending(note); }
     if (view === 'viewPassword') resetPwForm();
-    if (view === 'viewSettings') { loadAuto(); renderSpeed(); }
+    if (view === 'viewSettings') { loadAuto(); renderSpeed(); loadCrewAdm(); }
     if (view === 'viewAudit') auditOpen();
+    if (view === 'viewCrew') crewOpen();
     if (view === 'viewVendor' && !$('vFrom').value) setVendorWeek(1);   // 預設：下週一到下週五
   }
 
@@ -2519,6 +2555,8 @@
         (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
+        (o.place ? '<div class="place-line">📍 東西放在：<b>' + esc(o.place.place) + '</b><span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + ' 登記）</span>' +
+          (o.place.photo ? ' <a href="' + esc(o.place.photo) + '" target="_blank" rel="noopener" class="small">看照片</a>' : '') + '</div>' : '') +
         (opts.admin && o.flag ? '<div class="msg error noprint" style="margin:6px 0">⚠ 異常：' + esc(o.flag.note) + '<span class="muted small">（' + esc(o.flag.by + ' ' + o.flag.time) + '）</span></div>' : '') +
         (opts.admin ? lessonMatchHtml(o) : '') +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
@@ -4470,6 +4508,131 @@
     }, 50);
   }
   // ------------------------------------------------------------------
+  // 放置登記：校隊分好貨後登記每班的東西放在哪裡；老師在「我的訂單」看得到，抽查時也會帶入
+  // ------------------------------------------------------------------
+  var crew = null;   // { date, orders, recent, photos: { orderNo: dataUrl } }
+  function setupCrew() {
+    $('who').textContent = data.account + '（校隊）已登入';
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
+      var v = b.getAttribute('data-view');
+      b.classList.toggle('hidden', v !== 'viewCrew' && v !== 'viewPassword');
+    });
+    startWatermark();
+    show('viewCrew');
+  }
+  function crewDay(n) {
+    var t = new Date();
+    return isoDate(new Date(t.getFullYear(), t.getMonth(), t.getDate() + n));
+  }
+  function crewOpen() {
+    if (!$('crDate').value) $('crDate').value = crewDay(0);
+    crewLoad();
+  }
+  function crewSyncDays() {
+    Array.prototype.forEach.call($('crDays').querySelectorAll('button'), function (b) { b.classList.toggle('on', crewDay(Number(b.getAttribute('data-cd'))) === $('crDate').value); });
+  }
+  function crewLoad() {
+    var date = $('crDate').value;
+    crewSyncDays();
+    if (!date) return;
+    msg('crMsg', 'info', '載入中…');
+    call('crewGetOrders', token, date).then(function (r) {
+      crew = { date: date, orders: r.orders, recent: r.recent || [], photos: {} };
+      var done = r.orders.filter(function (o) { return o.place; }).length;
+      msg('crMsg', r.orders.length ? (done === r.orders.length ? 'ok' : 'info') : 'info', r.orders.length ? '這天有 ' + r.orders.length + ' 班要分貨，已登記 ' + done + ' 班。' : '這天沒有要分貨的班。');
+      crewRender();
+    }).catch(function (e) { msg('crMsg', 'error', '載入失敗：' + e.message); });
+  }
+  function crewCard(o, i) {
+    return '<div class="panel cr-card" data-ci="' + i + '"><div class="cr-head"><b>' + esc(o.className || '—') + '</b>' + (o.dept ? '<span class="badge info">' + esc(o.dept) + '</span>' : '') +
+      '<span>' + esc(String(o.teacher).replace(/老師$/, '')) + ' 老師</span><span class="muted">' + esc(o.classTime || '') + '・' + esc(o.room || '') + '</span></div>' +
+      (o.place ? '<div class="cr-now">📍 已登記：<b>' + esc(o.place.place) + '</b> <span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + '）</span></div>' : '<div class="cr-now none">還沒登記放在哪裡</div>') +
+      '<details><summary>清單 ' + o.items.length + ' 樣（分貨時對照）</summary><ul>' + o.items.map(function (it) {
+        return '<li>' + esc(it.name) + '　<b>' + esc(fmtQty(Number(it.qty))) + ' ' + esc(it.unit || '') + '</b> <span class="muted small">' + esc(it.vendor) + '</span></li>';
+      }).join('') + '</ul></details>' +
+      (crew.recent.length ? '<div class="cr-chips">' + crew.recent.slice(0, 8).map(function (p) { return '<button type="button" data-cpick="' + esc(p) + '">' + esc(p) + '</button>'; }).join('') + '</div>' : '') +
+      '<div class="cr-row"><input type="text" maxlength="40" data-cplace placeholder="例如：西餐 B 冰箱中層" value="' + esc(o.place ? o.place.place : '') + '">' +
+      '<label class="btn ghost small" style="margin:0">📷 拍照<input type="file" accept="image/*" capture="environment" data-cphoto hidden></label>' +
+      '<button type="button" class="btn small" data-csave>' + (o.place ? '更新' : '登記') + '</button></div>' +
+      (crew.photos[o.orderNo] ? '<div class="au-photos"><img src="' + crew.photos[o.orderNo] + '" alt="照片" data-cpdel title="點一下刪除"></div>' : '') + '</div>';
+  }
+  function crewRender() {
+    $('crList').innerHTML = crew && crew.orders.length ? crew.orders.map(crewCard).join('') : '';
+  }
+  $('crDays').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-cd]');
+    if (!b) return;
+    $('crDate').value = crewDay(Number(b.getAttribute('data-cd')));
+    crewLoad();
+  });
+  $('crDate').addEventListener('change', crewLoad);
+  $('crReload').addEventListener('click', crewLoad);
+  $('crList').addEventListener('click', function (e) {
+    var card = e.target.closest('.cr-card');
+    if (!card || !crew) return;
+    var i = Number(card.getAttribute('data-ci')), o = crew.orders[i];
+    var pk = e.target.closest('[data-cpick]');
+    if (pk) { card.querySelector('[data-cplace]').value = pk.getAttribute('data-cpick'); return; }
+    if (e.target.matches('[data-cpdel]')) { delete crew.photos[o.orderNo]; card.outerHTML = crewCard(o, i); return; }
+    var sv = e.target.closest('[data-csave]');
+    if (!sv) return;
+    var place = card.querySelector('[data-cplace]').value.trim();
+    if (!place) { msg('crMsg', 'error', '請填放在哪裡，例如：西餐 B 冰箱中層。'); card.querySelector('[data-cplace]').focus(); return; }
+    setBusy(sv, true, '登記中…');
+    call('crewSetPlace', token, o.orderNo, place, crew.photos[o.orderNo] || '').then(function (p) {
+      o.place = p;
+      delete crew.photos[o.orderNo];
+      if (crew.recent.indexOf(place) < 0) crew.recent.unshift(place);
+      var done = crew.orders.filter(function (x) { return x.place; }).length;
+      msg('crMsg', 'ok', o.className + ' ' + String(o.teacher).replace(/老師$/, '') + ' 老師的東西登記在「' + place + '」。這天已登記 ' + done + '／' + crew.orders.length + ' 班。');
+      crewRender();
+    }).catch(function (err) { msg('crMsg', 'error', '登記失敗：' + err.message); setBusy(sv, false); });
+  });
+  $('crList').addEventListener('change', function (e) {
+    if (!e.target.matches('[data-cphoto]') || !crew) return;
+    var card = e.target.closest('.cr-card'), i = Number(card.getAttribute('data-ci')), o = crew.orders[i], typed = card.querySelector('[data-cplace]').value;
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    auditShrink(f).then(function (u) {
+      if (!u) return;
+      crew.photos[o.orderNo] = u;
+      card.outerHTML = crewCard(o, i);
+      var nc = $('crList').querySelector('.cr-card[data-ci="' + i + '"] [data-cplace]');
+      if (nc) nc.value = typed;
+    });
+  });
+  // 系統設定：校隊帳號
+  function renderCrewAdm(list) {
+    $('crewAdmList').innerHTML = list.length ? list.map(function (c) {
+      return '<div><span>' + esc(c.account) + (c.enabled ? '' : ' <span class="muted">（已停用）</span>') + '</span><span>' +
+        '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="' + (c.enabled ? 'disable' : 'enable') + '">' + (c.enabled ? '停用' : '啟用') + '</button> ' +
+        '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="reset">重設密碼</button></span></div>';
+    }).join('') : '<span class="muted">還沒有校隊帳號。</span>';
+  }
+  function loadCrewAdm() { call('adminListCrew', token).then(renderCrewAdm).catch(function (e) { $('crewAdmList').textContent = '讀取失敗：' + e.message; }); }
+  $('crewAdd').addEventListener('click', function () {
+    var name = $('crewNew').value.trim(), b = this;
+    if (!name) { msg('autoMsg', 'error', '請輸入校隊的名字。'); return; }
+    setBusy(b, true, '新增中…');
+    call('adminSetCrew', token, name, 'add').then(function (list) {
+      renderCrewAdm(list); $('crewNew').value = '';
+      msg('autoMsg', 'ok', '已新增校隊帳號「' + name + '」，密碼 0000，第一次登入要改密碼。');
+    }).catch(function (e) { msg('autoMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('crewAdmList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-cract]');
+    if (!b) return;
+    var who = b.getAttribute('data-crew'), act = b.getAttribute('data-cract');
+    var txt = act === 'reset' ? '把「' + who + '」的密碼重設成 0000？' : act === 'disable' ? '停用「' + who + '」？停用後就不能登入。' : '重新啟用「' + who + '」？';
+    if (!safeConfirm(txt)) return;
+    setBusy(b, true, '處理中…');
+    call('adminSetCrew', token, who, act).then(function (list) {
+      renderCrewAdm(list);
+      msg('autoMsg', 'ok', act === 'reset' ? '「' + who + '」的密碼已重設成 0000。' : act === 'disable' ? '已停用「' + who + '」。' : '已啟用「' + who + '」。');
+    }).catch(function (err) { msg('autoMsg', 'error', err.message); setBusy(b, false); });
+  });
+
+  // ------------------------------------------------------------------
   // 今日抽查：系統從這一天有領料的班隨機抽幾班、每班挑幾樣比較貴的，現場盲點（先數實際、再看清單），存成抽查紀錄
   // ------------------------------------------------------------------
   var audit = null;   // { date, timing, cards: [{ o, items: [{ it, actual, result, manual, note }], seal, fridge, note, photos: [dataUrl] }] }
@@ -4500,7 +4663,7 @@
     setBusy(b, true, '抽籤中…');
     call('adminAuditPick', token, date, Number($('auN').value)).then(function (r) {
       var k = Number($('auK').value) || 5;
-      audit = { date: date, timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k), seal: '', fridge: '', note: '', photos: [] }; }) };
+      audit = { date: date, timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k), seal: '', fridge: o.place ? o.place.place : '', note: '', photos: [] }; }) };
       msg('auMsg', r.total ? 'ok' : 'info', r.total ? '這天有 ' + r.total + ' 班有領料，系統隨機抽了 ' + r.orders.length + ' 班（' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) + '）。請先拍照、看封條，再數實際數量。' : '這天沒有要領料的班。');
       renderAudit();
     }).catch(function (e) { msg('auMsg', 'error', '抽籤失敗：' + e.message); })

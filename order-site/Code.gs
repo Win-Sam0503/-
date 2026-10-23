@@ -104,6 +104,7 @@ const SHEET = {
   subs: '科別替換',
   pickups: '跨教室領料',
   audits: '抽查紀錄',
+  places: '放置位置',
 };
 // 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
 const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
@@ -116,6 +117,9 @@ const AUDIT_TIMINGS = ['分貨後、上課前', '下課後（剩料）'];
 const AUDIT_RESULTS = ['正常', '少了', '多了', '沒有', '不確定'];
 const AUDIT_SEALS = ['完整', '破了', '沒封', ''];
 const AUDIT_FOLDER_NAME = '三信家商餐飲科抽查照片';
+// 放置位置：校隊分好貨後登記每張訂單的東西放在哪裡（同一張訂單可以登記好幾次，以最後一次為準）
+const PLACE_HEADERS = ['訂單編號', '上課日期', '班級', '老師', '放置位置', '照片', '登記人', '登記時間'];
+const PLACE_FOLDER_NAME = '三信家商餐飲科放置照片';
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
@@ -223,7 +227,7 @@ function accountKey_(name) {
  * 規則：至少 MIN_PASSWORD_LENGTH 碼、不能跟舊密碼一樣、不能是預設密碼。
  */
 function changePassword(token, oldPassword, newPassword) {
-  const account = auth_(token, false, true);
+  const account = auth_(token, false, true, true);
   oldPassword = String(oldPassword == null ? '' : oldPassword);
   newPassword = String(newPassword == null ? '' : newPassword);
   if (/\s/.test(newPassword)) throw new Error('新密碼不能有空白。');
@@ -299,7 +303,7 @@ function adminListAdmins(token) {
 function listAdmins_(me) {
   const t = readTable_(SHEET.accounts, ['帳號', '啟用']);
   const teachers = t.rows.filter(function (r) { return isTrue_(r['啟用']); }).map(function (r) { return String(r['帳號']).trim(); })
-    .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0; });
+    .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0 && crewAccounts_().indexOf(a) < 0; });
   return { builtin: ADMIN_ACCOUNTS.slice(), extra: extraAdmins_(), teachers: teachers, me: me };
 }
 
@@ -327,14 +331,32 @@ function adminSetAdmin(token, account, on) {
   return out;
 }
 
-function auth_(token, needAdmin, allowMustChange) {
+function auth_(token, needAdmin, allowMustChange, allowCrew) {
   const cache = CacheService.getScriptCache();
   const account = token ? cache.get('session:' + token) : null;
   if (!account) throw new Error('SESSION_EXPIRED');
   // 還在用預設密碼的，除了改密碼以外什麼都不能做
   if (!allowMustChange && cache.get('mustchange:' + token)) throw new Error('MUST_CHANGE_PASSWORD');
   if (needAdmin && !isAdmin_(account)) throw new Error('只有管理者可以使用這個功能。');
+  // 校隊帳號只能登記放置位置、改密碼，不能訂貨、看訂單
+  if (!needAdmin && !allowCrew && !isAdmin_(account) && isCrew_(account)) throw new Error('校隊帳號只能使用「放置登記」。');
   return account;
+}
+
+/** 校隊帳號：「帳號設定」的「校隊」欄打勾、而且啟用 */
+function isCrew_(account) {
+  return !!account && crewAccounts_().indexOf(account) >= 0;
+}
+function crewAccounts_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('crewAccounts');
+  if (hit) return JSON.parse(hit);
+  const t = readTable_(SHEET.accounts, ['帳號']);
+  const list = t.cols['校隊'] === undefined ? [] : t.rows.filter(function (r) {
+    return isTrue_(r['校隊']) && isTrue_(r['啟用']);
+  }).map(function (r) { return String(r['帳號']).trim(); }).filter(Boolean);
+  cache.put('crewAccounts', JSON.stringify(list), 300);
+  return list;
 }
 
 // =====================================================================
@@ -355,7 +377,7 @@ function bootStatic_() {
     teachers: readTable_(SHEET.accounts, ['帳號', '啟用']).rows
       .filter(function (r) { return isTrue_(r['啟用']); })
       .map(function (r) { return String(r['帳號']).trim(); })
-      .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0; }),
+      .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0 && crewAccounts_().indexOf(a) < 0; }),
     units: { order: u.order, recipe: u.recipe, pending: u.pending },
     deptSubs: readDeptSubs_(),
     missingSetup: missingSetup_(),
@@ -397,7 +419,8 @@ function bootDirty_(name) {
 }
 
 function getBootstrap(token) {
-  const account = auth_(token);
+  const account = auth_(token, false, false, true);
+  if (!isAdmin_(account) && isCrew_(account)) return { account: account, isCrew: true, isAdmin: false, items: [], today: dateStr_(today_()) };
   const items = cachedItems_();
   const vendors = [];
   items.forEach(function (it) { if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor); });
@@ -1098,6 +1121,8 @@ function getMyOrders(token, days) {
   list.forEach(function (o) {
     o.adminNotes = (edits[o.orderNo] || []).filter(function (e) { return isAdmin_(e.who); });
   });
+  const places = placesFor_(list.map(function (o) { return o.orderNo; }));
+  list.forEach(function (o) { o.place = places[o.orderNo] || null; });
   return list;
 }
 
@@ -1183,8 +1208,8 @@ function adminGetOrders(token, from, to, lite) {
   });
   if (lite) return list;
   const nos = list.map(function (o) { return o.orderNo; });
-  const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos);
-  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; });
+  const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos), places = placesFor_(nos);
+  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; o.place = places[o.orderNo] || null; });
   try { matchLessons_(list, start, end); } catch (e) { console.error('matchLessons_ ' + e.message); }
   return list;
 }
@@ -3895,7 +3920,9 @@ function adminAuditPick(token, date, n) {
     const j = Math.floor(Math.random() * (i + 1)), t = pool[i];
     pool[i] = pool[j]; pool[j] = t;
   }
-  return { total: pool.length, orders: pool.slice(0, n) };
+  const picked = pool.slice(0, n), places = placesFor_(picked.map(function (o) { return o.orderNo; }));
+  picked.forEach(function (o) { o.place = places[o.orderNo] || null; });
+  return { total: pool.length, orders: picked };
 }
 
 /** 管理者：存抽查結果。照片存到雲端硬碟「三信家商餐飲科抽查照片」，表上放連結 */
@@ -3971,6 +3998,136 @@ function adminGetAudits(token, from, to) {
       result: String(r['結果'] || ''), note: String(r['說明'] || '') });
   });
   return out.sort(function (a, b) { return a.time < b.time ? 1 : a.time > b.time ? -1 : 0; });
+}
+
+// ---- 校隊：放置登記 ----
+
+/** 每張訂單最後一次登記的放置位置：{ 訂單編號: { place, photo, by, time } } */
+function placesFor_(orderNos) {
+  const out = {};
+  const sh = ss_().getSheetByName(SHEET.places);
+  if (!sh || sh.getLastRow() < 2 || !orderNos.length) return out;
+  const want = {};
+  orderNos.forEach(function (n) { want[n] = true; });
+  readTable_(SHEET.places, ['訂單編號', '放置位置']).rows.forEach(function (r) {
+    const no = String(r['訂單編號']).trim();
+    if (!want[no]) return;
+    const t = r['登記時間'] instanceof Date ? r['登記時間'] : toDate_(r['登記時間']);
+    const prev = out[no];
+    if (prev && prev._t && t && t < prev._t) return;
+    out[no] = { place: String(r['放置位置'] || ''), photo: String(r['照片'] || ''), by: String(r['登記人'] || ''), time: fmtDateTime_(t || r['登記時間']), _t: t };
+  });
+  Object.keys(out).forEach(function (k) { delete out[k]._t; });
+  return out;
+}
+
+/** 校隊（或管理者）：某一天要分貨的訂單（不含金額），和目前登記的位置 */
+function crewGetOrders(token, date) {
+  const account = auth_(token, false, false, true);
+  if (!isAdmin_(account) && !isCrew_(account)) throw new Error('只有校隊和管理者可以使用放置登記。');
+  const d = parseDate_(date);
+  if (!d) throw new Error('請選擇日期。');
+  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, d).filter(function (r) {
+    const x = toDate_(r['使用日期']);
+    return x && x.getTime() === d.getTime();
+  });
+  const list = groupOrders_(rows, null).filter(function (o) {
+    return o.status !== '已取消' && !isReturn_(o.project);
+  }).map(function (o) {
+    const items = o.items.filter(function (it) { return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR; })
+      .map(function (it) { return { name: it.name, qty: it.qty, unit: it.unit, vendor: String(it.vendor || '').charAt(0) }; });
+    return { orderNo: o.orderNo, useDate: o.useDate, classTime: o.classTime, className: o.className, dept: o.dept, room: o.room,
+      teacher: o.onBehalfOf || o.teacher, items: items };
+  }).filter(function (o) { return o.items.length; });
+  const places = placesFor_(list.map(function (o) { return o.orderNo; }));
+  list.forEach(function (o) { o.place = places[o.orderNo] || null; });
+  // 最近用過的位置（給校隊快速點選）
+  let recent = [];
+  const sh = ss_().getSheetByName(SHEET.places);
+  if (sh && sh.getLastRow() >= 2) {
+    const all = readTable_(SHEET.places, ['放置位置']).rows.map(function (r) { return String(r['放置位置'] || '').trim(); }).filter(Boolean).reverse();
+    all.forEach(function (p) { if (recent.indexOf(p) < 0 && recent.length < 12) recent.push(p); });
+  }
+  return { orders: list.sort(function (a, b) {
+    return String(a.classTime).localeCompare(String(b.classTime)) || String(a.className).localeCompare(String(b.className), 'zh-Hant', { numeric: true });
+  }), recent: recent };
+}
+
+/** 校隊（或管理者）：登記這張訂單的東西放在哪裡，可以附一張照片 */
+function crewSetPlace(token, orderNo, place, photo) {
+  const account = auth_(token, false, false, true);
+  if (!isAdmin_(account) && !isCrew_(account)) throw new Error('只有校隊和管理者可以使用放置登記。');
+  orderNo = clean_(orderNo, 30); place = clean_(place, 40);
+  if (!orderNo) throw new Error('缺少訂單編號。');
+  if (!place) throw new Error('請填放在哪裡，例如：西餐 B 冰箱中層。');
+  const r = readTable_(SHEET.orders, ['訂單編號']).rows.find(function (x) { return String(x['訂單編號']).trim() === orderNo; });
+  if (!r) throw new Error('找不到這張訂單。');
+  let url = '';
+  if (photo) {
+    const m = String(photo).match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+    if (m) {
+      const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], orderNo + '-' + Utilities.formatDate(new Date(), tz_(), 'yyyyMMdd-HHmmss') + '.jpg');
+      if (blob.getBytes().length > 4 * 1024 * 1024) throw new Error('照片太大，請重拍。');
+      url = folderNamed_(PLACE_FOLDER_NAME).createFile(blob).getUrl();
+    }
+  }
+  const d = toDate_(r['使用日期']);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(ensureSheet_(SHEET.places, PLACE_HEADERS), PLACE_HEADERS);
+    appendRows_(SHEET.places, [{ '訂單編號': orderNo, '上課日期': d ? dateStr_(d) : '', '班級': String(r['上課班級'] || ''),
+      '老師': String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || ''), '放置位置': place, '照片': url, '登記人': account, '登記時間': new Date() }],
+      { '登記時間': 'yyyy/mm/dd hh:mm' });
+  } finally {
+    lock.releaseLock();
+  }
+  return { place: place, photo: url, by: account, time: fmtDateTime_(new Date()) };
+}
+
+/** 管理者：校隊帳號清單 */
+function adminListCrew(token) {
+  auth_(token, true);
+  const t = readTable_(SHEET.accounts, ['帳號', '啟用']);
+  if (t.cols['校隊'] === undefined) return [];
+  return t.rows.filter(function (r) { return isTrue_(r['校隊']); }).map(function (r) {
+    return { account: String(r['帳號']).trim(), enabled: isTrue_(r['啟用']) };
+  });
+}
+
+/** 管理者：新增校隊帳號（預設密碼 0000，第一次登入要改密碼）、停用／啟用、重設密碼 */
+function adminSetCrew(token, account, action) {
+  auth_(token, true);
+  account = clean_(account, 30);
+  if (!account) throw new Error('請輸入校隊的名字。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(sheet_(SHEET.accounts), ['校隊']);
+    const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
+    const r = t.rows.find(function (x) { return String(x['帳號']).trim() === account; });
+    if (action === 'add') {
+      if (r && !isTrue_(r['校隊'])) throw new Error('「' + account + '」已經是老師的帳號，請換一個名字（例如加上「校隊」）。');
+      if (r) setCells_(t, r._row, { '啟用': true });
+      else appendRows_(SHEET.accounts, [{ '帳號': account, '密碼': DEFAULT_PASSWORD, '啟用': true, '校隊': true }]);
+      if (r) setCell_(t, r._row, '校隊', true);
+    } else {
+      if (!r || !isTrue_(r['校隊'])) throw new Error('找不到校隊帳號「' + account + '」。');
+      if (action === 'disable') setCell_(t, r._row, '啟用', false);
+      else if (action === 'enable') setCell_(t, r._row, '啟用', true);
+      else if (action === 'reset') {
+        const cell = t.sheet.getRange(r._row, t.cols['密碼']);
+        cell.setNumberFormat('@');
+        cell.setValue(DEFAULT_PASSWORD);
+      } else throw new Error('不明的動作。');
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  CacheService.getScriptCache().remove('crewAccounts');
+  try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
+  return adminListCrew(token);
 }
 
 function ensureSheet_(name, headers) {
