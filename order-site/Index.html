@@ -697,7 +697,7 @@
     <section id="viewLessons" class="hidden">
       <div class="panel">
         <h2 style="margin:0">我的課 <button type="button" class="btn ghost small" id="reloadLessons">重新整理</button></h2>
-        <div class="muted small">依學校課表和你自己新增的課列出接下來的課。沒訂貨的課會在每週五下午用 LINE 私訊提醒你；不用訂貨的課按「不用訂貨」就不會再被提醒。</div>
+        <div class="muted small">依學校課表和你自己新增的課列出接下來的課。沒訂貨的課會在訂貨截止前一個上課日下午用 LINE 私訊提醒你；不用訂貨的課按「不用訂貨」就不會再被提醒。</div>
         <div id="lessonsLine" class="small" style="margin-top:8px"></div>
         <div class="admin-only hidden lessons-as">
           <label for="lessonsAs">管理者：查看老師的課</label>
@@ -897,6 +897,15 @@
           <button type="button" class="btn ghost small" id="aRemindNow">立即傳訂貨提醒</button>
           <button type="button" class="btn ghost small" id="aTest">傳送測試通知</button>
         </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">訂貨截止時間</h3>
+        <div class="muted small">老師要在這個時間前訂好「下週」的課，過了就只能訂下下週的（管理者不受限制）。廠商訂貨單在截止那天產生、LINE 訂貨提醒在截止前一個上課日傳，改了會一起跟著改。</div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="lkDay">每週</label><select id="lkDay"><option value="1">星期一</option><option value="2">星期二</option><option value="3">星期三</option><option value="4">星期四</option><option value="5">星期五</option></select></div>
+          <div><label for="lkTime">幾點截止</label><input id="lkTime" type="time" step="300"></div>
+          <button type="button" class="btn secondary small" id="lkSave">儲存</button>
+          <button type="button" class="btn ghost small" id="lkReset">改回預設</button>
+        </div>
+        <div id="lkInfo" class="small" style="margin-top:4px"></div>
         <h3 style="font-size:16px;margin:18px 0 6px">管理者帳號</h3>
         <div class="muted small">設成管理者的老師，用自己的帳號登入就會看到訂單彙整、廠商訂貨單、總課表、審核食材等所有管理功能（也可以修改這裡的設定），原本的訂貨功能照常可以用。也可以直接在試算表「帳號設定」的「管理者」欄打勾。</div>
         <div id="admList" class="hol-list small"></div>
@@ -5084,7 +5093,7 @@
     var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger && st.remindTrigger;
     var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
     $('autoStatus').innerHTML =
-      '每週一 ' + st.vendorHour + ':00 產生下週廠商訂貨單：' + yes(st.vendorTrigger, '已啟用', '未啟用') + '<br>' +
+      '每週' + st.lockDay + ' ' + st.vendorHour + ':00 產生下週廠商訂貨單：' + yes(st.vendorTrigger, '已啟用', '未啟用') + '<br>' +
       '每天 ' + st.digestHour + ':00 寄每日摘要：' + yes(st.digestTrigger, '已啟用', '未啟用') + '（沒有新訂單、沒有待審核時不寄）<br>' +
       '每週日 ' + st.maintHour + ':00 備份試算表＋封存舊訂單：' + yes(st.maintTrigger, '已啟用', '未啟用') +
         '（備份保留 ' + st.backupKeep + ' 份；上課日期過了 ' + st.archiveDays + ' 天的訂單搬到「歷史訂單」分頁）<br>' +
@@ -5092,7 +5101,7 @@
       '歷史訂單：每個月存成一個檔案（已存 ' + st.historyMonths + ' 個月）' +
         (st.historyFolderUrl ? '　<a href="' + esc(st.historyFolderUrl) + '" target="_blank" rel="noopener">打開資料夾</a>' : '') +
         '，試算表「歷史訂單」分頁只留最近約 13 個月<br>' +
-      '每週五 ' + st.remindHour + ':00 用 LINE 私訊提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
+      '每週' + st.remindDay + ' ' + st.remindHour + ':00 用 LINE 私訊提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
         '（課表 ' + st.scheduleCount + ' 堂課）' +
         (st.lastRemindTime ? '　上次提醒：' + esc(st.lastRemindTime) : '') + '<br>' +
       '已綁定 LINE 的老師（' + ln.teachersBound.length + ' 位）：' + esc(ln.teachersBound.join('、') || '（還沒有）') + '<br>' +
@@ -5106,6 +5115,14 @@
       '訂貨單會存在雲端硬碟的「三信家商餐飲科訂貨單」資料夾，備份在「三信家商餐飲科訂貨系統備份」資料夾。' +
       (st.vendorTrigger && st.digestTrigger && (!st.maintTrigger || !st.remindTrigger) ? '<br><b style="color:var(--bad)">有新的排程，請按一下「啟用排程」才會建立。</b>' : '');
     $('aToggle').textContent = on ? '停用排程' : '啟用排程';
+    if (st.lockRule) {
+      var lk = st.lockRule, p2 = function (x) { return ('0' + x).slice(-2); };
+      if (document.activeElement !== $('lkDay')) $('lkDay').value = String(lk.wd);
+      if (document.activeElement !== $('lkTime')) $('lkTime').value = p2(lk.h) + ':' + p2(lk.m);
+      var df = st.lockDefault, isDef = df && df.wd === lk.wd && df.h === lk.h && df.m === lk.m;
+      $('lkInfo').innerHTML = '目前：<b>每週' + esc(st.lockDay) + ' ' + lk.h + ':' + p2(lk.m) + '</b> 截止下週的訂單' +
+        (isDef ? '<span class="muted">（預設）</span>' : '') + '；訂貨單週' + esc(st.lockDay) + ' ' + st.vendorHour + ':00 產生，LINE 提醒週' + esc(st.remindDay) + ' ' + st.remindHour + ':00 傳。';
+    }
     if (document.activeElement !== $('aSiteUrl')) $('aSiteUrl').value = st.webhookUrl || '';
     if (document.activeElement !== $('aEmails')) $('aEmails').value = st.emailsCustom ? (st.emails || []).join(', ') : '';
     $('aEmails').placeholder = st.emailsCustom ? '' : '目前寄給：' + ((st.emails || []).join('、') || '（無）');
@@ -5329,6 +5346,20 @@
   $('aEmailSave').addEventListener('click', function () {
     var v = $('aEmails').value.trim();
     autoCall(this, 'adminSetNotifyEmails', function (st) { return v ? 'Email 已儲存：' + (st.emails || []).join('、') + '。可以按「寄測試信」試試看。' : '已改回寄給部署網站的帳號。'; }, v);
+  });
+  function saveLock(btn, rule) {
+    var txt = '每週' + '一二三四五'.charAt(rule.wd - 1) + ' ' + rule.h + ':' + ('0' + rule.m).slice(-2);
+    if (!safeConfirm('訂貨截止改成「' + txt + ' 截止下週的訂單」？\n老師下次打開網站就會照新的時間；有啟用排程的話，訂貨單和 LINE 提醒的時間也會跟著改。')) return;
+    autoCall(btn, 'adminSetLockRule', function () { return '訂貨截止已改成' + txt + '。你自己的訂貨頁面重新整理後才會顯示新的截止時間。'; }, rule);
+  }
+  $('lkSave').addEventListener('click', function () {
+    var m = String($('lkTime').value || '').match(/^(\d{1,2}):(\d{2})/);
+    if (!m) { msg('autoMsg', 'error', '請選截止時間，例如 12:00。'); return; }
+    saveLock(this, { wd: Number($('lkDay').value), h: Number(m[1]), m: Number(m[2]) });
+  });
+  $('lkReset').addEventListener('click', function () {
+    var df = autoState && autoState.lockDefault;
+    if (df) saveLock(this, df);
   });
   $('aEmailTest').addEventListener('click', function () {
     autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
@@ -6262,9 +6293,9 @@
     if (viewingOther()) { box.innerHTML = ''; return; }
     if (!line || !line.enabled) { box.innerHTML = ''; return; }
     box.innerHTML = line.bound
-      ? '<span style="color:var(--ok)">✓ 已綁定 LINE</span>，週五下午會私訊提醒你沒訂貨的課。 ' +
+      ? '<span style="color:var(--ok)">✓ 已綁定 LINE</span>，截止前一天下午會私訊提醒你沒訂貨的課。 ' +
         '<button type="button" class="btn ghost small" id="lineUnbind">解除綁定</button>'
-      : '<span style="color:var(--muted)">還沒綁定 LINE</span>，綁定後週五下午會私訊提醒你沒訂貨的課。 ' +
+      : '<span style="color:var(--muted)">還沒綁定 LINE</span>，綁定後截止前一天下午會私訊提醒你沒訂貨的課。 ' +
         '<button type="button" class="btn secondary small" id="lineBindMe">綁定我的 LINE</button>';
     var bind = $('lineBindMe'), unbind = $('lineUnbind');
     if (bind) bind.addEventListener('click', function () {

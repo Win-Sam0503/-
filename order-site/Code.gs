@@ -33,6 +33,7 @@ const SESSIONS = ['上午', '下午', '晚上'];
 const SCHEDULE_KINDS = ['日間部', '夜間部', '彈性課程'];
 const SCHEDULE_HEADERS = ['星期', '時段', '教室', '課程', '節次', '班級', '老師', '需要訂貨', '備註', '類別', '開始日期', '結束日期'];
 // 鎖單：每週一 12:00 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
+// 這三個是預設值；管理者可以在「系統設定 → 訂貨截止時間」改（存在指令碼屬性 LOCK_RULE），程式裡一律用 lockRule_()
 const LOCK_WEEKDAY = 1;                     // 截止星期（1 = 星期一 … 5 = 星期五）
 const LOCK_HOUR = 12;
 const LOCK_MINUTE = 0;
@@ -57,10 +58,9 @@ const MAX_GROUPS = 99;
 const NOTIFY_EMAILS = [];                    // 收通知的 Email；空白就寄給部署這個網站的帳號
 const AUTO_FOLDER_NAME = '三信家商餐飲科訂貨單';   // 自動產生的廠商訂貨單存在雲端硬碟這個資料夾
 const DIGEST_HOUR = 7;                       // 每日摘要信幾點寄
-const VENDOR_ORDER_HOUR = 12;                // 每週一幾點產生下週廠商訂貨單（配合 12:00 截止）
 const LINE_BIND_MINUTES = 30;                // LINE 綁定碼有效時間
 const LINE_RESERVE = 20;                     // LINE 本月剩下的則數少於這個數字時，不再私訊老師（留給管理者通知）
-const REMIND_HOUR = 15;                     // 每週五幾點在 LINE 群組提醒還沒訂貨的老師
+const REMIND_HOUR = 15;                     // 截止前一個上課日（截止週一＝週五）幾點用 LINE 提醒還沒訂貨的老師
 const MAINT_HOUR = 23;                       // 每週日幾點做每週維護（先備份、再封存舊訂單）
 const ARCHIVE_AFTER_DAYS = 14;               // 上課日期過了幾天的訂單搬到「歷史訂單」
 const BACKUP_KEEP = 4;                       // 試算表備份保留幾份（每週一份）
@@ -568,8 +568,39 @@ function readItems_() {
     });
 }
 
+/** 訂貨截止規則 { wd: 星期(1～5), h: 時, m: 分 }：系統設定存的，沒有就用預設 */
+function lockRule_() {
+  return memo_('lockRule', function () {
+    try {
+      const r = JSON.parse(PropertiesService.getScriptProperties().getProperty('LOCK_RULE') || 'null');
+      if (r && r.wd >= 1 && r.wd <= 5 && r.h >= 0 && r.h <= 23 && r.m >= 0 && r.m <= 59) return { wd: r.wd, h: r.h, m: r.m };
+    } catch (e) {}
+    return { wd: LOCK_WEEKDAY, h: LOCK_HOUR, m: LOCK_MINUTE };
+  });
+}
+function lockTime_() { const r = lockRule_(); return r.h + ':' + ('0' + r.m).slice(-2); }
+// 截止那天整點產生訂貨單：12:00 截止就 12 點跑；12:30 截止就 13 點跑（不要在截止前就產生）
+function vendorOrderHour_() { const r = lockRule_(); return r.m > 0 ? Math.min(23, r.h + 1) : r.h; }
+// 訂貨提醒在截止前一個上課日（截止週一 → 週五，截止週三 → 週二）
+function remindWeekday_() { const wd = lockRule_().wd; return wd === 1 ? 5 : wd - 1; }
+
 function lockRuleText_() {
-  return '每週' + WEEKDAY[LOCK_WEEKDAY] + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + ' 截止下週的訂單';
+  return '每週' + WEEKDAY[lockRule_().wd] + ' ' + lockTime_() + ' 截止下週的訂單';
+}
+
+/** 管理者：設定訂貨截止時間（星期一～五、幾點幾分）；有啟用排程的話，訂貨單和提醒的排程跟著改 */
+function adminSetLockRule(token, rule) {
+  auth_(token, true);
+  const wd = Number(rule && rule.wd), h = Number(rule && rule.h), m = Number(rule && rule.m);
+  if (!(wd >= 1 && wd <= 5 && Math.floor(wd) === wd)) throw new Error('截止星期只能選星期一～星期五。');
+  if (!(h >= 0 && h <= 23 && Math.floor(h) === h) || !(m >= 0 && m <= 59 && Math.floor(m) === m)) throw new Error('截止時間不正確。');
+  const props = PropertiesService.getScriptProperties();
+  if (wd === LOCK_WEEKDAY && h === LOCK_HOUR && m === LOCK_MINUTE) props.deleteProperty('LOCK_RULE');
+  else props.setProperty('LOCK_RULE', JSON.stringify({ wd: wd, h: h, m: m }));
+  memoClear_();
+  const handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+  if (handlers.indexOf('autoVendorOrders') >= 0 || handlers.indexOf('remindTeachers') >= 0) setTriggers_(true);
+  return automationStatus_();
 }
 
 /**
@@ -2615,7 +2646,7 @@ function deleteTemplateRows_(account, name) {
 // =====================================================================
 //
 // 第一次使用：在 Apps Script 編輯器選函式「setupAutomation」按「執行」並授權，
-// 之後就會每週一中午、每天早上自動執行。也可以在網站「系統設定」頁管理。
+// 之後就會在訂貨截止那天、每天早上自動執行。也可以在網站「系統設定」頁管理。
 
 const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance', 'remindTeachers'];
 
@@ -2630,14 +2661,15 @@ function setTriggers_(enabled) {
     if (AUTO_HANDLERS.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
   if (!enabled) return;
+  const days = [null, ScriptApp.WeekDay.MONDAY, ScriptApp.WeekDay.TUESDAY, ScriptApp.WeekDay.WEDNESDAY, ScriptApp.WeekDay.THURSDAY, ScriptApp.WeekDay.FRIDAY];
   ScriptApp.newTrigger('autoVendorOrders').timeBased()
-    .onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(VENDOR_ORDER_HOUR).inTimezone(tz_()).create();
+    .onWeekDay(days[lockRule_().wd]).atHour(vendorOrderHour_()).inTimezone(tz_()).create();
   ScriptApp.newTrigger('dailyDigest').timeBased()
     .everyDays(1).atHour(DIGEST_HOUR).inTimezone(tz_()).create();
   ScriptApp.newTrigger('weeklyMaintenance').timeBased()
     .onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(MAINT_HOUR).inTimezone(tz_()).create();
   ScriptApp.newTrigger('remindTeachers').timeBased()
-    .onWeekDay(ScriptApp.WeekDay.FRIDAY).atHour(REMIND_HOUR).inTimezone(tz_()).create();
+    .onWeekDay(days[remindWeekday_()]).atHour(REMIND_HOUR).inTimezone(tz_()).create();
 }
 
 function automationStatus_() {
@@ -2650,6 +2682,10 @@ function automationStatus_() {
     remindTrigger: handlers.indexOf('remindTeachers') >= 0,
     line: lineStatus_(),
     remindHour: REMIND_HOUR,
+    remindDay: WEEKDAY[remindWeekday_()],
+    lockRule: lockRule_(),
+    lockDefault: { wd: LOCK_WEEKDAY, h: LOCK_HOUR, m: LOCK_MINUTE },
+    lockDay: WEEKDAY[lockRule_().wd],
     lineReserve: LINE_RESERVE,
     historyFolderUrl: props.getProperty('HIST_FOLDER_URL') || '',
     historyMonths: Object.keys(JSON.parse(props.getProperty('HIST_MONTHS') || '{}')).length,
@@ -2671,7 +2707,7 @@ function automationStatus_() {
     autoUrl: autoUrl_(),
     lastVendorUrl: props.getProperty('LAST_VENDOR_URL') || '',
     lastVendorTime: props.getProperty('LAST_VENDOR_TIME') || '',
-    vendorHour: VENDOR_ORDER_HOUR,
+    vendorHour: vendorOrderHour_(),
     digestHour: DIGEST_HOUR,
   };
 }
@@ -2682,7 +2718,7 @@ function fromTrigger_(e) {
   return ScriptApp.getProjectTriggers().some(function (t) { return t.getUniqueId() === String(e.triggerUid); });
 }
 
-// 排程：每週一中午產生下週的廠商訂貨單
+// 排程：訂貨截止那天（預設週一中午）產生下週的廠商訂貨單
 function autoVendorOrders(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
   logged_('每週訂貨單', function () { runVendorOrders_(); });
@@ -2700,10 +2736,10 @@ function weeklyMaintenance(e) {
   logged_('每週備份封存', function () { runMaintenance_(); });
 }
 
-// 排程：每週五下午用 LINE 私訊提醒下週還沒訂貨的老師
+// 排程：截止前一個上課日（預設週五）下午用 LINE 私訊提醒下週還沒訂貨的老師
 function remindTeachers(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
-  logged_('週五訂貨提醒', function () { runReminder_(true); });
+  logged_('訂貨提醒', function () { runReminder_(true); });
 }
 
 // ---- 錯誤紀錄：老師在網站上遇到的錯誤、排程失敗，記到「錯誤紀錄」分頁，系統錯誤會放進每日摘要 ----
@@ -4027,14 +4063,14 @@ function getMyLessons(token, as) {
   const from = earliestClassDate_(now);
   const to = addDays_(today_(), MAX_DAYS_AHEAD);
   const firstWeekEnd = addDays_(from, 4);
-  const deadline = addDays_(from, -7 + (LOCK_WEEKDAY - 1));
+  const deadline = addDays_(from, -7 + (lockRule_().wd - 1));
   const lessons = lessonsWithStatus_(from, to, account).sort(function (a, b) {
     return a.date === b.date ? SESSIONS.indexOf(a.session) - SESSIONS.indexOf(b.session) : (a.date < b.date ? -1 : 1);
   });
   const todoNext = lessons.filter(function (x) { return x.status === 'todo' && parseDate_(x.date) <= firstWeekEnd; }).length;
   return {
     lessons: lessons,
-    nextWeek: { from: dateStr_(from), to: dateStr_(firstWeekEnd), deadline: shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2), todo: todoNext },
+    nextWeek: { from: dateStr_(from), to: dateStr_(firstWeekEnd), deadline: shortDateTw_(deadline) + ' ' + lockTime_(), todo: todoNext },
     school: readSchedule_().filter(function (x) { return x.teacher === account; }),
     mine: readMyLessonRows_().filter(function (x) { return x.teacher === account; }),
     holidays: holidaysBetween_(from, to),
@@ -4530,7 +4566,7 @@ function runReminder_(send) {
   const now = new Date();
   const from = earliestClassDate_(now);
   const r = { from: from, to: addDays_(from, 4) };
-  const deadline = addDays_(from, -7 + (LOCK_WEEKDAY - 1));
+  const deadline = addDays_(from, -7 + (lockRule_().wd - 1));
   const lessons = lessonsWithStatus_(r.from, r.to, null);
   const missing = {};
   let total = 0;
@@ -4541,7 +4577,7 @@ function runReminder_(send) {
   });
   const range = shortDateTw_(r.from) + '～' + shortDateTw_(r.to);
   const teachers = Object.keys(missing);
-  const dl = shortDateTw_(deadline) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2);
+  const dl = shortDateTw_(deadline) + ' ' + lockTime_();
   const link = lineUrl_('lessons');
   const personal = function (t) {
     return '【訂貨提醒】' + t + ' 老師您好，' + range + ' 還有 ' + missing[t].length + ' 堂課沒訂貨：\n' +
@@ -4674,7 +4710,7 @@ function lineAutoReply_(text, userId) {
   if (/截止|規則/.test(t) && t.length <= 10) {
     const now = new Date(), from = earliestClassDate_(now), dl = currentDeadline_(now) > now ? currentDeadline_(now) : addDays_(currentDeadline_(now), 7);
     return '【訂貨規則】' + lockRuleText_() + '。\n' +
-      '下一個截止：' + shortDateTw_(dl) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2) + '\n' +
+      '下一個截止：' + shortDateTw_(dl) + ' ' + lockTime_() + '\n' +
       '目前最早可以訂：' + shortDateTw_(from) + ' 的課，最晚可以訂 ' + MAX_DAYS_AHEAD + ' 天內的課。' + (url ? '\n' + url : '');
   }
   if (/網站|訂貨系統/.test(t) && t.length <= 10) return url ? '訂貨網站：' + url : '訂貨網站還沒部署。';
@@ -5233,21 +5269,23 @@ function fmtDateTime_(v) {
 
 // ---- 鎖單 ----
 
-/** 本週（星期一開始）的訂貨截止時間，例如本週一 12:00。 */
+/** 本週（星期一開始）的訂貨截止時間，例如本週一 12:00（系統設定可以改）。 */
 function currentDeadline_(now) {
   const today = today_(now);
   const monday = addDays_(today, -((today.getDay() + 6) % 7));
-  const d = addDays_(monday, LOCK_WEEKDAY - 1);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), LOCK_HOUR, LOCK_MINUTE, 0);
+  const r = lockRule_();
+  const d = addDays_(monday, r.wd - 1);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), r.h, r.m, 0);
 }
 
 /** 下一個訂貨截止：{ at: 毫秒, label: '10/19（一）12:00', from, to: 這次截止的是哪一週的課 } */
 function nextDeadline_(now) {
+  const r = lockRule_();
   let d = currentDeadline_(now);
-  if (now >= d) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7, LOCK_HOUR, LOCK_MINUTE, 0);
-  const monday = addDays_(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 8 - LOCK_WEEKDAY);
+  if (now >= d) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7, r.h, r.m, 0);
+  const monday = addDays_(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 8 - r.wd);
   return {
-    at: d.getTime(), label: shortDateTw_(d) + ' ' + LOCK_HOUR + ':' + ('0' + LOCK_MINUTE).slice(-2),
+    at: d.getTime(), label: shortDateTw_(d) + ' ' + lockTime_(),
     from: dateStr_(monday), to: dateStr_(addDays_(monday, 4)),
   };
 }
