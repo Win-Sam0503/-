@@ -1168,6 +1168,7 @@ function matchLessons_(list, start, end) {
       status: st.have[k] ? 'ordered' : st.manual[k] ? 'manual' : st.skip[k] ? 'skipped' : holidayOf_(x.date) ? 'holiday' : 'todo' };
   };
   list.forEach(function (o) {
+    if (isReturn_(o.project)) { o.lesson = null; return; }   // 還料單不對課表
     if (o.status === '已取消') return;
     const who = o.onBehalfOf || o.teacher, ses = sessionOf_(o.classTime), wk = weekOf(o.useDate);
     const mine = lessons.filter(function (x) { return x.teacher === who; });
@@ -4316,6 +4317,10 @@ function adminGetSchedule(token, weekOf) {
  * 某段期間的訂單和標記：have[老師|日期|時段] = [{ orderNo, project, status }]、
  * skip[...] = true（不用訂貨）、manual[...] = { note, by }（管理者手動標「已叫料」）
  */
+// 還料單（還別的老師借的材料，不是上課用）：實作項目開頭是【還料】，不對課表、不算這堂課已叫料
+const RETURN_TAG = '【還料】';
+function isReturn_(project) { return String(project || '').indexOf(RETURN_TAG) === 0; }
+
 function lessonStatusMaps_(from, to) {
   const have = {}, skip = {}, manual = {};
   const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, from).filter(function (r) {
@@ -4324,7 +4329,7 @@ function lessonStatusMaps_(from, to) {
   });
   const list = [];
   groupOrders_(rows, null).forEach(function (o) {
-    if (o.status === '已取消') return;
+    if (o.status === '已取消' || isReturn_(o.project)) return;
     list.push({ teacher: o.onBehalfOf || o.teacher, date: o.useDate, session: sessionOf_(o.classTime), project: o.project, className: o.className, orderNo: o.orderNo });
     const k = (o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime);
     (have[k] = have[k] || []).push({ orderNo: o.orderNo, project: o.project, status: o.status, className: o.className });

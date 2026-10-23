@@ -602,6 +602,12 @@
       </div>
       <div class="panel">
         <h2>上課資訊</h2>
+        <label class="small" style="display:flex;gap:6px;align-items:center;margin:0 0 8px"><input type="checkbox" id="fReturn" style="width:auto"> 🔁 這張是<b>還料</b>（還別的老師借的材料，不是上課用）</label>
+        <div id="returnBox" class="grid2 hidden" style="margin-bottom:8px">
+          <div><label for="fReturnTo">還給哪位老師 <span class="req">*</span></label><select id="fReturnTo"></select></div>
+          <div><label for="fReturnWhy">原因（選填）</label><input id="fReturnWhy" type="text" maxlength="40" placeholder="例：10/27 301 班借 2 包低筋麵粉"></div>
+          <div class="hint" style="grid-column:1/-1">還料單：上課日期填要送來的日期、上課時間選交給對方的時段、班級填借料的班。不會對課表，也不算那堂課已叫料。</div>
+        </div>
         <div class="grid2">
           <div><label for="fDate">上課日期 <span class="req">*</span></label><input id="fDate" type="date"><div class="hint" id="dateHint"></div></div>
           <div><label for="fDept">科別 <span class="req">*</span></label><select id="fDept"></select></div>
@@ -613,7 +619,7 @@
           <div><label for="fGroups">組數</label><input id="fGroups" type="text" class="num-input" data-int="1" autocomplete="off" maxlength="4" placeholder="例：6"></div>
           <div id="forBox" class="hidden"><label for="fFor">代訂對象老師 <a href="#" id="forHide" class="small" style="font-weight:normal">（不代訂）</a></label><select id="fFor"></select></div>
           <div id="forLink" style="align-self:end;padding-bottom:10px"><a href="#" id="forShow" class="small">幫別的老師代訂？</a></div>
-          <div class="wide" style="grid-column:1/-1"><label for="fProject">實作項目 <span class="req">*</span></label><input id="fProject" type="text" maxlength="60" placeholder="例：戚風蛋糕、宮保雞丁"></div>
+          <div class="wide" id="projectBox" style="grid-column:1/-1"><label for="fProject">實作項目 <span class="req">*</span></label><input id="fProject" type="text" maxlength="60" placeholder="例：戚風蛋糕、宮保雞丁"></div>
         </div>
       </div>
 
@@ -1427,8 +1433,27 @@
   // 上課資訊
   // ------------------------------------------------------------------
   var INFO_FIELDS = { useDate: 'fDate', dept: 'fDept', classTime: 'fTime', room: 'fRoom', className: 'fClass', groups: 'fGroups', project: 'fProject', onBehalfOf: 'fFor' };
+  // 還料單：實作項目自動寫成「【還料】還給○○老師：原因」
+  var RETURN_TAG = '【還料】';
+  function fillReturnTo(sel) {
+    var me = ($('fFor') && $('fFor').value) || data.account;   // 不能還給自己
+    $('fReturnTo').innerHTML = '<option value="">請選擇</option>' + (data.teachers || []).filter(function (t) { return t !== me || t === sel; }).map(function (t) { return '<option' + (t === sel ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
+  }
+  function syncReturn() {
+    var on = $('fReturn').checked;
+    $('returnBox').classList.toggle('hidden', !on);
+    $('projectBox').classList.toggle('hidden', on);
+    if (on && !$('fReturnTo').options.length) fillReturnTo('');
+  }
+  $('fReturn').addEventListener('change', function () { syncReturn(); readInfo(); saveDraft(); });
+  ['fReturnTo', 'fReturnWhy'].forEach(function (id) { $(id).addEventListener('change', function () { readInfo(); saveDraft(); }); });
   function readInfo() {
     Object.keys(INFO_FIELDS).forEach(function (k) { draft.info[k] = $(INFO_FIELDS[k]).value.trim(); });
+    if ($('fReturn').checked) {
+      var to = $('fReturnTo').value, why = $('fReturnWhy').value.trim();
+      draft.info.project = to ? RETURN_TAG + '還給' + to + '老師' + (why ? '：' + why : '') : '';
+      draft.info.returnTo = to;
+    } else delete draft.info.returnTo;
     var gn = normNum(draft.info.groups);
     if (gn) draft.info.groups = gn;
   }
@@ -1439,6 +1464,11 @@
     $('fTime').value = tm ? tm[1] : '';
     if (tm) draft.info.classTime = tm[1];
     $('fAmpm').value = $('fTime').value;
+    var rm = String(draft.info.project || '').match(/^【還料】還給(.+?)老師(?:：(.*))?$/);
+    $('fReturn').checked = !!rm;
+    fillReturnTo(rm ? rm[1] : '');
+    $('fReturnWhy').value = rm ? rm[2] || '' : '';
+    syncReturn();
     syncForBox();
   }
   // 上課時間只選時段（上午／下午／夜間，夜間存成「晚上」）
@@ -2186,6 +2216,7 @@
       : !i.classTime ? '請選擇上課時間（上午／下午／夜間）。'
       : !i.className ? '請填寫上課班級。'
       : (i.groups && !(/^\d+$/.test(i.groups) && +i.groups >= 1 && +i.groups <= 99)) ? '組數需為 1 到 99 的整數。'
+      : $('fReturn').checked && !$('fReturnTo').value ? '還料單請選擇「還給哪位老師」。'
       : !i.project ? '請填寫實作項目。'
       : (perMode && !currentGroups()) ? '數量是填「一組的量」，請先填組數。' : '';
     if (!err) {
@@ -2279,6 +2310,7 @@
       draft = emptyDraft();
       draft.info = keep;
       draft.qtyMode = keepMode;
+      $('fReturn').checked = false; $('fReturnWhy').value = ''; $('fReturnTo').value = '';   // 下一張不是還料
       saveDraft();
       writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewDone');
@@ -2511,6 +2543,8 @@
     var L = o.lesson;
     return o.status !== '已取消' && L && !L.match.length && !L.near.some(function (l) { return l.status === 'manual'; });
   } };
+  var RETURNS = '__return';
+  SPECIAL[RETURNS] = { label: '🔁 還料單', test: function (o) { return String(o.project || '').indexOf(RETURN_TAG) === 0; } };
   function stLabel(st) { return SPECIAL[st] ? SPECIAL[st].label : st; }
   // 一鍵列印：已審核＝已審核、已叫貨、已到貨；未審核＝待處理。照上課日期、班級排序
   var sumBase = [];
