@@ -478,9 +478,14 @@
   .au-photos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
   .au-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
   .au-hist td, .au-hist th { vertical-align: top; }
-  .au-stk { text-align: center; justify-content: center; gap: 1.5mm; }
-  .au-stk .big { font-size: 7mm; font-weight: 900; letter-spacing: 1mm; }
-  .au-stk .ln { font-size: 3.6mm; white-space: nowrap; }
+  /* 「已抽查」貼紙：蓋章框 5.4×1.7 公分（職章約 5×1.5 公分），格子大小照標籤紙 */
+  .lbl.au-stk { justify-content: center; align-items: center; gap: 1mm; padding: 1.5mm 3mm; }
+  .au-stk .h { display: flex; justify-content: space-between; align-items: baseline; width: 54mm; white-space: nowrap; }
+  .au-stk .big { font-size: calc(var(--lf) * 1.35); font-weight: 900; letter-spacing: 0.5mm; }
+  .au-stk .res, .au-stk .ln { font-size: 3.4mm; white-space: nowrap; }
+  .au-stk .ln { width: 54mm; }
+  .au-stk .stamp { width: 54mm; height: 17mm; flex: 0 0 auto; box-sizing: border-box; border: 0.3mm dashed #888; border-radius: 1mm;
+    display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 3mm; letter-spacing: 2mm; }
   #auPrint { display: none; }
   @media print {
     #viewAudit.stk > :not(#auPrint) { display: none !important; }
@@ -1050,6 +1055,7 @@
         <div class="actions" style="justify-content:flex-start">
           <button type="button" class="btn" id="auPick">🎲 隨機抽</button>
           <button type="button" class="btn ghost small" id="auStickers">列印「已抽查」貼紙</button>
+          <select id="auStkLayout" aria-label="貼紙標籤紙" style="width:auto"><option value="24">24 格（7×3.7 公分）</option><option value="21">21 格（7×4.2 公分）</option><option value="12">12 格（10.5×5 公分）</option></select>
         </div>
         <div id="auMsg"></div>
       </div>
@@ -4701,6 +4707,7 @@
   var audit = null;   // { date, timing, cards: [{ o, items: [{ it, actual, result, manual, note }], seal, fridge, note, photos: [dataUrl] }] }
   var AUDIT_PRI = { B: 1, D: 2, A: 3, F: 4, C: 5, E: 6 };   // 沒有單價時：肉、海鮮、菜水果比較常被拿
   function auditOpen() {
+    $('auStkLayout').value = labelPrefs().layout;   // 跟分班標籤用同一種標籤紙
     if (!$('auDate').value) $('auDate').value = isoDate(new Date());
     if (!$('auFrom').value) { var t = new Date(); $('auFrom').value = isoDate(new Date(t.getFullYear(), t.getMonth(), 1)); $('auTo').value = isoDate(t); auditHistory(); }
   }
@@ -4888,11 +4895,14 @@
   $('auHistLoad').addEventListener('click', auditHistory);
   ['auFrom', 'auTo'].forEach(function (id) { $(id).addEventListener('change', auditHistory); });
   $('auHistPrint').addEventListener('click', function () { window.print(); });
-  // 「已抽查」空白貼紙：A4 24 格，現場手寫日期、抽查人
+  // 「已抽查」空白貼紙：一張 A4（標籤紙跟分班標籤同一種），現場手寫日期時間、勾結果、蓋職章
+  $('auStkLayout').addEventListener('change', function () { setLabelPrefs({ layout: this.value }); });
   $('auStickers').addEventListener('click', function () {
-    var cell = '<div class="lbl au-stk"><div class="big">✓ 已抽查</div><div class="ln">日期＿＿＿＿ 時間＿＿＿＿</div><div class="ln">抽查人＿＿＿＿＿＿＿＿</div></div>', cells = [];
-    for (var i = 0; i < 24; i++) cells.push(cell);
-    $('auPrint').innerHTML = '<div class="lblpage lines" style="grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(8,1fr);--lf:4mm">' + cells.join('') + '</div>';
+    var L = LABEL_LAYOUTS[$('auStkLayout').value] || LABEL_LAYOUTS['24'], cells = [];
+    var cell = '<div class="lbl au-stk"><div class="h"><span class="big">✓ 已抽查</span><span class="res">☐ 正常　☐ 異常</span></div>' +
+      '<div class="ln">日期＿＿＿＿＿　時間＿＿＿＿＿</div><div class="stamp">蓋章處</div></div>';
+    for (var i = 0; i < L.c * L.r; i++) cells.push(cell);
+    $('auPrint').innerHTML = '<div class="lblpage lines" style="grid-template-columns:repeat(' + L.c + ',1fr);grid-template-rows:repeat(' + L.r + ',1fr);--lf:4mm">' + cells.join('') + '</div>';
     $('viewAudit').classList.add('stk');
     window.print();
   });
