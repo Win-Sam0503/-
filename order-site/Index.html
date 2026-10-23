@@ -2410,10 +2410,10 @@
       if (o.canCancel) buttons += '<button type="button" class="btn danger small" data-act="cancel" data-no="' + esc(o.orderNo) + '">取消訂單</button>';
     }
     if (opts.admin && !o.archived) {
+      buttons += '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + esc(o.orderNo) + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記異常') + '</button>';
       buttons += '<select data-act="status" data-no="' + esc(o.orderNo) + '" class="' + stClass(o.status) + '" style="width:auto">' + data.statuses.map(function (s) {
         return '<option style="' + stStyle(s) + '"' + (s === o.status ? ' selected' : '') + '>' + esc(s) + '</option>';
       }).join('') + (data.statuses.indexOf(o.status) < 0 ? '<option selected disabled>' + esc(o.status) + '</option>' : '') + '</select>';
-      buttons += '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + esc(o.orderNo) + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記異常') + '</button>';
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
