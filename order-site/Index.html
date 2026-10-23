@@ -4241,7 +4241,8 @@
   });
 
   // 跨教室領料單：分科廠商（E烘焙乾貨、E中餐乾貨…）的食材被另一科的課訂了（例如中餐課訂乳酪絲，只有烘焙乾貨在進），
-  // 東西會送到另一間教室，列出哪一天、哪一班、要去哪裡拿什麼、多少。照「領取地點」每處一頁，貼在那間教室。
+  // 東西會送到另一間教室，列出哪一天、哪一班、要去哪裡拿什麼、多少。兩種印法：照「領取地點」每處一頁貼在那間教室（簽名用），
+  // 和照「上課教室」每處一頁發給要去拿的班（寫清楚到哪裡拿）。
   // 各科上課的教室：烘焙課在烘焙教室、飲調課在飲調教室，其他科在中餐教室；分科廠商送到烘焙或中餐教室、飲調廠商送到飲調教室，不是自己教室的就要去領
   function pickupPlace(vendor, dept) {
     var sp = data.vendorSplit || {};
@@ -4251,11 +4252,15 @@
       : /^F/.test(vendor || '') ? '飲調教室' : '';   // 飲調廠商送到飲調教室
     return at && at !== home ? at : '';
   }
+  // 這一科的班在哪間教室上課
+  function homeRoom(dept) { return (data.bakingDepts || []).indexOf(dept) >= 0 ? '烘焙教室' : dept === '飲調' ? '飲調教室' : '中餐教室'; }
+  // 印法：place＝照放貨的教室（貼在那間教室、領取簽名）；home＝照要去拿的班在哪上課（發給老師，知道要去哪裡拿）；both＝兩種都印
+  function pickupMode() { try { return localStorage.getItem('ckOrder.pickupMode') || 'both'; } catch (e) { return 'both'; } }
   function pickupSheets(orders, from, to, only, manual) {
-    var by = {};
+    var all = [];
     // 管理者手動加的（系統抓不到的），標「手動」、可以刪除
     (manual || []).forEach(function (m) {
-      (by[m.place] = by[m.place] || []).push({ date: m.date, time: m.time, className: m.className, teacher: m.teacher, dept: m.dept, room: m.room,
+      all.push({ place: m.place, home: homeRoom(m.dept), date: m.date, time: m.time, className: m.className, teacher: m.teacher, dept: m.dept, room: m.room,
         name: m.name, qty: fmtQty(Number(m.qty) || 0) + ' ' + m.unit, note: m.note || '', row: m.row });
     });
     orders.forEach(function (o) {
@@ -4264,15 +4269,43 @@
         if (it.id === TOOL || it.status === '已取消' || it.noOrder || (only && it.vendor !== only)) return;
         var place = pickupPlace(it.vendor, o.dept);
         if (!place) return;
-        (by[place] = by[place] || []).push({ date: o.useDate, time: o.classTime, className: o.className, teacher: o.onBehalfOf || o.teacher,
+        all.push({ place: place, home: homeRoom(o.dept), date: o.useDate, time: o.classTime, className: o.className, teacher: o.onBehalfOf || o.teacher,
           dept: o.dept, room: o.room, name: it.name, vendor: it.vendor, qty: fmtQty(it.qty) + ' ' + it.unit, note: it.note || '' });
       });
     });
+    var mode = pickupMode();
+    return (mode !== 'home' ? pickupByPlace(all, from, to) : '') + (mode !== 'place' ? pickupByHome(all, from, to) : '');
+  }
+  // 發給要去拿的班：照上課教室分頁，寫清楚「到哪裡拿」
+  function pickupByHome(all, from, to) {
+    var by = {};
+    all.forEach(function (r) { if (r.home !== r.place) (by[r.home] = by[r.home] || []).push(r); });   // 手動加的沒填科別、地點就是自己教室的，不用通知
+    return Object.keys(by).sort().map(function (home) {
+      var list = by[home].sort(function (a, b) { return (a.date + a.time + a.className + a.place + a.name).localeCompare(b.date + b.time + b.className + b.place + b.name, 'zh-Hant'); });
+      var span = {}, key = function (r) { return r.date + '|' + r.time + '|' + r.className + '|' + r.teacher + '|' + r.place; };
+      list.forEach(function (r) { span[key(r)] = (span[key(r)] || 0) + 1; });
+      var places = list.map(function (r) { return r.place; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
+      return '<div class="vpage"><h1>跨教室領料通知：在' + esc(home) + '上課的班級</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
+        '<div style="margin-bottom:6px;font-size:1.05em">下面這些食材<b>不會送到' + esc(home) + '</b>，請上課前到 <b>' + esc(places.join('、')) + '</b> 拿，拿的時候在那邊的領料單簽名。</div>' +
+        '<table><thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:10%">老師</th><th style="width:14%">到哪裡拿</th><th>食材</th><th style="width:12%">數量</th><th style="width:14%">備註</th></tr></thead><tbody>' +
+        list.map(function (r, i) {
+          var first = i === 0 || key(list[i - 1]) !== key(r), rs = ' class="vm" rowspan="' + span[key(r)] + '"';
+          return '<tr' + (first ? ' class="vfirst"' : '') + '>' +
+            (first ? '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(String(r.time || '').replace(/^晚上/, '夜間')) + '</td><td' + rs + '>' + esc(r.className) + (r.room ? '<div class="small">' + esc(r.room) + '</div>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '<div class="small">' + esc(r.dept) + '</div></td>' +
+              '<td' + rs + '><b>' + esc(r.place) + '</b></td>' : '') +
+            '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(r.qty) + '</td><td>' + esc(r.note) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }).join('');
+  }
+  // 貼在放貨的教室：照領取地點分頁，拿的人簽名
+  function pickupByPlace(all, from, to) {
+    var by = {};
+    all.forEach(function (r) { (by[r.place] = by[r.place] || []).push(r); });
     return Object.keys(by).sort().map(function (place) {
       var list = by[place].sort(function (a, b) { return (a.date + a.time + a.className + a.name).localeCompare(b.date + b.time + b.className + b.name, 'zh-Hant'); });
       var span = {}, key = function (r) { return r.date + '|' + r.time + '|' + r.className + '|' + r.teacher; };
       list.forEach(function (r) { span[key(r)] = (span[key(r)] || 0) + 1; });
-      return '<div class="vpage"><h1>跨教室領料單：到' + esc(place) + '領取</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
+      return '<div class="vpage"><h1>跨教室領料單：到' + esc(place) + '領取（貼在' + esc(place) + '）</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
         '<div class="muted small" style="margin-bottom:6px">這些食材是跟' + esc(place.replace('教室', '')) + '一起叫貨、送到' + esc(place) + '，請上課的班級照下面的量來拿，拿完請簽名。</div>' +
         '<table><thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:9%">老師</th><th>食材</th><th style="width:12%">數量</th><th style="width:15%">備註</th><th style="width:12%">領取簽名</th></tr></thead><tbody>' +
         list.map(function (r, i) {
@@ -4287,7 +4320,11 @@
   }
 
   function pickupBar() {
-    return '<div class="noprint" style="display:flex;justify-content:flex-end;margin-bottom:8px"><button type="button" class="btn secondary small" data-pkadd="1">＋ 新增領料</button></div>';
+    var m = pickupMode(), chip = function (v, t) { return '<button type="button" data-pkmode="' + v + '" class="' + (m === v ? 'on' : '') + '">' + t + '</button>'; };
+    return '<div class="noprint" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">' +
+      '<div class="status-chips" style="margin:0;align-items:center"><span class="muted small">印法：</span>' +
+      chip('both', '兩種都印') + chip('place', '貼在放貨的教室') + chip('home', '發給要去拿的班') + '</div>' +
+      '<button type="button" class="btn secondary small" data-pkadd="1">＋ 新增領料</button></div>';
   }
   function pickupAdd() {
     var args = lastSheet && lastSheet.fn === pickupSheets ? lastSheet.args : null;
@@ -4330,7 +4367,12 @@
     }, 50);
   }
   $('vendorSheets').addEventListener('click', function (e) {
-    var a = e.target.closest('[data-pkadd]'), d = e.target.closest('[data-pkdel]');
+    var a = e.target.closest('[data-pkadd]'), d = e.target.closest('[data-pkdel]'), pm = e.target.closest('[data-pkmode]');
+    if (pm) {
+      try { localStorage.setItem('ckOrder.pickupMode', pm.getAttribute('data-pkmode')); } catch (e2) {}
+      if (lastSheet && lastSheet.fn === pickupSheets) $('vendorSheets').innerHTML = pickupBar() + pickupSheets.apply(null, lastSheet.args);
+      return;
+    }
     if (a) { pickupAdd(); return; }
     if (!d) return;
     ask('刪除這筆手動加的領料？', '刪除').then(function (ok) {
