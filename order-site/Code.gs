@@ -3906,17 +3906,18 @@ function ensureHeaders_(sh, headers) {
 
 /**
  * 管理者：從這一天有領料的訂單隨機抽 n 張（系統抽，不是管理者挑）。
- * 不含已取消、還料單、只有器具／有貨／自備的訂單。scope 'cold'（預設）＝只算有 A～D（菜肉蛋海鮮）的訂單；'all'＝全部廠商
+ * 不含已取消、還料單、只有器具／有貨／自備的訂單。scope = 要抽的廠商類別，例如 'ABCD'（預設：菜肉蛋海鮮）
  */
 function adminAuditPick(token, date, n, scope) {
   auth_(token, true);
   const d = parseDate_(date);
   if (!d) throw new Error('請選擇日期。');
   n = Math.max(1, Math.min(10, Number(n) || 3));
+  const cats = String(scope || 'ABCD').toUpperCase().replace(/[^A-F]/g, '') || 'ABCD';
   const pool = adminGetOrders(token, dateStr_(d), dateStr_(d), true).filter(function (o) {
     if (o.status === '已取消' || isReturn_(o.project)) return false;
     return o.items.some(function (it) {
-      return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR && (scope === 'all' || PLACE_VENDORS.test(String(it.vendor || '')));
+      return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR && cats.indexOf(String(it.vendor || '').charAt(0).toUpperCase()) >= 0;
     });
   });
   for (let i = pool.length - 1; i > 0; i--) {   // 洗牌
