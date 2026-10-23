@@ -486,6 +486,13 @@
   .sheet .wrap { white-space: normal; }
   .sheet .blank { display: inline-block; min-width: 9mm; border-bottom: 1px solid #000; height: 1em; vertical-align: bottom; }
   .sheet.teacher { padding: 6mm 4mm; }
+  /* 右上角科別標籤：校隊照教室集中放貨，一眼看出這張是哪一科、放哪間教室 */
+  .sheet .dtag { position: absolute; top: 1mm; right: 1.5mm; height: 8mm; line-height: 8mm; padding: 0 2.5mm; border: 2.5px solid #000; background: #fff;
+    font-size: 13pt; font-weight: bold; letter-spacing: 1px; white-space: nowrap; z-index: 1; }
+  .sheet .dtag small { font-size: 9.5pt; font-weight: normal; letter-spacing: 0; }
+  .sheet .title.tagged { padding: 0 48mm; }
+  .sheet.teacher .dtag { top: 5mm; right: 5mm; }
+  .sheet .where { font-weight: bold; font-size: 0.8em; }
   .sheet.teacher h1 { text-align: center; font-size: 18pt; font-weight: normal; margin: 0 0 4mm; letter-spacing: 2px; }
   .sheet.teacher .meta { display: grid; grid-template-columns: 1fr 1.2fr 1.3fr; gap: 2mm 4mm; font-size: 11.5pt; margin: 0 6mm 5mm; }
   .sheet.teacher .boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm 8mm; padding: 0 3mm; }
@@ -3717,6 +3724,16 @@
   function cell(v, cls, attrs) { return '<td' + (cls ? ' class="' + cls + '"' : '') + (attrs || '') + '>' + v + '</td>'; }
   function qtyText(it) { return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : '') + (it.noOrder && it.vendor !== data.selfVendor ? '<span class="note">（有貨）</span>' : ''); }
   function nameText(it) { return esc(it.name) + (it.note ? ' <span class="note">（' + esc(it.note) + '）</span>' : ''); }
+  // 科別標籤：科別＋放貨的教室（照教室集中放）
+  function deptTag(o) {
+    if (!o.dept) return '';
+    return '<div class="dtag">' + esc(o.dept) + ' <small>｜放' + esc(homeRoom(o.dept)) + '</small></div>';
+  }
+  // 這一樣送到別間教室（例如中餐課的水果從 F飲調 進）：寫清楚要去哪裡拿
+  function whereText(o, it) {
+    var at = it.id === TOOL || it.noOrder ? '' : pickupPlace(it.vendor, o.dept);
+    return at ? '<span class="where">【去' + esc(at.replace('教室', '')) + '拿】</span>' : '';
+  }
   function codeOf(it) { return itemById[it.id] && itemById[it.id].code ? itemById[it.id].code : ''; }
   // 一組的量＝全班 ÷ 組數（有填組數才算），最多兩位小數
   function perGroup(o, it) {
@@ -3765,10 +3782,10 @@
     var T = Math.max(15, tools.length);
     var N = Math.max(24, lines.length, T + 3);
     var time = tp ? tp.ap + ' ' + tp.h + ' 點 ' + tp.mi + ' 分' : esc(o.classTime);
-    var html = '<div class="sheet"><table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
+    var html = '<div class="sheet">' + deptTag(o) + '<table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
       '<colgroup><col style="width:6%"><col style="width:20%"><col style="width:8%"><col style="width:9%"><col style="width:11%">' +
       '<col style="width:6%"><col style="width:20%"><col style="width:10%"><col style="width:10%"></colgroup>' +
-      '<tr><td colspan="9" class="title">' + esc(o.dept || '') + '實習專用請料單</td></tr>' +
+      '<tr><td colspan="9" class="title tagged">' + esc(o.dept || '') + '實習專用請料單</td></tr>' +
       '<tr class="hdr"><td colspan="9">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + time + '</td></tr>' +
       '<tr class="hdr"><td colspan="5">上課班級：' + esc(o.className) + '　共' + groupsText(o) + '組</td><td colspan="4" class="c">實習項目</td></tr>' +
       '<tr class="hdr"><td colspan="5">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="3" class="c wrap">' + esc(o.project) + '</td></tr>' +
@@ -3778,7 +3795,7 @@
     for (var i = 0; i < N; i++) {
       var ln = lines[i];
       if (ln && ln.label !== undefined) html += '<tr><td></td><td colspan="4"><b>【' + esc(ln.label) + '】</b></td>';
-      else html += '<tr>' + cell(ln ? ln.no : '', 'c') + cell(ln ? nameText(ln.it) : '') + cell('') + cell(ln ? perGroup(o, ln.it) : '', 'r') + cell(ln ? qtyText(ln.it) : '', 'r');
+      else html += '<tr>' + cell(ln ? ln.no : '', 'c') + cell(ln ? whereText(o, ln.it) + nameText(ln.it) : '') + cell('') + cell(ln ? perGroup(o, ln.it) : '', 'r') + cell(ln ? qtyText(ln.it) : '', 'r');
       if (i < T) {
         var t = tools[i];
         html += cell(t ? i + 1 : '', 'c') + cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + cell('');
@@ -3798,10 +3815,10 @@
     var dp = dateParts(o);
     foods = foods.slice().sort(function (a, b) { return a.vendor < b.vendor ? -1 : a.vendor > b.vendor ? 1 : 0; });
     var N = Math.max(24, foods.length, tools.length);
-    var html = '<div class="sheet"><table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
+    var html = '<div class="sheet">' + deptTag(o) + '<table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
       '<colgroup><col style="width:6%"><col style="width:17%"><col style="width:8%"><col style="width:7%"><col style="width:7%">' +
       '<col style="width:10%"><col style="width:8%"><col style="width:12%"><col style="width:17%"><col style="width:8%"></colgroup>' +
-      '<tr><td colspan="10" class="title wrap">' + esc(o.dept || '') + esc(o.project || '') + '實習專用請料單</td></tr>' +
+      '<tr><td colspan="10" class="title wrap tagged">' + esc(o.dept || '') + esc(o.project || '') + '實習專用請料單</td></tr>' +
       '<tr class="hdr"><td colspan="10">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + esc(o.classTime) + '</td></tr>' +
       '<tr class="hdr"><td colspan="7">上課班級：' + esc(o.className) + '　共' + groupsText(o) + '組</td><td colspan="3" class="c">實習項目</td></tr>' +
       '<tr class="hdr"><td colspan="7">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="2" class="c wrap">' + esc(o.project) + '</td></tr>' +
@@ -3823,7 +3840,7 @@
       if (groupAt[i]) html += '<td rowspan="' + groupAt[i].n + '" class="vtext">' + esc(groupAt[i].v) + '</td>';
       else if (i >= foods.length) html += cell('');
       html += cell(it ? esc(it.name) : '', 'c') + cell(it ? perGroup(o, it) : '', 'c') + cell('') + cell(it ? esc(it.unit) : '', 'c') +
-        cell(it ? esc(fmtQty(it.qty)) : '', 'c') + cell('') + cell(note ? '<span class="note">' + esc(note) + '</span>' : '') +
+        cell(it ? esc(fmtQty(it.qty)) : '', 'c') + cell('') + cell((it ? whereText(o, it) + ' ' : '') + (note ? '<span class="note">' + esc(note) + '</span>' : '')) +
         cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + '</tr>';
     }
     html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table></div>';
@@ -3852,13 +3869,13 @@
         '<tr class="bt"><td colspan="' + (isTool ? 2 : 3) + '">' + title + '</td></tr><tr class="colh">' + (isTool ? '' : '<td>編號</td>') + '<td>品名</td><td>數量</td></tr>';
       for (var i = 0; i < rows; i++) {
         var it = list[i];
-        h += '<tr>' + (isTool ? '' : cell(it ? esc(codeOf(it)) : '')) + cell(it ? nameText(it) : '') + cell(it ? (isTool ? esc(fmtQty(it.qty)) : qtyText(it)) : '') + '</tr>';
+        h += '<tr>' + (isTool ? '' : cell(it ? esc(codeOf(it)) : '')) + cell(it ? (isTool ? '' : whereText(o, it)) + nameText(it) : '') + cell(it ? (isTool ? esc(fmtQty(it.qty)) : qtyText(it)) : '') + '</tr>';
       }
       return h + '</table>';
     }
     var dp = dateParts(o);
-    var html = '<div class="sheet teacher"><h1>三信家商餐飲科教師料單</h1>' +
-      '<div class="meta"><div>教師姓名：' + esc(teacherOf(o)) + '</div><div>上課班級：' + esc(o.className) + '</div><div>實習項目：' + esc(o.project) + '</div>' +
+    var html = '<div class="sheet teacher">' + deptTag(o) + '<h1>三信家商餐飲科教師料單</h1>' +
+      '<div class="meta"><div>科別：<b>' + esc(o.dept || '') + '</b></div><div>教師姓名：' + esc(teacherOf(o)) + '</div><div>上課班級：' + esc(o.className) + '</div><div>實習項目：' + esc(o.project) + '</div>' +
       '<div>上課日期：' + dp.m + '/' + dp.d + '（' + dp.w + '）</div><div>上課時間(上午/下午)：' + esc(o.classTime) + '</div><div>上課專業教室：' + esc(o.room) + '</div>' +
       '<div>分組：' + (o.groups ? esc(o.groups) + ' 組' : '') + '</div></div>' +
       '<div class="boxes">' +
@@ -3870,7 +3887,7 @@
         box('上課須用器具', tools, R2, true) +
       '</div>';
     if (others.length) html += '<div class="extra"><b>其他：</b>' + others.map(function (it) {
-      return esc(it.vendor) + ' ' + nameText(it) + ' ' + qtyText(it);
+      return esc(it.vendor) + ' ' + whereText(o, it) + nameText(it) + ' ' + qtyText(it);
     }).join('、') + '</div>';
     return html + '</div>';
   }
