@@ -443,6 +443,37 @@
   .lbl .ls span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .lbl .ls b { white-space: nowrap; }
   @page labels { size: A4 portrait; margin: 0; }
+  /* 今日抽查 */
+  .au-card .au-head { font-size: 17px; margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+  .au-card .au-head b { font-size: 22px; }
+  .au-t { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .au-t th, .au-t td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; vertical-align: middle; }
+  .au-t th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .au-t input, .au-t select { padding: 6px 8px; font-size: 16px; }
+  .au-t input[data-aa] { width: 90px; text-align: right; }
+  .au-t tr.bad td { background: var(--bad-soft); }
+  .au-t tr.good td:first-child { color: var(--ok); }
+  @media (max-width: 640px) {
+    .au-t:not(.au-hist) thead { display: none; }
+    .au-t:not(.au-hist) tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+    .au-t:not(.au-hist) td { border: 0; padding: 0; }
+    .au-t:not(.au-hist) td:first-child { grid-column: 1 / -1; font-size: 18px; }
+    .au-t:not(.au-hist) td:nth-child(2)::before { content: '實際 '; color: var(--muted); font-size: 13px; }
+    .au-t:not(.au-hist) td:nth-child(3)::before { content: '清單 '; color: var(--muted); font-size: 13px; }
+    .au-t:not(.au-hist) td:nth-child(3) { align-self: center; }
+    .au-t:not(.au-hist) td select, .au-t:not(.au-hist) td input[data-an] { width: 100%; }
+  }
+  .au-photos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .au-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+  .au-hist td, .au-hist th { vertical-align: top; }
+  .au-stk { text-align: center; justify-content: center; gap: 1.5mm; }
+  .au-stk .big { font-size: 7mm; font-weight: 900; letter-spacing: 1mm; }
+  .au-stk .ln { font-size: 3.6mm; white-space: nowrap; }
+  #auPrint { display: none; }
+  @media print {
+    #viewAudit.stk > :not(#auPrint) { display: none !important; }
+    #viewAudit.stk #auPrint { display: block; }
+  }
   .vedit .vfoot { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
   .vedit .ptable input, .vedit .ptable select { padding: 6px 8px; min-width: 0; width: 100%; font-size: inherit; }
   .vedit .ptable .pqty { text-align: right; font-weight: 700; }
@@ -584,6 +615,7 @@
         <button type="button" data-view="viewLessons">我的課<span id="lessonCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
+        <button type="button" data-view="viewAudit" class="admin-only hidden">抽查</button>
         <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSettings" class="admin-only hidden">系統設定</button>
@@ -973,6 +1005,36 @@
           </div>
         </details>
       </div>
+    </section>
+
+    <!-- 管理者：今日抽查 -->
+    <section id="viewAudit" class="hidden">
+      <div class="panel noprint">
+        <h2>今日抽查 <details class="vhelp"><summary>？說明</summary><div class="muted small">按「隨機抽」由系統從這一天有領料的班隨機抽幾班（不是自己挑，大家比較不會覺得被針對），每班挑幾樣比較貴、容易被拿的。
+          現場請<b>先拍照、看封條，再數實際數量</b>，填好才會顯示清單上的數量（盲點，避免「看到 3 顆就以為是 3 顆」）。存好後在袋子上貼「已抽查」貼紙。發現不對先不要當場指責，拍照記下來，再照驗收紀錄 → 分貨 → 封條 → 領料往回追。</div></details></h2>
+        <div class="grid2">
+          <div><label for="auDate">上課日期</label><input id="auDate" type="date"></div>
+          <div><label for="auTiming">時間點</label><select id="auTiming"><option>分貨後、上課前</option><option>下課後（剩料）</option></select></div>
+          <div><label for="auN">抽幾班</label><select id="auN"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+          <div><label for="auK">每班抽幾樣</label><select id="auK"><option value="3">3 樣</option><option value="5" selected>5 樣</option><option value="99">全部</option></select></div>
+          <div class="wide"><label for="auPartner">陪同的人（可不填）</label><input id="auPartner" type="text" maxlength="30" placeholder="例如：主任、某某老師"></div>
+        </div>
+        <div class="actions" style="justify-content:flex-start">
+          <button type="button" class="btn" id="auPick">🎲 隨機抽</button>
+          <button type="button" class="btn ghost small" id="auStickers">列印「已抽查」貼紙</button>
+        </div>
+        <div id="auMsg"></div>
+      </div>
+      <div id="auCards" class="noprint"></div>
+      <div class="panel" id="auHistPanel">
+        <h2>抽查紀錄 <button type="button" class="btn ghost small noprint" id="auHistLoad">重新整理</button> <button type="button" class="btn ghost small noprint" id="auHistPrint">列印報表</button></h2>
+        <div class="grid2 noprint">
+          <div><label for="auFrom">抽查日期（起）</label><input id="auFrom" type="date"></div>
+          <div><label for="auTo">抽查日期（迄）</label><input id="auTo" type="date"></div>
+        </div>
+        <div id="auHist" class="small"></div>
+      </div>
+      <div id="auPrint"></div>
     </section>
 
     <!-- 管理者：審核食材 -->
@@ -1416,7 +1478,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -1435,6 +1497,7 @@
     if (view === 'viewPending') { fillAddItemForm(); loadPending(note); }
     if (view === 'viewPassword') resetPwForm();
     if (view === 'viewSettings') { loadAuto(); renderSpeed(); }
+    if (view === 'viewAudit') auditOpen();
     if (view === 'viewVendor' && !$('vFrom').value) setVendorWeek(1);   // 預設：下週一到下週五
   }
 
@@ -4406,6 +4469,197 @@
       var el = $('pkName'); if (el) el.focus();
     }, 50);
   }
+  // ------------------------------------------------------------------
+  // 今日抽查：系統從這一天有領料的班隨機抽幾班、每班挑幾樣比較貴的，現場盲點（先數實際、再看清單），存成抽查紀錄
+  // ------------------------------------------------------------------
+  var audit = null;   // { date, timing, cards: [{ o, items: [{ it, actual, result, manual, note }], seal, fridge, note, photos: [dataUrl] }] }
+  var AUDIT_PRI = { B: 1, D: 2, A: 3, F: 4, C: 5, E: 6 };   // 沒有單價時：肉、海鮮、菜水果比較常被拿
+  function auditOpen() {
+    if (!$('auDate').value) $('auDate').value = isoDate(new Date());
+    if (!$('auFrom').value) { var t = new Date(); $('auFrom').value = isoDate(new Date(t.getFullYear(), t.getMonth(), 1)); $('auTo').value = isoDate(t); auditHistory(); }
+  }
+  // 挑 k 樣：先照金額（沒有單價照廠商類別）排，最貴的一半一定抽，另一半從接下來的裡面隨機挑，每次抽到的不會都一樣
+  function auditPickItems(o, k) {
+    var list = o.items.filter(function (it) { return it.id !== TOOL && !it.noOrder && it.status !== '已取消' && it.vendor !== data.selfVendor; })
+      .map(function (it) { return { it: it, cost: estCost(it) || 0, pri: AUDIT_PRI[String(it.vendor || '').charAt(0)] || 9 }; })
+      .sort(function (a, b) { return b.cost - a.cost || a.pri - b.pri; });
+    if (list.length > k) {
+      var sure = Math.ceil(k / 2), rest = list.slice(sure, Math.max(k * 2, sure + 1));
+      for (var i = rest.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+      list = list.slice(0, sure).concat(rest.slice(0, k - sure));
+    }
+    return list.map(function (x) { return { it: x.it, actual: '', result: '', manual: false, note: '' }; });
+  }
+  function auditDirty() {
+    return !!(audit && audit.cards.some(function (c) { return c.photos.length || c.seal || c.note || c.items.some(function (x) { return x.actual !== '' || x.result; }); }));
+  }
+  $('auPick').addEventListener('click', function () {
+    var b = this, date = $('auDate').value;
+    if (!date) { msg('auMsg', 'error', '請選擇上課日期。'); return; }
+    if (auditDirty() && !safeConfirm('目前的抽查還沒存，重新抽會不見。確定要重抽？')) return;
+    setBusy(b, true, '抽籤中…');
+    call('adminAuditPick', token, date, Number($('auN').value)).then(function (r) {
+      var k = Number($('auK').value) || 5;
+      audit = { date: date, timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k), seal: '', fridge: '', note: '', photos: [] }; }) };
+      msg('auMsg', r.total ? 'ok' : 'info', r.total ? '這天有 ' + r.total + ' 班有領料，系統隨機抽了 ' + r.orders.length + ' 班（' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) + '）。請先拍照、看封條，再數實際數量。' : '這天沒有要領料的班。');
+      renderAudit();
+    }).catch(function (e) { msg('auMsg', 'error', '抽籤失敗：' + e.message); })
+      .then(function () { setBusy(b, false); });
+  });
+  function auditRow(c, ci, x, xi) {
+    var it = x.it, shown = x.actual !== '' || x.manual;
+    var cls = !x.result ? '' : x.result === '正常' ? 'good' : x.result === '不確定' ? '' : 'bad';
+    return '<tr data-ci="' + ci + '" data-xi="' + xi + '" class="' + cls + '"><td><b>' + esc(it.name) + '</b></td>' +
+      '<td><input type="number" inputmode="decimal" min="0" step="any" data-aa value="' + esc(x.actual) + '"> ' + esc(it.unit || '') + '</td>' +
+      '<td data-aq>' + (shown ? esc(fmtQty(it.qty)) + ' ' + esc(it.unit || '') : '<button type="button" class="btn ghost small" data-ashow>先數完再看</button>') + '</td>' +
+      '<td><select data-ar><option value="">結果</option>' + ['正常', '少了', '多了', '沒有', '不確定'].map(function (r) { return '<option' + (x.result === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select></td>' +
+      '<td><input type="text" maxlength="60" data-an placeholder="說明" value="' + esc(x.note) + '"></td></tr>';
+  }
+  function renderAudit() {
+    if (!audit || !audit.cards.length) { $('auCards').innerHTML = ''; return; }
+    $('auCards').innerHTML = audit.cards.map(function (c, ci) {
+      var o = c.o;
+      return '<div class="panel au-card" data-ci="' + ci + '"><div class="au-head"><b>' + esc(o.className || '—') + '</b>' + (o.dept ? '<span class="badge info">' + esc(o.dept) + '</span>' : '') +
+        '<span>' + esc(teacherOf(o)) + ' 老師</span><span class="muted">' + esc(shortDate(o.useDate)) + ' ' + esc(o.classTime || '') + '・' + esc(o.room || '') + '・訂單 ' + esc(o.orderNo) + '</span></div>' +
+        '<div class="tpl-row"><div><label>放在哪個冰箱</label><input type="text" maxlength="30" data-af="fridge" placeholder="例如：西餐 B" value="' + esc(c.fridge) + '"></div>' +
+        '<div><label>封條</label><div class="status-chips" style="margin:0">' + ['完整', '破了', '沒封'].map(function (sv) { return '<button type="button" data-seal="' + sv + '" class="' + (c.seal === sv ? 'on' : '') + '">' + sv + '</button>'; }).join('') + '</div></div></div>' +
+        '<div style="overflow-x:auto"><table class="au-t"><thead><tr><th>食材</th><th>實際數量</th><th>清單</th><th>結果</th><th>說明</th></tr></thead><tbody>' +
+        c.items.map(function (x, xi) { return auditRow(c, ci, x, xi); }).join('') + '</tbody></table></div>' +
+        '<div class="tpl-row" style="margin-top:6px"><div><label>整班說明（可不填）</label><input type="text" maxlength="100" data-af="note" value="' + esc(c.note) + '"></div>' +
+        '<div><label>照片（最多 3 張）</label><input type="file" accept="image/*" capture="environment" multiple data-aph></div></div>' +
+        '<div class="au-photos">' + c.photos.map(function (u, pi) { return '<img src="' + u + '" alt="照片 ' + (pi + 1) + '" data-apdel="' + pi + '" title="點一下刪除">'; }).join('') + '</div></div>';
+    }).join('') + '<div class="panel"><div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="auSave">儲存抽查結果</button>' +
+      '<span class="muted small">存好後在袋子上貼「已抽查」貼紙。</span></div></div>';
+  }
+  function auditAuto(x) {
+    if (x.manual && x.result) return;
+    if (x.actual === '') { x.result = ''; return; }
+    var a = Number(x.actual), q = Number(x.it.qty);
+    x.result = !(a >= 0) ? '' : a === 0 && q > 0 ? '沒有' : Math.abs(a - q) < 1e-9 ? '正常' : a < q ? '少了' : '多了';
+  }
+  function auditRefreshRow(tr) {
+    var c = audit.cards[Number(tr.getAttribute('data-ci'))], xi = Number(tr.getAttribute('data-xi')), x = c.items[xi];
+    var tmp = document.createElement('tbody');
+    tmp.innerHTML = auditRow(c, Number(tr.getAttribute('data-ci')), x, xi);
+    var fresh = tmp.firstChild;
+    tr.className = fresh.className;
+    tr.querySelector('[data-aq]').innerHTML = fresh.querySelector('[data-aq]').innerHTML;
+    tr.querySelector('[data-ar]').value = x.result;
+  }
+  $('auCards').addEventListener('input', function (e) {
+    var tr = e.target.closest('tr[data-xi]'), card = e.target.closest('.au-card');
+    if (!audit || !card) return;
+    var c = audit.cards[Number(card.getAttribute('data-ci'))];
+    if (e.target.matches('[data-af]')) { c[e.target.getAttribute('data-af')] = e.target.value; return; }
+    if (!tr) return;
+    var x = c.items[Number(tr.getAttribute('data-xi'))];
+    if (e.target.matches('[data-aa]')) { x.actual = e.target.value.trim(); auditAuto(x); auditRefreshRow(tr); }
+    if (e.target.matches('[data-an]')) x.note = e.target.value;
+  });
+  $('auCards').addEventListener('change', function (e) {
+    var tr = e.target.closest('tr[data-xi]'), card = e.target.closest('.au-card');
+    if (!audit || !card) return;
+    var c = audit.cards[Number(card.getAttribute('data-ci'))];
+    if (tr && e.target.matches('[data-ar]')) { var x = c.items[Number(tr.getAttribute('data-xi'))]; x.result = e.target.value; x.manual = !!x.result; auditRefreshRow(tr); }
+    if (e.target.matches('[data-aph]')) {
+      var files = Array.prototype.slice.call(e.target.files || [], 0, Math.max(0, 3 - c.photos.length));
+      Promise.all(files.map(auditShrink)).then(function (urls) { c.photos = c.photos.concat(urls.filter(Boolean)).slice(0, 3); renderAudit(); })
+        .catch(function (err) { msg('auMsg', 'error', '照片讀取失敗：' + err.message); });
+    }
+  });
+  $('auCards').addEventListener('click', function (e) {
+    var card = e.target.closest('.au-card');
+    if (e.target.id === 'auSave') { auditSave(e.target); return; }
+    if (!audit || !card) return;
+    var c = audit.cards[Number(card.getAttribute('data-ci'))];
+    var sb = e.target.closest('[data-seal]');
+    if (sb) { c.seal = c.seal === sb.getAttribute('data-seal') ? '' : sb.getAttribute('data-seal'); renderAudit(); return; }
+    if (e.target.matches('[data-ashow]')) {
+      var tr = e.target.closest('tr[data-xi]'), x = c.items[Number(tr.getAttribute('data-xi'))];
+      x.manual = true; auditRefreshRow(tr); return;
+    }
+    if (e.target.matches('[data-apdel]') && safeConfirm('刪除這張照片？')) { c.photos.splice(Number(e.target.getAttribute('data-apdel')), 1); renderAudit(); }
+  });
+  // 手機照片縮小（長邊 1280）再上傳
+  function auditShrink(file) {
+    return new Promise(function (resolve) {
+      if (!/^image\//.test(file.type)) { resolve(''); return; }
+      var fr = new FileReader();
+      fr.onerror = function () { resolve(''); };
+      fr.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight)), cv = document.createElement('canvas');
+          cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+          var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+          resolve(cv.toDataURL('image/jpeg', 0.75));
+        };
+        img.onerror = function () { resolve(''); };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  function auditSave(b) {
+    var blank = 0;
+    audit.cards.forEach(function (c) { c.items.forEach(function (x) { if (!x.result) blank++; }); });
+    var go = blank ? ask('還有 ' + blank + ' 樣沒填實際數量或結果，要當作「不確定」存起來嗎？', '存起來') : Promise.resolve(true);
+    go.then(function (ok) {
+      if (!ok) return;
+      var payload = { timing: audit.timing, partner: $('auPartner').value.trim(), orders: audit.cards.map(function (c) {
+        var o = c.o;
+        return { orderNo: o.orderNo, useDate: o.useDate, classTime: o.classTime, className: o.className, dept: o.dept, teacher: teacherOf(o), fridge: c.fridge.trim(), seal: c.seal,
+          note: c.note.trim(), photos: c.photos, items: c.items.map(function (x) { return { name: x.it.name, qty: x.it.qty, unit: x.it.unit, actual: x.actual, result: x.result || '不確定', note: x.note.trim() }; }) };
+      }) };
+      var bad = 0;
+      payload.orders.forEach(function (o) { if (o.seal === '破了' || o.items.some(function (x) { return ['少了', '多了', '沒有'].indexOf(x.result) >= 0; })) bad++; });
+      setBusy(b, true, '儲存中…');
+      call('adminSaveAudit', token, payload).then(function () {
+        audit = null; renderAudit();
+        msg('auMsg', bad ? 'warn' : 'ok', '抽查結果已存（' + payload.orders.length + ' 班）。' + (bad ? '有 ' + bad + ' 班不對，請照驗收紀錄 → 分貨 → 封條 → 領料往回追；先不要當場指責。' : '全部正常。') + '記得在袋子上貼「已抽查」貼紙。');
+        auditHistory();
+        window.scrollTo(0, 0);
+      }).catch(function (e) { msg('auMsg', 'error', '儲存失敗：' + e.message); setBusy(b, false); });
+    });
+  }
+  window.addEventListener('beforeunload', function (e) { if (auditDirty()) { e.preventDefault(); e.returnValue = ''; } });
+  function auditHistory() {
+    var from = $('auFrom').value, to = $('auTo').value || from;
+    if (!from) return;
+    $('auHist').textContent = '載入中…';
+    call('adminGetAudits', token, from, to).then(function (list) {
+      if (!list.length) { $('auHist').innerHTML = '<span class="muted">這段期間還沒有抽查紀錄。</span>'; return; }
+      var isBad = function (g) { return g.seal === '破了' || g.items.some(function (x) { return ['少了', '多了', '沒有'].indexOf(x.result) >= 0; }); };
+      var nBad = list.filter(isBad).length, nSeal = list.filter(function (g) { return g.seal === '破了'; }).length;
+      $('auHist').innerHTML = '<p style="font-size:15px">' + esc(shortDate(from)) + '～' + esc(shortDate(to)) + '：抽查 <b>' + list.length + '</b> 班，正常 <b>' + (list.length - nBad) + '</b> 班，' +
+        '<b style="color:' + (nBad ? 'var(--bad)' : 'inherit') + '">有問題 ' + nBad + ' 班</b>' + (nSeal ? '（封條破 ' + nSeal + ' 次）' : '') + '</p>' +
+        '<div style="overflow-x:auto"><table class="au-t au-hist"><thead><tr><th>抽查時間</th><th>班級／老師</th><th>冰箱・封條</th><th>結果</th><th>照片</th><th>抽查人</th></tr></thead><tbody>' +
+        list.map(function (g) {
+          var probs = g.items.filter(function (x) { return x.result !== '正常'; });
+          return '<tr class="' + (isBad(g) ? 'bad' : '') + '"><td>' + esc(g.time) + '<br><span class="muted">' + esc(g.timing) + '</span></td>' +
+            '<td><b>' + esc(g.className) + '</b> ' + esc(g.dept) + '<br>' + esc(g.teacher) + ' 老師・' + esc(shortDate(g.useDate)) + '</td>' +
+            '<td>' + esc(g.fridge || '—') + '<br>封條：' + esc(g.seal || '—') + '</td>' +
+            '<td>抽 ' + g.items.length + ' 樣，' + (probs.length ? probs.map(function (x) {
+              return esc(x.name) + ' <b>' + esc(x.result) + '</b>（清單 ' + esc(fmtQty(Number(x.qty))) + '、實際 ' + esc(x.actual === '' ? '?' : fmtQty(Number(x.actual))) + ' ' + esc(x.unit) + '）' + (x.note ? ' ' + esc(x.note) : '');
+            }).join('<br>') : '<span style="color:var(--ok)">全部正常</span>') + '</td>' +
+            '<td>' + (g.photos.length ? g.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" rel="noopener">照片' + (i + 1) + '</a>'; }).join(' ') : '—') + '</td>' +
+            '<td>' + esc(g.by) + (g.partner ? '<br><span class="muted">陪同：' + esc(g.partner) + '</span>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }).catch(function (e) { $('auHist').textContent = '讀取失敗：' + e.message; });
+  }
+  $('auHistLoad').addEventListener('click', auditHistory);
+  ['auFrom', 'auTo'].forEach(function (id) { $(id).addEventListener('change', auditHistory); });
+  $('auHistPrint').addEventListener('click', function () { window.print(); });
+  // 「已抽查」空白貼紙：A4 24 格，現場手寫日期、抽查人
+  $('auStickers').addEventListener('click', function () {
+    var cell = '<div class="lbl au-stk"><div class="big">✓ 已抽查</div><div class="ln">日期＿＿＿＿ 時間＿＿＿＿</div><div class="ln">抽查人＿＿＿＿＿＿＿＿</div></div>', cells = [];
+    for (var i = 0; i < 24; i++) cells.push(cell);
+    $('auPrint').innerHTML = '<div class="lblpage lines" style="grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(8,1fr);--lf:4mm">' + cells.join('') + '</div>';
+    $('viewAudit').classList.add('stk');
+    window.print();
+  });
+  window.addEventListener('afterprint', function () { $('viewAudit').classList.remove('stk'); });
+
   // ⑤ 分班標籤：每張訂單的每一樣東西印一張貼紙（班級、科別、品名、數量、老師、日期），貼在分好的東西上，
   // 同一班不同老師（例如 314 陳老師 2 顆蘋果、314 吳老師 3 顆蘋果）也分得出來。照廠商→品名→日期→班級排，校隊拆一箱就貼一輪。
   // f：每樣一張的字級；li、n：每班一張清單的品項字級、一欄幾行（兩欄）

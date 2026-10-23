@@ -103,12 +103,19 @@ const SHEET = {
   holidays: '放假日',
   subs: '科別替換',
   pickups: '跨教室領料',
+  audits: '抽查紀錄',
 };
 // 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
 const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
 // 跨教室領料單：管理者自己加的（系統自動抓不到的，例如臨時跟別間教室借的食材）
 const PICKUP_PLACES = ['烘焙教室', '中餐教室', '飲調教室'];   // 跨教室領料只有這三間
 const PICKUP_HEADERS = ['使用日期', '上課時間', '班級', '老師', '科別', '教室', '領取地點', '食材名稱', '數量', '單位', '備註', '建立者', '建立時間'];
+// 抽查紀錄：管理者隨機抽查分好的食材，一班一個抽查編號、每樣食材一列
+const AUDIT_HEADERS = ['抽查編號', '抽查時間', '時間點', '冰箱', '訂單編號', '上課日期', '上課時間', '班級', '科別', '老師', '食材名稱', '清單數量', '單位', '實際數量', '結果', '封條', '說明', '照片', '抽查人', '陪同人'];
+const AUDIT_TIMINGS = ['分貨後、上課前', '下課後（剩料）'];
+const AUDIT_RESULTS = ['正常', '少了', '多了', '沒有', '不確定'];
+const AUDIT_SEALS = ['完整', '破了', '沒封', ''];
+const AUDIT_FOLDER_NAME = '三信家商餐飲科抽查照片';
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
@@ -3867,6 +3874,103 @@ function ensureHeaders_(sh, headers) {
   if (!missing.length) return;
   const start = have.filter(Boolean).length ? lastCol + 1 : 1;
   sh.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
+}
+
+// ---- 今日抽查 ----
+
+/**
+ * 管理者：從這一天有領料的訂單隨機抽 n 張（系統抽，不是管理者挑）。
+ * 不含已取消、還料單、只有器具／有貨／自備的訂單。
+ */
+function adminAuditPick(token, date, n) {
+  auth_(token, true);
+  const d = parseDate_(date);
+  if (!d) throw new Error('請選擇日期。');
+  n = Math.max(1, Math.min(10, Number(n) || 3));
+  const pool = adminGetOrders(token, dateStr_(d), dateStr_(d), true).filter(function (o) {
+    if (o.status === '已取消' || isReturn_(o.project)) return false;
+    return o.items.some(function (it) { return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR; });
+  });
+  for (let i = pool.length - 1; i > 0; i--) {   // 洗牌
+    const j = Math.floor(Math.random() * (i + 1)), t = pool[i];
+    pool[i] = pool[j]; pool[j] = t;
+  }
+  return { total: pool.length, orders: pool.slice(0, n) };
+}
+
+/** 管理者：存抽查結果。照片存到雲端硬碟「三信家商餐飲科抽查照片」，表上放連結 */
+function adminSaveAudit(token, a) {
+  const who = auth_(token, true);
+  a = a || {};
+  const timing = AUDIT_TIMINGS.indexOf(a.timing) >= 0 ? a.timing : AUDIT_TIMINGS[0];
+  const partner = clean_(a.partner, 30);
+  const list = (a.orders || []).filter(function (o) { return o && (o.items || []).length; });
+  if (!list.length) throw new Error('沒有要存的抽查結果。');
+  if (list.length > 10) throw new Error('一次最多存 10 班。');
+  const now = new Date(), stamp = Utilities.formatDate(now, tz_(), 'yyyyMMdd-HHmmss');
+  const rows = [], ids = [];
+  list.forEach(function (o, k) {
+    const id = 'AU' + stamp + '-' + (k + 1);
+    ids.push(id);
+    const urls = (o.photos || []).slice(0, 3).map(function (p, i) { return saveAuditPhoto_(p, id + '-' + (i + 1)); }).filter(Boolean);
+    const seal = AUDIT_SEALS.indexOf(o.seal) >= 0 ? o.seal : '';
+    o.items.slice(0, 80).forEach(function (it, i) {
+      const actual = it.actual === '' || it.actual === null || it.actual === undefined ? '' : Number(it.actual);
+      rows.push({
+        '抽查編號': id, '抽查時間': now, '時間點': timing, '冰箱': clean_(o.fridge, 30), '訂單編號': clean_(o.orderNo, 30),
+        '上課日期': clean_(o.useDate, 12), '上課時間': clean_(o.classTime, 20), '班級': clean_(o.className, 20), '科別': clean_(o.dept, 10),
+        '老師': clean_(o.teacher, 20), '食材名稱': clean_(it.name, 40), '清單數量': Number(it.qty) || 0, '單位': clean_(it.unit, 10),
+        '實際數量': isNaN(actual) ? '' : actual, '結果': AUDIT_RESULTS.indexOf(it.result) >= 0 ? it.result : '不確定',
+        '封條': i === 0 ? seal : '', '說明': clean_([i === 0 ? o.note : '', it.note].filter(Boolean).join('；'), 200),
+        '照片': i === 0 ? urls.join('\n') : '', '抽查人': who, '陪同人': partner,
+      });
+    });
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(ensureSheet_(SHEET.audits, AUDIT_HEADERS), AUDIT_HEADERS);
+    appendRows_(SHEET.audits, rows, { '抽查時間': 'yyyy/mm/dd hh:mm' });
+  } finally {
+    lock.releaseLock();
+  }
+  return { ids: ids, rows: rows.length };
+}
+
+function saveAuditPhoto_(dataUrl, name) {
+  const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+  if (!m) return '';
+  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], name + (m[1] === 'image/png' ? '.png' : '.jpg'));
+  if (blob.getBytes().length > 4 * 1024 * 1024) throw new Error('照片太大，請重拍。');
+  return folderNamed_(AUDIT_FOLDER_NAME).createFile(blob).getUrl();
+}
+
+/** 管理者：抽查紀錄（照抽查編號合成一班一筆），from～to 是抽查日期 */
+function adminGetAudits(token, from, to) {
+  auth_(token, true);
+  const start = parseDate_(from), end = parseDate_(to) || start;
+  if (!start) throw new Error('請選擇日期。');
+  const sh = ss_().getSheetByName(SHEET.audits);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const endNext = addDays_(end, 1), by = {}, out = [];
+  readTable_(SHEET.audits, ['抽查編號', '抽查時間']).rows.forEach(function (r) {
+    const raw = r['抽查時間'], t = raw instanceof Date ? raw : toDate_(raw);
+    if (!t || t < start || t >= endNext) return;
+    const id = String(r['抽查編號']).trim();
+    if (!by[id]) {
+      by[id] = { id: id, time: fmtDateTime_(t), timing: String(r['時間點'] || ''), fridge: String(r['冰箱'] || ''), orderNo: String(r['訂單編號'] || ''),
+        useDate: (toDate_(r['上課日期']) ? dateStr_(toDate_(r['上課日期'])) : String(r['上課日期'] || '')), classTime: String(r['上課時間'] || ''),
+        className: String(r['班級'] || ''), dept: String(r['科別'] || ''), teacher: String(r['老師'] || ''), seal: '', note: '', photos: [],
+        by: String(r['抽查人'] || ''), partner: String(r['陪同人'] || ''), items: [] };
+      out.push(by[id]);
+    }
+    const g = by[id];
+    if (r['封條']) g.seal = String(r['封條']);
+    if (r['照片']) g.photos = g.photos.concat(String(r['照片']).split(/\s+/).filter(Boolean));
+    g.items.push({ name: String(r['食材名稱'] || ''), qty: r['清單數量'], unit: String(r['單位'] || ''), actual: r['實際數量'],
+      result: String(r['結果'] || ''), note: String(r['說明'] || '') });
+  });
+  return out.sort(function (a, b) { return a.time < b.time ? 1 : a.time > b.time ? -1 : 0; });
 }
 
 function ensureSheet_(name, headers) {
