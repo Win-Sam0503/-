@@ -3169,6 +3169,23 @@
     markRange();
     loadSummary();
   });
+  // 日期（起）選好：迄是空的或比起早，就先填成同一天，再直接打開（迄）的日曆，不用再點一次；用鍵盤打字時不跳
+  function linkRange(fromId, toId) {
+    var f = $(fromId), t = $(toId), typedAt = 0, pending = false;
+    var fill = function () { if (f.value && (!t.value || t.value < f.value)) t.value = f.value; };
+    f.addEventListener('keydown', function () { typedAt = Date.now(); });
+    f.addEventListener('blur', function () { if (pending) { pending = false; fill(); } });   // 打字打到一半（例如先打月份）不要先改（迄）
+    f.addEventListener('change', function () {
+      if (!f.value) return;
+      if (Date.now() - typedAt < 1500) { pending = true; return; }
+      fill();
+      setTimeout(function () {
+        t.focus();
+        try { if (t.showPicker) t.showPicker(); } catch (e) { /* 有的瀏覽器不能自動打開，至少游標已經在（迄） */ }
+      }, 0);
+    }, true);   // 先跑：其他「改日期就重新載入」的動作會讀到已經填好的（迄）
+  }
+  [['sFrom', 'sTo'], ['vFrom', 'vTo'], ['auFrom', 'auTo'], ['holFrom', 'holTo']].forEach(function (x) { linkRange(x[0], x[1]); });
   $('sFrom').addEventListener('change', markRange);
   $('sTo').addEventListener('change', markRange);
   $('sStatus').addEventListener('change', renderSummary);
