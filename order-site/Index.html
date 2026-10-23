@@ -2377,7 +2377,11 @@
       var head = '';
       if (it.section && it.section !== lastSec) head = '<tr><td colspan="4" class="small" style="color:var(--info);font-weight:700;border-bottom:0">' + esc(it.section) + '</td></tr>';
       lastSec = it.section;
-      return head + '<tr' + (it.status === '已取消' && o.status !== '已取消' ? ' style="text-decoration:line-through;color:var(--muted)"' : '') + '><td>' + esc(it.name) +
+      var fl = opts.admin && o.itemFlags && o.itemFlags[it.name];
+      return head + '<tr' + (it.status === '已取消' && o.status !== '已取消' ? ' style="text-decoration:line-through;color:var(--muted)"' : fl ? ' style="background:#fef3f2"' : '') + '><td>' +
+        (opts.admin && !o.archived ? '<label class="noprint" title="' + (fl ? esc('⚠ 異常（' + fl.by + ' ' + fl.time + '）' + (fl.note ? '：' + fl.note : '')) : '勾選＝這一項有異常，只有管理者看得到') +
+          '" style="display:inline-flex;align-items:center;gap:2px;margin-right:6px;color:' + (fl ? 'var(--bad)' : 'var(--muted)') + ';font-size:13px;cursor:pointer"><input type="checkbox" data-iflag="' + esc(it.name) + '" data-no="' + esc(o.orderNo) + '"' + (fl ? ' checked' : '') + ' style="width:auto;margin:0">⚠</label>' : '') +
+        esc(it.name) + (fl ? ' <span class="badge unprinted noprint">異常</span>' : '') +
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
         (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
         '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td>' +
@@ -2413,12 +2417,13 @@
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
-        (opts.admin && o.flag ? '<span class="badge unprinted" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
+        (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
+        (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) +
         (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
-        (opts.admin && o.flag ? '<div class="msg error" style="margin:6px 0">⚠ 異常：' + esc(o.flag.note) + '<span class="muted small">（' + esc(o.flag.by + ' ' + o.flag.time) + '）</span></div>' : '') +
+        (opts.admin && o.flag ? '<div class="msg error noprint" style="margin:6px 0">⚠ 異常：' + esc(o.flag.note) + '<span class="muted small">（' + esc(o.flag.by + ' ' + o.flag.time) + '）</span></div>' : '') +
         (opts.admin ? lessonMatchHtml(o) : '') +
       (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
@@ -2548,7 +2553,7 @@
     return o.status !== '已取消' && L && !L.match.length && !L.near.some(function (l) { return l.status === 'manual'; });
   } };
   var FLAGGED = '__flag';
-  SPECIAL[FLAGGED] = { label: '⚠ 異常', test: function (o) { return !!o.flag; } };
+  SPECIAL[FLAGGED] = { label: '⚠ 異常', test: function (o) { return !!o.flag || !!(o.itemFlags && Object.keys(o.itemFlags).length); } };
   var RETURNS = '__return';
   SPECIAL[RETURNS] = { label: '🔁 還料單', test: function (o) { return String(o.project || '').indexOf(RETURN_TAG) === 0; } };
   function stLabel(st) { return SPECIAL[st] ? SPECIAL[st].label : st; }
@@ -3104,6 +3109,18 @@
   }
 
   $('sumOrders').addEventListener('change', function (e) {
+    var cb = e.target.closest('input[data-iflag]');
+    if (cb) {   // 食材旁邊的「⚠ 異常」勾選
+      var no = cb.getAttribute('data-no'), name = cb.getAttribute('data-iflag'), on = cb.checked;
+      var ord = sumCache.find(function (x) { return x.orderNo === no; });
+      cb.disabled = true;
+      call('adminSetItemFlag', token, no, name, on, '').then(function (r) {
+        ord.itemFlags = ord.itemFlags || {};
+        if (r.flag) ord.itemFlags[name] = r.flag; else delete ord.itemFlags[name];
+        renderSummary();
+      }).catch(function (err) { msg('sumMsg', 'error', err.message); cb.checked = !on; cb.disabled = false; });
+      return;
+    }
     var s = e.target.closest('select[data-act="status"]');
     if (!s) return;
     var no = s.getAttribute('data-no'), status = s.value;

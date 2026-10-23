@@ -115,7 +115,7 @@ const GUOJI_HEADERS = ['日期', '時段', '班級', '核心主題', '實作名�
 const EDIT_HEADERS = ['時間', '訂單編號', '修改人', '內容'];
 // 列印紀錄：管理者在訂單彙整印過的料單，每張訂單一列（最後一次列印）
 const PRINT_HEADERS = ['訂單編號', '列印時間', '列印人'];
-const FLAG_HEADERS = ['訂單編號', '說明', '標記人', '標記時間', '狀態', '解決時間', '解決人'];   // 狀態：異常／已解決
+const FLAG_HEADERS = ['訂單編號', '說明', '標記人', '標記時間', '狀態', '解決時間', '解決人', '食材'];   // 狀態：異常／已解決；食材空白＝整張訂單
 // 廠商聯絡：傳真、電話，印在叫貨單上
 const CONTACT_HEADERS = ['廠商', '傳真', '電話', '聯絡人', '備註'];
 // 放假日（國定假日、補假、校慶補假…）：這幾天的課不算未訂貨、不提醒
@@ -1145,7 +1145,7 @@ function adminGetOrders(token, from, to, lite) {
   if (lite) return list;
   const nos = list.map(function (o) { return o.orderNo; });
   const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos);
-  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags[o.orderNo] || null; });
+  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; });
   try { matchLessons_(list, start, end); } catch (e) { console.error('matchLessons_ ' + e.message); }
   return list;
 }
@@ -1181,18 +1181,40 @@ function matchLessons_(list, start, end) {
 }
 
 /** 這些訂單最後一次在訂單彙整列印的時間和列印人：{ 訂單編號: { time, who } } */
-/** 還沒解決的異常標記：{ 訂單編號: { note, by, time } } */
+/** 還沒解決的異常標記：{ orders: { 訂單編號: { note, by, time } }, items: { 訂單編號: { 食材名稱: { note, by, time } } } } */
 function flagsFor_(orderNos) {
-  const out = {};
+  const out = { orders: {}, items: {} };
   const sh = ss_().getSheetByName(SHEET.flags);
   if (!sh || sh.getLastRow() < 2 || !orderNos.length) return out;
   const want = {};
   orderNos.forEach(function (n) { want[n] = true; });
   readTable_(SHEET.flags, ['訂單編號', '狀態']).rows.forEach(function (r) {
     const no = String(r['訂單編號']).trim();
-    if (want[no] && String(r['狀態']).trim() === '異常') out[no] = { note: String(r['說明'] || ''), by: String(r['標記人'] || ''), time: fmtDateTime_(r['標記時間']) };
+    if (!want[no] || String(r['狀態']).trim() !== '異常') return;
+    const f = { note: String(r['說明'] || ''), by: String(r['標記人'] || ''), time: fmtDateTime_(r['標記時間']) }, item = String(r['食材'] || '').trim();
+    if (item) (out.items[no] = out.items[no] || {})[item] = f; else out.orders[no] = f;
   });
   return out;
+}
+
+/** 管理者：某一張訂單的某一樣食材勾「異常」（on）或取消，只有管理者看得到、不影響叫貨 */
+function adminSetItemFlag(token, orderNo, item, on, note) {
+  const who = auth_(token, true);
+  orderNo = clean_(orderNo, 30); item = clean_(item, 40); note = clean_(note, 200);
+  if (!orderNo || !item) throw new Error('缺少訂單編號或食材。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(ensureSheet_(SHEET.flags, FLAG_HEADERS), FLAG_HEADERS);
+    const t = readTable_(SHEET.flags, ['訂單編號', '狀態', '食材']);
+    const open = t.rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo && String(r['食材']).trim() === item && String(r['狀態']).trim() === '異常'; });
+    if (!on) { open.forEach(function (r) { setCells_(t, r._row, { '狀態': '已解決', '解決時間': new Date(), '解決人': who }); }); return { flag: null }; }
+    if (open.length) setCells_(t, open[0]._row, { '說明': note, '標記人': who, '標記時間': new Date() });
+    else appendRows_(SHEET.flags, [{ '訂單編號': orderNo, '食材': item, '說明': note, '標記人': who, '標記時間': new Date(), '狀態': '異常' }], { '標記時間': 'yyyy/mm/dd hh:mm' });
+    return { flag: { note: note, by: who, time: fmtDateTime_(new Date()) } };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** 管理者：標記訂單異常（note）或解除（resolve = true）。不改訂單狀態，叫貨照常 */
@@ -1206,8 +1228,9 @@ function adminSetFlag(token, orderNo, note, resolve) {
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.flags, FLAG_HEADERS);
+    ensureHeaders_(sheet_(SHEET.flags), FLAG_HEADERS);
     const t = readTable_(SHEET.flags, ['訂單編號', '狀態']);
-    const open = t.rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo && String(r['狀態']).trim() === '異常'; });
+    const open = t.rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo && !String(r['食材'] || '').trim() && String(r['狀態']).trim() === '異常'; });
     if (resolve) {
       open.forEach(function (r) { setCells_(t, r._row, { '狀態': '已解決', '解決時間': new Date(), '解決人': who }); });
       if (note) open.forEach(function (r) { setCell_(t, r._row, '說明', String(r['說明'] || '') + '（解決：' + note + '）'); });
