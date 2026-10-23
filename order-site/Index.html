@@ -422,6 +422,19 @@
   .vpage td.vm { vertical-align: middle; }
   .vpage .dtag { white-space: nowrap; }
   .vpage.deduct td { height: 10mm; }
+  /* ⑤ 分班標籤：A4 貼紙（滿版、沒有邊界），一格一樣東西 */
+  .lblpage { width: 210mm; height: 297mm; background: #fff; color: #000; display: grid; box-sizing: border-box; margin: 0 auto 16px; box-shadow: 0 2px 12px rgba(0,0,0,.15); overflow: hidden;
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+  .lbl { box-sizing: border-box; padding: 2.5mm 3.5mm; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 0.6mm; min-width: 0; }
+  .lblpage.lines .lbl { outline: 0.2mm dashed #999; outline-offset: -0.1mm; }
+  .lbl .l1 { display: flex; align-items: baseline; gap: 2mm; white-space: nowrap; }
+  .lbl .cls { font-size: calc(var(--lf) * 1.55); font-weight: 900; letter-spacing: 0.5px; }
+  .lbl .dep { font-size: calc(var(--lf) * 1.05); font-weight: 700; border: 0.5mm solid #000; padding: 0 1.2mm; line-height: 1.2; }
+  .lbl .l2 { display: flex; align-items: baseline; justify-content: space-between; gap: 2mm; font-size: calc(var(--lf) * 1.3); font-weight: 700; line-height: 1.15; }
+  .lbl .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .lbl .qt { white-space: nowrap; font-weight: 900; }
+  .lbl .l3 { font-size: calc(var(--lf) * 0.72); color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @page labels { size: A4 portrait; margin: 0; }
   .vedit .vfoot { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
   .vedit .ptable input, .vedit .ptable select { padding: 6px 8px; min-width: 0; width: 100%; font-size: inherit; }
   .vedit .ptable .pqty { text-align: right; font-weight: 700; }
@@ -512,6 +525,8 @@
     main { padding: 0 !important; max-width: none !important; }
     .print-scroll { overflow: visible; padding: 0; }
     .sheet { box-shadow: none; margin: 0; page-break-after: always; break-after: page; }
+    .lblpage { page: labels; box-shadow: none; margin: 0; break-after: page; }
+    .lblpage:last-child { break-after: auto; }
     .sheet:last-child { page-break-after: auto; break-after: auto; }
   }
 
@@ -839,7 +854,7 @@
     <!-- 管理者：廠商訂貨單 -->
     <section id="viewVendor" class="hidden">
       <div class="panel noprint">
-        <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>上面的廠商籤可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
+        <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。⑤ 分班標籤：每班每一樣東西印一張貼紙（班級、科別、品名、數量、老師），分貨時貼上，避免拿錯。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>上面的廠商籤可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
         <div class="vweek status-chips" id="vWeeks"><button type="button" data-vw="0">本週</button><button type="button" data-vw="1">下週</button><button type="button" data-vw="2">下下週</button></div>
         <div class="grid2">
           <div><label for="vFrom">上課日期（起）</label><input id="vFrom" type="date"></div>
@@ -851,9 +866,10 @@
           <button type="button" data-vk="order"><b>② 訂貨單</b><span>改實際叫貨、確定</span></button>
           <button type="button" data-vk="purchase"><b>③ 叫貨單</b><span>給廠商</span></button>
           <button type="button" data-vk="pickup"><b>④ 領料單</b><span>跨教室</span></button>
+          <button type="button" data-vk="labels"><b>⑤ 分班標籤</b><span>貼在每班的東西上</span></button>
         </div>
         <select id="vKind" class="hidden" aria-hidden="true" tabindex="-1">
-          <option value="deduct">① 扣貨單</option><option value="order">② 訂貨單</option><option value="purchase">③ 叫貨單</option><option value="pickup">④ 跨教室領料單</option>
+          <option value="deduct">① 扣貨單</option><option value="order">② 訂貨單</option><option value="purchase">③ 叫貨單</option><option value="pickup">④ 跨教室領料單</option><option value="labels">⑤ 分班標籤</option>
         </select>
         <div class="actions vact">
           <details class="vprint-opt"><summary>列印設定</summary>
@@ -3948,11 +3964,12 @@
         !safeConfirm('訂貨單有修改還沒儲存，重新產生會不見。確定要繼續？')) { setBusy(btn, false); msg('vendorMsg', '', ''); return; }
     pState = null;
     var kind = $('vKind').value, only = $('vVendor').value;
-    var fetch = kind === 'deduct' ? Promise.all([call('adminGetOrders', token, from, to, true)])
+    var fetch = kind === 'deduct' || kind === 'labels' ? Promise.all([call('adminGetOrders', token, from, to, true)])
       : kind === 'pickup' ? Promise.all([call('adminGetOrders', token, from, to, true), call('adminGetPickups', token, from, to)])
       : Promise.all([call('adminGetOrders', token, from, to, true), call('adminGetPurchase', token, from, to)]);
     var job = fetch.then(function (res) {
       var orders = res[0], pur = res[1];
+      if (kind === 'labels') { lastSheet = { fn: labelSheets, args: [orders, only] }; return labelSheets(orders, only); }
       if (kind === 'pickup') { lastSheet = { fn: pickupSheets, args: [orders, from, to, only, res[1] || []] }; return pickupSheets.apply(null, lastSheet.args); }
       return pendingGate(orders, only, kind).then(function (go) {
         if (!go) return null;
@@ -3973,6 +3990,12 @@
       });
     });
     job.then(function (html) {
+      if (kind === 'labels') {
+        $('vendorSheets').innerHTML = html ? labelBar() + html : '';
+        msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要貼標籤的東西（不含已取消、勾「有貨」、自備、器具和還料單）。');
+        $('vPrint').disabled = !html;
+        return;
+      }
       if (kind === 'pickup') {
         $('vendorSheets').innerHTML = pickupBar() + html;
         msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要跨教室領的食材。只有某一科在進的食材（例如乳酪絲只跟烘焙乾貨叫），請到「審核食材 → 乾貨進貨科別」設成「只有烘焙進」，或在「② 訂貨單」按「換廠商」改跟烘焙乾貨叫，中餐課訂的就會列在這張領料單。系統抓不到的，也可以按「＋ 新增領料」自己加。');
@@ -4375,6 +4398,77 @@
       var el = $('pkName'); if (el) el.focus();
     }, 50);
   }
+  // ⑤ 分班標籤：每張訂單的每一樣東西印一張貼紙（班級、科別、品名、數量、老師、日期），貼在分好的東西上，
+  // 同一班不同老師（例如 314 陳老師 2 顆蘋果、314 吳老師 3 顆蘋果）也分得出來。照廠商→品名→日期→班級排，校隊拆一箱就貼一輪。
+  var LABEL_LAYOUTS = { '24': { c: 3, r: 8, t: '24 格（3×8，7×3.7 公分）', f: 4.2 }, '21': { c: 3, r: 7, t: '21 格（3×7，7×4.2 公分）', f: 4.6 }, '12': { c: 2, r: 6, t: '12 格（2×6，10.5×5 公分）', f: 6 } };
+  function labelPrefs() {
+    var p = {};
+    try { p = JSON.parse(localStorage.getItem('ckOrder.labels') || '{}') || {}; } catch (e) {}
+    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0) };
+  }
+  function setLabelPrefs(ch) {
+    var p = labelPrefs();
+    Object.keys(ch).forEach(function (k) { p[k] = ch[k]; });
+    try { localStorage.setItem('ckOrder.labels', JSON.stringify(p)); } catch (e) {}
+  }
+  function labelItems(orders, only) {
+    var list = [];
+    orders.forEach(function (o) {
+      if (o.status === '已取消' || String(o.project || '').indexOf(RETURN_TAG) === 0) return;
+      o.items.forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.status === '已取消' || it.vendor === data.selfVendor || (only && it.vendor !== only)) return;
+        list.push({ date: o.useDate, session: String(o.classTime || '').split(' ')[0], className: o.className || '', dept: o.dept || '', teacher: o.onBehalfOf || o.teacher,
+          vendor: it.vendor || '', name: it.name, qty: fmtQty(it.qty) + (it.unit ? ' ' + it.unit : ''), note: it.note || '' });
+      });
+    });
+    var ses = function (x) { var i = SESSIONS_.indexOf(x); return i < 0 ? 9 : i; };
+    return list.sort(function (a, b) {
+      return a.vendor.localeCompare(b.vendor) || a.name.localeCompare(b.name, 'zh-Hant') || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) ||
+        ses(a.session) - ses(b.session) || a.className.localeCompare(b.className, 'zh-Hant', { numeric: true }) || a.teacher.localeCompare(b.teacher, 'zh-Hant');
+    });
+  }
+  var SESSIONS_ = ['上午', '下午', '晚上'];
+  function labelSheets(orders, only) {
+    var items = labelItems(orders, only);
+    if (!items.length) return '';
+    var pf = labelPrefs(), L = LABEL_LAYOUTS[pf.layout], per = L.c * L.r, skip = pf.skip % per;
+    var cells = [];
+    for (var i = 0; i < skip; i++) cells.push('<div class="lbl"></div>');
+    items.forEach(function (x) {
+      cells.push('<div class="lbl"><div class="l1"><span class="cls">' + esc(x.className || '—') + '</span>' + (x.dept ? '<span class="dep">' + esc(x.dept) + '</span>' : '') + '</div>' +
+        '<div class="l2"><span class="nm">' + esc(x.name) + '</span><span class="qt">' + esc(x.qty) + '</span></div>' +
+        '<div class="l3">' + esc(String(x.teacher).replace(/老師$/, '')) + ' 老師・' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '・' + esc(String(x.vendor).charAt(0)) + (x.note ? '・' + esc(x.note) : '') + '</div></div>');
+    });
+    var html = '', style = 'grid-template-columns:repeat(' + L.c + ',1fr);grid-template-rows:repeat(' + L.r + ',1fr);--lf:' + L.f + 'mm';
+    for (var p = 0; p < cells.length; p += per) {
+      var page = cells.slice(p, p + per);
+      while (page.length < per) page.push('<div class="lbl"></div>');
+      html += '<div class="lblpage' + (pf.lines ? ' lines' : '') + '" style="' + style + '">' + page.join('') + '</div>';
+    }
+    return html;
+  }
+  function labelBar() {
+    var pf = labelPrefs(), n = lastSheet && lastSheet.fn === labelSheets ? labelItems.apply(null, lastSheet.args).length : 0, per = LABEL_LAYOUTS[pf.layout].c * LABEL_LAYOUTS[pf.layout].r;
+    return '<div class="noprint panel" style="padding:10px 14px;margin-bottom:10px">' +
+      '<div class="status-chips" style="margin:0 0 6px;align-items:center"><span class="muted small">標籤紙：</span>' +
+      ['24', '21', '12'].map(function (k) { return '<button type="button" data-lblayout="' + k + '" class="' + (pf.layout === k ? 'on' : '') + '">' + LABEL_LAYOUTS[k].t + '</button>'; }).join('') + '</div>' +
+      '<div class="small" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<label class="check" style="margin:0"><input type="checkbox" data-lblines' + (pf.lines ? ' checked' : '') + '> 印虛線框（用一般 A4 紙剪的話打勾）</label>' +
+      '<label style="margin:0">前面跳過 <input type="number" min="0" max="' + (per - 1) + '" value="' + (pf.skip % per) + '" data-lblskip style="width:64px;display:inline-block"> 格（上次用剩的標籤紙）</label>' +
+      '<span class="muted">共 ' + n + ' 張標籤、' + Math.ceil((n + pf.skip % per) / per) + ' 頁</span></div>' +
+      '<div class="muted small" style="margin-top:4px">列印時「邊界」選「無」、「縮放」選「100%／實際大小」，標籤才會對準。先用一般紙印一張疊在標籤紙上對對看。</div></div>';
+  }
+  function redrawLabels() {
+    if (lastSheet && lastSheet.fn === labelSheets) $('vendorSheets').innerHTML = labelBar() + labelSheets.apply(null, lastSheet.args);
+  }
+  $('vendorSheets').addEventListener('click', function (e) {
+    var ly = e.target.closest('[data-lblayout]');
+    if (ly) { setLabelPrefs({ layout: ly.getAttribute('data-lblayout') }); redrawLabels(); }
+  });
+  $('vendorSheets').addEventListener('change', function (e) {
+    if (e.target.matches('[data-lblines]')) { setLabelPrefs({ lines: e.target.checked }); redrawLabels(); }
+    if (e.target.matches('[data-lblskip]')) { setLabelPrefs({ skip: Math.max(0, Math.floor(Number(e.target.value) || 0)) }); redrawLabels(); }
+  });
   $('vendorSheets').addEventListener('click', function (e) {
     var a = e.target.closest('[data-pkadd]'), d = e.target.closest('[data-pkdel]'), pm = e.target.closest('[data-pkmode]');
     if (pm) {
@@ -4446,7 +4540,7 @@
   var lastSheet = null;   // { kind, fn, args }
   function syncVPart() {
     $('vendorSheets').className = 'vp-' + ($('vPart').value || 'sum');
-    $('vPartWrap').classList.toggle('hidden', $('vKind').value === 'pickup');
+    $('vPartWrap').classList.toggle('hidden', $('vKind').value === 'pickup' || $('vKind').value === 'labels');
   }
   $('vKind').addEventListener('change', syncVPart);
   $('vPart').addEventListener('change', function () {
