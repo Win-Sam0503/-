@@ -99,6 +99,15 @@
   .badge.warn { background: var(--warn-soft); color: var(--warn); }
   .badge.bad { background: var(--bad-soft); color: var(--bad); }
   .badge.info { background: var(--info-soft); color: var(--info); }
+  /* 訂單狀態顏色：待處理白框、已審核藍、已叫貨紫、已到貨綠、已取消紅、部分處理橘 */
+  .stc-pending { background: #fff !important; color: #344054 !important; border: 1.5px solid #344054 !important; }
+  .stc-reviewed { background: #e0eaff !important; color: #1849a9 !important; border: 1.5px solid #84adff !important; }
+  .stc-ordered { background: #ebe9fe !important; color: #5925dc !important; border: 1.5px solid #bdb4fe !important; }
+  .stc-arrived { background: #dcfae6 !important; color: #067647 !important; border: 1.5px solid #75e0a7 !important; }
+  .stc-canceled { background: #fee4e2 !important; color: #b42318 !important; border: 1.5px solid #fda29b !important; }
+  .stc-partial { background: #fef0c7 !important; color: #b54708 !important; border: 1.5px solid #fec84b !important; }
+  .status-chips button[class*="stc-"].on { box-shadow: 0 0 0 2px currentColor; font-weight: 700; }
+  select[class*="stc-"] { font-weight: 700; }
 
   /* 登入 */
   .login { max-width: 380px; margin: 8vh auto 0; }
@@ -1177,9 +1186,14 @@
     var d = parseDate(s);
     return d ? (d.getMonth() + 1) + '/' + d.getDate() + '（' + WEEK[d.getDay()] + '）' : s;
   }
+  var ST_CLASS = { '待處理': 'stc-pending', '已審核': 'stc-reviewed', '已叫貨': 'stc-ordered', '已到貨': 'stc-arrived', '已取消': 'stc-canceled', '部分處理': 'stc-partial' };
+  function stClass(s) { return ST_CLASS[s] || ''; }
+  function stStyle(s) {   // 下拉選單的選項（電腦上看得到顏色）
+    return { '待處理': 'background:#fff;color:#344054', '已審核': 'background:#e0eaff;color:#1849a9', '已叫貨': 'background:#ebe9fe;color:#5925dc',
+      '已到貨': 'background:#dcfae6;color:#067647', '已取消': 'background:#fee4e2;color:#b42318', '部分處理': 'background:#fef0c7;color:#b54708' }[s] || '';
+  }
   function statusBadge(s) {
-    var cls = s === '待處理' ? 'warn' : s === '已取消' ? 'bad' : s === '已到貨' ? 'ok' : 'info';
-    return '<span class="badge ' + cls + '">' + esc(s) + '</span>';
+    return '<span class="badge ' + (stClass(s) || 'info') + '">' + esc(s) + '</span>';
   }
   function setBusy(btn, busy, text) {
     if (!btn._label) btn._label = btn.textContent;
@@ -2340,8 +2354,8 @@
       if (o.canCancel) buttons += '<button type="button" class="btn danger small" data-act="cancel" data-no="' + esc(o.orderNo) + '">取消訂單</button>';
     }
     if (opts.admin && !o.archived) {
-      buttons += '<select data-act="status" data-no="' + esc(o.orderNo) + '" style="width:auto">' + data.statuses.map(function (s) {
-        return '<option' + (s === o.status ? ' selected' : '') + '>' + esc(s) + '</option>';
+      buttons += '<select data-act="status" data-no="' + esc(o.orderNo) + '" class="' + stClass(o.status) + '" style="width:auto">' + data.statuses.map(function (s) {
+        return '<option style="' + stStyle(s) + '"' + (s === o.status ? ' selected' : '') + '>' + esc(s) + '</option>';
       }).join('') + (data.statuses.indexOf(o.status) < 0 ? '<option selected disabled>' + esc(o.status) + '</option>' : '') + '</select>';
     }
     return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
@@ -2513,8 +2527,9 @@
     Object.keys(SPECIAL).forEach(function (k) { count[k] = base.filter(SPECIAL[k].test).length; });
     sel.innerHTML = '<option value="">全部狀態（' + base.filter(function (o) { return !$('sHideCancel').checked || o.status !== '已取消'; }).length + '）</option>' +
       sumStatuses().concat(Object.keys(SPECIAL)).map(function (st) {
-        return '<option value="' + esc(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(stLabel(st)) + '（' + (count[st] || 0) + '）</option>';
+        return '<option value="' + esc(st) + '" style="' + stStyle(st) + '"' + (st === cur ? ' selected' : '') + '>' + esc(stLabel(st)) + '（' + (count[st] || 0) + '）</option>';
       }).join('');
+    sel.className = stClass(sel.value);
     return count;
   }
   var sumTotalsOpen = false;   // 廠商合計預設收起來
@@ -2537,7 +2552,7 @@
       return st ? o.status === st : (!hideCancel || o.status !== '已取消');
     });
     var chips = '<div class="status-chips">' + sumStatuses().concat(Object.keys(SPECIAL)).filter(function (x) { return count[x] && (x !== '已取消' || !hideCancel || st === x); }).map(function (x) {
-      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + (x === NOLESSON ? ' warnchip' : '') + '">' + (x === NOLESSON ? '⚠ ' : '') + esc(stLabel(x)) + ' ' + count[x] + '</button>';
+      return '<button type="button" data-status="' + esc(x) + '" class="' + (st === x ? 'on' : '') + (x === NOLESSON ? ' warnchip' : ' ' + stClass(x)) + '">' + (x === NOLESSON ? '⚠ ' : '') + esc(stLabel(x)) + ' ' + count[x] + '</button>';
     }).join('') + (st ? '<button type="button" data-status="">顯示全部</button>' : '') + '</div>';
     if (!list.length) {
       msg('sumMsg', 'info', (who ? who + ' 老師' : '') + '這段期間沒有' + (kw.length ? '符合「' + kw.join(' ') + '」的' : '') + (st ? '「' + stLabel(st) + '」的' : '') + '訂單。');
