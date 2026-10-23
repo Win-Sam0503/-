@@ -421,7 +421,7 @@ function bootDirty_(name) {
 
 function getBootstrap(token) {
   const account = auth_(token, false, false, true);
-  if (!isAdmin_(account) && isCrew_(account)) return { account: account, isCrew: true, isAdmin: false, items: [], today: dateStr_(today_()) };
+  if (!isAdmin_(account) && isCrew_(account)) return { account: account, isCrew: true, isAdmin: false, items: [], today: dateStr_(today_()), placeEnabled: placeEnabled_() };
   const items = cachedItems_();
   const vendors = [];
   items.forEach(function (it) { if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor); });
@@ -459,6 +459,7 @@ function getBootstrap(token) {
     vendorContacts: isAdmin ? st.vendorContacts : {},
     holidays: st.holidays,
     prices: st.prices || {},
+    placeEnabled: placeEnabled_(),
   };
 }
 
@@ -4006,9 +4007,27 @@ function adminGetAudits(token, from, to) {
 
 // ---- 校隊：放置登記 ----
 
+/** 放置登記開放了沒（系統設定的開關，預設關閉；指令碼屬性 PLACE_ENABLED） */
+function placeEnabled_() {
+  return memo_('placeEnabled', function () { return PropertiesService.getScriptProperties().getProperty('PLACE_ENABLED') === '1'; });
+}
+function placeGate_() {
+  if (!placeEnabled_()) throw new Error('放置登記目前還沒開放，請等管理者通知。');
+}
+
+/** 管理者：開放／關閉放置登記 */
+function adminSetPlaceEnabled(token, on) {
+  auth_(token, true);
+  const props = PropertiesService.getScriptProperties();
+  if (on) props.setProperty('PLACE_ENABLED', '1'); else props.deleteProperty('PLACE_ENABLED');
+  memoClear_();
+  return { placeEnabled: placeEnabled_() };
+}
+
 /** 每張訂單最後一次登記的放置位置：{ 訂單編號: { place, photo, by, time } } */
 function placesFor_(orderNos) {
   const out = {};
+  if (!placeEnabled_()) return out;   // 放置登記沒開放：老師、抽查都不顯示位置
   const sh = ss_().getSheetByName(SHEET.places);
   if (!sh || sh.getLastRow() < 2 || !orderNos.length) return out;
   const want = {};
@@ -4038,6 +4057,7 @@ function placeKind_(o) {
 function crewGetOrders(token, date, kind) {
   const account = auth_(token, false, false, true);
   if (!isAdmin_(account) && !isCrew_(account)) throw new Error('只有校隊和管理者可以使用放置登記。');
+  placeGate_();
   kind = kind === 'team' || kind === 'holiday' ? kind : '';
   const from = kind ? today_() : parseDate_(date);
   if (!from) throw new Error('請選擇日期。');
@@ -4072,6 +4092,7 @@ function crewGetOrders(token, date, kind) {
 function crewSetPlace(token, orderNo, place, photo) {
   const account = auth_(token, false, false, true);
   if (!isAdmin_(account) && !isCrew_(account)) throw new Error('只有校隊和管理者可以使用放置登記。');
+  placeGate_();
   orderNo = clean_(orderNo, 30); place = clean_(place, 40);
   if (!orderNo) throw new Error('缺少訂單編號。');
   if (!place) throw new Error('請填放在哪裡，例如：西餐 B 冰箱中層。');

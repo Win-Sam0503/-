@@ -977,6 +977,7 @@
         </div>
         <h3 style="font-size:16px;margin:18px 0 6px">校隊帳號</h3>
         <div class="muted small">校隊登入後只看得到「放置登記」（登記每班的東西放在哪裡），看不到金額、不能訂貨。新帳號的密碼是 0000，第一次登入要自己改密碼。畢業或不做了就按「停用」。</div>
+        <label class="check" style="margin:8px 0"><input type="checkbox" id="placeOn"> <b>開放放置登記</b>（校隊登記冷藏食材放哪個冰箱，老師在「我的訂單」看得到位置）</label>
         <div id="crewAdmList" class="hol-list small"></div>
         <div class="tpl-row" style="margin-top:6px">
           <div><label for="crewNew">新增校隊（名字）</label><input id="crewNew" type="text" maxlength="30" autocomplete="off" placeholder="例如：王小明"></div>
@@ -1472,6 +1473,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.admin-only'), function (el) {
       el.classList.toggle('hidden', !data.isAdmin);
     });
+    syncPlaceNav();
 
     $('fDept').innerHTML = '<option value="">請選擇</option>' + data.departments.map(function (d) {
       return '<option>' + esc(d) + '</option>';
@@ -4536,6 +4538,11 @@
   // ------------------------------------------------------------------
   var crew = null;   // { date, kind, orders, recent, photos: { orderNo: dataUrl } }
   var crewKind = '';   // ''＝照日期的一般課；'team'＝校隊練習；'holiday'＝假日實習（今天起兩週內）
+  // 放置登記沒開放：管理者的選單不顯示；校隊登入只看到「還沒開放」
+  function syncPlaceNav() {
+    var b = document.querySelector('#nav button[data-view="viewCrew"]');
+    if (b && data && !data.isCrew) b.classList.toggle('hidden', !data.isAdmin || !data.placeEnabled);
+  }
   function setupCrew() {
     $('who').textContent = data.account + '（校隊）已登入';
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -4557,6 +4564,11 @@
     }).join('') + '<button type="button" data-ck="team">校隊練習</button><button type="button" data-ck="holiday">假日實習</button>';
   }
   function crewOpen() {
+    if (!data.placeEnabled) {
+      $('crDays').innerHTML = ''; $('crList').innerHTML = '';
+      msg('crMsg', 'info', '放置登記目前還沒開放，請等管理者通知。');
+      return;
+    }
     crewDays();
     if (!$('crDate').value && !crewKind) { var t = new Date().getDay(); $('crDate').value = crewWeekday(t >= 1 && t <= 5 ? t : 1); }
     crewLoad();
@@ -4647,7 +4659,20 @@
         '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="reset">重設密碼</button></span></div>';
     }).join('') : '<span class="muted">還沒有校隊帳號。</span>';
   }
-  function loadCrewAdm() { call('adminListCrew', token).then(renderCrewAdm).catch(function (e) { $('crewAdmList').textContent = '讀取失敗：' + e.message; }); }
+  $('placeOn').addEventListener('change', function () {
+    var on = this.checked, box = this;
+    box.checked = !on;   // 先改回去，確定後才改
+    ask(on ? '開放放置登記？\n校隊登入後就能登記位置，老師在「我的訂單」看得到。' : '關閉放置登記？\n校隊登入後只會看到「還沒開放」，老師也看不到位置（之前登記的資料會保留）。', on ? '開放' : '關閉').then(function (ok) {
+      if (!ok) return;
+      box.disabled = true;
+      return call('adminSetPlaceEnabled', token, on).then(function (r) {
+        data.placeEnabled = r.placeEnabled; box.checked = r.placeEnabled; syncPlaceNav();
+        msg('autoMsg', 'ok', r.placeEnabled ? '已開放放置登記，上方選單多了「放置登記」。' : '已關閉放置登記。');
+      }).catch(function (e) { msg('autoMsg', 'error', e.message); }).then(function () { box.disabled = false; });
+    });
+  });
+  function loadCrewAdm() {
+    $('placeOn').checked = !!data.placeEnabled; call('adminListCrew', token).then(renderCrewAdm).catch(function (e) { $('crewAdmList').textContent = '讀取失敗：' + e.message; }); }
   $('crewAdd').addEventListener('click', function () {
     var name = $('crewNew').value.trim(), b = this;
     if (!name) { msg('autoMsg', 'error', '請輸入校隊的名字。'); return; }
