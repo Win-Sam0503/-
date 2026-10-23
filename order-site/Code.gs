@@ -118,6 +118,7 @@ const AUDIT_RESULTS = ['正常', '少了', '多了', '沒有', '不確定'];
 const AUDIT_SEALS = ['完整', '破了', '沒封', ''];
 const AUDIT_FOLDER_NAME = '三信家商餐飲科抽查照片';
 // 放置位置：校隊分好貨後登記每張訂單的東西放在哪裡（同一張訂單可以登記好幾次，以最後一次為準）
+const PLACE_VENDORS = /^[ABCD]/;   // 要冰的才登記：A 菜、B 肉、C 蛋、D 海鮮（E 乾貨、F 飲調不用）
 const PLACE_HEADERS = ['訂單編號', '上課日期', '班級', '老師', '放置位置', '照片', '登記人', '登記時間'];
 const PLACE_FOLDER_NAME = '三信家商餐飲科放置照片';
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
@@ -4021,7 +4022,7 @@ function placesFor_(orderNos) {
   return out;
 }
 
-/** 校隊（或管理者）：某一天要分貨的訂單（不含金額），和目前登記的位置 */
+/** 校隊（或管理者）：某一天要冰的食材（A～D）的訂單（不含金額），和目前登記的位置 */
 function crewGetOrders(token, date) {
   const account = auth_(token, false, false, true);
   if (!isAdmin_(account) && !isCrew_(account)) throw new Error('只有校隊和管理者可以使用放置登記。');
@@ -4034,7 +4035,7 @@ function crewGetOrders(token, date) {
   const list = groupOrders_(rows, null).filter(function (o) {
     return o.status !== '已取消' && !isReturn_(o.project);
   }).map(function (o) {
-    const items = o.items.filter(function (it) { return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR; })
+    const items = o.items.filter(function (it) { return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && PLACE_VENDORS.test(String(it.vendor || '')); })
       .map(function (it) { return { name: it.name, qty: it.qty, unit: it.unit, vendor: String(it.vendor || '').charAt(0) }; });
     return { orderNo: o.orderNo, useDate: o.useDate, classTime: o.classTime, className: o.className, dept: o.dept, room: o.room,
       teacher: o.onBehalfOf || o.teacher, items: items };

@@ -1061,7 +1061,7 @@
     <section id="viewCrew" class="hidden">
       <div class="panel">
         <h2>放置登記 <button type="button" class="btn ghost small" id="crReload">重新整理</button></h2>
-        <div class="muted small">分好一班的東西、放進冰箱後，在這裡登記放在哪裡（可以拍一張照片）。老師在「我的訂單」就看得到，不用在群組一則一則說。</div>
+        <div class="muted small">只登記要冰的：<b>A 菜、B 肉、C 蛋、D 海鮮</b>（乾貨、飲調不用）。分好一班、放進冰箱後，在這裡登記放在哪裡（可以拍一張照片）。老師在「我的訂單」就看得到，不用在群組一則一則說。</div>
         <div class="status-chips" id="crDays" style="margin:10px 0 6px"><button type="button" data-cd="0">今天</button><button type="button" data-cd="1">明天</button><button type="button" data-cd="2">後天</button></div>
         <div class="grid2"><div><label for="crDate">上課日期</label><input id="crDate" type="date"></div></div>
         <div id="crMsg"></div>
@@ -2555,7 +2555,7 @@
         (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
-        (o.place ? '<div class="place-line">📍 東西放在：<b>' + esc(o.place.place) + '</b><span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + ' 登記）</span>' +
+        (o.place ? '<div class="place-line">📍 冷藏食材（菜、肉、蛋、海鮮）放在：<b>' + esc(o.place.place) + '</b><span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + ' 登記）</span>' +
           (o.place.photo ? ' <a href="' + esc(o.place.photo) + '" target="_blank" rel="noopener" class="small">看照片</a>' : '') + '</div>' : '') +
         (opts.admin && o.flag ? '<div class="msg error noprint" style="margin:6px 0">⚠ 異常：' + esc(o.flag.note) + '<span class="muted small">（' + esc(o.flag.by + ' ' + o.flag.time) + '）</span></div>' : '') +
         (opts.admin ? lessonMatchHtml(o) : '') +
@@ -4539,7 +4539,7 @@
     call('crewGetOrders', token, date).then(function (r) {
       crew = { date: date, orders: r.orders, recent: r.recent || [], photos: {} };
       var done = r.orders.filter(function (o) { return o.place; }).length;
-      msg('crMsg', r.orders.length ? (done === r.orders.length ? 'ok' : 'info') : 'info', r.orders.length ? '這天有 ' + r.orders.length + ' 班要分貨，已登記 ' + done + ' 班。' : '這天沒有要分貨的班。');
+      msg('crMsg', r.orders.length ? (done === r.orders.length ? 'ok' : 'info') : 'info', r.orders.length ? '這天有 ' + r.orders.length + ' 班有要冰的食材，已登記 ' + done + ' 班。' : '這天沒有要冰的食材（A～D）。');
       crewRender();
     }).catch(function (e) { msg('crMsg', 'error', '載入失敗：' + e.message); });
   }
@@ -4547,7 +4547,7 @@
     return '<div class="panel cr-card" data-ci="' + i + '"><div class="cr-head"><b>' + esc(o.className || '—') + '</b>' + (o.dept ? '<span class="badge info">' + esc(o.dept) + '</span>' : '') +
       '<span>' + esc(String(o.teacher).replace(/老師$/, '')) + ' 老師</span><span class="muted">' + esc(o.classTime || '') + '・' + esc(o.room || '') + '</span></div>' +
       (o.place ? '<div class="cr-now">📍 已登記：<b>' + esc(o.place.place) + '</b> <span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + '）</span></div>' : '<div class="cr-now none">還沒登記放在哪裡</div>') +
-      '<details><summary>清單 ' + o.items.length + ' 樣（分貨時對照）</summary><ul>' + o.items.map(function (it) {
+      '<details><summary>要冰的 ' + o.items.length + ' 樣（分貨時對照）</summary><ul>' + o.items.map(function (it) {
         return '<li>' + esc(it.name) + '　<b>' + esc(fmtQty(Number(it.qty))) + ' ' + esc(it.unit || '') + '</b> <span class="muted small">' + esc(it.vendor) + '</span></li>';
       }).join('') + '</ul></details>' +
       (crew.recent.length ? '<div class="cr-chips">' + crew.recent.slice(0, 8).map(function (p) { return '<button type="button" data-cpick="' + esc(p) + '">' + esc(p) + '</button>'; }).join('') + '</div>' : '') +
