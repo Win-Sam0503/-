@@ -4022,23 +4022,34 @@ function placesFor_(orderNos) {
   return out;
 }
 
-/** 校隊（或管理者）：某一天要冰的食材（A～D）的訂單（不含金額），和目前登記的位置 */
-function crewGetOrders(token, date) {
+// 校隊練習、假日實習：老師照平常訂貨，在班級或實作項目寫「校隊」「假日」
+function placeKind_(o) {
+  const t = String(o.className || '') + ' ' + String(o.project || '');
+  return /校隊/.test(t) ? 'team' : /假日/.test(t) ? 'holiday' : '';
+}
+
+/**
+ * 校隊（或管理者）：要冰的食材（A～D）的訂單（不含金額），和目前登記的位置。
+ * kind 空白 = date 這一天的一般課（不含校隊練習、假日實習）；'team' / 'holiday' = 今天起兩週內的校隊練習／假日實習
+ */
+function crewGetOrders(token, date, kind) {
   const account = auth_(token, false, false, true);
   if (!isAdmin_(account) && !isCrew_(account)) throw new Error('只有校隊和管理者可以使用放置登記。');
-  const d = parseDate_(date);
-  if (!d) throw new Error('請選擇日期。');
-  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, d).filter(function (r) {
+  kind = kind === 'team' || kind === 'holiday' ? kind : '';
+  const from = kind ? today_() : parseDate_(date);
+  if (!from) throw new Error('請選擇日期。');
+  const to = kind ? addDays_(from, 14) : from;
+  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, from).filter(function (r) {
     const x = toDate_(r['使用日期']);
-    return x && x.getTime() === d.getTime();
+    return x && x >= from && x <= to;
   });
   const list = groupOrders_(rows, null).filter(function (o) {
-    return o.status !== '已取消' && !isReturn_(o.project);
+    return o.status !== '已取消' && !isReturn_(o.project) && placeKind_(o) === kind;
   }).map(function (o) {
     const items = o.items.filter(function (it) { return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && PLACE_VENDORS.test(String(it.vendor || '')); })
       .map(function (it) { return { name: it.name, qty: it.qty, unit: it.unit, vendor: String(it.vendor || '').charAt(0) }; });
     return { orderNo: o.orderNo, useDate: o.useDate, classTime: o.classTime, className: o.className, dept: o.dept, room: o.room,
-      teacher: o.onBehalfOf || o.teacher, items: items };
+      project: o.project, teacher: o.onBehalfOf || o.teacher, items: items };
   }).filter(function (o) { return o.items.length; });
   const places = placesFor_(list.map(function (o) { return o.orderNo; }));
   list.forEach(function (o) { o.place = places[o.orderNo] || null; });
@@ -4050,7 +4061,7 @@ function crewGetOrders(token, date) {
     all.forEach(function (p) { if (recent.indexOf(p) < 0 && recent.length < 12) recent.push(p); });
   }
   return { orders: list.sort(function (a, b) {
-    return String(a.classTime).localeCompare(String(b.classTime)) || String(a.className).localeCompare(String(b.className), 'zh-Hant', { numeric: true });
+    return String(a.useDate).localeCompare(String(b.useDate)) || String(a.classTime).localeCompare(String(b.classTime)) || String(a.className).localeCompare(String(b.className), 'zh-Hant', { numeric: true });
   }), recent: recent };
 }
 

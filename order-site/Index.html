@@ -1062,8 +1062,8 @@
       <div class="panel">
         <h2>放置登記 <button type="button" class="btn ghost small" id="crReload">重新整理</button></h2>
         <div class="muted small">只登記要冰的：<b>A 菜、B 肉、C 蛋、D 海鮮</b>（乾貨、飲調不用）。分好一班、放進冰箱後，在這裡登記放在哪裡（可以拍一張照片）。老師在「我的訂單」就看得到，不用在群組一則一則說。</div>
-        <div class="status-chips" id="crDays" style="margin:10px 0 6px"><button type="button" data-cd="0">今天</button><button type="button" data-cd="1">明天</button><button type="button" data-cd="2">後天</button></div>
-        <div class="grid2"><div><label for="crDate">上課日期</label><input id="crDate" type="date"></div></div>
+        <div class="status-chips" id="crDays" style="margin:10px 0 6px"></div>
+        <div class="grid2"><div><label for="crDate">或選日期</label><input id="crDate" type="date"></div></div>
         <div id="crMsg"></div>
       </div>
       <div id="crList"></div>
@@ -4510,7 +4510,8 @@
   // ------------------------------------------------------------------
   // 放置登記：校隊分好貨後登記每班的東西放在哪裡；老師在「我的訂單」看得到，抽查時也會帶入
   // ------------------------------------------------------------------
-  var crew = null;   // { date, orders, recent, photos: { orderNo: dataUrl } }
+  var crew = null;   // { date, kind, orders, recent, photos: { orderNo: dataUrl } }
+  var crewKind = '';   // ''＝照日期的一般課；'team'＝校隊練習；'holiday'＝假日實習（今天起兩週內）
   function setupCrew() {
     $('who').textContent = data.account + '（校隊）已登入';
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -4520,32 +4521,44 @@
     startWatermark();
     show('viewCrew');
   }
-  function crewDay(n) {
-    var t = new Date();
-    return isoDate(new Date(t.getFullYear(), t.getMonth(), t.getDate() + n));
+  // 星期一～五：接下來的那一天（今天算在內），例如今天週三：三四五是這週、一二是下週
+  function crewWeekday(wd) {
+    var t = new Date(), add = (wd - t.getDay() + 7) % 7;
+    return isoDate(new Date(t.getFullYear(), t.getMonth(), t.getDate() + add));
+  }
+  function crewDays() {
+    $('crDays').innerHTML = [1, 2, 3, 4, 5].map(function (wd) {
+      var d = crewWeekday(wd);
+      return '<button type="button" data-cd="' + d + '">星期' + '一二三四五'.charAt(wd - 1) + ' <span class="small">' + esc(shortDate(d).replace(/（.*$/, '')) + '</span></button>';
+    }).join('') + '<button type="button" data-ck="team">校隊練習</button><button type="button" data-ck="holiday">假日實習</button>';
   }
   function crewOpen() {
-    if (!$('crDate').value) $('crDate').value = crewDay(0);
+    crewDays();
+    if (!$('crDate').value && !crewKind) { var t = new Date().getDay(); $('crDate').value = crewWeekday(t >= 1 && t <= 5 ? t : 1); }
     crewLoad();
   }
   function crewSyncDays() {
-    Array.prototype.forEach.call($('crDays').querySelectorAll('button'), function (b) { b.classList.toggle('on', crewDay(Number(b.getAttribute('data-cd'))) === $('crDate').value); });
+    Array.prototype.forEach.call($('crDays').querySelectorAll('button'), function (b) {
+      b.classList.toggle('on', crewKind ? b.getAttribute('data-ck') === crewKind : b.getAttribute('data-cd') === $('crDate').value);
+    });
   }
   function crewLoad() {
-    var date = $('crDate').value;
+    var date = $('crDate').value, kind = crewKind, what = kind === 'team' ? '校隊練習' : kind === 'holiday' ? '假日實習' : '';
     crewSyncDays();
-    if (!date) return;
+    if (!date && !kind) return;
     msg('crMsg', 'info', '載入中…');
-    call('crewGetOrders', token, date).then(function (r) {
-      crew = { date: date, orders: r.orders, recent: r.recent || [], photos: {} };
+    call('crewGetOrders', token, date, kind).then(function (r) {
+      crew = { date: date, kind: kind, orders: r.orders, recent: r.recent || [], photos: {} };
       var done = r.orders.filter(function (o) { return o.place; }).length;
-      msg('crMsg', r.orders.length ? (done === r.orders.length ? 'ok' : 'info') : 'info', r.orders.length ? '這天有 ' + r.orders.length + ' 班有要冰的食材，已登記 ' + done + ' 班。' : '這天沒有要冰的食材（A～D）。');
+      var head = kind ? what + '（今天起兩週內）' : shortDate(date);
+      msg('crMsg', r.orders.length ? (done === r.orders.length ? 'ok' : 'info') : 'info', r.orders.length ? head + '：' + r.orders.length + ' 班有要冰的食材，已登記 ' + done + ' 班。' : head + '：沒有要冰的食材（A～D）。' + (kind ? '老師訂貨時班級或實作項目要寫「' + (kind === 'team' ? '校隊' : '假日') + '」才會列在這裡。' : ''));
       crewRender();
     }).catch(function (e) { msg('crMsg', 'error', '載入失敗：' + e.message); });
   }
   function crewCard(o, i) {
     return '<div class="panel cr-card" data-ci="' + i + '"><div class="cr-head"><b>' + esc(o.className || '—') + '</b>' + (o.dept ? '<span class="badge info">' + esc(o.dept) + '</span>' : '') +
-      '<span>' + esc(String(o.teacher).replace(/老師$/, '')) + ' 老師</span><span class="muted">' + esc(o.classTime || '') + '・' + esc(o.room || '') + '</span></div>' +
+      '<span>' + esc(String(o.teacher).replace(/老師$/, '')) + ' 老師</span><span class="muted">' + (crew.kind ? esc(shortDate(o.useDate)) + ' ' : '') + esc(o.classTime || '') + '・' + esc(o.room || '') +
+      (crew.kind && o.project ? '・' + esc(o.project) : '') + '</span></div>' +
       (o.place ? '<div class="cr-now">📍 已登記：<b>' + esc(o.place.place) + '</b> <span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + '）</span></div>' : '<div class="cr-now none">還沒登記放在哪裡</div>') +
       '<details><summary>要冰的 ' + o.items.length + ' 樣（分貨時對照）</summary><ul>' + o.items.map(function (it) {
         return '<li>' + esc(it.name) + '　<b>' + esc(fmtQty(Number(it.qty))) + ' ' + esc(it.unit || '') + '</b> <span class="muted small">' + esc(it.vendor) + '</span></li>';
@@ -4560,12 +4573,13 @@
     $('crList').innerHTML = crew && crew.orders.length ? crew.orders.map(crewCard).join('') : '';
   }
   $('crDays').addEventListener('click', function (e) {
-    var b = e.target.closest('[data-cd]');
+    var b = e.target.closest('[data-cd],[data-ck]');
     if (!b) return;
-    $('crDate').value = crewDay(Number(b.getAttribute('data-cd')));
+    crewKind = b.getAttribute('data-ck') || '';
+    if (!crewKind) $('crDate').value = b.getAttribute('data-cd');
     crewLoad();
   });
-  $('crDate').addEventListener('change', crewLoad);
+  $('crDate').addEventListener('change', function () { crewKind = ''; crewLoad(); });
   $('crReload').addEventListener('click', crewLoad);
   $('crList').addEventListener('click', function (e) {
     var card = e.target.closest('.cr-card');
