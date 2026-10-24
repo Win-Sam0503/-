@@ -351,6 +351,20 @@
   .status-chips button.warnchip { border-color: var(--warn); color: var(--warn); }
   .status-chips button.warnchip.on { background: var(--warn); color: #fff; }
   .lesson-ok { margin-top: 4px; font-size: 14px; color: #067647; }
+  .s-more > summary { cursor: pointer; color: var(--brand); font-weight: 600; padding: 4px 0; }
+  .s-tag { margin-left: 6px; font-size: 13px; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+  .sum-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-top: 8px; }
+  .sum-bar .status-chips { margin: 0; align-items: center; }
+  details.pmenu, details.more { position: relative; display: inline-block; }
+  details.pmenu > summary, details.more > summary { list-style: none; }
+  details.pmenu > summary::-webkit-details-marker, details.more > summary::-webkit-details-marker { display: none; }
+  details.pmenu > div, details.more > div { position: absolute; z-index: 25; left: 0; top: calc(100% + 4px); min-width: 230px; display: flex; flex-direction: column; gap: 6px;
+    background: var(--card, #fff); border: 1px solid var(--line); border-radius: 10px; padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+  details.more > div { left: auto; right: 0; min-width: 190px; }
+  details.pmenu > div .btn, details.more > div .btn { width: 100%; text-align: left; justify-content: flex-start; }
+  .order:not(.iflag-on) label.iflag:not(.on) { display: none !important; }
+  details.lw > summary { cursor: pointer; list-style: none; margin-top: 6px; }
+  details.lw > summary::-webkit-details-marker { display: none; }
   .lesson-warn { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 14px; }
   .lesson-near { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; margin-top: 4px; color: var(--text); }
   .badge.unprinted { background: #fee4e2; color: #b42318; font-weight: 700; }
@@ -865,7 +879,7 @@
     <!-- 管理者：訂單彙整 -->
     <section id="viewSummary" class="hidden">
       <div class="panel">
-        <h2>訂單彙整 <button type="button" class="btn ghost small noprint" id="issOpen">⚠ 異常紀錄</button></h2>
+        <h2>訂單彙整 <span style="display:inline-flex;align-items:center;gap:4px"><button type="button" class="btn ghost small noprint" id="issOpen">⚠ 異常紀錄</button><details class="vhelp noprint"><summary>？說明</summary><div>點日期下面的「上週、本週…」直接查詢。<br>要找特定老師、狀態或關鍵字，按「🔎 更多篩選」。<br>試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div></details></span></h2>
         <div class="grid2">
           <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
@@ -873,15 +887,14 @@
             <div class="status-chips" id="sRanges" style="margin-top:0">
               <button type="button" data-range="lastWeek">上週</button><button type="button" data-range="thisWeek">本週</button><button type="button" data-range="nextWeek">下週</button><button type="button" data-range="weekAfter">下下週</button><button type="button" data-range="lastMonth">上個月</button><button type="button" data-range="thisMonth">本月</button><button type="button" data-range="last3">近 3 個月</button><button type="button" data-range="term">本學期</button><button type="button" data-range="lastTerm">上學期</button>
             </div>
-            <div class="muted small" style="margin-top:4px">點一下直接查詢；試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div>
           </div>
+          <details id="sMore" class="span2 s-more"><summary>🔎 更多篩選（關鍵字、老師、狀態）<span id="sMoreTag"></span></summary><div class="grid2" style="margin-top:8px">
           <div class="span2"><label for="sKeyword">關鍵字（實作項目、班級、食材、訂單編號、老師）</label><div style="display:flex;gap:6px"><input id="sKeyword" type="search" placeholder="例如：泡芙、217、奶油" autocomplete="off" style="flex:1"><button type="button" class="btn secondary small" id="sSearchAll" title="不用選日期，直接搜最近一年的訂單">🔍 搜最近一年</button></div></div>
           <div><label for="sTeacher">查詢老師</label><select id="sTeacher"><option value="">全部老師</option></select></div>
           <div><label for="sStatus">訂單狀態</label><select id="sStatus"><option value="">全部狀態</option></select></div>
-          <div style="display:flex;align-items:flex-end;gap:8px">
-            <label class="check" style="margin-bottom:10px"><input type="checkbox" id="sHideCancel" checked> 不含已取消</label>
-            <button type="button" class="btn" id="sLoad">查詢</button>
-          </div>
+          <div class="span2"><label class="check" style="margin:0"><input type="checkbox" id="sHideCancel" checked> 不含已取消</label></div>
+          </div></details>
+          <div class="span2"><button type="button" class="btn" id="sLoad">查詢</button></div>
         </div>
       </div>
       <div class="panel hidden" id="issPanel">
@@ -2542,6 +2555,10 @@
     var L = o.lesson;
     if (!L) return '';
     if (L.match.length) return '<div class="lesson-ok noprint">📅 對到課表：' + esc(L.match.map(lessonText).join('、')) + '</div>';
+    return '<details class="lw noprint"><summary><span class="badge warn">⚠ 課表對不到（點開看）</span></summary>' + lessonWarnHtml(o) + '</details>';
+  }
+  function lessonWarnHtml(o) {
+    var L = o.lesson;
     var head = '⚠ 課表對不到：' + esc(L.teacher) + ' 在 ' + esc(shortDate(o.useDate) + ' ' + L.session) + ' 課表上沒有課';
     if (!L.known) return '<div class="lesson-warn noprint">' + head + '。課表上也找不到「' + esc(L.teacher) + '」這位老師（名字可能打錯，或還沒排進課表）。</div>';
     return '<div class="lesson-warn noprint">' + head + (L.near.length ? '，這週課表上的課：' : '，這週課表上也沒有他的課（日期可能填錯週）。') +
@@ -2575,6 +2592,7 @@
       }).catch(function (e) { msg('sumMsg', 'error', e.message); setBusy(btn, false); });
     });
   }
+  var iflagOn = {};
   function orderCard(o, opts) {
     var info = [shortDate(o.useDate), o.dept, o.className ? o.className + ' 班' : '', o.groups ? o.groups + ' 組' : '', o.classTime, o.room].filter(Boolean).join('・');
     var who = '操作：' + o.teacher + (o.onBehalfOf ? '，代訂：' + o.onBehalfOf : '');
@@ -2586,7 +2604,7 @@
       lastSec = it.section;
       var fl = opts.admin && o.itemFlags && o.itemFlags[it.name];
       return head + '<tr' + (it.status === '已取消' && o.status !== '已取消' ? ' style="text-decoration:line-through;color:var(--muted)"' : fl ? ' style="background:#fef3f2"' : '') + '><td>' +
-        (opts.admin && !o.archived ? '<label class="noprint" title="' + (fl ? esc('⚠ 異常（' + fl.by + ' ' + fl.time + '）' + (fl.note ? '：' + fl.note : '')) : '勾選＝這一項有異常，只有管理者看得到') +
+        (opts.admin && !o.archived ? '<label class="noprint iflag' + (fl ? ' on' : '') + '" title="' + (fl ? esc('⚠ 異常（' + fl.by + ' ' + fl.time + '）' + (fl.note ? '：' + fl.note : '')) : '勾選＝這一項有異常，只有管理者看得到') +
           '" style="display:inline-flex;align-items:center;gap:2px;margin-right:6px;color:' + (fl ? 'var(--bad)' : 'var(--muted)') + ';font-size:13px;cursor:pointer"><input type="checkbox" data-iflag="' + esc(it.name) + '" data-no="' + esc(o.orderNo) + '"' + (fl ? ' checked' : '') + ' style="width:auto;margin:0">⚠</label>' : '') +
         esc(it.name) + (fl ? ' <span class="badge unprinted noprint">異常</span>' : '') +
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
@@ -2608,8 +2626,6 @@
         return '<li><b>' + esc(e.time) + '</b>　' + esc(e.who) + '<div>' + esc(e.text).replace(/；/g, '<br>') + '</div></li>';
       }).join('') + '</ul></details>' : '';
     var buttons = '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
-    if (opts.admin && !o.archived) buttons += '<button type="button" class="btn ghost small" data-act="edit" data-no="' + esc(o.orderNo) + '">修改明細</button>';
-    if (opts.admin && !o.archived && o.status !== '已取消') buttons += '<button type="button" class="btn danger small" data-act="return" data-no="' + esc(o.orderNo) + '">退單給老師</button>';
     if (opts.mine && o.locked && !o.archived && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
@@ -2618,17 +2634,23 @@
       if (!o.archived && (o.canCancel || o.status === '已取消')) buttons += '<button type="button" class="btn ghost small" data-act="delete" data-no="' + esc(o.orderNo) + '" title="從我的訂單刪掉（無法復原）">🗑 刪除</button>';
     }
     if (opts.admin && !o.archived) {
-      buttons += '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + esc(o.orderNo) + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記異常') + '</button>';
       buttons += '<select data-act="status" data-no="' + esc(o.orderNo) + '" class="' + stClass(o.status) + '" style="width:auto">' + data.statuses.map(function (s) {
         return '<option style="' + stStyle(s) + '"' + (s === o.status ? ' selected' : '') + '>' + esc(s) + '</option>';
       }).join('') + (data.statuses.indexOf(o.status) < 0 ? '<option selected disabled>' + esc(o.status) + '</option>' : '') + '</select>';
+      var no = esc(o.orderNo);
+      buttons += '<details class="more noprint"><summary class="btn ghost small">⋯ 更多</summary><div>' +
+        '<button type="button" class="btn ghost small" data-act="edit" data-no="' + no + '">✏️ 修改明細</button>' +
+        (o.status !== '已取消' ? '<button type="button" class="btn danger small" data-act="return" data-no="' + no + '">↩ 退單給老師</button>' : '') +
+        '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + no + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記整張異常') + '</button>' +
+        '<button type="button" class="btn ghost small" data-act="iflagmode" data-no="' + no + '">' + (iflagOn[o.orderNo] ? '✔ 收起食材勾選' : '⚠ 標記某項食材異常') + '</button>' +
+        (o.lesson && !o.lesson.match.length && o.status !== '已取消' ? '<button type="button" class="btn secondary small" data-act="addlesson" data-no="' + no + '">📅 加入課表</button>' : '') +
+        '</div></details>';
     }
-    return '<div class="order" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
+    return '<div class="order' + (opts.admin && iflagOn[o.orderNo] ? ' iflag-on' : '') + '" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
         (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
-        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + (opts.admin && o.deleted ? ' <span class="badge bad" title="' + esc(o.deleted.by + ' ' + o.deleted.time) + '">老師已刪除</span>' : '') +
-        (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
+        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + (opts.admin && o.deleted ? ' <span class="badge bad" title="' + esc(o.deleted.by + ' ' + o.deleted.time) + '">老師已刪除</span>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
         (o.place ? '<div class="place-line">📍 冷藏食材（菜、肉、蛋、海鮮）放在：<b>' + esc(o.place.place) + '</b><span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + ' 登記）</span>' +
@@ -2876,6 +2898,9 @@
     fillTeacherFilter();
     var who = $('sTeacher').value;
     var kw = $('sKeyword').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    var nf = [$('sKeyword').value.trim(), who, $('sStatus').value, !hideCancel].filter(Boolean).length;
+    $('sMoreTag').innerHTML = nf ? '<span class="s-tag">篩選中 ' + nf + ' 項</span>' : '';
+    if (nf) $('sMore').open = true;
     var base = sumCache.filter(function (o) {
       if (who && o.teacher !== who && o.onBehalfOf !== who) return false;
       if (!kw.length) return true;
@@ -2962,23 +2987,30 @@
     $('sumVendors').querySelector('details').addEventListener('toggle', function () { sumTotalsOpen = this.open; });
     $('sumVendors')._data = byVendor;
     var nOk = bulkList(base, 'ok').length, nWait = bulkList(base, 'wait').length;
-    var bulk = '<div class="actions" style="justify-content:flex-start;margin-top:10px">' +
-      '<button type="button" class="btn secondary small" data-bulk="ok"' + (nOk ? '' : ' disabled') + '>🖨 一鍵列印：已審核（' + nOk + ' 張）</button>' +
-      '<button type="button" class="btn ghost small" data-bulk="wait"' + (nWait ? '' : ' disabled') + '>🖨 一鍵列印：未審核（' + nWait + ' 張）</button></div>';
     var unp = unprintedList();
-    if (unp.length) bulk += '<div class="msg error" style="margin-top:10px">⚠ 這段期間還有 <b>' + unp.length + '</b> 張已審核的料單尚未列印。' +
-      ' <button type="button" class="btn small" data-bulk="unprinted">🖨 列印尚未列印的（' + unp.length + ' 張）</button></div>';
     var nEdit = base.reduce(function (n, o) { return n + (o.edits ? o.edits.length : 0); }, 0);
-    bulk += '<div class="actions" style="justify-content:flex-start;margin-top:6px"><button type="button" class="btn ghost small" id="erOpen"' + (nEdit ? '' : ' disabled') + '>📋 列印' + (who ? ' ' + esc(who) + ' 老師的' : '') + '修改紀錄（' + nEdit + ' 次）</button>' +
-      (who ? '' : '<span class="muted small" style="align-self:center">先在上面「查詢老師」選一位老師，就只印那位老師的</span>') + '</div>';
+    var pmenu = '<details class="pmenu noprint"><summary class="btn secondary small">🖨 列印 ▾</summary><div>' +
+      '<button type="button" class="btn ghost small" data-bulk="ok"' + (nOk ? '' : ' disabled') + '>已審核的料單（' + nOk + ' 張）</button>' +
+      '<button type="button" class="btn ghost small" data-bulk="wait"' + (nWait ? '' : ' disabled') + '>未審核的料單（' + nWait + ' 張）</button>' +
+      '<button type="button" class="btn ghost small" data-bulk="unprinted"' + (unp.length ? '' : ' disabled') + '>尚未列印的（' + unp.length + ' 張）</button>' +
+      '<button type="button" class="btn ghost small" id="erOpen"' + (nEdit ? '' : ' disabled') + ' title="' + (who ? '' : '想只印某位老師的，先在「更多篩選」選老師') + '">📋 ' + (who ? esc(who) + ' 老師的' : '') + '修改紀錄（' + nEdit + ' 次）</button>' +
+      '</div></details>';
+    var warnUnp = unp.length ? '<div class="msg error" style="margin:8px 0 0">⚠ 還有 <b>' + unp.length + '</b> 張已審核的料單尚未列印（按「🖨 列印 ▾」→「尚未列印的」）</div>' : '';
     var sby = sumSort();
-    var sortBar = '<div class="status-chips" style="margin:8px 0 0;align-items:center"><span class="muted small">排序：</span>' +
-      '<button type="button" data-ssort="date" class="' + (sby === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
-      '<button type="button" data-ssort="sent" class="' + (sby === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>';
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + sortBar + bulk + '</div>' +
+    var sortBar = '<div class="status-chips"><span class="muted small">排序：</span>' +
+      '<button type="button" data-ssort="date" class="' + (sby === 'date' ? 'on' : '') + '">上課日期</button>' +
+      '<button type="button" data-ssort="sent" class="' + (sby === 'sent' ? 'on' : '') + '">送出時間</button></div>';
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips +
+      '<div class="sum-bar">' + pmenu + sortBar + '</div>' + warnUnp + '</div>' +
       sortOrders(list, sby).map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
+  // 點選單外面就收起「列印 ▾」「⋯ 更多」
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details.pmenu[open], details.more[open]').forEach(function (d) {
+      if (!d.contains(e.target) || (e.target.closest('button') && d.querySelector('div').contains(e.target))) d.open = false;
+    });
+  });
   // ---- ⚠ 異常紀錄：標記異常、老師刪除、退單、修改、取消、抽查異常 ----
   var ISS_TYPES = { '標記異常': '⚠', '老師刪除': '🗑', '退單': '↩', '修改': '✏️', '取消': '✖', '抽查異常': '🔍' };
   var issList = [], issType = '';
@@ -3102,6 +3134,14 @@
     if (!b) return;
     var o = sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); });
     var act = b.getAttribute('data-act');
+    var dm = b.closest('details.more'); if (dm) dm.open = false;
+    if (act === 'iflagmode') {
+      iflagOn[o.orderNo] = !iflagOn[o.orderNo];
+      var card = b.closest('.order'); card.classList.toggle('iflag-on', !!iflagOn[o.orderNo]);
+      b.textContent = iflagOn[o.orderNo] ? '✔ 收起食材勾選' : '⚠ 標記某項食材異常';
+      if (iflagOn[o.orderNo]) msg('sumMsg', 'ok', '在這張料單的食材前面打勾＝那一項有異常（只有管理者看得到）。');
+      return;
+    }
     if (act === 'addlesson') { addLessonFromOrder(o, b); return; }
     if (act === 'flag') {
       ask('', '儲存', { noText: '取消', html: '<div class="info-check"><h3>⚠ 標記異常：' + esc(o.project || o.orderNo) + '</h3>' +
