@@ -456,6 +456,9 @@
   details.mine-past[open] > summary::before { content: '▾ '; }
   details.mine-past .when-open, details.mine-past[open] .when-closed { display: none; }
   details.mine-past[open] .when-open { display: inline; }
+  .lpick-bar { position: sticky; bottom: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: var(--card); border: 2px solid var(--brand); border-radius: 12px; padding: 10px 14px; margin-top: 8px; box-shadow: 0 -4px 14px rgba(0,0,0,.12); }
+  .lesson-table label.lpick { margin: 0; font-size: 14px; white-space: nowrap; }
   .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
   /* 校隊：放置登記 */
   .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -667,6 +670,7 @@
       <div class="msg info" id="lockBanner"></div>
       <div id="deadlineBar" class="deadline-bar hidden"></div>
       <div id="lastBox"></div>
+      <div id="multiBox"></div>
       <div class="panel" id="tplPanel">
         <h2>我的範本 <span class="muted small" style="font-weight:normal">存一組的量，帶入時自動乘以組數</span></h2>
         <div class="tpl-row">
@@ -792,6 +796,7 @@
       </div>
       <div id="lessonsMsg"></div>
       <div id="lessonsList"></div>
+      <div id="lpickBar" class="lpick-bar hidden noprint"><span>已勾 <b id="lpickN">0</b> 堂課</span><span class="actions" style="margin:0"><button type="button" class="btn ghost small" id="lpickClear">取消勾選</button><button type="button" class="btn small" id="lpickGo">一起訂貨（同一份材料）</button></span></div>
       <div class="panel">
         <h2>我的課表</h2>
         <div id="lessonsSchool" class="small"></div>
@@ -2234,6 +2239,7 @@
     return (data.bakingDepts || []).indexOf($('fDept').value) >= 0 ? split.baking : split.other;
   }
   function renderCart() {
+    renderMultiBox();
     renderEditBanner();
     var secOrder = [''].concat(draft.sections);
     var cart = draft.cart.slice().sort(function (a, b) {
@@ -2455,7 +2461,9 @@
     var me = data.account, forWho = i.onBehalfOf || '';
     var selfLike = forWho && (forWho.indexOf(me) === 0 || me.indexOf(forWho) === 0);
     var nNew = draft.cart.filter(function (c) { return c.isNew; }).length;
+    var multi = (draft.multi || []).slice();
     ask('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？' +
+      (multi.length ? '\n\n同一份材料也會送給：' + multi.map(function (y) { return shortDate(y.date) + ' ' + y.session + ' ' + (y.className || ''); }).join('、') + '（共 ' + (multi.length + 1) + ' 張訂單）' : '') +
       (selfLike ? '\n\n⚠ 代訂對象「' + forWho + '」跟你登入的帳號「' + me + '」很像。如果是幫自己訂，請按「取消」，把代訂改回「自己」；也可能是登錯帳號，請用「' + forWho + '」登入。' : '') +
       (nNew ? '\n\n清單裡有 ' + nNew + ' 項新食材，要等管理者審核。' : ''), '送出訂單').then(function (ok) {
     if (!ok) return;
@@ -2463,11 +2471,25 @@
     setBusy(btn, true, '送出中…');
     msg('orderMsg', 'info', '送出中，請稍候（大約 5～10 秒），不要關掉網頁…');
     call('submitOrder', token, payload).then(function (res) {
-      $('doneNo').textContent = res.orderNo;
+      // 一起訂的其他堂課：同一份材料，日期、時段、班級、教室照各堂課，一張一張送
+      var extra = [], fail = [];
+      return multi.reduce(function (p, y) {
+        return p.then(function () {
+          var p2 = JSON.parse(JSON.stringify(payload));
+          p2.useDate = y.date; p2.classTime = y.session; p2.className = y.className || payload.className; p2.room = y.room || payload.room;
+          return call('submitOrder', token, p2).then(function (r2) { extra.push(shortDate(y.date) + ' ' + (y.className || '') + '（' + r2.orderNo + '）'); })
+            .catch(function (e2) { fail.push(shortDate(y.date) + ' ' + (y.className || '') + '：' + e2.message); });
+        });
+      }, Promise.resolve()).then(function () { return { res: res, extra: extra, fail: fail }; });
+    }).then(function (all) {
+      var res = all.res;
+      $('doneNo').textContent = res.orderNo + (all.extra.length ? ' ＋ ' + all.extra.length + ' 張' : '');
       $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
         (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '') +
         (res.tools ? '、' + res.tools + ' 項器具' : '') +
-        (res.learned && res.learned.length ? '。已自動換成：' + res.learned.map(function (x) { return x.from + '→' + x.to + (x.dept ? '（' + x.dept + '課）' : ''); }).join('、') : '');
+        (res.learned && res.learned.length ? '。已自動換成：' + res.learned.map(function (x) { return x.from + '→' + x.to + (x.dept ? '（' + x.dept + '課）' : ''); }).join('、') : '') +
+        (all.extra.length ? '。同一份材料也送出：' + all.extra.join('、') : '') +
+        (all.fail.length ? '。⚠ 沒有送出：' + all.fail.join('；') + '（請到「我的課」再訂一次）' : '');
       lastSubmitted = res.orderNo;
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
       var keepMode = draft.qtyMode;
@@ -2475,6 +2497,7 @@
       draft = emptyDraft();
       draft.info = keep;
       draft.qtyMode = keepMode;
+      renderMultiBox();
       $('fReturn').checked = false; $('fReturnWhy').value = ''; $('fReturnTo').value = '';   // 下一張不是還料
       saveDraft();
       writeInfo(); renderCart(); renderResults(); updateDateHint();
@@ -2599,6 +2622,7 @@
 
   // 把一張訂單帶回訂貨畫面：edit = true 是修改這張訂單，false 是「再訂一次」
   function orderToDraft(o, edit) {
+    draft.multi = [];
     msg('lastBox', '', '');
     draft = emptyDraft();
     draft.info = { useDate: edit ? o.useDate : '', dept: o.dept, classTime: o.classTime, room: o.room, className: o.className, groups: o.groups ? String(o.groups) : '', project: o.project,
@@ -7119,9 +7143,15 @@
         var fri = parseDate(k); fri = isoDate(new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 4));
         return '<div class="panel"><h2>' + esc(shortDate(k) + '～' + shortDate(fri)) + ' <span class="muted small" style="font-weight:normal">' + (todo ? '還有 ' + todo + ' 堂未訂貨' : '都處理好了') + '</span></h2>' +
           '<div class="tablewrap"><table class="lesson-table"><tbody>' + list.map(function (x) {
+            var many = (x.orders || []).length > 1;
             var btns = x.status === 'todo'
-              ? '<button type="button" class="btn small" data-lact="order">去訂貨</button><button type="button" class="btn ghost small" data-lact="skip">不用訂貨</button>'
-              : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>' : '';
+              ? '<label class="check lpick"><input type="checkbox" data-lpick> 勾選</label><button type="button" class="btn small" data-lact="order">去訂貨</button>' +
+                '<button type="button" class="btn secondary small" data-lact="orderlast" title="帶入上次同一堂課的材料和實作項目">⚡ 照上次訂</button><button type="button" class="btn ghost small" data-lact="skip">不用訂貨</button>'
+              : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>'
+              : (x.orders || []).map(function (o) {
+                return '<button type="button" class="btn ghost small" data-lact="vieworder" data-no="' + esc(o.orderNo) + '">📋 料單' + (many ? '：' + esc(o.project || '') : '') + '</button>' +
+                  '<button type="button" class="btn secondary small" data-lact="editorder" data-no="' + esc(o.orderNo) + '">✏️ 修改' + (many ? '：' + esc(o.project || '') : '') + '</button>';
+              }).join('');
             return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-source="' + esc(x.source || '') + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
               '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div>' +
@@ -7669,10 +7699,26 @@
     var b = e.target.closest('button[data-lact]');
     if (!b) return;
     var tr = b.closest('tr'), act = b.getAttribute('data-lact');
-    var x = { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), source: tr.getAttribute('data-source') || '', className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
-    if (act === 'order') {
+    var x = lessonOfRow(tr);
+    if (act === 'vieworder' || act === 'editorder') { lessonOrderAct(act, b.getAttribute('data-no'), x, b); return; }
+    if (act === 'order' || act === 'orderlast') {
       if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
-      if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
+      if ((draft.cart.length || draft.tools.length) && !safeConfirm(act === 'orderlast' ? '訂購清單裡有還沒送出的內容，會被上次的內容取代，確定嗎？' : '訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
+      lessonToOrder(x, act === 'orderlast', []);
+      return;
+    }
+    setBusy(b, true, '處理中…');
+    call('setNoOrder', token, x.date, x.session, x.course, act === 'skip', lessonAs).then(function (r) {
+      renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨。' : '已改回要訂貨。');
+    }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+  });
+  function lessonOfRow(tr) {
+    return { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), source: tr.getAttribute('data-source') || '', className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
+  }
+  // 從我的課帶入上課資訊；useLast：直接帶上次同一堂課的內容（照上次訂）；multi：其他一起訂的課
+  var autoLast = false;
+  function lessonToOrder(x, useLast, multi) {
+    {
       readInfo();
       draft.info.useDate = x.date;
       draft.info.className = x.className || draft.info.className;
@@ -7687,22 +7733,75 @@
       show('viewOrder');
       msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請確認實作項目、選科別，再選食材。');
       msg('lastBox', '', '');
+      draft.multi = multi || [];
+      saveDraft(); renderMultiBox();
+      autoLast = !!useLast;
       if (draft.info.onBehalfOf) msg('lastBox', 'info', '這是幫「' + draft.info.onBehalfOf + '」老師代訂。');
       else suggestLastOrder(x);
-      return;
     }
-    setBusy(b, true, '處理中…');
-    call('setNoOrder', token, x.date, x.session, x.course, act === 'skip', lessonAs).then(function (r) {
-      renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨。' : '已改回要訂貨。');
-    }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+  }
+  // 已訂的課：看料單、修改（找自己的訂單；管理者看別的老師的課時用訂單彙整的資料）
+  function lessonOrderAct(act, no, x, b) {
+    var find = viewingOther()
+      ? call('adminGetOrders', token, x.date, x.date).then(function (list) { return list.find(function (o) { return o.orderNo === no; }); })
+      : ((mineCache || []).some(function (o) { return o.orderNo === no; }) ? Promise.resolve(mineCache.find(function (o) { return o.orderNo === no; }))
+        : call('getMyOrders', token, mineDays).then(function (list) { mineCache = list; return list.find(function (o) { return o.orderNo === no; }); }));
+    setBusy(b, true, '載入中…');
+    find.then(function (o) {
+      setBusy(b, false);
+      if (!o) { msg('lessonsMsg', 'error', '找不到這張訂單（' + no + '），請到「我的訂單」看看。'); return; }
+      if (act === 'vieworder') { printOrder(o, 'viewLessons'); return; }
+      if (viewingOther()) { msg('lessonsMsg', 'info', '別的老師的訂單請到「訂單彙整」按「修改明細」。'); return; }
+      if (!o.canEdit) { msg('lessonsMsg', 'warn', '「' + (o.project || no) + '」' + (o.status !== '待處理' ? '狀態是「' + o.status + '」' : '已經過了訂貨截止') + '，不能自己修改，要更動請聯絡管理者。'); return; }
+      if ((draft.cart.length || draft.tools.length) && !draft.editing && !safeConfirm('目前訂購清單裡還沒送出的內容會被取代，確定要修改這張訂單？')) return;
+      orderToDraft(o, true);
+      draft.multi = []; saveDraft(); renderMultiBox();
+      msg('orderMsg', 'info', '改好後按最下面的「儲存修改」。訂單編號不變。');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }).catch(function (err) { setBusy(b, false); msg('lessonsMsg', 'error', err.message); });
+  }
+  // 勾好幾堂課一起訂：第一堂帶入訂貨畫面，其他的送出時用同一份材料各送一張
+  function lessonPicks() { return Array.prototype.filter.call($('lessonsList').querySelectorAll('[data-lpick]'), function (c) { return c.checked; }); }
+  function syncPickBar() {
+    var n = lessonPicks().length;
+    $('lpickN').textContent = n;
+    $('lpickBar').classList.toggle('hidden', n < 1);
+    $('lpickGo').disabled = n < 2;
+    $('lpickGo').textContent = n < 2 ? '再勾一堂才能一起訂' : '一起訂貨（同一份材料，' + n + ' 堂）';
+  }
+  $('lessonsList').addEventListener('change', function (e) { if (e.target.matches('[data-lpick]')) syncPickBar(); });
+  $('lpickClear').addEventListener('click', function () { lessonPicks().forEach(function (c) { c.checked = false; }); syncPickBar(); });
+  $('lpickGo').addEventListener('click', function () {
+    var xs = lessonPicks().map(function (c) { return lessonOfRow(c.closest('tr')); }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.session < b.session ? -1 : 1); });
+    if (xs.length < 2) return;
+    if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
+    if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，要保留清單、一起送給勾選的 ' + xs.length + ' 堂課嗎？')) return;
+    lessonToOrder(xs[0], false, xs.slice(1));
+    lessonPicks().forEach(function (c) { c.checked = false; }); syncPickBar();
+  });
+  function renderMultiBox() {
+    var m = draft.multi || [];
+    $('multiBox').innerHTML = m.length ? '<div class="msg info"><b>這份材料會一起送給 ' + (m.length + 1) + ' 堂課</b>（每堂各一張訂單）：<br>' +
+      '① ' + esc(shortDate(draft.info.useDate || '') + ' ' + (draft.info.classTime || '') + ' ' + (draft.info.className || '')) + '（上面填的）' +
+      m.map(function (y, i) { return '<br>' + '②③④⑤⑥⑦⑧⑨'.charAt(i) + ' ' + esc(shortDate(y.date) + ' ' + y.session + ' ' + (y.className || '') + ' ' + (y.room || '')) + ' <button type="button" class="btn ghost small" data-mx="' + i + '">✕ 不要這堂</button>'; }).join('') +
+      '<div class="small" style="margin-top:4px">實作項目、科別、組數、材料都一樣；日期、時段、班級、教室照各堂課。</div></div>' : '';
+  }
+  $('multiBox').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-mx]');
+    if (!b) return;
+    draft.multi.splice(Number(b.getAttribute('data-mx')), 1);
+    saveDraft(); renderMultiBox();
   });
   // 「上次這堂課訂了什麼」：同班級、同時段最近的一張訂單，一鍵帶入
   var lastSuggest = null;
   function suggestLastOrder(x) {
     lastSuggest = null;
     msg('lastBox', '', '');
+    var auto = autoLast; autoLast = false;
     call('findLastLessonOrder', token, x.date, x.session, x.className).then(function (o) {
+      if (!o && auto) { msg('lastBox', 'warn', '這堂課沒有上次的訂單，請自己選食材。'); return; }
       if (!o || draft.info.useDate !== x.date) return;
+      if (auto) { applyLast(o); return; }
       // 實作項目還空著：先帶上次同一堂課的（老師可以改）
       if (!$('fProject').value.trim() && o.project && !/^【還料】/.test(o.project)) {
         $('fProject').value = o.project; readInfo(); saveDraft();
@@ -7721,19 +7820,24 @@
     var b = e.target.closest('button[data-last]');
     if (!b) return;
     if (b.getAttribute('data-last') === 'no' || !lastSuggest) { lastSuggest = null; msg('lastBox', '', ''); return; }
-    var o = lastSuggest.o, x = lastSuggest.x;
+    var o = lastSuggest.o;
     lastSuggest = null;
+    applyLast(o);
+  });
+  function applyLast(o) {
     readInfo();
+    var multi = draft.multi || [];
     var keep = { useDate: draft.info.useDate, className: draft.info.className, room: draft.info.room, classTime: draft.info.classTime };
     orderToDraft(o, false);
     draft.info.useDate = keep.useDate;
     draft.info.className = keep.className || o.className;
     draft.info.room = keep.room || o.room;
     if (keep.classTime) draft.info.classTime = keep.classTime;
-    writeInfo(); saveDraft(); updateDateHint(); renderResults();
+    draft.multi = multi;
+    writeInfo(); saveDraft(); updateDateHint(); renderResults(); renderMultiBox();
     msg('orderMsg', '', '');
     msg('lastBox', 'ok', '已帶入上次（' + shortDate(o.useDate) + '「' + o.project + '」）的內容，請確認實作項目、組數和數量再送出。');
-  });
+  }
   $('mlType').addEventListener('change', function () {
     var once = this.value === '單次';
     $('mlWeekdayBox').classList.toggle('hidden', once);
@@ -7774,7 +7878,7 @@
   function sync() {
     raf = 0;
     b.classList.toggle('off', (window.pageYOffset || document.documentElement.scrollTop || 0) < window.innerHeight * 0.8);
-    var bar = Array.prototype.find.call(document.querySelectorAll('.submitbar'), function (x) { return x.offsetParent !== null; });
+    var bar = Array.prototype.find.call(document.querySelectorAll('.submitbar, .lpick-bar'), function (x) { return x.offsetParent !== null; });
     var r = bar && bar.getBoundingClientRect();
     b.style.bottom = r && r.top < window.innerHeight && r.bottom > 0 ? (window.innerHeight - r.top + 12) + 'px' : '';
   }
