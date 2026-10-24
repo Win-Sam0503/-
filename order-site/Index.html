@@ -4845,11 +4845,12 @@
     renderAudit();
   });
   function auditRow(c, ci, x, xi) {
-    var it = x.it, shown = x.actual !== '' || x.manual;
+    var it = x.it, shown = x.actual !== '' || x.manual || x.peek;
     var cls = !x.result ? '' : x.result === '正常' ? 'good' : x.result === '不確定' ? '' : 'bad';
     return '<tr data-ci="' + ci + '" data-xi="' + xi + '" class="' + cls + '"><td><b>' + esc(it.name) + '</b></td>' +
       '<td><input type="number" inputmode="decimal" min="0" step="any" data-aa value="' + esc(x.actual) + '"> ' + esc(it.unit || '') + '</td>' +
-      '<td data-aq>' + (shown ? esc(fmtQty(it.qty)) + ' ' + esc(it.unit || '') : '<button type="button" class="btn ghost small" data-ashow>先數完再看</button>') + '</td>' +
+      '<td data-aq>' + (shown ? esc(fmtQty(it.qty)) + ' ' + esc(it.unit || '') + (x.peek && x.actual === '' ? ' <span class="badge warn">先看了</span>' : '')
+        : '<span class="muted small">🔒 填了實際數量就會顯示</span> <a href="#" class="small" data-ashow>直接看</a>') + '</td>' +
       '<td><select data-ar><option value="">結果</option>' + ['正常', '少了', '多了', '沒有', '不確定'].map(function (r) { return '<option' + (x.result === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select></td>' +
       '<td><input type="text" maxlength="60" data-an placeholder="說明" value="' + esc(x.note) + '"></td></tr>';
   }
@@ -4861,7 +4862,7 @@
         '<span>' + esc(teacherOf(o)) + ' 老師</span><span class="muted">' + esc(shortDate(o.useDate)) + ' ' + esc(o.classTime || '') + '・' + esc(o.room || '') + '・訂單 ' + esc(o.orderNo) + '</span></div>' +
         '<div class="tpl-row"><div><label>放在哪個冰箱</label><input type="text" maxlength="30" data-af="fridge" placeholder="例如：西餐 B" value="' + esc(c.fridge) + '"></div>' +
         '<div><label>封條</label><div class="status-chips" style="margin:0">' + ['完整', '破了', '沒封'].map(function (sv) { return '<button type="button" data-seal="' + sv + '" class="' + (c.seal === sv ? 'on' : '') + '">' + sv + '</button>'; }).join('') + '</div></div></div>' +
-        '<div style="overflow-x:auto"><table class="au-t"><thead><tr><th>食材</th><th>實際數量</th><th>清單</th><th>結果</th><th>說明</th></tr></thead><tbody>' +
+        '<div style="overflow-x:auto"><table class="au-t"><thead><tr><th>食材</th><th>實際數量</th><th>清單數量</th><th>結果</th><th>說明</th></tr></thead><tbody>' +
         c.items.map(function (x, xi) { return auditRow(c, ci, x, xi); }).join('') + '</tbody></table></div>' +
         '<div class="tpl-row" style="margin-top:6px"><div><label>整班說明（可不填）</label><input type="text" maxlength="100" data-af="note" value="' + esc(c.note) + '"></div>' +
         '<div><label>照片（最多 3 張）</label><input type="file" accept="image/*" capture="environment" multiple data-aph></div></div>' +
@@ -4913,8 +4914,13 @@
     var sb = e.target.closest('[data-seal]');
     if (sb) { c.seal = c.seal === sb.getAttribute('data-seal') ? '' : sb.getAttribute('data-seal'); renderAudit(); return; }
     if (e.target.matches('[data-ashow]')) {
+      e.preventDefault();
       var tr = e.target.closest('tr[data-xi]'), x = c.items[Number(tr.getAttribute('data-xi'))];
-      x.manual = true; auditRefreshRow(tr); return;
+      ask('先看清單數量，這一樣就不算盲點了（紀錄會註明「先看清單」）。確定要看嗎？', '直接看').then(function (ok) {
+        if (!ok) return;
+        x.peek = true; auditRefreshRow(tr);
+      });
+      return;
     }
     if (e.target.matches('[data-apdel]') && safeConfirm('刪除這張照片？')) { c.photos.splice(Number(e.target.getAttribute('data-apdel')), 1); renderAudit(); }
   });
@@ -4947,7 +4953,7 @@
       var payload = { how: audit.how || '隨機', timing: audit.timing, partner: $('auPartner').value.trim(), orders: audit.cards.map(function (c) {
         var o = c.o;
         return { orderNo: o.orderNo, useDate: o.useDate, classTime: o.classTime, className: o.className, dept: o.dept, teacher: teacherOf(o), fridge: c.fridge.trim(), seal: c.seal,
-          note: c.note.trim(), photos: c.photos, items: c.items.map(function (x) { return { name: x.it.name, qty: x.it.qty, unit: x.it.unit, actual: x.actual, result: x.result || '不確定', note: x.note.trim() }; }) };
+          note: c.note.trim(), photos: c.photos, items: c.items.map(function (x) { return { name: x.it.name, qty: x.it.qty, unit: x.it.unit, actual: x.actual, result: x.result || '不確定', note: [x.peek ? '先看清單' : '', x.note.trim()].filter(Boolean).join('；') }; }) };
       }) };
       var bad = 0;
       payload.orders.forEach(function (o) { if (o.seal === '破了' || o.items.some(function (x) { return ['少了', '多了', '沒有'].indexOf(x.result) >= 0; })) bad++; });
