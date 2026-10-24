@@ -1038,7 +1038,7 @@
     <section id="viewAudit" class="hidden">
       <div class="panel noprint">
         <h2>今日抽查 <details class="vhelp"><summary>？說明</summary><div class="muted small">按「隨機抽」由系統從這一天有領料的班隨機抽幾班（不是自己挑，大家比較不會覺得被針對），每班挑幾樣比較貴、容易被拿的。也可以按「指定抽查」自己勾要抽哪一班、哪位老師（紀錄會標「指定」）。「抽查範圍」預設勾冷藏的 A 菜、B 肉、C 蛋、D 海鮮；偶爾可以勾 E 乾貨、F 飲調抽一次。
-          現場請<b>先拍照、看封條，再數實際數量</b>，填好才會顯示清單上的數量（盲點，避免「看到 3 顆就以為是 3 顆」）。存好後在袋子上貼「已抽查」貼紙。發現不對先不要當場指責，拍照記下來，再照驗收紀錄 → 分貨 → 封條 → 領料往回追。</div></details></h2>
+          現場請<b>先拍照、看封條，再請校隊點數量唸給你</b>，你看著清單對照填實際數量（點數的人看不到清單，就是盲點）。手機要交給別人點數時，勾「盲點模式」把清單數量藏起來。存好後在袋子上貼「已抽查」貼紙。發現不對先不要當場指責，拍照記下來，再照驗收紀錄 → 分貨 → 封條 → 領料往回追。</div></details></h2>
         <div class="grid2">
           <div><label for="auDate">上課日期</label><input id="auDate" type="date"></div>
           <div><label for="auTiming">時間點</label><select id="auTiming"><option>分貨後、上課前</option><option>下課後（剩料）</option></select></div>
@@ -1051,6 +1051,7 @@
             <label class="check" style="margin:0"><input type="checkbox" value="E"> E 乾貨</label>
             <label class="check" style="margin:0"><input type="checkbox" value="F"> F 飲調</label></div></div>
           <div><label for="auK">每班抽幾樣</label><select id="auK"><option value="3">3 樣</option><option value="5" selected>5 樣</option><option value="99">全部</option></select></div>
+          <div class="wide"><label class="check" style="margin:0"><input type="checkbox" id="auBlind"> 盲點模式：清單數量先藏起來，填了實際數量才顯示（手機交給別人點數時用）</label></div>
           <div class="wide"><label for="auPartner">陪同的人（可不填）</label><input id="auPartner" type="text" maxlength="30" placeholder="例如：主任、某某老師"></div>
         </div>
         <div class="actions" style="justify-content:flex-start">
@@ -4794,6 +4795,13 @@
     }).catch(function (e) { msg('auMsg', 'error', '抽籤失敗：' + e.message); })
       .then(function () { setBusy(b, false); });
   });
+  // 盲點模式（預設關）：管理者拿手機看清單、校隊點數唸出來，不用藏；手機交給別人點時才打開
+  function auditBlind() { return $('auBlind').checked; }
+  try { $('auBlind').checked = localStorage.getItem('ckOrder.auditBlind') === '1'; } catch (e) {}
+  $('auBlind').addEventListener('change', function () {
+    try { localStorage.setItem('ckOrder.auditBlind', this.checked ? '1' : ''); } catch (e) {}
+    renderAudit();
+  });
   // 指定抽查：列出這天全部的班，可以勾班級，或選一位老師勾他全部的班
   var auPool = null;
   $('auChoose').addEventListener('click', function () {
@@ -4845,7 +4853,7 @@
     renderAudit();
   });
   function auditRow(c, ci, x, xi) {
-    var it = x.it, shown = x.actual !== '' || x.manual || x.peek;
+    var it = x.it, shown = !auditBlind() || x.actual !== '' || x.manual || x.peek;
     var cls = !x.result ? '' : x.result === '正常' ? 'good' : x.result === '不確定' ? '' : 'bad';
     return '<tr data-ci="' + ci + '" data-xi="' + xi + '" class="' + cls + '"><td><b>' + esc(it.name) + '</b></td>' +
       '<td><input type="number" inputmode="decimal" min="0" step="any" data-aa value="' + esc(x.actual) + '"> ' + esc(it.unit || '') + '</td>' +
