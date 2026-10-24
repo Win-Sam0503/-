@@ -2866,10 +2866,31 @@
     var nEdit = base.reduce(function (n, o) { return n + (o.edits ? o.edits.length : 0); }, 0);
     bulk += '<div class="actions" style="justify-content:flex-start;margin-top:6px"><button type="button" class="btn ghost small" id="erOpen"' + (nEdit ? '' : ' disabled') + '>📋 列印' + (who ? ' ' + esc(who) + ' 老師的' : '') + '修改紀錄（' + nEdit + ' 次）</button>' +
       (who ? '' : '<span class="muted small" style="align-self:center">先在上面「查詢老師」選一位老師，就只印那位老師的</span>') + '</div>';
-    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + bulk + '</div>' +
-      list.map(function (o) { return orderCard(o, { admin: true }); }).join('');
+    var sby = sumSort();
+    var sortBar = '<div class="status-chips" style="margin:8px 0 0;align-items:center"><span class="muted small">排序：</span>' +
+      '<button type="button" data-ssort="date" class="' + (sby === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
+      '<button type="button" data-ssort="sent" class="' + (sby === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>';
+    $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips + sortBar + bulk + '</div>' +
+      sortOrders(list, sby).map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
+  // 訂單彙整排序：date＝上課日期→上午／下午／夜間→上課時間→班級；sent＝送出時間新→舊（訂單編號）
+  function sumSort() { try { return localStorage.getItem('ckOrder.sumSort') === 'sent' ? 'sent' : 'date'; } catch (e) { return 'date'; } }
+  function sortOrders(list, by) {
+    var ses = function (t) { var m = String(t || '').match(/^(上午|下午|晚上)\s*(\d+)?:?(\d+)?/); return m ? ['上午', '下午', '晚上'].indexOf(m[1]) * 10000 + (Number(m[2]) || 0) * 100 + (Number(m[3]) || 0) : 99999; };
+    return list.slice().sort(by === 'sent'
+      ? function (a, b) { return a.orderNo < b.orderNo ? 1 : a.orderNo > b.orderNo ? -1 : 0; }
+      : function (a, b) {
+        return (a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : 0) || ses(a.classTime) - ses(b.classTime) ||
+          String(a.className || '').localeCompare(String(b.className || ''), 'zh-Hant', { numeric: true }) || (a.orderNo < b.orderNo ? -1 : 1);
+      });
+  }
+  $('sumOrders').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ssort]');
+    if (!b) return;
+    try { localStorage.setItem('ckOrder.sumSort', b.getAttribute('data-ssort')); } catch (e2) {}
+    renderSummary();
+  });
   // 修改紀錄報表：照訂單彙整目前的期間、老師、關鍵字，列出每一次修改（誰改的、改了什麼），可以列印
   function editReportHtml(orders, who, from, to) {
     var rows = [];
