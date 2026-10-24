@@ -105,6 +105,7 @@ const SHEET = {
   pickups: '跨教室領料',
   audits: '抽查紀錄',
   places: '放置位置',
+  hidden: '老師刪除',
 };
 // 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
 const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
@@ -121,6 +122,8 @@ const AUDIT_FOLDER_NAME = '三信家商餐飲科抽查照片';
 const PLACE_VENDORS = /^[ABCD]/;   // 要冰的才登記：A 菜、B 肉、C 蛋、D 海鮮（E 乾貨、F 飲調不用）
 const PLACE_HEADERS = ['訂單編號', '上課日期', '班級', '老師', '放置位置', '照片', '登記人', '登記時間'];
 const PLACE_FOLDER_NAME = '三信家商餐飲科放置照片';
+// 老師刪除：老師從「我的訂單」刪掉的訂單（老師看不到，管理者照樣看得到、標「老師已刪除」）
+const HIDDEN_HEADERS = ['訂單編號', '老師', '刪除時間', '原狀態'];
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
@@ -1123,9 +1126,11 @@ function getMyOrders(token, days) {
   list.forEach(function (o) {
     o.adminNotes = (edits[o.orderNo] || []).filter(function (e) { return isAdmin_(e.who); });
   });
-  const places = placesFor_(list.map(function (o) { return o.orderNo; }));
-  list.forEach(function (o) { o.place = places[o.orderNo] || null; });
-  return list;
+  const hidden = hiddenOrders_();
+  const shown = list.filter(function (o) { return !hidden[o.orderNo]; });
+  const places = placesFor_(shown.map(function (o) { return o.orderNo; }));
+  shown.forEach(function (o) { o.place = places[o.orderNo] || null; });
+  return shown;
 }
 
 /**
@@ -1173,6 +1178,49 @@ function cancelOrder(token, orderNo) {
   return res;
 }
 
+/** 老師刪掉的訂單：{ 訂單編號: { by, time } } */
+function hiddenOrders_() {
+  return memo_('hiddenOrders', function () {
+    const out = {};
+    const sh = ss_().getSheetByName(SHEET.hidden);
+    if (!sh || sh.getLastRow() < 2) return out;
+    readTable_(SHEET.hidden, ['訂單編號']).rows.forEach(function (r) {
+      out[String(r['訂單編號']).trim()] = { by: String(r['老師'] || ''), time: fmtDateTime_(r['刪除時間']) };
+    });
+    return out;
+  });
+}
+
+/**
+ * 老師刪除自己的訂單（老師那邊看不到，管理者照樣看得到）。
+ * 待處理、還沒截止 → 先取消再刪（規則跟取消一樣）；已取消 → 直接刪；已審核、已叫貨 → 不能刪，請找管理者。
+ */
+function deleteMyOrder(token, orderNo) {
+  const account = auth_(token);
+  orderNo = clean_(orderNo, 30);
+  const rows = readTable_(SHEET.orders, ['訂單編號']).rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
+  if (!rows.length) throw new Error('找不到這張訂單（上課日期太久以前的訂單不能刪除）。');
+  const r0 = rows[0];
+  if (String(r0['操作老師']).trim() !== account && String(r0['代訂對象老師'] || '').trim() !== account) throw new Error('只能刪除自己的訂單。');
+  if (hiddenOrders_()[orderNo]) return { ok: true };
+  const live = rows.filter(function (x) { return String(x['狀態']).trim() !== '已取消'; });
+  const was = live.length ? String(live[0]['狀態']).trim() : '已取消';
+  if (live.length) {
+    if (live.some(function (x) { return String(x['狀態']).trim() !== '待處理'; })) throw new Error('這張訂單已經在處理（已審核或已叫貨），不能自己刪除，請聯絡管理者。');
+    cancelOrderChecked_(account, false, orderNo);   // 已過截止會擋下來
+    try { logOrderEdit_(orderNo, account, ['老師刪除訂單']); } catch (e) { console.error(e.message); }
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(ensureSheet_(SHEET.hidden, HIDDEN_HEADERS), HIDDEN_HEADERS);
+    appendRows_(SHEET.hidden, [{ '訂單編號': orderNo, '老師': account, '刪除時間': new Date(), '原狀態': was }], { '刪除時間': 'yyyy/mm/dd hh:mm' });
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, cancelled: !!live.length };
+}
+
 function cancelOrderChecked_(account, isAdmin, orderNo) {
   return updateOrderStatus_(orderNo, '已取消', function (rows) {
     if (isAdmin) return;
@@ -1210,8 +1258,8 @@ function adminGetOrders(token, from, to, lite) {
   });
   if (lite) return list;
   const nos = list.map(function (o) { return o.orderNo; });
-  const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos), places = placesFor_(nos);
-  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; o.place = places[o.orderNo] || null; });
+  const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos), places = placesFor_(nos), hidden = hiddenOrders_();
+  list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; o.place = places[o.orderNo] || null; o.deleted = hidden[o.orderNo] || null; });
   try { matchLessons_(list, start, end); } catch (e) { console.error('matchLessons_ ' + e.message); }
   return list;
 }

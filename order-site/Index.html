@@ -383,6 +383,10 @@
   .help-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .pw-form { max-width: 440px; margin: 0 auto; }
   .pw-form .field { margin-bottom: 12px; }
+  #toTop { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; width: 48px; height: 48px; border-radius: 50%; border: 0;
+    background: var(--brand); color: #fff; font-size: 22px; line-height: 48px; text-align: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: opacity .2s, transform .2s; }
+  #toTop.off { opacity: 0; pointer-events: none; transform: translateY(10px); }
+  @media print { #toTop { display: none !important; } }
   #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
   .mode-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 14px; }
   .tot { font-size: 12px; color: var(--info); margin-top: 2px; white-space: nowrap; }
@@ -850,7 +854,7 @@
             </div>
             <div class="muted small" style="margin-top:4px">點一下直接查詢；試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div>
           </div>
-          <div class="span2"><label for="sKeyword">關鍵字（實作項目、班級、食材、訂單編號）</label><input id="sKeyword" type="search" placeholder="例如：泡芙、217、奶油" autocomplete="off"></div>
+          <div class="span2"><label for="sKeyword">關鍵字（實作項目、班級、食材、訂單編號、老師）</label><div style="display:flex;gap:6px"><input id="sKeyword" type="search" placeholder="例如：泡芙、217、奶油" autocomplete="off" style="flex:1"><button type="button" class="btn secondary small" id="sSearchAll" title="不用選日期，直接搜最近一年的訂單">🔍 搜最近一年</button></div></div>
           <div><label for="sTeacher">查詢老師</label><select id="sTeacher"><option value="">全部老師</option></select></div>
           <div><label for="sStatus">訂單狀態</label><select id="sStatus"><option value="">全部狀態</option></select></div>
           <div style="display:flex;align-items:flex-end;gap:8px">
@@ -1704,6 +1708,7 @@
   $('search').addEventListener('input', renderResults);
   $('deptOnly').addEventListener('change', renderResults);
   $('fDate').addEventListener('change', renderResults);
+  $('fDate').addEventListener('change', function () { $('fProject').placeholder = '例：戚風蛋糕、宮保雞丁'; });
   $('vendorChips').addEventListener('click', function (e) {
     var b = e.target.closest('.chip');
     if (!b) return;
@@ -2559,6 +2564,7 @@
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
       if (o.canEdit) buttons += '<button type="button" class="btn secondary small" data-act="modify" data-no="' + esc(o.orderNo) + '">修改訂單</button>';
       if (o.canCancel) buttons += '<button type="button" class="btn danger small" data-act="cancel" data-no="' + esc(o.orderNo) + '">取消訂單</button>';
+      if (!o.archived && (o.canCancel || o.status === '已取消')) buttons += '<button type="button" class="btn ghost small" data-act="delete" data-no="' + esc(o.orderNo) + '" title="從我的訂單刪掉（無法復原）">🗑 刪除</button>';
     }
     if (opts.admin && !o.archived) {
       buttons += '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + esc(o.orderNo) + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記異常') + '</button>';
@@ -2570,7 +2576,7 @@
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
         (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
-        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) +
+        (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + (opts.admin && o.deleted ? ' <span class="badge bad" title="' + esc(o.deleted.by + ' ' + o.deleted.time) + '">老師已刪除</span>' : '') +
         (opts.admin && !o.archived && o.lesson && !o.lesson.match.length && o.status !== '已取消' ? ' <button type="button" class="btn secondary small noprint" data-act="addlesson" data-no="' + esc(o.orderNo) + '">📅 加入課表</button>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
@@ -2621,8 +2627,17 @@
   var mineDays = 60;   // 按「顯示更早的訂單」後改成一年
   // 排序：date＝上課日期近→遠（還沒上的課最近的在最上面，再來是上過的、最近上過的在前）；sent＝送出時間新→舊（以前的排法）
   function mineSort() { try { return localStorage.getItem('ckOrder.mineSort') === 'sent' ? 'sent' : 'date'; } catch (e) { return 'date'; } }
+  // 我的訂單搜尋：實作項目、班級、食材、訂單編號、科別、日期（例如 11/3）
+  var mineQ = '';
+  function mineMatch(o) {
+    var kw = mineQ.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!kw.length) return true;
+    var d = parseDate(o.useDate), md = d ? (d.getMonth() + 1) + '/' + d.getDate() : '';
+    var hay = [o.project, o.className, o.dept, o.orderNo, o.teacher, o.onBehalfOf, o.room, o.useDate, md, o.status].concat(o.items.map(function (it) { return it.name; })).join(' ').toLowerCase();
+    return kw.every(function (k) { return hay.indexOf(k) >= 0; });
+  }
   function renderMine() {
-    var list = mineCache.slice(), by = mineSort(), today = isoDate(new Date()), html = '';
+    var all = mineCache.slice(), list = all.filter(mineMatch), by = mineSort(), today = isoDate(new Date()), html = '';
     if (by === 'date') {
       var soon = list.filter(function (o) { return o.useDate >= today; }).sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : (a.classTime < b.classTime ? -1 : 1); });
       var past = list.filter(function (o) { return o.useDate < today; }).sort(function (a, b) { return a.useDate > b.useDate ? -1 : a.useDate < b.useDate ? 1 : (a.classTime < b.classTime ? -1 : 1); });
@@ -2631,13 +2646,22 @@
     } else {
       html = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
     }
-    $('mineList').innerHTML = (list.length ? '<div class="status-chips" id="mineSortBar" style="margin:0 0 10px;align-items:center"><span class="muted small">排序：</span>' +
+    var box = $('mineQ'), hadFocus = box && document.activeElement === box, pos = box ? box.selectionStart : 0;
+    $('mineList').innerHTML = (all.length ? '<div style="margin:0 0 8px"><input id="mineQ" type="search" placeholder="🔍 搜尋：實作項目、班級、食材、訂單編號、日期（例如 11/3）" autocomplete="off" value="' + esc(mineQ) + '"></div>' : '') +
+      (mineQ && !list.length ? '<div class="msg info">找不到符合「' + esc(mineQ) + '」的訂單。</div>' : '') +
+      (list.length ? '<div class="status-chips" id="mineSortBar" style="margin:0 0 10px;align-items:center"><span class="muted small">排序：</span>' +
         '<button type="button" data-msort="date" class="' + (by === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
         '<button type="button" data-msort="sent" class="' + (by === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>' : '') + html +
       '<div class="actions" style="justify-content:center">' + (mineDays > 60
         ? '<span class="muted small">已顯示最近一年的訂單（上課日期過了 2 週的訂單只能查看、列印、再訂一次）。更早的請找管理者。</span>'
         : '<button type="button" class="btn ghost small" id="mineMore">顯示更早的訂單（最近一年）</button>') + '</div>';
+    if (hadFocus && $('mineQ')) { $('mineQ').focus(); try { $('mineQ').setSelectionRange(pos, pos); } catch (e) {} }
   }
+  $('mineList').addEventListener('input', function (e) {
+    if (e.target.id !== 'mineQ') return;
+    mineQ = e.target.value;
+    renderMine();
+  });
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
     $('mineList').innerHTML = '';
@@ -2670,6 +2694,14 @@
       call('cancelOrder', token, no).then(function () {
         loadMine('訂單 ' + no + ' 已取消。');
       }).catch(function (err) { msg('mineMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
+    } else if (b.getAttribute('data-act') === 'delete') {
+      ask('確認刪除此訂單（無法復原）？\n' + no + '　' + (o.project || '') + (o.status === '待處理' ? '\n這張還沒處理，刪除會一起取消，不會叫貨。' : ''), '刪除').then(function (ok) {
+        if (!ok) return;
+        setBusy(b, true, '刪除中…');
+        call('deleteMyOrder', token, no).then(function () {
+          loadMine('訂單 ' + no + ' 已刪除。');
+        }).catch(function (err) { msg('mineMsg', 'error', '刪除失敗：' + err.message); setBusy(b, false); });
+      });
     } else if (b.getAttribute('data-act') === 'copy') {
       if (draft.cart.length && !safeConfirm('目前的訂購清單會被取代，確定要再訂一次這張訂單？')) return;
       orderToDraft(o, false);
@@ -3183,6 +3215,14 @@
   $('sHideCancel').addEventListener('change', renderSummary);
   $('sTeacher').addEventListener('change', renderSummary);
   var kwTimer = null;
+  // 不用選日期：把期間設成一年前～兩個月後，載入後照關鍵字篩
+  $('sSearchAll').addEventListener('click', function () {
+    var t = new Date();
+    $('sFrom').value = isoDate(new Date(t.getFullYear() - 1, t.getMonth(), t.getDate()));
+    $('sTo').value = isoDate(new Date(t.getFullYear(), t.getMonth() + 2, t.getDate()));
+    loadSummary();
+  });
+  $('sKeyword').addEventListener('keydown', function (e) { if (e.key === 'Enter' && this.value.trim() && !$('sumOrders').innerHTML) $('sSearchAll').click(); });
   $('sKeyword').addEventListener('input', function () { clearTimeout(kwTimer); kwTimer = setTimeout(renderSummary, 250); });
   // 快速時間：週一到週日；學期 8/1–1/31、2/1–7/31
   function rangeOf(key) {
@@ -7071,7 +7111,7 @@
             var btns = x.status === 'todo'
               ? '<button type="button" class="btn small" data-lact="order">去訂貨</button><button type="button" class="btn ghost small" data-lact="skip">不用訂貨</button>'
               : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>' : '';
-            return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
+            return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-source="' + esc(x.source || '') + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
               '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div></td>' +
               '<td class="lt-status">' + LESSON_STATUS[x.status] + (x.holiday ? '<div class="small" style="color:var(--muted)">' + esc(x.holiday) + '</div>' : '') + '</td>' +
@@ -7591,7 +7631,7 @@
     var b = e.target.closest('button[data-lact]');
     if (!b) return;
     var tr = b.closest('tr'), act = b.getAttribute('data-lact');
-    var x = { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
+    var x = { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), source: tr.getAttribute('data-source') || '', className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };
     if (act === 'order') {
       if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
       if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
@@ -7599,16 +7639,18 @@
       draft.info.useDate = x.date;
       draft.info.className = x.className || draft.info.className;
       draft.info.room = x.room || draft.info.room;
-      draft.info.project = x.course;
+      // 實作項目：國技排班的課名就是實作名稱；一般課表的是課程名稱（例如中餐烹調），不帶，改用上次同一堂課的實作項目
+      draft.info.project = x.source === '國技' ? x.course : '';
       draft.info.onBehalfOf = viewingOther() && Array.prototype.some.call($('fFor').options, function (o) { return o.value === lessonAs; }) ? lessonAs : '';
       draft.info.classTime = x.session;
       writeInfo(); saveDraft();
+      $('fProject').placeholder = draft.info.project ? '例：戚風蛋糕、宮保雞丁' : '這堂課（' + x.course + '）要做什麼？例：宮保雞丁';
       updateDateHint(); renderResults();
       show('viewOrder');
-      msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請選擇幾點幾分、科別，再選食材。');
+      msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，請確認實作項目、選科別，再選食材。');
       msg('lastBox', '', '');
       if (draft.info.onBehalfOf) msg('lastBox', 'info', '這是幫「' + draft.info.onBehalfOf + '」老師代訂。');
-      else if (!draft.cart.length && !draft.tools.length) suggestLastOrder(x);
+      else suggestLastOrder(x);
       return;
     }
     setBusy(b, true, '處理中…');
@@ -7622,7 +7664,13 @@
     lastSuggest = null;
     msg('lastBox', '', '');
     call('findLastLessonOrder', token, x.date, x.session, x.className).then(function (o) {
-      if (!o || draft.cart.length || draft.tools.length || draft.info.useDate !== x.date) return;
+      if (!o || draft.info.useDate !== x.date) return;
+      // 實作項目還空著：先帶上次同一堂課的（老師可以改）
+      if (!$('fProject').value.trim() && o.project && !/^【還料】/.test(o.project)) {
+        $('fProject').value = o.project; readInfo(); saveDraft();
+        msg('orderMsg', 'info', '已帶入 ' + shortDate(x.date) + ' ' + x.session + '「' + x.course + '」，實作項目先帶上次的「' + o.project + '」，不一樣請修改。');
+      }
+      if (draft.cart.length || draft.tools.length) return;
       lastSuggest = { o: o, x: x };
       var foods = o.items.filter(function (it) { return it.id !== TOOL && it.status !== '已取消'; }).length;
       var tools = o.items.filter(function (it) { return it.id === TOOL && it.status !== '已取消'; }).length;
@@ -7678,6 +7726,23 @@
   // ------------------------------------------------------------------
   try { $('lAccount').value = localStorage.getItem('ckOrder.lastAccount') || ''; } catch (e) {}
   if (token) start(); else showLogin('');
+})();
+</script>
+<button type="button" id="toTop" class="off noprint" aria-label="回到最上面" title="回到最上面">🔝</button>
+<script>
+// 右下角置頂鍵：往下捲超過一個畫面才出現；訂貨頁下方有「送出訂單」列，就放在它上面
+(function () {
+  var b = document.getElementById('toTop'), raf = 0;
+  function sync() {
+    raf = 0;
+    b.classList.toggle('off', (window.pageYOffset || document.documentElement.scrollTop || 0) < window.innerHeight * 0.8);
+    var bar = Array.prototype.find.call(document.querySelectorAll('.submitbar'), function (x) { return x.offsetParent !== null; });
+    var r = bar && bar.getBoundingClientRect();
+    b.style.bottom = r && r.top < window.innerHeight && r.bottom > 0 ? (window.innerHeight - r.top + 12) + 'px' : '';
+  }
+  window.addEventListener('scroll', function () { if (!raf) raf = requestAnimationFrame(sync); }, { passive: true });
+  window.addEventListener('resize', sync);
+  b.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
 })();
 </script>
 </body>
