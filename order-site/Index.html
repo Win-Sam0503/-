@@ -464,7 +464,8 @@
   .iss-t th { font-size: 12px; color: var(--muted); }
   .iss-t tr.done td { opacity: .55; }
   .iss-type { white-space: nowrap; font-weight: 700; }
-  @media print { #viewSummary.print-iss > :not(#issPanel) { display: none !important; } }
+  .iss-p { display: none; }
+  @media print { #viewSummary.print-iss > :not(#issPanel) { display: none !important; } div.iss-p { display: block; margin: 0 0 6px; font-size: 13px; } td.iss-p, th.iss-p { display: table-cell; white-space: nowrap; } }
   .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
   /* 校隊：放置登記 */
   .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -2996,14 +2997,16 @@
     $('issTypes').innerHTML = '<button type="button" data-isst="" class="' + (issType ? '' : 'on') + '">全部（' + issList.length + '）</button>' +
       Object.keys(ISS_TYPES).map(function (k) { return '<button type="button" data-isst="' + k + '" class="' + (issType === k ? 'on' : '') + '"' + (count[k] ? '' : ' disabled') + '>' + ISS_TYPES[k] + ' ' + k + '（' + (count[k] || 0) + '）</button>'; }).join('');
     var list = issList.filter(function (x) { return (!issType || x.type === issType) && (!$('issUndone').checked || !x.done); });
-    $('issBox').innerHTML = list.length ? '<div style="overflow-x:auto"><table class="iss-t"><thead><tr><th>時間</th><th>類型</th><th>訂單／班級</th><th>老師</th><th>說明</th><th class="noprint">已處理</th></tr></thead><tbody>' +
+    var printHead = '<div class="iss-p">期間：' + esc(shortDate($('issFrom').value) + '～' + shortDate($('issTo').value)) + '　類型：' + esc(issType || '全部') +
+      ($('issUndone').checked ? '（只列還沒處理的）' : '') + '　共 ' + list.length + ' 筆　列印：' + esc(data.account + ' ' + new Date().toLocaleString('zh-TW', { hour12: false })) + '</div>';
+    $('issBox').innerHTML = list.length ? printHead + '<div style="overflow-x:auto"><table class="iss-t"><thead><tr><th>時間</th><th>類型</th><th>訂單／班級</th><th>老師</th><th>說明</th><th class="noprint">已處理</th><th class="iss-p">處理</th></tr></thead><tbody>' +
       list.map(function (x, i) {
         return '<tr class="' + (x.done ? 'done' : '') + '"><td style="white-space:nowrap">' + esc(x.time) + '<div class="muted">' + esc(x.who || '') + '</div></td>' +
           '<td class="iss-type">' + (ISS_TYPES[x.type] || '') + ' ' + esc(x.type) + '</td>' +
           '<td>' + (x.useDate ? esc(shortDate(x.useDate)) + ' ' : '') + esc(x.className || '') + ' ' + esc(x.project || '') +
             (x.orderNo ? '<div><a href="#" data-isso="' + esc(x.orderNo) + '" data-issd="' + esc(x.useDate || '') + '" class="noprint">' + esc(x.orderNo) + ' 查看</a></div>' : '') + '</td>' +
           '<td style="white-space:nowrap">' + esc(x.teacher || '') + '</td><td style="white-space:normal">' + esc(x.note || '') + '</td>' +
-          '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.id) + '"' + (x.done ? ' checked' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td></tr>';
+          '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.id) + '"' + (x.done ? ' checked' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td><td class="iss-p">' + (x.done ? '✓ ' + esc(x.done) : '未處理') + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '<span class="muted">這段期間沒有' + (issType ? '「' + esc(issType) + '」' : '異常') + '紀錄。</span>';
   }
   $('issOpen').addEventListener('click', function () {
