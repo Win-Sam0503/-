@@ -7313,6 +7313,30 @@
     var cur = x.manual ? 'ordered' : x.marked && x.status === 'skipped' ? 'skipped' : 'auto';
     return mark === cur && (mark !== 'ordered' || note.trim() === (x.manual ? x.manual.note : '')) ? null : { mark: mark, note: note.trim() };
   }
+  // 總課表點一堂課的選單：查看材料清單（有送單才能按）／修改課表（國技、老師自訂的課＝修改叫料狀態）
+  function gridChoose(x) {
+    return new Promise(function (resolve) {
+      var choice = null, has = (x.orders || []).length;
+      var proj = (x.orders || []).map(function (o) { return o.project; }).filter(Boolean).join('、');
+      var big = 'display:block;width:100%;margin-top:10px;padding:14px;font-size:17px';
+      var h = '<div style="font-weight:700;font-size:18px">' + esc(x.course) + '</div>' +
+        '<div class="muted small">' + esc([x.date ? shortDate(x.date) : '週' + x.weekday, x.session, x.room, x.className, x.teacher].filter(Boolean).join('・')) + '</div>' +
+        (proj ? '<div style="margin-top:4px;color:#1d4ed8;font-weight:700">📝 ' + esc(proj) + '</div>' : '') +
+        '<button type="button" class="btn" data-gchoice="orders" style="' + big + '"' + (has ? '' : ' disabled') + '>📋 查看材料清單' + (has ? '' : '（還沒送單）') + '</button>' +
+        '<button type="button" class="btn secondary" data-gchoice="edit" style="' + big + '">' + (x.extra ? '✏️ 修改叫料狀態' : '✏️ 修改課表') + '</button>';
+      var pick = function (e) {
+        var c = e.target.closest('[data-gchoice]');
+        if (!c || c.disabled) return;
+        choice = c.getAttribute('data-gchoice');
+        $('askYes').click();
+      };
+      $('askText').addEventListener('click', pick);
+      ask('', '關閉', { html: h, okOnly: true }).then(function () {
+        $('askText').removeEventListener('click', pick);
+        resolve(choice);
+      });
+    });
+  }
   function showLessonOrders(x) {
     var nos = x.orders.map(function (o) { return o.orderNo; });
     msg('gridMsg', 'info', '載入料單中…');
@@ -7507,15 +7531,16 @@
       gridAdd({ room: p[0], weekday: p[1], session: p[2] });
       return;
     }
-    // 有叫料的課：先看老師的料單，再決定要不要修改這堂課
+    // 點一堂課：先選「查看材料清單」或「修改課表」
     var lb = e.target.closest('button[data-gextra],button[data-grow]');
     if (lb && !lb.hasAttribute('data-direct')) {
       var lx = lb.hasAttribute('data-gextra') ? (gridData.extras || [])[Number(lb.getAttribute('data-gextra'))]
         : gridRows.find(function (y) { return y.row === Number(lb.getAttribute('data-grow')); });
-      if (lx && (lx.orders || []).length) {
-        showLessonOrders(lx).then(function (edit) {
-          if (!edit) return;
-          lb.setAttribute('data-direct', '1'); lb.click(); lb.removeAttribute('data-direct');
+      if (lx) {
+        var direct = function () { lb.setAttribute('data-direct', '1'); lb.click(); lb.removeAttribute('data-direct'); };
+        gridChoose(lx).then(function (c) {
+          if (c === 'edit') direct();
+          else if (c === 'orders') showLessonOrders(lx).then(function (edit) { if (edit) direct(); });
         });
         return;
       }
