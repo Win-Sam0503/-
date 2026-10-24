@@ -2611,14 +2611,14 @@
       var head = '';
       if (it.section && it.section !== lastSec) head = '<tr><td colspan="4" class="small" style="color:var(--info);font-weight:700;border-bottom:0">' + esc(it.section) + '</td></tr>';
       lastSec = it.section;
-      var fl = opts.admin && o.itemFlags && o.itemFlags[it.name];
-      return head + '<tr' + (it.status === '已取消' && o.status !== '已取消' ? ' style="text-decoration:line-through;color:var(--muted)"' : fl ? ' style="background:#fef3f2"' : '') + '><td>' +
+      var fl = opts.admin && o.itemFlags && o.itemFlags[it.name], qw = opts.admin && it.qtyWarn;
+      return head + '<tr' + (it.status === '已取消' && o.status !== '已取消' ? ' style="text-decoration:line-through;color:var(--muted)"' : fl ? ' style="background:#fef3f2"' : qw ? ' style="background:#fffaeb"' : '') + '><td>' +
         (opts.admin && !o.archived ? '<label class="noprint iflag' + (fl ? ' on' : '') + '" title="' + (fl ? esc('⚠ 異常（' + fl.by + ' ' + fl.time + '）' + (fl.note ? '：' + fl.note : '')) : '勾選＝這一項有異常，只有管理者看得到') +
           '" style="display:inline-flex;align-items:center;gap:2px;margin-right:6px;color:' + (fl ? 'var(--bad)' : 'var(--muted)') + ';font-size:13px;cursor:pointer"><input type="checkbox" data-iflag="' + esc(it.name) + '" data-no="' + esc(o.orderNo) + '"' + (fl ? ' checked' : '') + ' style="width:auto;margin:0">⚠</label>' : '') +
         esc(it.name) + (fl ? ' <span class="badge unprinted noprint">異常</span>' : '') +
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
         (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
-        '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td>' +
+        '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + (qw ? '<div class="noprint" style="color:var(--warn);font-size:13px;font-weight:600;white-space:normal">⚠ ' + esc(it.qtyWarn) + '</div>' : '') + '</td>' +
         '<td class="muted small">' + esc(it.vendor) + '</td>' +
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
     }).join('');
@@ -2661,6 +2661,7 @@
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
         (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
+        (opts.admin && o.qtyWarn && o.status !== '已取消' ? '<span class="badge warn noprint" title="跟這項食材以前的訂單比，數量或單位不太一樣，請確認是不是打錯">⚠ 數量要確認 ' + o.qtyWarn + ' 項</span> ' : '') +
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + (opts.admin && o.deleted ? ' <span class="badge bad" title="' + esc(o.deleted.by + ' ' + o.deleted.time) + '">老師已刪除</span>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
@@ -2872,6 +2873,8 @@
   } };
   var FLAGGED = '__flag';
   SPECIAL[FLAGGED] = { label: '⚠ 異常', test: function (o) { return !!o.flag || !!(o.itemFlags && Object.keys(o.itemFlags).length); } };
+  var ODDQTY = '__oddqty';
+  SPECIAL[ODDQTY] = { label: '⚠ 數量要確認', test: function (o) { return o.status !== '已取消' && !!o.qtyWarn; } };
   var RETURNS = '__return';
   SPECIAL[RETURNS] = { label: '🔁 還料單', test: function (o) { return String(o.project || '').indexOf(RETURN_TAG) === 0; } };
   function stLabel(st) { return SPECIAL[st] ? SPECIAL[st].label : st; }
@@ -3023,9 +3026,11 @@
     var sortBar = '<div class="status-chips"><span class="muted small">排序：</span>' +
       '<button type="button" data-ssort="date" class="' + (sby === 'date' ? 'on' : '') + '">上課日期</button>' +
       '<button type="button" data-ssort="sent" class="' + (sby === 'sent' ? 'on' : '') + '">送出時間</button></div>';
-    sumWaitNos = list.filter(function (o) { return o.status === '待處理' && !o.archived; }).map(function (o) { return o.orderNo; });
-    Object.keys(sumPick).forEach(function (no) { if (sumWaitNos.indexOf(no) < 0) delete sumPick[no]; });
-    var pickBar = sumWaitNos.length ? '<div class="pick-bar noprint"><label><input type="checkbox" id="pickAll"> 全選待處理（' + sumWaitNos.length + ' 張）</label>' +
+    var waits = list.filter(function (o) { return o.status === '待處理' && !o.archived; });
+    sumWaitNos = waits.filter(function (o) { return !o.qtyWarn; }).map(function (o) { return o.orderNo; });   // 「全選」不含數量要確認的，確認過再個別勾
+    var nOdd = waits.length - sumWaitNos.length;
+    Object.keys(sumPick).forEach(function (no) { if (!waits.some(function (o) { return o.orderNo === no; })) delete sumPick[no]; });
+    var pickBar = waits.length ? '<div class="pick-bar noprint"><label><input type="checkbox" id="pickAll"' + (sumWaitNos.length ? '' : ' disabled') + '> 全選待處理（' + sumWaitNos.length + ' 張' + (nOdd ? '，不含數量要確認的 ' + nOdd + ' 張' : '') + '）</label>' +
       '<button type="button" class="btn approve small" id="pickGo" disabled>✓ 審核勾選的</button><span class="muted small">也可以直接按每張的「✓ 審核」</span></div>' : '';
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips +
       '<div class="sum-bar">' + pmenu + sortBar + '</div>' + pickBar + warnUnp + '</div>' +
@@ -3037,8 +3042,9 @@
     if (!go) return;
     go.disabled = !n;
     go.textContent = '✓ 審核勾選的' + (n ? '（' + n + ' 張）' : '');
-    all.checked = n > 0 && n === sumWaitNos.length;
-    all.indeterminate = n > 0 && n < sumWaitNos.length;
+    var nAll = sumWaitNos.filter(function (no) { return sumPick[no]; }).length;
+    all.checked = sumWaitNos.length > 0 && nAll === sumWaitNos.length;
+    all.indeterminate = n > 0 && !all.checked;
   }
   function setApproved(nos) {
     sumCache.forEach(function (o) {
@@ -3617,7 +3623,7 @@
       var on = e.target.checked;
       sumPick = {};
       if (on) sumWaitNos.forEach(function (no) { sumPick[no] = true; });
-      $('sumOrders').querySelectorAll('input[data-pick]').forEach(function (c) { c.checked = on; });
+      $('sumOrders').querySelectorAll('input[data-pick]').forEach(function (c) { c.checked = !!sumPick[c.getAttribute('data-pick')]; });
       pickSync();
       return;
     }

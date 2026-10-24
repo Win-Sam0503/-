@@ -1365,7 +1365,8 @@ function adminGetOrders(token, from, to, lite) {
   let end = parseDate_(to) || start;
   if (!start) throw new Error('請選擇日期。');
   if (end < start) { const t = start; start = end; end = t; }
-  const rows = withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, start).filter(function (r) {
+  const all = readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows;
+  const rows = withHistory_(all, start).filter(function (r) {
     const d = toDate_(r['使用日期']);
     return d && d >= start && d <= end;
   });
@@ -1373,6 +1374,7 @@ function adminGetOrders(token, from, to, lite) {
     return a.useDate === b.useDate ? (a.orderNo < b.orderNo ? -1 : 1) : (a.useDate < b.useDate ? -1 : 1);
   });
   if (lite) return list;
+  try { markOddQty_(list, all); } catch (e) { console.error('markOddQty_ ' + e.message); }
   const nos = list.map(function (o) { return o.orderNo; });
   const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos), places = placesFor_(nos), hidden = hiddenOrders_();
   list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; o.place = places[o.orderNo] || null; o.deleted = hidden[o.orderNo] || null; });
@@ -1407,6 +1409,47 @@ function matchLessons_(list, start, end) {
     const match = mine.filter(function (x) { return x.date === o.useDate && x.session === ses; });
     o.lesson = { teacher: who, session: ses, known: !!teachers[who], match: match.map(brief),
       near: match.length ? [] : mine.filter(function (x) { return weekOf(x.date) === wk; }).map(brief) };
+  });
+}
+
+/**
+ * 數量、單位可能打錯（例如 5 顆打成 35 顆、2 斤打成 2 公斤）：跟這項食材以前的訂單比。
+ * 比平常（中位數）多 3 倍以上，或大家幾乎都用別的單位 → it.qtyWarn 寫原因，o.qtyWarn＝幾項。只提醒管理者，不擋老師送單。
+ */
+const QTY_GRAMS_ = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+function markOddQty_(list, rows) {
+  const stat = {};
+  rows.forEach(function (r) {
+    if (String(r['狀態']).trim() === '已取消') return;
+    const name = String(r['食材名稱'] || '').trim(), unit = String(r['單位'] || '').trim(), q = Number(r['數量']) || 0;
+    if (!name || !unit || q <= 0) return;
+    const s = stat[name] || (stat[name] = { units: {}, n: 0, vals: {} });
+    s.n++;
+    s.units[unit] = (s.units[unit] || 0) + 1;
+    const g = QTY_GRAMS_[unit], k = g ? 'g' : unit;
+    (s.vals[k] || (s.vals[k] = [])).push(g ? q * g : q);
+  });
+  const median = function (a) { a = a.slice().sort(function (x, y) { return x - y; }); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const fmt = function (v) { return String(Math.round(v * 100) / 100); };
+  list.forEach(function (o) {
+    if (o.status === '已取消') return;
+    let n = 0;
+    o.items.forEach(function (it) {
+      const s = stat[String(it.name).trim()];
+      if (!s || it.status === '已取消' || !(it.qty > 0)) return;
+      const why = [];
+      // 單位：至少 5 筆、8 成以上用同一種單位，這張卻用別的
+      const top = Object.keys(s.units).sort(function (a, b) { return s.units[b] - s.units[a]; })[0];
+      if (s.n >= 5 && top !== it.unit && s.units[top] / s.n >= 0.8) why.push('平常用「' + top + '」');
+      // 數量：同一種單位（重量換成克比）至少 3 筆，超過中位數 3 倍
+      const g = QTY_GRAMS_[it.unit], vals = s.vals[g ? 'g' : it.unit];
+      if (vals && vals.length >= 3) {
+        const m = median(vals), v = g ? it.qty * g : it.qty;
+        if (m > 0 && v >= m * 3) why.push('平常約 ' + fmt(g ? m / g : m) + ' ' + it.unit);
+      }
+      if (why.length) { it.qtyWarn = why.join('，'); n++; }
+    });
+    if (n) o.qtyWarn = n;
   });
 }
 
