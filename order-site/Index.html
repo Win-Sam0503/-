@@ -303,6 +303,7 @@
   .slesson.dim { opacity: .35; }
   .slesson .warn-t { color: var(--bad); }
   .slesson .st { margin-top: 2px; font-size: 13px; font-weight: 700; }
+  .slesson .pj { margin-top: 2px; font-size: 12px; font-weight: 700; color: #1d4ed8; white-space: normal; word-break: break-all; line-height: 1.25; }
   .slesson.st-ordered { background: #dcfae6; border-color: #47cd89; }
   .slesson.st-ordered .st { color: #067647; }
   .slesson.st-todo { background: #fff; border: 2px solid #f97066; }
@@ -334,6 +335,7 @@
     #viewSchedule .slesson { padding: 2px 3px; margin-bottom: 2px; font-size: 10px; box-shadow: none !important; opacity: 1 !important; }
     #viewSchedule .slesson b { font-size: 10.5px; }
     #viewSchedule .slesson .st { font-size: 10px; }
+    #viewSchedule .slesson .pj { font-size: 10px; }
     #viewSchedule .sadd { display: none; }
     #viewSchedule .sgrid tr { break-inside: avoid; }
     #viewSchedule, #viewSchedule * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -7468,6 +7470,7 @@
                 (schedRange(x) ? '<div class="small">' + esc(schedRange(x)) + '</div>' : '') +
                 (x.skipped ? '<div class="small">國技／預留</div>' : !x.need ? '<div class="small">已取消</div>' : x.outOfWeek ? '<div class="small">這週沒上</div>' : '') +
                 (x.status ? '<div class="st">' + stText[x.status] + (x.holiday && x.status === 'holiday' ? '：' + esc(x.holiday) : '') + (x.manual ? '（手動）' : '') + '</div>' : '') +
+                (ord ? '<div class="pj">📝 ' + esc(ord) + '</div>' : '') +
                 '</button>';
             }).join('') + (list.length ? '' : '<button type="button" class="sadd" data-gadd="' + esc(room === '（沒填教室）' ? '' : room) + '|' + d + '|' + s + '" title="在這格新增一堂課" aria-label="新增 週' + d + s + ' ' + esc(room) + ' 的課">＋</button>') + '</td>';
           }).join('');
