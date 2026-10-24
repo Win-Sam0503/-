@@ -1642,6 +1642,45 @@ function adminSetStatus(token, orderNo, status) {
   return { result: res, notify: '' };
 }
 
+/** 管理者：勾選的訂單一次審核（只改還是「待處理」的品項；別人剛改過狀態的不動） */
+function adminApproveMany(token, orderNos) {
+  const admin = auth_(token, true);
+  const want = {};
+  (orderNos || []).slice(0, 300).forEach(function (no) { want[String(no).trim()] = true; });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(SHEET.orders, ['訂單編號', '狀態']);
+    const done = {};
+    const nums = t.rows.filter(function (r) {
+      const no = String(r['訂單編號']).trim();
+      if (!want[no] || String(r['狀態']).trim() !== '待處理') return false;
+      done[no] = true;
+      return true;
+    }).map(function (r) { return r._row; }).sort(function (a, b) { return a - b; });
+    if (!nums.length) return { done: [] };
+    try { bootDirty_(t.sheet.getName()); } catch (e) {}
+    memoClear_();
+    // 同一張訂單的列通常連在一起：連續的列一次寫，比一格一格快很多
+    const writeCol = function (h, v) {
+      const c = t.cols[h];
+      if (c === undefined) return;
+      for (let i = 0; i < nums.length;) {
+        let j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+        t.sheet.getRange(nums[i], c, j - i + 1, 1).setValues(nums.slice(i, j + 1).map(function () { return [v]; }));
+        i = j + 1;
+      }
+    };
+    writeCol('狀態', '已審核');
+    writeCol('審核人', admin);
+    SpreadsheetApp.flush();
+    return { done: Object.keys(done) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ---- 確定訂貨（實際叫貨量） ----
 
 function purchaseRange_(from, to) {

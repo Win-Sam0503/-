@@ -79,6 +79,12 @@
   .btn.secondary { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
   .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
   .btn.small { padding: 6px 12px; font-size: 14px; }
+  .btn.approve { background: var(--ok); color: #fff; border: 1px solid var(--ok); font-weight: 700; }
+  .btn.approve:disabled { opacity: .45; }
+  .order .pick { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; cursor: pointer; }
+  .order .pick input, .pick-bar input { width: 22px; height: 22px; margin: 0; }
+  .pick-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: #ecfdf3; }
+  .pick-bar label { display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
   .btn.danger { background: #fff; color: var(--bad); border: 1px solid var(--bad); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px; }
 
@@ -2595,7 +2601,7 @@
       }).catch(function (e) { msg('sumMsg', 'error', e.message); setBusy(btn, false); });
     });
   }
-  var iflagOn = {};
+  var iflagOn = {}, sumPick = {}, sumWaitNos = [];
   function orderCard(o, opts) {
     var info = [shortDate(o.useDate), o.dept, o.className ? o.className + ' 班' : '', o.groups ? o.groups + ' 組' : '', o.classTime, o.room].filter(Boolean).join('・');
     var who = '操作：' + o.teacher + (o.onBehalfOf ? '，代訂：' + o.onBehalfOf : '');
@@ -2628,7 +2634,9 @@
       edits.slice().reverse().map(function (e) {
         return '<li><b>' + esc(e.time) + '</b>　' + esc(e.who) + '<div>' + esc(e.text).replace(/；/g, '<br>') + '</div></li>';
       }).join('') + '</ul></details>' : '';
-    var buttons = '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
+    var canApprove = opts.admin && !o.archived && o.status === '待處理';
+    var buttons = (canApprove ? '<button type="button" class="btn approve small noprint" data-act="approve" data-no="' + esc(o.orderNo) + '">✓ 審核</button>' : '') +
+      '<button type="button" class="btn ghost small" data-act="print" data-no="' + esc(o.orderNo) + '">列印</button>';
     if (opts.mine && o.locked && !o.archived && o.status === '待處理') buttons += '<span class="muted small" style="align-self:center">已過訂貨截止，無法取消</span>';
     if (opts.mine) {
       buttons += '<button type="button" class="btn secondary small" data-act="copy" data-no="' + esc(o.orderNo) + '">再訂一次</button>';
@@ -2649,7 +2657,7 @@
         (o.lesson && !o.lesson.match.length && o.status !== '已取消' ? '<button type="button" class="btn secondary small" data-act="addlesson" data-no="' + no + '">📅 加入課表</button>' : '') +
         '</div></details>';
     }
-    return '<div class="order' + (opts.admin && iflagOn[o.orderNo] ? ' iflag-on' : '') + '" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + esc(o.project || '（未填實作項目）') + '</b><span>' +
+    return '<div class="order' + (opts.admin && iflagOn[o.orderNo] ? ' iflag-on' : '') + '" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + (canApprove ? '<label class="pick noprint" title="勾選後可以一次審核"><input type="checkbox" data-pick="' + esc(o.orderNo) + '"' + (sumPick[o.orderNo] ? ' checked' : '') + '></label>' : '') + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
         (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
@@ -3015,9 +3023,30 @@
     var sortBar = '<div class="status-chips"><span class="muted small">排序：</span>' +
       '<button type="button" data-ssort="date" class="' + (sby === 'date' ? 'on' : '') + '">上課日期</button>' +
       '<button type="button" data-ssort="sent" class="' + (sby === 'sent' ? 'on' : '') + '">送出時間</button></div>';
+    sumWaitNos = list.filter(function (o) { return o.status === '待處理' && !o.archived; }).map(function (o) { return o.orderNo; });
+    Object.keys(sumPick).forEach(function (no) { if (sumWaitNos.indexOf(no) < 0) delete sumPick[no]; });
+    var pickBar = sumWaitNos.length ? '<div class="pick-bar noprint"><label><input type="checkbox" id="pickAll"> 全選待處理（' + sumWaitNos.length + ' 張）</label>' +
+      '<button type="button" class="btn approve small" id="pickGo" disabled>✓ 審核勾選的</button><span class="muted small">也可以直接按每張的「✓ 審核」</span></div>' : '';
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips +
-      '<div class="sum-bar">' + pmenu + sortBar + '</div>' + warnUnp + '</div>' +
+      '<div class="sum-bar">' + pmenu + sortBar + '</div>' + pickBar + warnUnp + '</div>' +
       sortOrders(list, sby).map(function (o) { return orderCard(o, { admin: true }); }).join('');
+    pickSync();
+  }
+  function pickSync() {
+    var n = Object.keys(sumPick).length, all = $('pickAll'), go = $('pickGo');
+    if (!go) return;
+    go.disabled = !n;
+    go.textContent = '✓ 審核勾選的' + (n ? '（' + n + ' 張）' : '');
+    all.checked = n > 0 && n === sumWaitNos.length;
+    all.indeterminate = n > 0 && n < sumWaitNos.length;
+  }
+  function setApproved(nos) {
+    sumCache.forEach(function (o) {
+      if (nos.indexOf(o.orderNo) < 0) return;
+      o.status = '已審核'; o.reviewer = data.account;
+      o.items.forEach(function (it) { if (it.status === '待處理') it.status = '已審核'; });
+    });
+    nos.forEach(function (no) { delete sumPick[no]; });
   }
   $('sLoad').addEventListener('click', loadSummary);
   // 點選單外面就收起「列印 ▾」「⋯ 更多」
@@ -3163,9 +3192,30 @@
       printOrders(bulkList(sumBase, kind), 'viewSummary', kind === 'ok' ? '已審核訂單 ' : kind === 'unprinted' ? '尚未列印的料單 ' : '未審核訂單 ');
       return;
     }
+    if (e.target.closest('#pickGo')) {
+      var nos = Object.keys(sumPick), g = e.target.closest('#pickGo');
+      if (!nos.length) return;
+      setBusy(g, true, '審核中…');
+      call('adminApproveMany', token, nos).then(function (r) {
+        setApproved(r.done);
+        renderSummary();
+        var skip = nos.length - r.done.length;
+        msg('sumMsg', 'ok', '已審核 ' + r.done.length + ' 張。' + (skip ? '（' + skip + ' 張剛剛已被改過狀態，沒有動）' : ''));
+      }).catch(function (err) { msg('sumMsg', 'error', '審核失敗：' + err.message); setBusy(g, false); });
+      return;
+    }
     var b = e.target.closest('button[data-act]');
     if (!b) return;
     var o = sumCache.find(function (x) { return x.orderNo === b.getAttribute('data-no'); });
+    if (b.getAttribute('data-act') === 'approve') {
+      setBusy(b, true, '審核中…');
+      call('adminSetStatus', token, o.orderNo, '已審核').then(function () {
+        setApproved([o.orderNo]);
+        renderSummary();
+        msg('sumMsg', 'ok', '「' + (o.project || o.orderNo) + '」已審核。');
+      }).catch(function (err) { msg('sumMsg', 'error', '審核失敗：' + err.message); setBusy(b, false); });
+      return;
+    }
     var act = b.getAttribute('data-act');
     var dm = b.closest('details.more'); if (dm) dm.open = false;
     if (act === 'iflagmode') {
@@ -3563,6 +3613,20 @@
   }
 
   $('sumOrders').addEventListener('change', function (e) {
+    if (e.target.id === 'pickAll') {
+      var on = e.target.checked;
+      sumPick = {};
+      if (on) sumWaitNos.forEach(function (no) { sumPick[no] = true; });
+      $('sumOrders').querySelectorAll('input[data-pick]').forEach(function (c) { c.checked = on; });
+      pickSync();
+      return;
+    }
+    var pk = e.target.closest('input[data-pick]');
+    if (pk) {
+      if (pk.checked) sumPick[pk.getAttribute('data-pick')] = true; else delete sumPick[pk.getAttribute('data-pick')];
+      pickSync();
+      return;
+    }
     var cb = e.target.closest('input[data-iflag]');
     if (cb) {   // 食材旁邊的「⚠ 異常」勾選
       var no = cb.getAttribute('data-no'), name = cb.getAttribute('data-iflag'), on = cb.checked;
