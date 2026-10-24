@@ -450,6 +450,12 @@
   .lbl .ls b { white-space: nowrap; }
   @page labels { size: A4 portrait; margin: 0; }
   .mine-sep { margin: 18px 0 10px; padding-top: 10px; border-top: 2px dashed var(--line); color: var(--muted); font-weight: 700; font-size: 15px; }
+  details.mine-past > summary { cursor: pointer; list-style: none; padding: 12px 4px 10px; }
+  details.mine-past > summary::-webkit-details-marker { display: none; }
+  details.mine-past > summary::before { content: '▸ '; }
+  details.mine-past[open] > summary::before { content: '▾ '; }
+  details.mine-past .when-open, details.mine-past[open] .when-closed { display: none; }
+  details.mine-past[open] .when-open { display: inline; }
   .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
   /* 校隊：放置登記 */
   .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -2632,6 +2638,7 @@
   function mineSort() { try { return localStorage.getItem('ckOrder.mineSort') === 'sent' ? 'sent' : 'date'; } catch (e) { return 'date'; } }
   // 我的訂單搜尋：實作項目、班級、食材、訂單編號、科別、日期（例如 11/3）
   var mineQ = '';
+  var minePastOpen = false;   // 「已經上過的課」預設收起來（清單比較短）；搜尋時、沒有還沒上的課時自動展開
   function mineMatch(o) {
     var kw = mineQ.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (!kw.length) return true;
@@ -2645,7 +2652,8 @@
       var soon = list.filter(function (o) { return o.useDate >= today; }).sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : (a.classTime < b.classTime ? -1 : 1); });
       var past = list.filter(function (o) { return o.useDate < today; }).sort(function (a, b) { return a.useDate > b.useDate ? -1 : a.useDate < b.useDate ? 1 : (a.classTime < b.classTime ? -1 : 1); });
       html = soon.map(function (o) { return orderCard(o, { mine: true }); }).join('') +
-        (past.length ? '<div class="mine-sep">已經上過的課</div>' + past.map(function (o) { return orderCard(o, { mine: true }); }).join('') : '');
+        (past.length ? '<details class="mine-past"' + (minePastOpen || mineQ.trim() || !soon.length ? ' open' : '') + '><summary class="mine-sep">已經上過的課（' + past.length + ' 張）<span class="small" style="font-weight:normal">　點一下' +
+          '<span class="when-closed">展開</span><span class="when-open">收起來</span></span></summary>' + past.map(function (o) { return orderCard(o, { mine: true }); }).join('') + '</details>' : '');
     } else {
       html = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
     }
@@ -2663,6 +2671,7 @@
   function mineQRun() { clearTimeout(mineQTimer); mineQTimer = setTimeout(function () { mineQ = $('mineQ').value; renderMine(); }, 200); }
   $('mineQ').addEventListener('input', function (e) { if (e.isComposing) return; mineQRun(); });
   $('mineQ').addEventListener('compositionend', mineQRun);
+  $('mineList').addEventListener('toggle', function (e) { if (e.target.classList && e.target.classList.contains('mine-past') && !mineQ.trim()) minePastOpen = e.target.open; }, true);
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
     $('mineList').innerHTML = '';
