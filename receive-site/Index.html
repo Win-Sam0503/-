@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<!--
+  三信家商餐飲科進貨驗收（網頁）
+  © 2026 翁煒程 版權所有。
+  本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。
+  未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，
+  亦不得提供予校外人士使用。違者將依法追究相關法律責任。
+-->
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --brand: #8f2a1b; --bg: #f5f6f8; --line: #d0d5dd; --text: #1d2939; --muted: #667085; --ok: #067647; --okbg: #dcfae6; --bad: #b42318; --badbg: #fde2e1; --warn: #b54708; --warnbg: #fef0c7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); font-size: 17px; line-height: 1.5; }
+  header { background: var(--brand); color: #fff; padding: 12px 16px; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header nav button { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,.6); border-radius: 999px; padding: 6px 16px; font-size: 16px; cursor: pointer; }
+  header nav button.on { background: #fff; color: var(--brand); font-weight: 700; }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px; }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip { border: 1.5px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 16px; cursor: pointer; color: inherit; }
+  .chip.on { border-color: var(--brand); color: var(--brand); font-weight: 700; }
+  input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  .btn { font: inherit; border: 0; border-radius: 12px; padding: 10px 18px; background: var(--brand); color: #fff; cursor: pointer; font-weight: 700; }
+  .btn.ghost { background: #fff; color: var(--brand); border: 1.5px solid var(--brand); }
+  .btn.small { padding: 6px 12px; font-size: 15px; }
+  .btn:disabled { opacity: .5; }
+  .muted { color: var(--muted); } .small { font-size: 14px; }
+  .msg { padding: 10px 14px; border-radius: 10px; margin: 8px 0; }
+  .msg.ok { background: var(--okbg); color: var(--ok); } .msg.error { background: var(--badbg); color: var(--bad); } .msg.warn { background: var(--warnbg); color: var(--warn); } .msg.info { background: #eef4ff; color: #1849a9; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .card { background: #fff; border: 2px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .card b { font-size: 19px; }
+  .card.done { border-color: #47cd89; background: #f6fef9; } .card.issue { border-color: #f97066; background: #fff6f5; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 700; }
+  .badge.ok { background: var(--okbg); color: var(--ok); } .badge.bad { background: var(--badbg); color: var(--bad); } .badge.none { background: #f2f4f7; color: var(--muted); }
+  .grp { margin: 16px 0 6px; font-weight: 700; color: var(--brand); border-bottom: 2px solid var(--brand); padding-bottom: 4px; }
+  .item { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; padding: 10px 6px; border-bottom: 1px solid #eaecf0; }
+  .item .nm { font-size: 18px; font-weight: 600; } .item .ex { font-size: 18px; font-weight: 700; white-space: nowrap; }
+  .item .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .st { border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 16px; cursor: pointer; color: inherit; min-width: 64px; }
+  .st.on[data-s="到齊"] { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .item.stop { background: #f2f4f7; } .item.stop .nm, .item.stop .ex { text-decoration: line-through; color: var(--muted); }
+  .grp .stopday { float: right; font-size: 13px; padding: 2px 10px; }
+  .st.on[data-s="其他"] { background: #475467; border-color: #475467; color: #fff; }
+  .st.on[data-s="少送"], .st.on[data-s="多送"], .st.on[data-s="缺貨"] { background: var(--warn); border-color: var(--warn); color: #fff; }
+  .st.on[data-s="沒送"], .st.on[data-s="送錯"], .st.on[data-s="品質不好"] { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .item.ok { background: #f6fef9; } .item.bad { background: #fff6f5; }
+  .item input.got { width: 120px; } .item input.note { flex: 1; min-width: 160px; }
+  .bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 -16px -16px; border-radius: 0 0 14px 14px; }
+  .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
+  .hidden { display: none !important; }
+  #sigPad { display: block; width: 100%; height: 180px; background: #fff; border: 2px dashed var(--line); border-radius: 12px; touch-action: none; margin-top: 8px; }
+  #sigPad.signed { border-style: solid; border-color: var(--ok); }
+  .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
+  #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
+  @media print { #watermark, .copyright { display: none !important; } }
+  table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eaecf0; vertical-align: top; }
+  .slipt input { width: 100%; min-width: 56px; padding: 6px; font: inherit; font-size: 16px; }
+  .slipt td.w1 { width: 72px; } .slipt td.w2 { width: 90px; }
+  .slipt .sn { font-size: 13px; }
+  .badge.warn { background: var(--warnbg); color: var(--warn); }
+  .slipwrap { overflow-x: auto; }
+  @media (max-width: 600px) { body { font-size: 16px; } .card b { font-size: 17px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>進貨驗收</h1>
+  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button><button type="button" data-v="vMonth">月結對帳</button></nav>
+</header>
+<main>
+  <!-- 選週、選一張叫貨單 -->
+  <section id="vCheck">
+    <div class="panel">
+      <div class="row">
+        <button type="button" class="chip" data-w="-1">上週</button><button type="button" class="chip" data-w="0">本週</button><button type="button" class="chip" data-w="1">下週</button>
+        <input id="weekDate" type="date" aria-label="哪一週">
+        <span id="weekText" class="muted"></span>
+      </div>
+      <div class="muted small" style="margin-top:6px">列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。</div>
+    </div>
+    <div id="doneMsg"></div>
+    <div id="listMsg"></div>
+    <div id="cards" class="cards"></div>
+  </section>
+
+  <!-- 點一張 -->
+  <section id="vDo" class="hidden">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div><b id="doTitle" style="font-size:20px"></b><div id="doSub" class="muted small"></div></div>
+        <button type="button" class="btn ghost small" id="doBack">← 回列表</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="btn small" id="allOk">✓ 全部到齊</button>
+        <button type="button" class="btn ghost small" id="allStop" title="颱風假、停課：廠商沒送也不用送">⛔ 整張停送</button>
+        <span class="muted small" id="allOkHint">先按全部到齊，再改有問題的那幾項。</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="doQ" type="search" placeholder="🔍 搜尋食材、班級、老師" style="flex:1;min-width:180px">
+        <select id="doCls" style="width:auto"></select>
+        <span id="doCount" class="muted small"></span>
+      </div>
+      <div id="draftMsg"></div>
+      <div id="doList"></div>
+      <input id="itemPhotoIn" type="file" accept="image/*" capture="environment" class="hidden">
+      <div style="margin-top:14px">
+        <div class="row">
+          <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
+          <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
+          <select id="photoRot" style="width:auto" title="照片拍成橫的，自動讀不出來時選"><option value="0">照片不轉</option><option value="90">向右轉 90°</option><option value="270">向左轉 90°</option><option value="180">轉 180°</option></select>
+          <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。字要是正的才讀得準（拍歪了先選轉向再拍）。</span>
+        </div>
+        <div id="thumbs" class="thumbs"></div>
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="row"><b>💰 銷貨單金額</b>
+            <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
+            <button type="button" class="btn ghost small" id="slipManual">手動填</button>
+            <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
+          <div id="slipBox"></div>
+        </div>
+        <textarea id="doNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註（選填），例如：司機說洋蔥明天補"></textarea>
+      </div>
+      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+        <div class="row"><b>✍ 驗收人簽名</b>
+          <input id="sigName" maxlength="20" placeholder="姓名" style="width:140px">
+          <button type="button" class="btn ghost small" id="sigClear">清除重簽</button>
+          <span id="sigHint" class="muted small">用手指簽在下面的框裡</span></div>
+        <canvas id="sigPad"></canvas>
+      </div>
+      <div id="doMsg"></div>
+      <div class="bar"><span id="doProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost" id="doHold">💾 暫時儲存</button><button type="button" class="btn" id="doSave">完成驗收</button></div>
+    </div>
+  </section>
+
+  <!-- 問題追蹤 -->
+  <section id="vIssues" class="hidden">
+    <div class="panel">
+      <div class="row"><button type="button" class="chip on" data-all="0">還沒處理的</button><button type="button" class="chip" data-all="1">最近 60 天全部</button></div>
+      <div class="muted small" style="margin-top:6px">驗收時標成少送、沒送、送錯、多送、品質不好、缺貨、其他的都會列在這裡。按「複製給廠商」貼到 LINE 或照著打電話（有拍照的點 📷 打開照片傳給廠商），處理完記下結果（已補送、換貨、退貨、扣款、不用補）。</div>
+    </div>
+    <div id="issueMsg"></div>
+    <div id="issueList"></div>
+  </section>
+
+  <!-- 月結對帳 -->
+  <section id="vMonth" class="hidden">
+    <div class="panel">
+      <div class="row">
+        <select id="monVendor" style="width:auto"><option value="">選廠商</option></select>
+        <input id="monYm" type="month" style="width:auto">
+        <button type="button" class="btn small" id="monGo">產生</button>
+      </div>
+      <div class="muted small" style="margin-top:6px">把這家廠商這個月每一次送貨的金額加起來，跟發票（或對帳單）比。驗收時有填銷貨單金額的用填的；沒填的用「實到數量 × 單價表的價格」估算（標「估」）；還沒驗收的照叫貨量估。</div>
+    </div>
+    <div id="monMsg"></div>
+    <div id="monBox"></div>
+  </section>
+</main>
+<footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
+<div id="watermark" aria-hidden="true"></div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  function msg(id, type, text) { $(id).innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : ''; }
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+        reject(new Error(String(e && e.message || e).replace(/^(Error|Exception):\s*/, '')));
+      })[fn].apply(null, args);
+    });
+  }
+  var iso = function (d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); };
+  var md = function (s) { var p = String(s).split('-'); return Number(p[1]) + '/' + Number(p[2]); };
+  var WD = ['日', '一', '二', '三', '四', '五', '六'];
+  var mdw = function (s) { var p = String(s).split('-'); return md(s) + '（' + WD[new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])).getDay()] + '）'; };
+  function mondayOf(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7); }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return new Promise(function (ok, no) {
+      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy') ? ok() : no(); } catch (e) { no(e); } document.body.removeChild(ta);
+    });
+  }
+
+  // ---------------- 浮水印：登入的 Google 帳號＋目前時間（每分鐘更新），截圖時可以追查來源 ----------------
+  var wmWho = '';
+  function drawWatermark() {
+    var n = new Date(), p2 = function (x) { return ('0' + x).slice(-2); };
+    var text = (wmWho ? wmWho + '  ' : '') + n.getFullYear() + '/' + p2(n.getMonth() + 1) + '/' + p2(n.getDate()) + ' ' + p2(n.getHours()) + ':' + p2(n.getMinutes());
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="380" height="220">' +
+      '<text x="20" y="140" transform="rotate(-24 190 110)" font-size="17" font-family="sans-serif" fill="#000" fill-opacity="0.07">' + esc(text) + '</text></svg>';
+    $('watermark').style.backgroundImage = 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+  }
+  drawWatermark();
+  setInterval(drawWatermark, 60000);
+  call('whoAmI').then(function (e) { wmWho = e || ''; drawWatermark(); }).catch(function () {});
+
+  // ---------------- 分頁 ----------------
+  function show(v) {
+    ['vCheck', 'vDo', 'vIssues', 'vMonth'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
+    Array.prototype.forEach.call(document.querySelectorAll('header nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === (v === 'vDo' ? 'vCheck' : v)); });
+    window.scrollTo(0, 0);
+  }
+  document.querySelector('header nav').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-v]');
+    if (!b) return;
+    var v = b.getAttribute('data-v');
+    if (v === 'vIssues') { show('vIssues'); loadIssues(); } else if (v === 'vMonth') { show('vMonth'); openMonth(); } else { show('vCheck'); loadWeek(); }
+  });
+
+  // ---------------- 這週的叫貨單 ----------------
+  var week = null;
+  function setWeek(offset) {
+    var m = mondayOf(new Date());
+    m.setDate(m.getDate() + 7 * offset);
+    $('weekDate').value = iso(m);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-w')) === offset); });
+    loadWeek();
+  }
+  document.querySelector('#vCheck .row').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-w]');
+    if (b) setWeek(Number(b.getAttribute('data-w')));
+  });
+  $('weekDate').addEventListener('change', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.remove('on'); });
+    loadWeek();
+  });
+  function loadWeek() {
+    var d = $('weekDate').value;
+    if (!d) return;
+    var p = d.split('-'), mon = iso(mondayOf(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))));
+    msg('listMsg', 'info', '載入中…');
+    $('cards').innerHTML = '';
+    return call('getWeek', mon).then(function (w) {
+      week = w;
+      $('weekText').textContent = mdw(w.from) + '～' + mdw(w.to);
+      msg('listMsg', w.drafts.length ? 'warn' : '', w.drafts.length ? w.drafts.join('、') + ' 還是草稿、還沒「確定叫貨」，確定後才會出現在這裡。' : '');
+      if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
+      $('cards').innerHTML = w.batches.map(function (b, i) {
+        var c = b.check, n = b.lines.length;
+        var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
+        var st = stopAll ? '<span class="badge none">⛔ 停送</span>' : b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
+        return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
+          (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
+          '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
+      }).join('');
+    }).catch(function (e) { msg('listMsg', 'error', '載入失敗：' + e.message); });
+  }
+  $('cards').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-b]');
+    if (b) openBatch(week.batches[Number(b.getAttribute('data-b'))]);
+  });
+
+  // ---------------- 點一張叫貨單 ----------------
+  var cur = null;   // { b, marks: { key: { status, got, note } }, photos: [url] }
+  function openBatch(b) {
+    msg('doneMsg', '', '');
+    var marks = {};
+    if (b.check) b.check.lines.forEach(function (l) {
+      var x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name; })[0];
+      if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' || l.status === '品質不好' || l.status === '缺貨' || (l.status === '其他' && l.got === x.expect) ? '' : l.got, note: l.note, photos: (l.photos || []).slice() };
+    });
+    cur = { b: b, marks: marks, photos: b.check ? b.check.photos.slice() : [] };
+    cur.slip = b.check && b.check.slip ? slipFromSaved(b.check.slip) : null;
+    var d = readDraft(b);
+    if (d) {
+      cur.marks = d.marks; cur.photos = d.photos; if (d.slip) cur.slip = d.slip;
+      $('draftMsg').innerHTML = '<div class="msg info">已恢復 ' + esc(d.at) + (d.remote ? ' 暫時儲存' : ' 點到一半') + '的內容（' + Object.keys(d.marks).length + ' 項），點完按「完成驗收」才會存。 <button type="button" class="btn ghost small" id="draftDrop">清掉、重新點</button></div>';
+    } else msg('draftMsg', '', '');
+    $('doQ').value = '';
+    var cl = [];
+    b.lines.forEach(function (x) { if (x.cls && cl.indexOf(x.cls) < 0) cl.push(x.cls); });
+    $('doCls').innerHTML = '<option value="">全部班級</option>' + cl.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+    $('doCls').classList.toggle('hidden', cl.length < 2);
+    $('doTitle').textContent = b.vendor + (b.group ? '　送貨組別 ' + b.group : '');
+    $('doSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + b.lines.length + ' 項・' + (b.perClass ? '照班級點' : '點品項總量') +
+      (b.check ? '・上次驗收 ' + b.check.time + '（重新存會蓋掉）' : '');
+    $('doNote').value = d ? d.note : b.check ? b.check.note : '';
+    msg('doMsg', '', '');
+    renderDo();
+    renderThumbs();
+    $('slipMsg').textContent = '選填。存起來的單價會進「單價表」，之後算成本用。';
+    renderSlip();
+    show('vDo');
+    cur.sig = d && d.sig || null; cur.sigUrl = b.check ? b.check.signature : '';
+    try { $('sigName').value = (d && d.signer) || (b.check && b.check.signer) || localStorage.getItem('rcvSigner') || ''; } catch (e) { $('sigName').value = (b.check && b.check.signer) || ''; }
+    sigReset();
+  }
+  function renderDo() {
+    var b = cur.b, last = null, html = '', shown = visibleLines();
+    shown.forEach(function (x) {
+      if (b.perClass || x.cls) {
+        var g = (x.date ? mdw(x.date) + '　' : '') + x.cls + (x.teacher ? '　' + x.teacher : '');
+        if (g !== last) { html += '<div class="grp">' + esc(g) + (x.date ? '<button type="button" class="btn ghost small stopday" data-stopday="' + esc(x.date) + '">這天停送</button>' : '') + '</div>'; last = g; }
+      }
+      var m = cur.marks[x.key] || {}, s = m.status || '';
+      var cls = s === '到齊' ? ' ok' : s === '停送' ? ' stop' : s ? ' bad' : '';
+      html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm">' + esc(x.name) + '</span>' +
+        (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') + '</div>' +
+        '<div class="ex">' + esc(x.expect) + '</div><div class="acts">' +
+        (s === '停送' ? '<span class="badge none">⛔ 停送' + (m.note ? '（' + esc(m.note) + '）' : '') + '</span> ' : '') +
+        ['到齊', '少送', '沒送', '送錯', '多送', '品質不好', '缺貨', '其他'].map(function (t) {
+          return '<button type="button" class="st' + (s === t ? ' on' : '') + '" data-s="' + t + '">' + (t === '到齊' ? '✓ 到齊' : t) + '</button>';
+        }).join('') +
+        (s === '少送' || s === '多送' || s === '其他' ? '<input class="got" type="text" placeholder="' + (s === '其他' ? '實到多少（一樣就不用填）' : '實到多少') + '" value="' + esc(m.got || '') + '">' : '') +
+        (s && s !== '到齊' && s !== '停送' ? '<input class="note" type="text" maxlength="100" placeholder="' + ({ '品質不好': '哪裡不好，例如：葉子爛、有異味', '缺貨': '例如：廠商來電說缺貨，改下週送', '其他': '是什麼狀況（必填）' }[s] || '備註，例如：送成牛番茄') + '" value="' + esc(m.note || '') + '">' +
+          '<button type="button" class="btn ghost small" data-ph="1">📷 拍照</button>' +
+          (m.photos || []).map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">照片' + (i + 1) + '</a>'; }).join(' ') : '') +
+        '</div></div>';
+    });
+    $('doList').innerHTML = html || '<div class="muted" style="padding:16px 0">沒有符合的品項。</div>';
+    var f = filtering();
+    $('doCount').textContent = f ? '顯示 ' + shown.length + '／' + b.lines.length + ' 項' : '';
+    $('allOk').textContent = f ? '✓ 這 ' + shown.length + ' 項都到齊' : '✓ 全部到齊';
+    $('allOkHint').textContent = f ? '只會改目前搜尋到、還沒點的品項。' : '先按全部到齊，再改有問題的那幾項。';
+    progress();
+  }
+  function filtering() { return !!($('doQ').value.trim() || $('doCls').value); }
+  function visibleLines() {
+    var q = $('doQ').value.trim().toLowerCase(), c = $('doCls').value;
+    return cur.b.lines.filter(function (x) {
+      if (c && x.cls !== c) return false;
+      return !q || q.split(/\s+/).every(function (w) { return [x.name, x.cls, x.teacher, x.note].join(' ').toLowerCase().indexOf(w) >= 0; });
+    });
+  }
+  $('doQ').addEventListener('input', function () { renderDo(); });
+  $('doCls').addEventListener('change', function () { renderDo(); });
+
+  // 點到一半自動暫存在這台平板（網路斷掉、關掉網頁也不會不見）；完成驗收後清掉
+  function draftKey(b) { return 'rcvDraft:' + b.id; }
+  // 這台平板自動暫存的，跟按「暫時儲存」存到試算表的，取比較新的
+  function readDraft(b) {
+    try {
+      var d = null, r = null;
+      try { d = JSON.parse(localStorage.getItem(draftKey(b)) || 'null'); } catch (e) {}
+      if (b.draft && b.draft.data) { try { r = JSON.parse(b.draft.data); r.ts = b.draft.ts; r.at = b.draft.at; r.remote = true; } catch (e) {} }
+      if (r && (!d || !(d.ts > r.ts))) d = r;
+      if (!d || !d.marks) return null;
+      var keys = {};
+      b.lines.forEach(function (x) { keys[x.key] = true; });
+      Object.keys(d.marks).forEach(function (k) { if (!keys[k] || !d.marks[k].status) delete d.marks[k]; });
+      if (!Object.keys(d.marks).length && !(d.photos || []).length && !d.note && !d.slip) return null;
+      d.photos = d.photos || []; d.note = d.note || '';
+      return d;
+    } catch (e) { return null; }
+  }
+  function saveDraft() {
+    if (!cur) return;
+    try {
+      var any = Object.keys(cur.marks).some(function (k) { return cur.marks[k].status; });
+      if (!any && !cur.photos.length && !$('doNote').value && !cur.slip) { localStorage.removeItem(draftKey(cur.b)); return; }
+      var t = new Date();
+      localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, sig: cur.sig, signer: $('sigName').value,
+        ts: t.getTime(), at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
+      autoRemoteDraft();
+    } catch (e) {}
+  }
+  // 標了缺貨、少送…：自動也存一份到試算表（問題追蹤馬上看得到），不用記得按「暫時儲存」
+  var autoHold = null;
+  function autoRemoteDraft() {
+    if (!cur) return;
+    var b = cur.b, bad = Object.keys(cur.marks).some(function (k) { var st = cur.marks[k].status; return st && st !== '到齊' && st !== '停送'; });
+    if (!bad && !b.draft) return;
+    clearTimeout(autoHold);
+    autoHold = setTimeout(function () {
+      if (!cur || cur.b !== b) return;
+      var data = JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, signer: $('sigName').value });
+      call('saveDraftRemote', b.id, data).then(function (r) { b.draft = { ts: r.ts, at: r.at, data: data }; refreshIssueCount(); }).catch(function () {});
+    }, 2500);
+  }
+  function dropDraft(b) { try { localStorage.removeItem(draftKey(b)); } catch (e) {} }
+  $('draftMsg').addEventListener('click', function (e) {
+    if (e.target.id !== 'draftDrop') return;
+    dropDraft(cur.b); msg('draftMsg', '', '');
+    if (cur.b.draft) { call('dropDraftRemote', cur.b.id).catch(function () {}); cur.b.draft = null; }
+    openBatch(cur.b);
+  });
+  $('doNote').addEventListener('input', saveDraft);
+  function progress() {
+    var n = cur.b.lines.length, done = 0, bad = 0;
+    var stop = 0;
+    cur.b.lines.forEach(function (x) { var m = cur.marks[x.key]; if (m && m.status) { done++; if (m.status === '停送') stop++; else if (m.status !== '到齊') bad++; } });
+    $('doProgress').textContent = '已點 ' + done + '／' + n + (bad ? '，問題 ' + bad + ' 項' : '') + (stop ? '，停送 ' + stop + ' 項' : '');
+  }
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('.st');
+    if (!b) return;
+    var k = b.closest('[data-k]').getAttribute('data-k'), s = b.getAttribute('data-s');
+    var m = cur.marks[k] = cur.marks[k] || {};
+    m.status = m.status === s && s !== '到齊' ? '' : s;
+    renderDo();
+    saveDraft();
+    var inp = document.querySelector('[data-k="' + CSS.escape(k) + '"] input.' + (m.status === '少送' || m.status === '多送' ? 'got' : 'note'));
+    if (inp && m.status !== '沒送' && m.status !== '送錯') inp.focus();
+  });
+  $('doList').addEventListener('input', function (e) {
+    var k = e.target.closest('[data-k]').getAttribute('data-k'), m = cur.marks[k] = cur.marks[k] || {};
+    if (e.target.classList.contains('got')) m.got = e.target.value;
+    if (e.target.classList.contains('note')) m.note = e.target.value;
+    saveDraft();
+  });
+  // 有問題的品項拍照留證（品質不好、送錯…）
+  var phKey = null;
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ph]');
+    if (!b) return;
+    phKey = b.closest('[data-k]').getAttribute('data-k');
+    $('itemPhotoIn').click();
+  });
+  $('itemPhotoIn').addEventListener('change', function () {
+    var f = (this.files || [])[0], k = phKey;
+    this.value = '';
+    if (!f || !k) return;
+    var x = cur.b.lines.filter(function (y) { return y.key === k; })[0], btn = document.querySelector('[data-k="' + CSS.escape(k) + '"] [data-ph]');
+    if (btn) { btn.disabled = true; btn.textContent = '上傳中…'; }
+    shrink(f).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
+      .then(function (r) { var m = cur.marks[k] = cur.marks[k] || {}; (m.photos = m.photos || []).push(r.url); renderDo(); saveDraft(); })
+      .catch(function (err) { msg('doMsg', 'error', '照片上傳失敗：' + err.message); if (btn) { btn.disabled = false; btn.textContent = '📷 拍照'; } });
+  });
+  // 停送（颱風假、停課）：問一次原因，整張或這一天的品項標成停送
+  function askStopReason(what) {
+    var r = window.prompt(what + '標成「停送」（廠商沒送也不用送，不算問題、不算錢）。原因：', '颱風假');
+    return r === null ? null : (r.trim() || '停送');
+  }
+  $('allStop').addEventListener('click', function () {
+    var why = askStopReason('整張叫貨單的品項都');
+    if (why === null) return;
+    cur.b.lines.forEach(function (x) { cur.marks[x.key] = { status: '停送', note: why }; });
+    renderDo(); saveDraft();
+    msg('doMsg', 'info', '已全部標成停送（' + why + '）。按「完成驗收」存起來，不用簽名。');
+  });
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-stopday]');
+    if (!b) return;
+    var d = b.getAttribute('data-stopday'), why = askStopReason(mdw(d) + ' 的品項');
+    if (why === null) return;
+    cur.b.lines.forEach(function (x) { if (x.date === d) cur.marks[x.key] = { status: '停送', note: why }; });
+    renderDo(); saveDraft();
+  });
+  $('allOk').addEventListener('click', function () {
+    visibleLines().forEach(function (x) { var m = cur.marks[x.key] = cur.marks[x.key] || {}; if (!m.status) m.status = '到齊'; });
+    renderDo();
+    saveDraft();
+  });
+  $('doBack').addEventListener('click', function () { show('vCheck'); loadWeek(); });
+
+  // 銷貨單照片：在平板上先縮小（長邊 2000），再上傳到雲端硬碟
+  function renderThumbs() {
+    $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　');
+  }
+  function shrink(file) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var s = Math.min(1, 2000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        var w = Math.round(img.width * s), h = Math.round(img.height * s), rot = Number($('photoRot').value) || 0, side = rot === 90 || rot === 270;
+        c.width = side ? h : w; c.height = side ? w : h;
+        var g = c.getContext('2d');
+        g.translate(c.width / 2, c.height / 2); g.rotate(rot * Math.PI / 180);
+        g.drawImage(img, -w / 2, -h / 2, w, h);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
+      };
+      img.onerror = function () { reject(new Error('照片讀不到，請再拍一次。')); };
+      img.src = url;
+    });
+  }
+  try { $('photoRot').value = localStorage.getItem('rcvRot') || '0'; } catch (e) {}
+  $('photoRot').addEventListener('change', function () { try { localStorage.setItem('rcvRot', this.value); } catch (e) {} });
+  $('photoIn').addEventListener('change', function () {
+    var files = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    if (!files.length) return;
+    $('photoMsg').textContent = '上傳中…（' + files.length + ' 張）';
+    files.reduce(function (p, f) {
+      return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor); })
+        .then(function (r) { cur.photos.push(r.url); renderThumbs(); saveDraft(); });
+    }, Promise.resolve()).then(function () { $('photoMsg').textContent = '已上傳，按「完成驗收」才會跟這次驗收存在一起。'; })
+      .catch(function (e) { $('photoMsg').textContent = '上傳失敗：' + e.message; });
+  });
+
+  $('doHold').addEventListener('click', function () {
+    var b = cur.b, btn = this;
+    var data = JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, signer: $('sigName').value });
+    btn.disabled = true; btn.textContent = '儲存中…';
+    call('saveDraftRemote', b.id, data).then(function (r) {
+      b.draft = { ts: r.ts, at: r.at, data: data };
+      msg('doMsg', 'ok', '已暫時儲存（' + r.at + '）。可以先回列表，之後打開這張會接著點；點完記得簽名、按「完成驗收」。');
+    }).catch(function (e) { msg('doMsg', 'error', '暫時儲存失敗：' + e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = '💾 暫時儲存'; });
+  });
+  $('doSave').addEventListener('click', function () {
+    clearTimeout(autoHold);
+    var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
+    if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
+    var stopN = b.lines.filter(function (x) { return cur.marks[x.key].status === '停送'; }).length, allStop = stopN === b.lines.length;
+    if (!allStop && !cur.sig && !cur.sigUrl) { msg('doMsg', 'error', '請在「✍ 驗收人簽名」的框裡簽名。'); $('sigPad').scrollIntoView({ block: 'center' }); return; }
+    try { localStorage.setItem('rcvSigner', $('sigName').value.trim()); } catch (e) {}
+    var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '', photos: m.photos || [] }; });
+    var btn = this;
+    btn.disabled = true; btn.textContent = '儲存中…';
+    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items, slip: slipToSave(),
+      signer: $('sigName').value.trim(), signature: cur.sig || '', signatureUrl: cur.sig ? '' : cur.sigUrl }).then(function (r) {
+      dropDraft(b);
+      msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + (allStop ? ' 已標成停送（' + r.items + ' 項，不算錢）。' : ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : stopN ? '，其他都到齊。' : '，全部到齊。') + (stopN ? '停送 ' + stopN + ' 項（不算錢）。' : '')) +
+        (r.amount ? '銷貨單金額 $' + money(r.amount) + '。' : ''));
+      show('vCheck'); loadWeek(); refreshIssueCount();
+    }).catch(function (e) { msg('doMsg', 'error', e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = '完成驗收'; });
+  });
+
+  // ---------------- 驗收人簽名 ----------------
+  // cur.sig：這次新簽的（PNG data URL）；cur.sigUrl：上次存的簽名（沒重簽就沿用）
+  var sigCtx = null, sigDrawing = false, sigInk = false;
+  function sigReset() {
+    var c = $('sigPad'), r = c.getBoundingClientRect(), k = window.devicePixelRatio || 1;
+    c.width = Math.max(1, Math.round(r.width * k)); c.height = Math.max(1, Math.round(r.height * k));
+    sigCtx = c.getContext('2d');
+    sigCtx.setTransform(k, 0, 0, k, 0, 0);
+    sigCtx.lineWidth = 2.6; sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round'; sigCtx.strokeStyle = '#111';
+    sigInk = false;
+    var src = cur && (cur.sig || '');
+    if (src) { var im = new Image(); im.onload = function () { sigCtx.drawImage(im, 0, 0, r.width, r.height); }; im.src = src; }
+    c.classList.toggle('signed', !!(cur && (cur.sig || cur.sigUrl)));
+    $('sigHint').innerHTML = cur && cur.sig ? '已簽名' : cur && cur.sigUrl ? '上次已簽名（<a href="' + esc(cur.sigUrl) + '" target="_blank">看簽名</a>），不重簽就沿用' : '用手指簽在下面的框裡';
+  }
+  function sigPos(e) { var r = $('sigPad').getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  $('sigPad').addEventListener('pointerdown', function (e) {
+    e.preventDefault(); this.setPointerCapture(e.pointerId);
+    sigDrawing = true; var p = sigPos(e);
+    sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y); sigCtx.lineTo(p.x + 0.1, p.y + 0.1); sigCtx.stroke();
+  });
+  $('sigPad').addEventListener('pointermove', function (e) {
+    if (!sigDrawing) return;
+    var p = sigPos(e); sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); sigInk = true;
+  });
+  function sigEnd() {
+    if (!sigDrawing) return;
+    sigDrawing = false;
+    if (!sigInk && !cur.sig) return;
+    cur.sig = $('sigPad').toDataURL('image/png');
+    $('sigPad').classList.add('signed'); $('sigHint').textContent = '已簽名'; msg('doMsg', '', '');
+    saveDraft();
+  }
+  $('sigPad').addEventListener('pointerup', sigEnd);
+  $('sigPad').addEventListener('pointercancel', sigEnd);
+  $('sigClear').addEventListener('click', function () { cur.sig = null; cur.sigUrl = ''; sigReset(); saveDraft(); });
+  $('sigName').addEventListener('input', saveDraft);
+
+  // ---------------- 銷貨單金額（第 2 階段） ----------------
+  // cur.slip = { ocr, text, total, rows: { 食材名稱: { slipName, qty, unit, price, amount, sure, partial } }, extras: [{ slipName, qty, unit, price, amount, map }] }
+  // extras 的 map：''＝不算、'+'＝另外算（叫貨單沒有，例如運費）
+  function slipNames() {
+    var out = [];
+    cur.b.lines.forEach(function (x) { if (out.indexOf(x.name) < 0) out.push(x.name); });
+    return out;
+  }
+  function slipFromSaved(sv) {
+    var sl = { ocr: false, text: '', total: sv.total || '', rows: {}, extras: [] };
+    sv.rows.forEach(function (r) {
+      var v = { slipName: r.slipName, qty: r.qty, unit: r.unit, price: r.price, amount: r.amount, sure: true, code: r.code || '' };
+      if (r.name) sl.rows[r.name] = v; else { v.map = '+'; sl.extras.push(v); }
+    });
+    return sl;
+  }
+  function money(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
+  function numv(v) { var s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, ''); return s === '' || isNaN(Number(s)) ? null : Number(s); }
+  function r2(n) { return Math.round(n * 100) / 100; }
+  function r4(n) { return Math.round(n * 10000) / 10000; }
+  function slipCell(scope, i, f, v, mode) {
+    return '<td class="' + (f === 'unit' ? 'w1' : 'w2') + '"><input data-' + scope + '="' + esc(String(i)) + '" data-f="' + f + '" value="' + esc(v === undefined || v === null ? '' : String(v)) + '"' +
+      (f === 'unit' ? '' : ' inputmode="decimal"') + ' placeholder="' + { qty: '數量', unit: '單位', price: '單價', amount: '金額' }[f] + '"></td>';
+  }
+  function renderSlip() {
+    var sl = cur.slip;
+    if (!sl) { $('slipBox').innerHTML = ''; return; }
+    var expect = {};
+    cur.b.lines.forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
+    var html = '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th></tr>';
+    slipNames().forEach(function (n) {
+      var r = sl.rows[n] || {}, has = r.qty !== undefined && (r.qty !== '' || r.amount !== '');
+      var lp = (cur.b.prices || {})[n], pv = numv(r.price);
+      var hint = lp && pv !== null && Math.abs(pv - lp.price) >= 0.01 && (!r.unit || r.unit === lp.unit) ?
+        ' <span class="badge ' + (pv > lp.price ? 'bad' : 'ok') + '">' + (pv > lp.price ? '比上次貴' : '比上次便宜') + '（上次 $' + money(lp.price) + '）</span>' : '';
+      var flag = r.partial ? '<span class="badge warn">⚠ 請確認品名</span>' : has && r.sure === false ? '<span class="badge warn">請確認數字</span>'
+        : sl.ocr && !has ? '<span class="badge none">銷貨單上沒看到</span>' : '';
+      html += '<tr' + (r.pre ? ' style="background:#fffbea"' : '') + '><td><b>' + esc(n) + '</b> ' + flag + hint + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
+        '<td class="small">' + esc(expect[n].length > 3 ? expect[n].length + ' 筆' : expect[n].join('＋')) + '</td>' +
+        ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('sn', n, f, r[f]); }).join('') + '</tr>';
+    });
+    html += '</table></div>';
+    if (sl.extras.length) {
+      html += '<div class="small" style="margin-top:10px"><b>銷貨單上有、叫貨單沒有的</b>（選「另外算」會算進金額，例如運費；選食材名稱＝是同一樣，會記住這個叫法）</div>' +
+        '<div class="slipwrap"><table class="slipt">' + sl.extras.map(function (x, i) {
+          return '<tr><td><input data-xn="' + i + '" value="' + esc(x.slipName) + '" placeholder="品名"></td>' +
+            ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('x', i, f, x[f]); }).join('') +
+            '<td><select data-xmap="' + i + '" style="width:auto"><option value=""' + (!x.map ? ' selected' : '') + '>不算</option><option value="+"' + (x.map === '+' ? ' selected' : '') + '>另外算</option>' +
+            slipNames().map(function (n) { return '<option value="=' + esc(n) + '">＝ ' + esc(n) + '</option>'; }).join('') + '</select></td></tr>';
+        }).join('') + '</table></div>';
+    }
+    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn ghost small" id="slipAddX">＋ 加一行（叫貨單沒有的）</button>' +
+      '<span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">銷貨單合計</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div>' +
+      (sl.text ? '<details class="small" style="margin-top:6px"><summary style="cursor:pointer">看辨識出來的原始文字</summary><pre style="white-space:pre-wrap">' + esc(sl.text) + '</pre></details>' : '');
+    $('slipBox').innerHTML = html;
+    slipFooter();
+  }
+  function slipSum() {
+    var sl = cur.slip, sum = 0, n = 0;
+    Object.keys(sl.rows).forEach(function (k) { var a = numv(sl.rows[k].amount); if (a !== null && slipNames().indexOf(k) >= 0) { sum += a; n++; } });
+    sl.extras.forEach(function (x) { var a = numv(x.amount); if (x.map === '+' && a !== null) { sum += a; n++; } });
+    return { sum: r2(sum), n: n };
+  }
+  function slipFooter() {
+    var s = slipSum(), t = numv(cur.slip.total);
+    $('slipSum').innerHTML = '金額加總 <b>$' + money(s.sum) + '</b>' + (t !== null ? (Math.abs(t - s.sum) < 1 ? ' <span class="badge ok">✓ 跟合計一樣</span>' : ' <span class="badge bad">' + (t > s.sum ? '比合計少 $' : '比合計多 $') + money(Math.abs(r2(t - s.sum))) + '</span>') : '') + '　';
+  }
+  function slipToSave() {
+    var sl = cur.slip;
+    if (!sl) return null;
+    var rows = [];
+    slipNames().forEach(function (n) { var r = sl.rows[n]; if (r) rows.push({ name: n, slipName: r.slipName || '', qty: r.qty, unit: r.unit || '', price: r.price, amount: r.amount, code: r.code || '' }); });
+    sl.extras.forEach(function (x) { if (x.map === '+') rows.push({ name: '', slipName: x.slipName || '', qty: x.qty, unit: x.unit || '', price: x.price, amount: x.amount, code: x.code || '' }); });
+    return { total: sl.total, rows: rows };
+  }
+  // 手動填：沒填過的品項先帶叫貨的數量和單價表的價格（手寫收據的廠商只要改不一樣的地方）
+  var W = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5 };
+  function prefill(n) {
+    var t = (cur.b.totals || {})[n], p = (cur.b.prices || {})[n], unit = p ? p.unit : t ? ({ '兩': '斤', 'g': '公斤' }[t.unit] || t.unit) : '';
+    var qty = '';
+    var c = p && p.conv;
+    if (t) qty = t.unit === unit ? t.qty : W[t.unit] && W[unit] ? r2(t.qty * W[t.unit] / W[unit])
+      : c && t.unit === c.unit ? r4(t.qty / c.qty) : c && W[t.unit] && W[c.unit] ? r4(t.qty * W[t.unit] / W[c.unit] / c.qty) : '';
+    var price = p ? p.price : '';
+    return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? r2(qty * price) : '', sure: true, pre: true };
+  }
+  $('slipManual').addEventListener('click', function () {
+    if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] };
+    var n0 = 0;
+    slipNames().forEach(function (n) {
+      var r = cur.slip.rows[n];
+      if (r && (r.qty !== '' || r.amount !== '')) return;
+      cur.slip.rows[n] = prefill(n); n0++;
+    });
+    $('slipMsg').textContent = n0 ? '已先帶入叫貨數量' + (Object.keys(cur.b.prices || {}).length ? '和單價表的價格' : '') + '（淡黃色），請對照收據改不一樣的地方。' : '';
+    renderSlip(); saveDraft();
+  });
+  $('slipRead').addEventListener('click', function () {
+    if (!cur.photos.length) { $('slipMsg').textContent = '請先按「📷 拍銷貨單」。'; return; }
+    var btn = this;
+    btn.disabled = true; $('slipMsg').textContent = '辨識中，一張大約 10 秒…';
+    call('readSlip', cur.photos, cur.b.vendor, slipNames()).then(function (r) {
+      var sl = cur.slip || { rows: {}, extras: [] };
+      sl.ocr = true; sl.text = r.text;
+      if (r.total !== '') sl.total = r.total;
+      Object.keys(r.rows).forEach(function (n) { sl.rows[n] = r.rows[n]; });
+      sl.extras = r.extras.map(function (x) { x.map = ''; return x; });
+      cur.slip = sl;
+      var found = Object.keys(r.rows).length;
+      $('slipMsg').textContent = '讀到 ' + found + '／' + slipNames().length + ' 項' + (r.extras.length ? '，另外 ' + r.extras.length + ' 行叫貨單沒有' : '') +
+        '。辨識不一定準，請對照銷貨單看一下，黃色的要特別確認。';
+      renderSlip(); saveDraft();
+    }).catch(function (e) { $('slipMsg').textContent = e.message; })
+      .then(function () { btn.disabled = false; });
+  });
+  $('slipBox').addEventListener('input', function (e) {
+    var t = e.target, sl = cur.slip, f = t.getAttribute('data-f'), o = null;
+    if (t.id === 'slipTotal') { sl.total = t.value; slipFooter(); saveDraft(); return; }
+    if (t.hasAttribute('data-xn')) { sl.extras[Number(t.getAttribute('data-xn'))].slipName = t.value; saveDraft(); return; }
+    if (t.hasAttribute('data-sn')) { var n = t.getAttribute('data-sn'); o = sl.rows[n] = sl.rows[n] || {}; o.sure = true; o.partial = false; delete o.pre; t.closest('tr').style.background = ''; }
+    else if (t.hasAttribute('data-x')) o = sl.extras[Number(t.getAttribute('data-x'))];
+    if (!o || !f) return;
+    o[f] = t.value;
+    // 數量×單價＝金額：改數量或單價就重算金額；改金額就重算單價
+    var q = numv(o.qty), pr = numv(o.price), a = numv(o.amount), sib = function (g) { return t.closest('tr').querySelector('[data-f="' + g + '"]'); };
+    if ((f === 'qty' || f === 'price') && q !== null && pr !== null) { o.amount = r2(q * pr); sib('amount').value = o.amount; }
+    else if (f === 'amount' && q && a !== null) { o.price = r2(a / q); sib('price').value = o.price; }
+    slipFooter(); saveDraft();
+  });
+  $('slipBox').addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t.hasAttribute('data-xmap')) return;
+    var i = Number(t.getAttribute('data-xmap')), x = cur.slip.extras[i], v = t.value;
+    if (v.charAt(0) === '=') {   // 其實是叫貨單上的某一樣：搬過去，存檔時會記住這個叫法
+      var n = v.slice(1);
+      cur.slip.rows[n] = { slipName: x.slipName, qty: x.qty, unit: x.unit, price: x.price, amount: x.amount, sure: true, code: x.code || '' };
+      cur.slip.extras.splice(i, 1);
+      renderSlip();
+    } else { x.map = v; slipFooter(); }
+    saveDraft();
+  });
+  $('slipBox').addEventListener('click', function (e) {
+    if (e.target.id !== 'slipAddX') return;
+    cur.slip.extras.push({ slipName: '', qty: '', unit: '', price: '', amount: '', map: '+' });
+    renderSlip(); saveDraft();
+  });
+
+  // ---------------- 月結對帳 ----------------
+  var mon = null, monPhotos = [];
+  function openMonth() {
+    if (!$('monYm').value) {
+      var d = new Date(), last = d.getDate() < 15 ? new Date(d.getFullYear(), d.getMonth() - 1, 1) : d;   // 月初通常在對上個月
+      $('monYm').value = last.getFullYear() + '-' + ('0' + (last.getMonth() + 1)).slice(-2);
+    }
+    if (!mon) loadMonth();
+  }
+  function loadMonth() {
+    var v = $('monVendor').value, ym = $('monYm').value;
+    msg('monMsg', 'info', '讀取中…'); $('monBox').innerHTML = '';
+    return call('getMonth', v, ym).then(function (r) {
+      mon = r; msg('monMsg', '', '');
+      $('monVendor').innerHTML = '<option value="">選廠商</option>' + r.vendors.map(function (x) { return '<option' + (x === v ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+      if (!v) { if (!r.vendors.length) msg('monMsg', 'info', '這個月沒有叫貨紀錄。'); else msg('monMsg', 'info', '請選廠商。'); return; }
+      monPhotos = r.record ? r.record.photos.slice() : [];
+      renderMonth();
+    }).catch(function (e) { msg('monMsg', 'error', e.message); });
+  }
+  function renderMonth() {
+    var r = mon, sum = 0, est = 0, unchecked = 0, noPrice = 0;
+    var html = '<div class="panel"><table><tr><th>送貨日期</th><th>叫貨單</th><th>金額</th></tr>';
+    r.entries.forEach(function (e, i) {
+      sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked) unchecked++; noPrice += e.noPrice.length;
+      html += '<tr><td>' + esc(mdw(e.date)) + '</td><td>' + esc(e.label) + ' ' +
+        (e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
+        '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {
+          return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">沒有單價</span>') +
+            '</td><td>' + (x.amount === null ? '—' : '$' + money(x.amount)) + '</td></tr>';
+        }).join('') + '</table></details></td><td style="white-space:nowrap"><b>$' + money(e.amount) + '</b>' + (e.estimated ? ' <span class="badge none">估</span>' : '') + '</td></tr>';
+    });
+    if (!r.entries.length) html += '<tr><td colspan="3" class="muted">這個月沒有這家廠商的叫貨單。</td></tr>';
+    sum = r2(sum);
+    html += '</table><div style="margin-top:10px;font-size:18px">系統合計 <b>$' + money(sum) + '</b></div><div class="muted small">' +
+      (est ? '其中 $' + money(r2(est)) + ' 是估算的。' : '') + (unchecked ? unchecked + ' 張還沒驗收（照叫貨量估）。' : '') +
+      (noPrice ? noPrice + ' 項沒有單價，沒算進去（驗收時填銷貨單金額，或在「單價表」補價格）。' : '') + '</div>' +
+      '<div class="row" style="margin-top:12px"><label for="monInv"><b>發票／對帳單金額</b></label><input id="monInv" inputmode="decimal" style="width:140px" value="' + esc(r.record ? r.record.invoice : '') + '">' +
+      '<span id="monDiff"></span></div>' +
+      '<div class="row" style="margin-top:8px"><label class="btn ghost small" for="monPhoto" style="cursor:pointer">📷 拍發票</label><input id="monPhoto" type="file" accept="image/*" capture="environment" multiple class="hidden">' +
+      '<span id="monPhotoMsg" class="muted small"></span><span id="monThumbs"></span></div>' +
+      '<textarea id="monNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註，例如：差 50 元是 10/14 運費">' + esc(r.record ? r.record.note : '') + '</textarea>' +
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn" id="monSave">✓ 確認對帳</button>' +
+      (r.record ? '<span class="muted small">上次對帳：' + esc(r.record.time) + '（發票 $' + money(r.record.invoice) + '）</span>' : '') + '</div></div>';
+    $('monBox').innerHTML = html;
+    mon.sum = sum;
+    monDiff(); monThumbs();
+  }
+  function monDiff() {
+    var v = numv($('monInv').value);
+    $('monDiff').innerHTML = v === null ? '' : Math.abs(v - mon.sum) < 1 ? '<span class="badge ok">✓ 對得上</span>'
+      : '<span class="badge bad">' + (v > mon.sum ? '發票多 $' : '發票少 $') + money(Math.abs(r2(v - mon.sum))) + '</span>';
+  }
+  function monThumbs() { $('monThumbs').innerHTML = monPhotos.map(function (u, i) { return ' <a href="' + esc(u) + '" target="_blank" class="small">📄 發票 ' + (i + 1) + '</a>'; }).join(''); }
+  $('monGo').addEventListener('click', function () { loadMonth(); });
+  $('monVendor').addEventListener('change', function () { loadMonth(); });
+  $('monYm').addEventListener('change', function () { if ($('monVendor').value) loadMonth(); });
+  $('monBox').addEventListener('input', function (e) { if (e.target.id === 'monInv') monDiff(); });
+  $('monBox').addEventListener('change', function (e) {
+    if (e.target.id !== 'monPhoto') return;
+    var files = Array.prototype.slice.call(e.target.files || []);
+    if (!files.length) return;
+    $('monPhotoMsg').textContent = '上傳中…';
+    files.reduce(function (p, f) {
+      return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', mon.ym + '-01', mon.vendor + ' 月結發票'); })
+        .then(function (r) { monPhotos.push(r.url); monThumbs(); });
+    }, Promise.resolve()).then(function () { $('monPhotoMsg').textContent = '已上傳，按「確認對帳」才會存在一起。'; })
+      .catch(function (err) { $('monPhotoMsg').textContent = '上傳失敗：' + err.message; });
+  });
+  $('monBox').addEventListener('click', function (e) {
+    if (e.target.id !== 'monSave') return;
+    var b = e.target;
+    b.disabled = true;
+    call('saveMonth', { vendor: mon.vendor, ym: mon.ym, system: mon.sum, invoice: $('monInv').value, note: $('monNote').value, photos: monPhotos }).then(function () {
+      var done = mon.vendor + ' ' + mon.ym + ' 對帳已存（試算表「月結對帳」分頁）。';
+      loadMonth().then(function () { msg('monMsg', 'ok', done); });
+    }).catch(function (err) { msg('monMsg', 'error', err.message); b.disabled = false; });
+  });
+
+  // ---------------- 問題追蹤 ----------------
+  var issueAll = false, issues = null;
+  function refreshIssueCount() {
+    call('getIssues', false).then(function (r) {
+      var n = r.list.length + (r.pending || []).reduce(function (a, g) { return a + g.items.length; }, 0);
+      $('issueCount').textContent = n ? '（' + n + '）' : '';
+    }).catch(function () {});
+  }
+  document.querySelector('#vIssues .row').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-all]');
+    if (!b) return;
+    issueAll = b.getAttribute('data-all') === '1';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-all]'), function (x) { x.classList.toggle('on', x === b); });
+    loadIssues();
+  });
+  function issueLine(x) {
+    var what = x.status === '缺貨' ? '廠商缺貨（應到 ' + x.expect + '）' : x.status === '其他' ? '其他' + (x.got !== x.expect ? '（實到 ' + x.got + '）' : '') :
+      x.status === '沒送' ? '沒送（應到 ' + x.expect + '）' : x.status === '送錯' ? '送錯（應到 ' + x.expect + '）' : x.status === '品質不好' ? '品質不好（' + x.got + '）' : x.status + '：應到 ' + x.expect + '，實到 ' + x.got;
+    return (x.cls ? x.cls + ' ' : '') + x.name + '：' + what + (x.note ? '，' + x.note : '');
+  }
+  function loadIssues() {
+    msg('issueMsg', 'info', '載入中…');
+    $('issueList').innerHTML = '';
+    call('getIssues', issueAll).then(function (r) {
+      issues = r;
+      $('issueCount').textContent = '';
+      var pend = r.pending || [];
+      msg('issueMsg', r.list.length || pend.length ? '' : 'ok', r.list.length || pend.length ? '' : issueAll ? '最近 60 天沒有問題。' : '沒有還沒處理的問題 👍');
+      var by = {}, order = [];
+      r.list.forEach(function (x) { if (!by[x.id]) { by[x.id] = []; order.push(x.id); } by[x.id].push(x); });
+      var pendHtml = pend.length ? '<div class="panel" style="border:2px solid var(--warn)"><b style="font-size:18px">📝 還沒完成驗收（暫存中）</b>' +
+        '<div class="muted small">標了缺貨、少送…但還沒按「完成驗收」的。處理好後打開那張點完、簽名、完成驗收，就會移到下面。</div>' +
+        pend.map(function (g) {
+          return '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><div class="row" style="justify-content:space-between"><div><b>' + esc(g.vendor) + '</b>' +
+            (g.group ? ' <span class="muted">送貨組別 ' + esc(g.group) + '</span>' : '') + ' <span class="muted small">' + esc(md(g.from)) + ' 那週・' + esc(g.at) + ' 暫存</span></div>' +
+            '<button type="button" class="btn ghost small" data-openid="' + esc(g.id) + '" data-from="' + esc(g.from) + '">打開這張</button></div>' +
+            g.items.map(function (x) { return '<div>・' + esc((x.cls ? x.cls + ' ' : '') + x.name + '：' + (x.status === '缺貨' ? '廠商缺貨' : x.status) + (x.got && (x.status === '少送' || x.status === '多送') ? '（實到 ' + x.got + '）' : '') + (x.note ? '，' + x.note : '')) + '</div>'; }).join('') + '</div>';
+        }).join('') + '</div>' : '';
+      $('issueList').innerHTML = pendHtml + order.map(function (id) {
+        var g = by[id], h = g[0];
+        return '<div class="panel" data-id="' + esc(id) + '"><div class="row" style="justify-content:space-between"><div><b style="font-size:19px">' + esc(h.vendor) + '</b>' +
+          (h.group ? ' <span class="muted">送貨組別 ' + esc(h.group) + '</span>' : '') + '<div class="muted small">' + esc(h.from ? md(h.from) + '～' + md(h.to) : '') + '・驗收 ' + esc(h.time) +
+          (h.photos.length ? '・' + h.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank">銷貨單' + (h.photos.length > 1 ? i + 1 : '') + '</a>'; }).join(' ') : '') + '</div></div>' +
+          '<button type="button" class="btn ghost small" data-copy="' + esc(id) + '">📋 複製給廠商</button></div>' +
+          '<table><tbody>' + g.map(function (x) {
+            return '<tr><td>' + esc(issueLine(x)) + (x.itemPhotos && x.itemPhotos.length ? ' ' + x.itemPhotos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📷' + (i + 1) + '</a>'; }).join(' ') : '') + (x.doneTime ? '<div class="muted small">' + esc(x.state + '・' + x.doneTime + (x.doneNote ? '・' + x.doneNote : '')) + '</div>' : '') + '</td>' +
+              '<td style="white-space:nowrap"><input type="text" data-note="' + x.row + '" placeholder="處理備註（選填）" style="width:150px" value="' + esc(x.doneNote) + '"> <select data-row="' + x.row + '">' + r.states.map(function (s) { return '<option' + (s === x.state ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></td></tr>';
+          }).join('') + '</tbody></table></div>';
+      }).join('');
+    }).catch(function (e) { msg('issueMsg', 'error', '載入失敗：' + e.message); });
+  }
+  $('issueList').addEventListener('click', function (e) {
+    var o = e.target.closest('[data-openid]');
+    if (o) {
+      var id = o.getAttribute('data-openid');
+      $('weekDate').value = o.getAttribute('data-from');
+      show('vCheck');
+      loadWeek().then(function () { var b = week && week.batches.filter(function (x) { return x.id === id; })[0]; if (b) openBatch(b); });
+      return;
+    }
+    var b = e.target.closest('[data-copy]');
+    if (!b) return;
+    var g = issues.list.filter(function (x) { return x.id === b.getAttribute('data-copy'); }), h = g[0];
+    var text = h.vendor + ' 您好，三信家商餐飲科 ' + (h.from ? md(h.from) + '～' + md(h.to) : '') + ' 的貨：\n' +
+      g.filter(function (x) { return x.state === '待處理'; }).map(function (x) { return '・' + issueLine(x) + (x.itemPhotos && x.itemPhotos.length ? '（照片另傳）' : ''); }).join('\n') + '\n麻煩補送或更正，謝謝！';
+    copyText(text).then(function () { b.textContent = '已複製 ✓'; setTimeout(function () { b.textContent = '📋 複製給廠商'; }, 1500); })
+      .catch(function () { msg('issueMsg', 'warn', '請長按選取複製：' + text); });
+  });
+  $('issueList').addEventListener('change', function (e) {
+    var s = e.target.closest('select[data-row]');
+    if (!s) return;
+    var ni = document.querySelector('[data-note="' + s.getAttribute('data-row') + '"]'), note = ni ? ni.value.trim() : '';
+    s.disabled = true;
+    call('setIssues', [Number(s.getAttribute('data-row'))], s.value, note).then(function () { loadIssues(); refreshIssueCount(); })
+      .catch(function (err) { msg('issueMsg', 'error', err.message); s.disabled = false; });
+  });
+
+  setWeek(0);
+  refreshIssueCount();
+})();
+</script>
+</body>
+</html>
