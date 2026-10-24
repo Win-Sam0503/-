@@ -1189,19 +1189,21 @@ function cancelOrder(token, orderNo) {
  */
 function adminGetIssues(token, from, to, countOnly) {
   auth_(token, true);
-  const start = parseDate_(from) || addDays_(today_(), -30), end = addDays_(parseDate_(to) || today_(), 1);
+  // 用「上課日期」篩（找不到訂單的才用發生時間）；沒給日期＝前後 30 天
+  const start = parseDate_(from) || addDays_(today_(), -30), end = addDays_(parseDate_(to) || addDays_(today_(), 30), 1);
   const out = [];
   const tm = function (v) { const d = v instanceof Date ? v : errTime_(v); return d instanceof Date && !isNaN(d) ? d : null; };
   const inRange = function (d) { return d && d >= start && d < end; };
+  const evFrom = addDays_(start, -180), evTo = addDays_(end, 60);   // 事件大概發生在上課前後這段時間
   const add = function (d, type, orderNo, who, note, extra) {
-    if (!inRange(d)) return;
+    if (!d || d < evFrom || d >= evTo) return;
     out.push(Object.assign({ id: type + '|' + orderNo + '|' + Utilities.formatDate(d, tz_(), 'yyyyMMddHHmmss') + (extra && extra.item ? '|' + extra.item : ''),
       t: d.getTime(), time: fmtDateTime_(d), type: type, orderNo: orderNo, who: who, note: note }, extra || {}));
   };
   const has = function (name) { const sh = ss_().getSheetByName(name); return sh && sh.getLastRow() >= 2; };
   if (has(SHEET.flags)) readTable_(SHEET.flags, ['訂單編號']).rows.forEach(function (r) {
     const item = String(r['食材'] || '').trim();
-    add(tm(r['標記時間']), '標記異常', String(r['訂單編號']).trim(), String(r['標記人'] || ''), (item ? item + '：' : '') + String(r['說明'] || ''),
+    add(tm(r['標記時間']), '標記異常', String(r['訂單編號']).trim(), String(r['標記人'] || ''), String(r['說明'] || ''),
       { item: item, resolved: String(r['狀態']).trim() === '已解決' });
   });
   if (has(SHEET.hidden)) readTable_(SHEET.hidden, ['訂單編號']).rows.forEach(function (r) {
@@ -1230,19 +1232,26 @@ function adminGetIssues(token, from, to, countOnly) {
   const done = {};
   if (has(SHEET.issuesDone)) readTable_(SHEET.issuesDone, ['事件ID']).rows.forEach(function (r) { done[String(r['事件ID']).trim()] = String(r['處理人'] || '') + ' ' + fmtDateTime_(r['處理時間']); });
   out.forEach(function (x) { x.done = done[x.id] || (x.resolved ? '已解決' : ''); });
-  if (countOnly) return out.filter(function (x) { return !x.done; }).length;
-  // 補上訂單的上課日期、班級、實作項目、老師
+  // 補上訂單的上課日期、時段、班級、實作項目、老師、送出時間
   const want = {};
   out.forEach(function (x) { want[x.orderNo] = true; });
   const meta = {};
-  groupOrders_(withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, addDays_(start, -120)).filter(function (r) { return want[String(r['訂單編號']).trim()]; }), null)
+  groupOrders_(withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, start).filter(function (r) { return want[String(r['訂單編號']).trim()]; }), null)
     .forEach(function (o) { meta[o.orderNo] = o; });
   out.forEach(function (x) {
     const o = meta[x.orderNo];
-    if (!o) return;
-    x.useDate = x.useDate || o.useDate; x.className = x.className || o.className; x.project = o.project; x.teacher = x.teacher || o.onBehalfOf || o.teacher;
+    if (o) {
+      x.useDate = x.useDate || o.useDate; x.className = x.className || o.className; x.project = o.project; x.teacher = x.teacher || o.onBehalfOf || o.teacher;
+      x.classTime = o.classTime; x.submitted = o.submitted;
+    }
+    if (x.type === '標記異常' && x.item) {   // 「香菜 3 公斤（異常）：說明」
+      const it = o && o.items.filter(function (i) { return i.name === x.item; })[0];
+      x.note = x.item + (it ? ' ' + it.qty + ' ' + it.unit : '') + '（異常）' + (x.note ? '：' + x.note : '');
+    }
   });
-  return out.sort(function (a, b) { return b.t - a.t; });
+  const list = out.filter(function (x) { const u = parseDate_(x.useDate); return u ? inRange(u) : inRange(new Date(x.t)); });
+  if (countOnly) return list.filter(function (x) { return !x.done; }).length;
+  return list.sort(function (a, b) { return String(b.useDate || '').localeCompare(String(a.useDate || '')) || b.t - a.t; });
 }
 
 /** 管理者：異常紀錄勾「已處理」（on）或取消 */
