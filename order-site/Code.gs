@@ -106,6 +106,7 @@ const SHEET = {
   audits: '抽查紀錄',
   places: '放置位置',
   hidden: '老師刪除',
+  issuesDone: '異常處理',
 };
 // 科別替換：同一個叫法不同科是不同東西（例如烘焙課的「牛奶」是保久乳、飲調課的是鮮奶(全)）
 const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
@@ -124,6 +125,8 @@ const PLACE_HEADERS = ['訂單編號', '上課日期', '班級', '老師', '放�
 const PLACE_FOLDER_NAME = '三信家商餐飲科放置照片';
 // 老師刪除：老師從「我的訂單」刪掉的訂單（老師看不到，管理者照樣看得到、標「老師已刪除」）
 const HIDDEN_HEADERS = ['訂單編號', '老師', '刪除時間', '原狀態'];
+// 異常紀錄：訂單彙整的「⚠ 異常紀錄」看過、勾「已處理」的事件
+const ISSUE_DONE_HEADERS = ['事件ID', '處理人', '處理時間'];
 // 叫貨紀錄：學生扣完庫存後，管理者確定的「實際叫貨量」（老師訂的量不變）
 const PURCHASE_HEADERS = ['送貨日期', '送貨組別', '廠商', '訂單編號', '上課班級', '老師', '食材名稱', '食材ID', '需求量', '需求單位', '叫貨量', '叫貨單位', '類型', '備註', '狀態', '確定時間', '確認人'];
 const PURCHASE_MAX_ROWS = 3000;
@@ -1176,6 +1179,89 @@ function cancelOrder(token, orderNo) {
   try { logOrderEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']); } catch (e) { console.error(e.message); }
   if (isAdmin) notifyTeacherOfEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']);
   return res;
+}
+
+// ---- 異常紀錄：標記異常、老師刪除、退單、修改、取消、抽查異常，集中在一張表 ----
+
+/**
+ * 管理者：from～to（事件發生的日期）的異常紀錄，最新的在前。countOnly：只回傳還沒處理的件數（不讀訂單，比較快）
+ * 每筆：{ id, time, type, orderNo, useDate, className, project, teacher, who, note, done }
+ */
+function adminGetIssues(token, from, to, countOnly) {
+  auth_(token, true);
+  const start = parseDate_(from) || addDays_(today_(), -30), end = addDays_(parseDate_(to) || today_(), 1);
+  const out = [];
+  const tm = function (v) { const d = v instanceof Date ? v : errTime_(v); return d instanceof Date && !isNaN(d) ? d : null; };
+  const inRange = function (d) { return d && d >= start && d < end; };
+  const add = function (d, type, orderNo, who, note, extra) {
+    if (!inRange(d)) return;
+    out.push(Object.assign({ id: type + '|' + orderNo + '|' + Utilities.formatDate(d, tz_(), 'yyyyMMddHHmmss') + (extra && extra.item ? '|' + extra.item : ''),
+      t: d.getTime(), time: fmtDateTime_(d), type: type, orderNo: orderNo, who: who, note: note }, extra || {}));
+  };
+  const has = function (name) { const sh = ss_().getSheetByName(name); return sh && sh.getLastRow() >= 2; };
+  if (has(SHEET.flags)) readTable_(SHEET.flags, ['訂單編號']).rows.forEach(function (r) {
+    const item = String(r['食材'] || '').trim();
+    add(tm(r['標記時間']), '標記異常', String(r['訂單編號']).trim(), String(r['標記人'] || ''), (item ? item + '：' : '') + String(r['說明'] || ''),
+      { item: item, resolved: String(r['狀態']).trim() === '已解決' });
+  });
+  if (has(SHEET.hidden)) readTable_(SHEET.hidden, ['訂單編號']).rows.forEach(function (r) {
+    add(tm(r['刪除時間']), '老師刪除', String(r['訂單編號']).trim(), String(r['老師'] || ''), '刪除時狀態：' + String(r['原狀態'] || ''));
+  });
+  if (has(SHEET.edits)) readTable_(SHEET.edits, ['時間', '訂單編號']).rows.forEach(function (r) {
+    const text = String(r['內容'] || ''), who = String(r['修改人'] || ''), no = String(r['訂單編號']).trim();
+    if (/老師刪除訂單/.test(text)) return;   // 「老師刪除」分頁已經有
+    const type = /(^|；)退單/.test(text) ? '退單' : /取消整張訂單|整張取消/.test(text) ? '取消' : '修改';
+    add(tm(r['時間']), type, no, who, (type === '修改' || type === '取消' ? (isAdmin_(who) ? '管理者' : '老師') + '：' : '') + text);
+  });
+  if (has(SHEET.audits)) {
+    const seen = {};
+    readTable_(SHEET.audits, ['抽查編號']).rows.forEach(function (r) {
+      const bad = ['少了', '多了', '沒有'].indexOf(String(r['結果']).trim()) >= 0, seal = String(r['封條']).trim() === '破了';
+      if (!bad && !seal) return;
+      const id = String(r['抽查編號']).trim();
+      const d = tm(r['抽查時間']);
+      const note = (seal ? '封條破了；' : '') + (bad ? String(r['食材名稱'] || '') + ' ' + String(r['結果']) + '（清單 ' + r['清單數量'] + '、實際 ' + r['實際數量'] + ' ' + String(r['單位'] || '') + '）' : '');
+      if (seen[id]) { seen[id].note += '；' + note.replace(/^封條破了；/, ''); return; }
+      add(d, '抽查異常', String(r['訂單編號']).trim(), String(r['抽查人'] || ''), note,
+        { useDate: toDate_(r['上課日期']) ? dateStr_(toDate_(r['上課日期'])) : '', className: String(r['班級'] || ''), teacher: String(r['老師'] || ''), auditId: id });
+      seen[id] = out[out.length - 1];
+    });
+  }
+  const done = {};
+  if (has(SHEET.issuesDone)) readTable_(SHEET.issuesDone, ['事件ID']).rows.forEach(function (r) { done[String(r['事件ID']).trim()] = String(r['處理人'] || '') + ' ' + fmtDateTime_(r['處理時間']); });
+  out.forEach(function (x) { x.done = done[x.id] || (x.resolved ? '已解決' : ''); });
+  if (countOnly) return out.filter(function (x) { return !x.done; }).length;
+  // 補上訂單的上課日期、班級、實作項目、老師
+  const want = {};
+  out.forEach(function (x) { want[x.orderNo] = true; });
+  const meta = {};
+  groupOrders_(withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, addDays_(start, -120)).filter(function (r) { return want[String(r['訂單編號']).trim()]; }), null)
+    .forEach(function (o) { meta[o.orderNo] = o; });
+  out.forEach(function (x) {
+    const o = meta[x.orderNo];
+    if (!o) return;
+    x.useDate = x.useDate || o.useDate; x.className = x.className || o.className; x.project = o.project; x.teacher = x.teacher || o.onBehalfOf || o.teacher;
+  });
+  return out.sort(function (a, b) { return b.t - a.t; });
+}
+
+/** 管理者：異常紀錄勾「已處理」（on）或取消 */
+function adminSetIssueDone(token, id, on) {
+  const who = auth_(token, true);
+  id = String(id || '').slice(0, 200);
+  if (!id) throw new Error('缺少事件。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(ensureSheet_(SHEET.issuesDone, ISSUE_DONE_HEADERS), ISSUE_DONE_HEADERS);
+    const t = readTable_(SHEET.issuesDone, ['事件ID']);
+    const rows = t.rows.filter(function (r) { return String(r['事件ID']).trim() === id; });
+    if (on && !rows.length) appendRows_(SHEET.issuesDone, [{ '事件ID': id, '處理人': who, '處理時間': new Date() }], { '處理時間': 'yyyy/mm/dd hh:mm' });
+    if (!on && rows.length) deleteRows_(t.sheet, rows.map(function (r) { return r._row; }));
+  } finally {
+    lock.releaseLock();
+  }
+  return { done: on ? who + ' ' + fmtDateTime_(new Date()) : '' };
 }
 
 /** 老師刪掉的訂單：{ 訂單編號: { by, time } } */

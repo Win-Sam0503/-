@@ -459,6 +459,12 @@
   .lpick-bar { position: sticky; bottom: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
     background: var(--card); border: 2px solid var(--brand); border-radius: 12px; padding: 10px 14px; margin-top: 8px; box-shadow: 0 -4px 14px rgba(0,0,0,.12); }
   .lesson-table label.lpick { margin: 0; font-size: 14px; white-space: nowrap; }
+  .iss-t { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .iss-t th, .iss-t td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; vertical-align: top; }
+  .iss-t th { font-size: 12px; color: var(--muted); }
+  .iss-t tr.done td { opacity: .55; }
+  .iss-type { white-space: nowrap; font-weight: 700; }
+  @media print { #viewSummary.print-iss > :not(#issPanel) { display: none !important; } }
   .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
   /* 校隊：放置登記 */
   .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -858,7 +864,7 @@
     <!-- 管理者：訂單彙整 -->
     <section id="viewSummary" class="hidden">
       <div class="panel">
-        <h2>訂單彙整</h2>
+        <h2>訂單彙整 <button type="button" class="btn ghost small noprint" id="issOpen">⚠ 異常紀錄</button></h2>
         <div class="grid2">
           <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
@@ -876,6 +882,17 @@
             <button type="button" class="btn" id="sLoad">查詢</button>
           </div>
         </div>
+      </div>
+      <div class="panel hidden" id="issPanel">
+        <h2>⚠ 異常紀錄 <button type="button" class="btn ghost small noprint" id="issPrint">列印</button> <button type="button" class="btn ghost small noprint" id="issClose">收起來</button></h2>
+        <div class="muted small noprint">標記異常、老師刪除、退單、修改、取消、抽查異常都集中在這裡，最新的在上面。看過、處理好的勾「已處理」。</div>
+        <div class="grid2 noprint" style="margin-top:6px">
+          <div><label for="issFrom">發生日期（起）</label><input id="issFrom" type="date"></div>
+          <div><label for="issTo">發生日期（迄）</label><input id="issTo" type="date"></div>
+        </div>
+        <div class="status-chips noprint" id="issTypes" style="margin:8px 0 4px"></div>
+        <label class="check noprint" style="margin:0 0 6px"><input type="checkbox" id="issUndone"> 只看還沒處理的</label>
+        <div id="issBox" class="small"></div>
       </div>
       <div id="sumMsg"></div>
       <div id="sumVendors"></div>
@@ -1563,6 +1580,7 @@
     if (view === 'viewLessons') loadLessons();
     if (view === 'viewSchedule') loadGrid();
     keepMine = false;
+    if (view === 'viewSummary') issCount();
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
@@ -2943,6 +2961,65 @@
       sortOrders(list, sby).map(function (o) { return orderCard(o, { admin: true }); }).join('');
   }
   $('sLoad').addEventListener('click', loadSummary);
+  // ---- ⚠ 異常紀錄：標記異常、老師刪除、退單、修改、取消、抽查異常 ----
+  var ISS_TYPES = { '標記異常': '⚠', '老師刪除': '🗑', '退單': '↩', '修改': '✏️', '取消': '✖', '抽查異常': '🔍' };
+  var issList = [], issType = '';
+  function issCount() {
+    call('adminGetIssues', token, '', '', true).then(function (n) { $('issOpen').textContent = '⚠ 異常紀錄' + (n ? '（' + n + '）' : ''); $('issOpen').classList.toggle('danger', !!n); }).catch(function () {});
+  }
+  function issLoad() {
+    if (!$('issFrom').value) { var t = new Date(); $('issFrom').value = isoDate(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 30)); $('issTo').value = isoDate(t); }
+    $('issBox').textContent = '載入中…';
+    call('adminGetIssues', token, $('issFrom').value, $('issTo').value).then(function (list) { issList = list; issRender(); issCount(); })
+      .catch(function (e) { $('issBox').textContent = '讀取失敗：' + e.message; });
+  }
+  function issRender() {
+    var count = {};
+    issList.forEach(function (x) { count[x.type] = (count[x.type] || 0) + 1; });
+    $('issTypes').innerHTML = '<button type="button" data-isst="" class="' + (issType ? '' : 'on') + '">全部（' + issList.length + '）</button>' +
+      Object.keys(ISS_TYPES).map(function (k) { return '<button type="button" data-isst="' + k + '" class="' + (issType === k ? 'on' : '') + '"' + (count[k] ? '' : ' disabled') + '>' + ISS_TYPES[k] + ' ' + k + '（' + (count[k] || 0) + '）</button>'; }).join('');
+    var list = issList.filter(function (x) { return (!issType || x.type === issType) && (!$('issUndone').checked || !x.done); });
+    $('issBox').innerHTML = list.length ? '<div style="overflow-x:auto"><table class="iss-t"><thead><tr><th>時間</th><th>類型</th><th>訂單／班級</th><th>老師</th><th>說明</th><th class="noprint">已處理</th></tr></thead><tbody>' +
+      list.map(function (x, i) {
+        return '<tr class="' + (x.done ? 'done' : '') + '"><td style="white-space:nowrap">' + esc(x.time) + '<div class="muted">' + esc(x.who || '') + '</div></td>' +
+          '<td class="iss-type">' + (ISS_TYPES[x.type] || '') + ' ' + esc(x.type) + '</td>' +
+          '<td>' + (x.useDate ? esc(shortDate(x.useDate)) + ' ' : '') + esc(x.className || '') + ' ' + esc(x.project || '') +
+            (x.orderNo ? '<div><a href="#" data-isso="' + esc(x.orderNo) + '" data-issd="' + esc(x.useDate || '') + '" class="noprint">' + esc(x.orderNo) + ' 查看</a></div>' : '') + '</td>' +
+          '<td style="white-space:nowrap">' + esc(x.teacher || '') + '</td><td style="white-space:normal">' + esc(x.note || '') + '</td>' +
+          '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.id) + '"' + (x.done ? ' checked' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<span class="muted">這段期間沒有' + (issType ? '「' + esc(issType) + '」' : '異常') + '紀錄。</span>';
+  }
+  $('issOpen').addEventListener('click', function () {
+    var open = $('issPanel').classList.toggle('hidden') === false;
+    if (open) { issLoad(); $('issPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+  $('issClose').addEventListener('click', function () { $('issPanel').classList.add('hidden'); });
+  $('issPrint').addEventListener('click', function () { $('viewSummary').classList.add('print-iss'); window.print(); });
+  window.addEventListener('afterprint', function () { $('viewSummary').classList.remove('print-iss'); });
+  ['issFrom', 'issTo'].forEach(function (id) { $(id).addEventListener('change', issLoad); });
+  $('issUndone').addEventListener('change', issRender);
+  $('issTypes').addEventListener('click', function (e) { var b = e.target.closest('[data-isst]'); if (!b) return; issType = b.getAttribute('data-isst'); issRender(); });
+  $('issBox').addEventListener('change', function (e) {
+    var c = e.target.closest('[data-issi]');
+    if (!c) return;
+    var id = c.getAttribute('data-issi'), on = c.checked, x = issList.find(function (y) { return y.id === id; });
+    c.disabled = true;
+    call('adminSetIssueDone', token, id, on).then(function (r) { if (x) x.done = r.done || (x.resolved ? '已解決' : ''); issRender(); issCount(); })
+      .catch(function (err) { c.checked = !on; c.disabled = false; notice('儲存失敗：' + err.message); });
+  });
+  // 「查看」：訂單彙整跳到那一天、用訂單編號篩
+  $('issBox').addEventListener('click', function (e) {
+    var a = e.target.closest('[data-isso]');
+    if (!a) return;
+    e.preventDefault();
+    var d = a.getAttribute('data-issd'), t = new Date();
+    $('sFrom').value = d || isoDate(new Date(t.getFullYear() - 1, t.getMonth(), t.getDate()));
+    $('sTo').value = d || isoDate(new Date(t.getFullYear(), t.getMonth() + 2, t.getDate()));
+    $('sKeyword').value = a.getAttribute('data-isso');
+    $('sHideCancel').checked = false;
+    loadSummary();
+    setTimeout(function () { $('sumOrders').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 600);
+  });
   // 訂單彙整排序：date＝上課日期→上午／下午／夜間→上課時間→班級；sent＝送出時間新→舊（訂單編號）
   function sumSort() { try { return localStorage.getItem('ckOrder.sumSort') === 'sent' ? 'sent' : 'date'; } catch (e) { return 'date'; } }
   function sortOrders(list, by) {
