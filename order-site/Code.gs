@@ -4393,6 +4393,7 @@ function lessonsWithStatus_(from, to, teacher) {
     const k = x.teacher + '|' + x.date + '|' + x.session;
     const hol = holidayOf_(x.date);
     x.status = have[k] || manual[k] ? 'ordered' : skip[k] ? 'skipped' : hol ? 'holiday' : 'todo';
+    if (have[k]) x.orders = have[k].map(function (o) { return { project: o.project, status: o.status, orderNo: o.orderNo }; });   // 我的課顯示訂了什麼（例如巧克力餅乾）
     if (hol) x.holiday = hol;
     return x;
   });
