@@ -443,6 +443,7 @@
   .lbl .ls span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .lbl .ls b { white-space: nowrap; }
   @page labels { size: A4 portrait; margin: 0; }
+  .mine-sep { margin: 18px 0 10px; padding-top: 10px; border-top: 2px dashed var(--line); color: var(--muted); font-weight: 700; font-size: 15px; }
   .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
   /* 校隊：放置登記 */
   .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -2615,6 +2616,25 @@
     msg('orderMsg', '', '');
   });
   var mineDays = 60;   // 按「顯示更早的訂單」後改成一年
+  // 排序：date＝上課日期近→遠（還沒上的課最近的在最上面，再來是上過的、最近上過的在前）；sent＝送出時間新→舊（以前的排法）
+  function mineSort() { try { return localStorage.getItem('ckOrder.mineSort') === 'sent' ? 'sent' : 'date'; } catch (e) { return 'date'; } }
+  function renderMine() {
+    var list = mineCache.slice(), by = mineSort(), today = isoDate(new Date()), html = '';
+    if (by === 'date') {
+      var soon = list.filter(function (o) { return o.useDate >= today; }).sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : (a.classTime < b.classTime ? -1 : 1); });
+      var past = list.filter(function (o) { return o.useDate < today; }).sort(function (a, b) { return a.useDate > b.useDate ? -1 : a.useDate < b.useDate ? 1 : (a.classTime < b.classTime ? -1 : 1); });
+      html = soon.map(function (o) { return orderCard(o, { mine: true }); }).join('') +
+        (past.length ? '<div class="mine-sep">已經上過的課</div>' + past.map(function (o) { return orderCard(o, { mine: true }); }).join('') : '');
+    } else {
+      html = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
+    }
+    $('mineList').innerHTML = (list.length ? '<div class="status-chips" id="mineSortBar" style="margin:0 0 10px;align-items:center"><span class="muted small">排序：</span>' +
+        '<button type="button" data-msort="date" class="' + (by === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
+        '<button type="button" data-msort="sent" class="' + (by === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>' : '') + html +
+      '<div class="actions" style="justify-content:center">' + (mineDays > 60
+        ? '<span class="muted small">已顯示最近一年的訂單（上課日期過了 2 週的訂單只能查看、列印、再訂一次）。更早的請找管理者。</span>'
+        : '<button type="button" class="btn ghost small" id="mineMore">顯示更早的訂單（最近一年）</button>') + '</div>';
+  }
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
     $('mineList').innerHTML = '';
@@ -2622,13 +2642,12 @@
       mineCache = list;
       if (note) msg('mineMsg', 'ok', note);
       else msg('mineMsg', list.length ? '' : 'info', list.length ? '' : (mineDays > 60 ? '最近一年沒有訂單。' : '最近 60 天沒有訂單。'));
-      $('mineList').innerHTML = list.map(function (o) { return orderCard(o, { mine: true }); }).join('') +
-        '<div class="actions" style="justify-content:center">' + (mineDays > 60
-          ? '<span class="muted small">已顯示最近一年的訂單（上課日期過了 2 週的訂單只能查看、列印、再訂一次）。更早的請找管理者。</span>'
-          : '<button type="button" class="btn ghost small" id="mineMore">顯示更早的訂單（最近一年）</button>') + '</div>';
+      renderMine();
     }).catch(function (e) { msg('mineMsg', 'error', '載入失敗：' + e.message); });
   }
   $('mineList').addEventListener('click', function (e) {
+    var sb = e.target.closest('[data-msort]');
+    if (sb) { try { localStorage.setItem('ckOrder.mineSort', sb.getAttribute('data-msort')); } catch (e2) {} renderMine(); return; }
     if (!e.target.closest('#mineMore')) return;
     mineDays = 400;
     loadMine();
