@@ -1037,7 +1037,7 @@
     <!-- 管理者：今日抽查 -->
     <section id="viewAudit" class="hidden">
       <div class="panel noprint">
-        <h2>今日抽查 <details class="vhelp"><summary>？說明</summary><div class="muted small">按「隨機抽」由系統從這一天有領料的班隨機抽幾班（不是自己挑，大家比較不會覺得被針對），每班挑幾樣比較貴、容易被拿的。「抽查範圍」預設勾冷藏的 A 菜、B 肉、C 蛋、D 海鮮；偶爾可以勾 E 乾貨、F 飲調抽一次。
+        <h2>今日抽查 <details class="vhelp"><summary>？說明</summary><div class="muted small">按「隨機抽」由系統從這一天有領料的班隨機抽幾班（不是自己挑，大家比較不會覺得被針對），每班挑幾樣比較貴、容易被拿的。也可以按「指定抽查」自己勾要抽哪一班、哪位老師（紀錄會標「指定」）。「抽查範圍」預設勾冷藏的 A 菜、B 肉、C 蛋、D 海鮮；偶爾可以勾 E 乾貨、F 飲調抽一次。
           現場請<b>先拍照、看封條，再數實際數量</b>，填好才會顯示清單上的數量（盲點，避免「看到 3 顆就以為是 3 顆」）。存好後在袋子上貼「已抽查」貼紙。發現不對先不要當場指責，拍照記下來，再照驗收紀錄 → 分貨 → 封條 → 領料往回追。</div></details></h2>
         <div class="grid2">
           <div><label for="auDate">上課日期</label><input id="auDate" type="date"></div>
@@ -1055,11 +1055,13 @@
         </div>
         <div class="actions" style="justify-content:flex-start">
           <button type="button" class="btn" id="auPick">🎲 隨機抽</button>
+          <button type="button" class="btn secondary" id="auChoose">📋 指定抽查</button>
           <button type="button" class="btn ghost small" id="auStickers">列印「已抽查」貼紙</button>
           <select id="auStkLayout" aria-label="貼紙標籤紙" style="width:auto"><option value="24">24 格（7×3.7 公分）</option><option value="21">21 格（7×4.2 公分）</option><option value="12">12 格（10.5×5 公分）</option></select>
         </div>
         <div id="auMsg"></div>
       </div>
+      <div id="auChooser" class="noprint"></div>
       <div id="auCards" class="noprint"></div>
       <div class="panel" id="auHistPanel">
         <h2>抽查紀錄 <button type="button" class="btn ghost small noprint" id="auHistLoad">重新整理</button> <button type="button" class="btn ghost small noprint" id="auHistPrint">列印報表</button></h2>
@@ -4785,11 +4787,62 @@
     if (!scope) { msg('auMsg', 'error', '請至少勾一個要抽的廠商類別。'); return; }
     call('adminAuditPick', token, date, Number($('auN').value), scope).then(function (r) {
       var k = Number($('auK').value) || 5;
-      audit = { date: date, timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k, scope), seal: '', fridge: o.place ? o.place.place : '', note: '', photos: [] }; }) };
+      $('auChooser').innerHTML = '';
+      audit = { date: date, how: '隨機', timing: $('auTiming').value, cards: r.orders.map(function (o) { return { o: o, items: auditPickItems(o, k, scope), seal: '', fridge: o.place ? o.place.place : '', note: '', photos: [] }; }) };
       msg('auMsg', r.total ? 'ok' : 'info', r.total ? '這天有 ' + r.total + ' 班有 ' + scope.split('').join('、') + ' 類的東西，系統隨機抽了 ' + r.orders.length + ' 班（' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) + '）。請先拍照、看封條，再數實際數量。' : '這天沒有 ' + scope.split('').join('、') + ' 類的東西要抽查。');
       renderAudit();
     }).catch(function (e) { msg('auMsg', 'error', '抽籤失敗：' + e.message); })
       .then(function () { setBusy(b, false); });
+  });
+  // 指定抽查：列出這天全部的班，可以勾班級，或選一位老師勾他全部的班
+  var auPool = null;
+  $('auChoose').addEventListener('click', function () {
+    var b = this, date = $('auDate').value, scope = auditScope();
+    if (!date) { msg('auMsg', 'error', '請選擇上課日期。'); return; }
+    if (!scope) { msg('auMsg', 'error', '請至少勾一個要抽的廠商類別。'); return; }
+    if (auditDirty() && !safeConfirm('目前的抽查還沒存，重新選會不見。確定要繼續？')) return;
+    setBusy(b, true, '載入中…');
+    call('adminAuditPick', token, date, 0, scope, true).then(function (r) {
+      auPool = { date: date, scope: scope, orders: r.orders };
+      audit = null; renderAudit();
+      if (!r.orders.length) { $('auChooser').innerHTML = ''; msg('auMsg', 'info', '這天沒有 ' + scope.split('').join('、') + ' 類的東西要抽查。'); return; }
+      msg('auMsg', '', '');
+      renderChooser();
+    }).catch(function (e) { msg('auMsg', 'error', '載入失敗：' + e.message); })
+      .then(function () { setBusy(b, false); });
+  });
+  function renderChooser() {
+    var teachers = [];
+    auPool.orders.forEach(function (o) { var t = teacherOf(o); if (teachers.indexOf(t) < 0) teachers.push(t); });
+    $('auChooser').innerHTML = '<div class="panel"><h3 style="margin:0 0 6px">指定抽查：' + esc(shortDate(auPool.date)) + ' 共 ' + auPool.orders.length + ' 班，勾要抽的</h3>' +
+      '<div class="tpl-row" style="margin-bottom:6px"><div><label for="auTeacher">選老師（勾他這天全部的班）</label><select id="auTeacher"><option value="">—</option>' +
+      teachers.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select></div></div>' +
+      '<div class="hol-list">' + auPool.orders.map(function (o, i) {
+        return '<div><label class="check" style="margin:0"><input type="checkbox" data-auo="' + i + '"> <b>' + esc(o.className || '—') + '</b> ' + esc(o.dept || '') + '・' + esc(teacherOf(o)) + ' 老師・' +
+          esc(o.classTime || '') + '・' + esc(o.project || '') + '</label></div>';
+      }).join('') + '</div>' +
+      '<div class="actions" style="justify-content:flex-start"><button type="button" class="btn" id="auStart" disabled>開始抽查（0 班）</button>' +
+      '<button type="button" class="btn ghost small" id="auChooseX">取消</button></div></div>';
+  }
+  function chooserSync() {
+    var n = $('auChooser').querySelectorAll('[data-auo]:checked').length, b = $('auStart');
+    if (b) { b.disabled = !n; b.textContent = '開始抽查（' + n + ' 班）'; }
+  }
+  $('auChooser').addEventListener('change', function (e) {
+    if (e.target.id === 'auTeacher') {
+      var t = e.target.value;
+      Array.prototype.forEach.call($('auChooser').querySelectorAll('[data-auo]'), function (c) { c.checked = !!t && teacherOf(auPool.orders[Number(c.getAttribute('data-auo'))]) === t; });
+    }
+    chooserSync();
+  });
+  $('auChooser').addEventListener('click', function (e) {
+    if (e.target.id === 'auChooseX') { $('auChooser').innerHTML = ''; auPool = null; return; }
+    if (e.target.id !== 'auStart') return;
+    var k = Number($('auK').value) || 5, sel = Array.prototype.map.call($('auChooser').querySelectorAll('[data-auo]:checked'), function (c) { return auPool.orders[Number(c.getAttribute('data-auo'))]; });
+    audit = { date: auPool.date, how: '指定', timing: $('auTiming').value, cards: sel.map(function (o) { return { o: o, items: auditPickItems(o, k, auPool.scope), seal: '', fridge: o.place ? o.place.place : '', note: '', photos: [] }; }) };
+    $('auChooser').innerHTML = '';
+    msg('auMsg', 'ok', '指定抽查 ' + sel.length + ' 班。請先拍照、看封條，再數實際數量。');
+    renderAudit();
   });
   function auditRow(c, ci, x, xi) {
     var it = x.it, shown = x.actual !== '' || x.manual;
@@ -4891,7 +4944,7 @@
     var go = blank ? ask('還有 ' + blank + ' 樣沒填實際數量或結果，要當作「不確定」存起來嗎？', '存起來') : Promise.resolve(true);
     go.then(function (ok) {
       if (!ok) return;
-      var payload = { timing: audit.timing, partner: $('auPartner').value.trim(), orders: audit.cards.map(function (c) {
+      var payload = { how: audit.how || '隨機', timing: audit.timing, partner: $('auPartner').value.trim(), orders: audit.cards.map(function (c) {
         var o = c.o;
         return { orderNo: o.orderNo, useDate: o.useDate, classTime: o.classTime, className: o.className, dept: o.dept, teacher: teacherOf(o), fridge: c.fridge.trim(), seal: c.seal,
           note: c.note.trim(), photos: c.photos, items: c.items.map(function (x) { return { name: x.it.name, qty: x.it.qty, unit: x.it.unit, actual: x.actual, result: x.result || '不確定', note: x.note.trim() }; }) };
@@ -4921,7 +4974,7 @@
         '<div style="overflow-x:auto"><table class="au-t au-hist"><thead><tr><th>抽查時間</th><th>班級／老師</th><th>冰箱・封條</th><th>結果</th><th>照片</th><th>抽查人</th></tr></thead><tbody>' +
         list.map(function (g) {
           var probs = g.items.filter(function (x) { return x.result !== '正常'; });
-          return '<tr class="' + (isBad(g) ? 'bad' : '') + '"><td>' + esc(g.time) + '<br><span class="muted">' + esc(g.timing) + '</span></td>' +
+          return '<tr class="' + (isBad(g) ? 'bad' : '') + '"><td>' + esc(g.time) + '<br><span class="muted">' + esc(g.timing) + '・' + esc(g.how || '隨機') + '</span></td>' +
             '<td><b>' + esc(g.className) + '</b> ' + esc(g.dept) + '<br>' + esc(g.teacher) + ' 老師・' + esc(shortDate(g.useDate)) + '</td>' +
             '<td>' + esc(g.fridge || '—') + '<br>封條：' + esc(g.seal || '—') + '</td>' +
             '<td>抽 ' + g.items.length + ' 樣，' + (probs.length ? probs.map(function (x) {

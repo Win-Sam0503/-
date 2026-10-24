@@ -112,7 +112,7 @@ const SUB_HEADERS = ['科別', '食材', '換成', '備註'];
 const PICKUP_PLACES = ['烘焙教室', '中餐教室', '飲調教室'];   // 跨教室領料只有這三間
 const PICKUP_HEADERS = ['使用日期', '上課時間', '班級', '老師', '科別', '教室', '領取地點', '食材名稱', '數量', '單位', '備註', '建立者', '建立時間'];
 // 抽查紀錄：管理者隨機抽查分好的食材，一班一個抽查編號、每樣食材一列
-const AUDIT_HEADERS = ['抽查編號', '抽查時間', '時間點', '冰箱', '訂單編號', '上課日期', '上課時間', '班級', '科別', '老師', '食材名稱', '清單數量', '單位', '實際數量', '結果', '封條', '說明', '照片', '抽查人', '陪同人'];
+const AUDIT_HEADERS = ['抽查編號', '抽查時間', '時間點', '冰箱', '訂單編號', '上課日期', '上課時間', '班級', '科別', '老師', '食材名稱', '清單數量', '單位', '實際數量', '結果', '封條', '說明', '照片', '抽查人', '陪同人', '抽法'];
 const AUDIT_TIMINGS = ['分貨後、上課前', '下課後（剩料）'];
 const AUDIT_RESULTS = ['正常', '少了', '多了', '沒有', '不確定'];
 const AUDIT_SEALS = ['完整', '破了', '沒封', ''];
@@ -3909,7 +3909,7 @@ function ensureHeaders_(sh, headers) {
  * 管理者：從這一天有領料的訂單隨機抽 n 張（系統抽，不是管理者挑）。
  * 不含已取消、還料單、只有器具／有貨／自備的訂單。scope = 要抽的廠商類別，例如 'ABCD'（預設：菜肉蛋海鮮）
  */
-function adminAuditPick(token, date, n, scope) {
+function adminAuditPick(token, date, n, scope, all) {
   auth_(token, true);
   const d = parseDate_(date);
   if (!d) throw new Error('請選擇日期。');
@@ -3921,6 +3921,13 @@ function adminAuditPick(token, date, n, scope) {
       return it.id !== TOOL_ID && !it.noOrder && it.status !== '已取消' && it.vendor !== SELF_VENDOR && cats.indexOf(String(it.vendor || '').charAt(0).toUpperCase()) >= 0;
     });
   });
+  if (all) {   // 指定抽查：列出這天全部，照時段、班級排，讓管理者自己勾
+    const ses = function (t) { const i = SESSIONS.indexOf(sessionOf_(t)); return i < 0 ? 9 : i; };
+    pool.sort(function (a, b) { return ses(a.classTime) - ses(b.classTime) || String(a.className).localeCompare(String(b.className), 'zh-Hant', { numeric: true }); });
+    const ps = placesFor_(pool.map(function (o) { return o.orderNo; }));
+    pool.forEach(function (o) { o.place = ps[o.orderNo] || null; });
+    return { total: pool.length, orders: pool };
+  }
   for (let i = pool.length - 1; i > 0; i--) {   // 洗牌
     const j = Math.floor(Math.random() * (i + 1)), t = pool[i];
     pool[i] = pool[j]; pool[j] = t;
@@ -3936,6 +3943,7 @@ function adminSaveAudit(token, a) {
   a = a || {};
   const timing = AUDIT_TIMINGS.indexOf(a.timing) >= 0 ? a.timing : AUDIT_TIMINGS[0];
   const partner = clean_(a.partner, 30);
+  const how = a.how === '指定' ? '指定' : '隨機';
   const list = (a.orders || []).filter(function (o) { return o && (o.items || []).length; });
   if (!list.length) throw new Error('沒有要存的抽查結果。');
   if (list.length > 10) throw new Error('一次最多存 10 班。');
@@ -3954,7 +3962,7 @@ function adminSaveAudit(token, a) {
         '老師': clean_(o.teacher, 20), '食材名稱': clean_(it.name, 40), '清單數量': Number(it.qty) || 0, '單位': clean_(it.unit, 10),
         '實際數量': isNaN(actual) ? '' : actual, '結果': AUDIT_RESULTS.indexOf(it.result) >= 0 ? it.result : '不確定',
         '封條': i === 0 ? seal : '', '說明': clean_([i === 0 ? o.note : '', it.note].filter(Boolean).join('；'), 200),
-        '照片': i === 0 ? urls.join('\n') : '', '抽查人': who, '陪同人': partner,
+        '照片': i === 0 ? urls.join('\n') : '', '抽查人': who, '陪同人': partner, '抽法': how,
       });
     });
   });
@@ -3993,7 +4001,7 @@ function adminGetAudits(token, from, to) {
       by[id] = { id: id, time: fmtDateTime_(t), timing: String(r['時間點'] || ''), fridge: String(r['冰箱'] || ''), orderNo: String(r['訂單編號'] || ''),
         useDate: (toDate_(r['上課日期']) ? dateStr_(toDate_(r['上課日期'])) : String(r['上課日期'] || '')), classTime: String(r['上課時間'] || ''),
         className: String(r['班級'] || ''), dept: String(r['科別'] || ''), teacher: String(r['老師'] || ''), seal: '', note: '', photos: [],
-        by: String(r['抽查人'] || ''), partner: String(r['陪同人'] || ''), items: [] };
+        by: String(r['抽查人'] || ''), partner: String(r['陪同人'] || ''), how: String(r['抽法'] || '隨機'), items: [] };
       out.push(by[id]);
     }
     const g = by[id];
