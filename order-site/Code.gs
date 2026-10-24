@@ -1307,6 +1307,27 @@ function deleteMyOrder(token, orderNo) {
   return { ok: true, cancelled: !!live.length };
 }
 
+/** 老師：把自己所有「已取消」的訂單一次從我的訂單移除（管理者照樣看得到） */
+function deleteMyCancelled(token) {
+  const account = auth_(token);
+  const hidden = hiddenOrders_();
+  const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
+    return String(r['操作老師']).trim() === account || String(r['代訂對象老師'] || '').trim() === account;
+  });
+  const nos = groupOrders_(rows, account).filter(function (o) { return o.status === '已取消' && !hidden[o.orderNo]; }).map(function (o) { return o.orderNo; });
+  if (!nos.length) return { count: 0 };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureHeaders_(ensureSheet_(SHEET.hidden, HIDDEN_HEADERS), HIDDEN_HEADERS);
+    const now = new Date();
+    appendRows_(SHEET.hidden, nos.map(function (no) { return { '訂單編號': no, '老師': account, '刪除時間': now, '原狀態': '已取消' }; }), { '刪除時間': 'yyyy/mm/dd hh:mm' });
+  } finally {
+    lock.releaseLock();
+  }
+  return { count: nos.length };
+}
+
 function cancelOrderChecked_(account, isAdmin, orderNo) {
   return updateOrderStatus_(orderNo, '已取消', function (rows) {
     if (isAdmin) return;

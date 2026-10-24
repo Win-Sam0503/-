@@ -2700,7 +2700,9 @@
       html = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
     }
     $('mineQWrap').classList.toggle('hidden', !all.length && !mineQ);   // 搜尋框固定在清單上面，不跟著重畫（注音選字才不會被打斷）
-    $('mineList').innerHTML = (mineQ && !list.length ? '<div class="msg info">找不到符合「' + esc(mineQ) + '」的訂單。</div>' : '') +
+    var nCancel = all.filter(function (o) { return o.status === '已取消' && !o.archived; }).length;
+    $('mineList').innerHTML = (nCancel ? '<div style="margin:0 0 8px"><button type="button" class="btn ghost small" id="mineClearCancel">🗑 清除已取消的訂單（' + nCancel + ' 張）</button></div>' : '') +
+      (mineQ && !list.length ? '<div class="msg info">找不到符合「' + esc(mineQ) + '」的訂單。</div>' : '') +
       (list.length ? '<div class="status-chips" id="mineSortBar" style="margin:0 0 10px;align-items:center"><span class="muted small">排序：</span>' +
         '<button type="button" data-msort="date" class="' + (by === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
         '<button type="button" data-msort="sent" class="' + (by === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>' : '') + html +
@@ -2725,6 +2727,17 @@
     }).catch(function (e) { msg('mineMsg', 'error', '載入失敗：' + e.message); });
   }
   $('mineList').addEventListener('click', function (e) {
+    var cc = e.target.closest('#mineClearCancel');
+    if (cc) {
+      var n = mineCache.filter(function (o) { return o.status === '已取消' && !o.archived; }).length;
+      ask('把 ' + n + ' 張已取消的訂單從我的訂單移除？\n移除後你這邊看不到，管理者照樣看得到。', '清除').then(function (ok) {
+        if (!ok) return;
+        setBusy(cc, true, '清除中…');
+        call('deleteMyCancelled', token).then(function (r) { loadMine('已清除 ' + r.count + ' 張已取消的訂單。'); })
+          .catch(function (err) { msg('mineMsg', 'error', '清除失敗：' + err.message); setBusy(cc, false); });
+      });
+      return;
+    }
     var sb = e.target.closest('[data-msort]');
     if (sb) { try { localStorage.setItem('ckOrder.mineSort', sb.getAttribute('data-msort')); } catch (e2) {} renderMine(); return; }
     if (!e.target.closest('#mineMore')) return;
@@ -2741,11 +2754,15 @@
     if (b.getAttribute('data-act') === 'print') {
       printOrder(o, 'viewMine');
     } else if (b.getAttribute('data-act') === 'cancel') {
-      if (!safeConfirm('確定取消訂單 ' + no + '（' + o.project + '）？')) return;
-      setBusy(b, true, '取消中…');
-      call('cancelOrder', token, no).then(function () {
-        loadMine('訂單 ' + no + ' 已取消。');
-      }).catch(function (err) { msg('mineMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
+      ask('', '取消訂單', { noText: '不要取消', html: '<div style="font-size:17px;margin-bottom:8px">確定取消訂單 ' + esc(no) + '（' + esc(o.project || '') + '）？</div>' +
+        '<label class="check" style="text-align:left"><input type="checkbox" id="cancelHide" checked> 取消後從我的訂單移除（版面比較乾淨，管理者照樣看得到）</label>' }).then(function (ok) {
+        if (!ok) return;
+        var hide = $('cancelHide') && $('cancelHide').checked;
+        setBusy(b, true, '取消中…');
+        call(hide ? 'deleteMyOrder' : 'cancelOrder', token, no).then(function () {
+          loadMine('訂單 ' + no + ' 已取消' + (hide ? '，也從清單移除了' : '') + '。');
+        }).catch(function (err) { msg('mineMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
+      });
     } else if (b.getAttribute('data-act') === 'delete') {
       ask('確認刪除此訂單（無法復原）？\n' + no + '　' + (o.project || '') + (o.status === '待處理' ? '\n這張還沒處理，刪除會一起取消，不會叫貨。' : ''), '刪除').then(function (ok) {
         if (!ok) return;
