@@ -808,6 +808,7 @@
         <div class="muted small">包含你送出的訂單，以及別人代你訂的訂單（最近 60 天）。還沒過訂貨截止、狀態為「待處理」的訂單可以自行取消；已截止的訂單無法修改，需要更動請聯絡管理者。</div>
       </div>
       <div id="mineMsg"></div>
+      <div id="mineQWrap" class="hidden" style="margin:0 0 8px"><input id="mineQ" type="search" placeholder="🔍 搜尋：實作項目、班級、食材、訂單編號、日期（例如 11/3）" autocomplete="off"></div>
       <div id="mineList"></div>
     </section>
 
@@ -2646,22 +2647,20 @@
     } else {
       html = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
     }
-    var box = $('mineQ'), hadFocus = box && document.activeElement === box, pos = box ? box.selectionStart : 0;
-    $('mineList').innerHTML = (all.length ? '<div style="margin:0 0 8px"><input id="mineQ" type="search" placeholder="🔍 搜尋：實作項目、班級、食材、訂單編號、日期（例如 11/3）" autocomplete="off" value="' + esc(mineQ) + '"></div>' : '') +
-      (mineQ && !list.length ? '<div class="msg info">找不到符合「' + esc(mineQ) + '」的訂單。</div>' : '') +
+    $('mineQWrap').classList.toggle('hidden', !all.length && !mineQ);   // 搜尋框固定在清單上面，不跟著重畫（注音選字才不會被打斷）
+    $('mineList').innerHTML = (mineQ && !list.length ? '<div class="msg info">找不到符合「' + esc(mineQ) + '」的訂單。</div>' : '') +
       (list.length ? '<div class="status-chips" id="mineSortBar" style="margin:0 0 10px;align-items:center"><span class="muted small">排序：</span>' +
         '<button type="button" data-msort="date" class="' + (by === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
         '<button type="button" data-msort="sent" class="' + (by === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>' : '') + html +
       '<div class="actions" style="justify-content:center">' + (mineDays > 60
         ? '<span class="muted small">已顯示最近一年的訂單（上課日期過了 2 週的訂單只能查看、列印、再訂一次）。更早的請找管理者。</span>'
         : '<button type="button" class="btn ghost small" id="mineMore">顯示更早的訂單（最近一年）</button>') + '</div>';
-    if (hadFocus && $('mineQ')) { $('mineQ').focus(); try { $('mineQ').setSelectionRange(pos, pos); } catch (e) {} }
   }
-  $('mineList').addEventListener('input', function (e) {
-    if (e.target.id !== 'mineQ') return;
-    mineQ = e.target.value;
-    renderMine();
-  });
+  // 注音、倉頡選字中（composition）不搜尋，選完字才搜
+  var mineQTimer = null;
+  function mineQRun() { clearTimeout(mineQTimer); mineQTimer = setTimeout(function () { mineQ = $('mineQ').value; renderMine(); }, 200); }
+  $('mineQ').addEventListener('input', function (e) { if (e.isComposing) return; mineQRun(); });
+  $('mineQ').addEventListener('compositionend', mineQRun);
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
     $('mineList').innerHTML = '';
@@ -3223,7 +3222,8 @@
     loadSummary();
   });
   $('sKeyword').addEventListener('keydown', function (e) { if (e.key === 'Enter' && this.value.trim() && !$('sumOrders').innerHTML) $('sSearchAll').click(); });
-  $('sKeyword').addEventListener('input', function () { clearTimeout(kwTimer); kwTimer = setTimeout(renderSummary, 250); });
+  $('sKeyword').addEventListener('input', function (e) { if (e.isComposing) return; clearTimeout(kwTimer); kwTimer = setTimeout(renderSummary, 250); });
+  $('sKeyword').addEventListener('compositionend', function () { clearTimeout(kwTimer); kwTimer = setTimeout(renderSummary, 250); });
   // 快速時間：週一到週日；學期 8/1–1/31、2/1–7/31
   function rangeOf(key) {
     var t = new Date(); t.setHours(0, 0, 0, 0);
