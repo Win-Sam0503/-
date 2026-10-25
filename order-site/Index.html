@@ -2214,7 +2214,7 @@
     return '<div class="cart-row" data-key="' + esc(c.key) + '">' +
       '<div class="c-nm">' + code + '<span class="nm">' + esc(c.name) + '</span> ' + (c.isNew ? '<span class="badge warn">待審核</span>' : '') +
         '<button type="button" class="btn ghost small" data-swap title="選錯食材？換成別的，數量、單位、備註保留" style="padding:1px 8px;margin-left:2px">換</button>' +
-        '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div><div class="small c-price" style="color:#475467">' + priceText(c) + '</div>' + secSel + '</div>' +
+        '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div><div class="small c-price" style="color:#475467">' + priceText(c) + '</div><div class="small c-jin" style="color:var(--info);font-weight:600">' + jinCart(c) + '</div>' + secSel + '</div>' +
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
       '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
@@ -2267,9 +2267,12 @@
     });
     $('cartCost').innerHTML = any ? '預估約 $' + money0(sum) + (none ? '<span class="muted" style="font-weight:400">（' + none + ' 項沒有單價，沒算進去）</span>' : '') : '';
   }
+  function jinCart(c) { var j = jinOf(c.qty, c.unit, c.vendor, c.name); return j ? '＝ 約 ' + esc(j) + '（菜商、肉商用斤兩送）' : ''; }
   function updateRowCost(row, c) {
     var el = row && row.querySelector('.c-price');
     if (el) el.innerHTML = priceText(c);
+    var jn = row && row.querySelector('.c-jin');
+    if (jn) jn.innerHTML = jinCart(c);
     renderCost();
   }
 
@@ -2618,7 +2621,7 @@
         esc(it.name) + (fl ? ' <span class="badge unprinted noprint">異常</span>' : '') +
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
         (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
-        '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + (qw ? '<div class="noprint" style="color:var(--warn);font-size:13px;font-weight:600;white-space:normal">⚠ ' + esc(it.qtyWarn) + '</div>' : '') + '</td>' +
+        '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + (jinOf(it.qty, it.unit, it.vendor, it.name) ? '<div class="muted" style="font-size:13px">≈ ' + esc(jinOf(it.qty, it.unit, it.vendor, it.name)) + '</div>' : '') + (qw ? '<div class="noprint" style="color:var(--warn);font-size:13px;font-weight:600;white-space:normal">⚠ ' + esc(it.qtyWarn) + '</div>' : '') + '</td>' +
         '<td class="muted small">' + esc(it.vendor) + '</td>' +
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
     }).join('');
@@ -3598,6 +3601,12 @@
     if (cv.unit === '兩' || (cv.unit === '顆' && isEgg(name) && GRAMS[unit])) return fmtTotal(cv.qty, cv.unit, name);
     return fmtQty(qty) + ' ' + unit;
   }
+  // 菜商、肉商用克或公斤訂的，換成斤兩給大家看（例如 500 g → 14 兩），跟給廠商的單子算法一樣；其他回傳空字串
+  function jinOf(qty, unit, vendor, name) {
+    if (!/^[AB]/.test(vendor || '') || (unit !== 'g' && unit !== '公斤') || !(Number(qty) > 0)) return '';
+    var cv = convertUnit(Number(qty), unit, vendor, name);
+    return cv.unit === '兩' ? fmtTotal(cv.qty, '兩') : '';
+  }
   // 合計的顯示文字：兩無條件進位到整兩，滿 16 兩進成斤；雞蛋進位到整顆
   function fmtTotal(qty, unit, name) {
     if (unit === '兩') {
@@ -4239,7 +4248,11 @@
   }
   function blank(w) { return '<span class="blank" style="min-width:' + (w || 9) + 'mm"></span>'; }
   function cell(v, cls, attrs) { return '<td' + (cls ? ' class="' + cls + '"' : '') + (attrs || '') + '>' + v + '</td>'; }
-  function qtyText(it) { return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : '') + (it.noOrder && it.vendor !== data.selfVendor ? '<span class="note">（有貨）</span>' : ''); }
+  function qtyText(it) {
+    var j = jinOf(it.qty, it.unit, it.vendor, it.name);
+    if (j) return esc(j) + '<span class="note">（' + esc(fmtQty(it.qty) + ' ' + it.unit) + '）</span>' + (it.noOrder && it.vendor !== data.selfVendor ? '<span class="note">（有貨）</span>' : '');
+    return esc(fmtQty(it.qty)) + (it.unit ? ' ' + esc(it.unit) : '') + (it.noOrder && it.vendor !== data.selfVendor ? '<span class="note">（有貨）</span>' : '');
+  }
   function nameText(it) { return esc(it.name) + (it.note ? ' <span class="note">（' + esc(it.note) + '）</span>' : ''); }
   function codeOf(it) { return itemById[it.id] && itemById[it.id].code ? itemById[it.id].code : ''; }
   // 一組的量＝全班 ÷ 組數（有填組數才算），最多兩位小數
@@ -4342,7 +4355,8 @@
     groups.forEach(function (g) { groupAt[g.start] = g; });
     for (var i = 0; i < N; i++) {
       var it = foods[i], t = tools[i];
-      var note = it ? [it.section ? '【' + it.section + '】' : '', it.noOrder && it.vendor !== data.selfVendor ? '有貨' : '', it.note].filter(Boolean).join(' ') : '';
+      var jin = it ? jinOf(it.qty, it.unit, it.vendor, it.name) : '';
+      var note = it ? [jin ? '＝' + jin : '', it.section ? '【' + it.section + '】' : '', it.noOrder && it.vendor !== data.selfVendor ? '有貨' : '', it.note].filter(Boolean).join(' ') : '';
       html += '<tr>';
       if (groupAt[i]) html += '<td rowspan="' + groupAt[i].n + '" class="vtext">' + esc(groupAt[i].v) + '</td>';
       else if (i >= foods.length) html += cell('');
@@ -5351,7 +5365,7 @@
       o.items.forEach(function (it) {
         if (it.id === TOOL || it.noOrder || it.status === '已取消' || it.vendor === data.selfVendor || (only && it.vendor !== only)) return;
         list.push({ date: o.useDate, session: String(o.classTime || '').split(' ')[0], className: o.className || '', dept: o.dept || '', teacher: o.onBehalfOf || o.teacher,
-          vendor: it.vendor || '', name: it.name, qty: fmtQty(it.qty) + (it.unit ? ' ' + it.unit : ''), note: it.note || '' });
+          vendor: it.vendor || '', name: it.name, qty: jinOf(it.qty, it.unit, it.vendor, it.name) ? jinOf(it.qty, it.unit, it.vendor, it.name) + '（' + fmtQty(it.qty) + ' ' + it.unit + '）' : fmtQty(it.qty) + (it.unit ? ' ' + it.unit : ''), note: it.note || '' });
       });
     });
     var ses = function (x) { var i = SESSIONS_.indexOf(x); return i < 0 ? 9 : i; };
