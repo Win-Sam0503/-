@@ -566,8 +566,6 @@
   .vpage .dsum { margin-bottom: 8px; }
   .vpage tr.vfirst td { border-top: 2.5px solid #000; }
   .vpage tr { page-break-inside: avoid; }
-  .unit-input.u-auto { background: #fff4d6; border: 2px dashed #f79009; color: #93370d; font-weight: 700; }
-  .u-auto-hint { margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: #fff4d6; color: #93370d; font-size: 14px; }
   .unit-input.invalid, .num-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
   .unit-pop {
     position: absolute; z-index: 50; background: #fff; border: 1px solid var(--line); border-radius: 10px;
@@ -1758,7 +1756,7 @@
       return '<button type="button" class="item' + (added ? ' added' : '') + '" data-id="' + esc(it.id) + '">' +
         '<span><span class="nm">' + esc(it.name) + '</span>' +
         (it.alias ? '<div class="al">又名 ' + esc(it.alias) + '</div>' : '') +
-        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + esc(it.vendor) + (it.unit || it.unitAuto ? '・' + esc(it.unit || it.unitAuto) : '') + '</div></span>' +
+        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + esc(it.vendor) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
         '<span class="add">' + (added ? '<span class="badge info" title="已加入 ' + added + ' 次">已選 ' + added + '</span> +' : '+') + '</span></button>';
     }).join('') + (list.length > SHOW_LIMIT ? '<div class="more">還有 ' + (list.length - SHOW_LIMIT) + ' 項，請輸入關鍵字縮小範圍</div>' : '');
   }
@@ -1780,7 +1778,7 @@
     if (!b) return;
     var it = deptSub(itemById[b.getAttribute('data-id')]);
     // 同一樣食材可以重複加入，每次都是獨立的一列（各自的數量、單位、備註）
-    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: catUnit(it).unit, unitAuto: catUnit(it).auto, note: '', isNew: false, noOrder: false, section: draft.activeSection };
+    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
@@ -1891,7 +1889,7 @@
   function addExisting(it, qty, unit) {
     it = deptSub(it);
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: qty || '',
-      unit: validUnit(unit) || catUnit(it).unit, unitAuto: !validUnit(unit) && catUnit(it).auto, note: '', isNew: false, noOrder: false, section: draft.activeSection };
+      unit: validUnit(unit) || validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
@@ -2009,16 +2007,8 @@
     return data && (data.orderUnits.indexOf(u) >= 0 || data.recipeUnits.indexOf(u) >= 0 || pendingUnits().indexOf(u) >= 0) ? u : '';
   }
   // allowNew：可以在選單裡「＋ 新增單位」（老師訂貨時才可以）
-  // 食材總表沒填單位時，帶大家最常用的單位（auto＝true），畫面用黃色虛線框標出來請老師確認
-  function catUnit(it) {
-    var u = validUnit(it.unit);
-    if (u) return { unit: u, auto: false };
-    u = validUnit(it.unitAuto);
-    return { unit: u, auto: !!u };
-  }
-  function unitInput(val, label, allowNew, auto) {
-    return '<input type="text" class="unit-input' + (val && !validUnit(val) ? ' invalid' : '') + (auto && val ? ' u-auto' : '') + '" data-f="unit" autocomplete="off" maxlength="10" placeholder="單位"' +
-      (auto && val ? ' title="系統依大家常用的單位自動帶入，請確認對不對（點一下可以改）"' : '') +
+  function unitInput(val, label, allowNew) {
+    return '<input type="text" class="unit-input' + (val && !validUnit(val) ? ' invalid' : '') + '" data-f="unit" autocomplete="off" maxlength="10" placeholder="單位"' +
       (allowNew ? ' data-new="1"' : '') + ' value="' + esc(val || '') + '" aria-label="' + esc(label || '單位') + '">';
   }
 
@@ -2226,7 +2216,7 @@
         '<button type="button" class="btn ghost small" data-swap title="選錯食材？換成別的，數量、單位、備註保留" style="padding:1px 8px;margin-left:2px">換</button>' +
         '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div><div class="small c-price" style="color:#475467">' + priceText(c) + '</div>' + secSel + '</div>' +
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
-      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true, c.unitAuto) + '</div>' +
+      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
       '<div class="c-s">' + (c.vendor === data.selfVendor ? '<span class="muted small" title="學校自備，不跟廠商叫貨，但會印在請料單上">自備</span>'
         : '<label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label>') + '</div>' +
@@ -2319,7 +2309,6 @@
       if (dispVendor(c.vendor) !== lastVendor) { lastVendor = dispVendor(c.vendor); html += '<div class="vendor-title">' + esc(lastVendor) + '</div>'; }
       html += cartRowHtml(c);
     });
-    if (cart.some(function (c) { return c.unitAuto && c.unit; })) html = '<div class="u-auto-hint" id="uAutoHint">⚠ <b>黃色虛線框</b>的單位是系統依大家常用自動帶的，請確認對不對（例如要 3 棵不是 3 斤）。點一下單位就能改，改過或重新選過就不再標黃色。</div>' + html;
     $('cart').innerHTML = html;
   }
   $('cart').addEventListener('input', function (e) {
@@ -2330,11 +2319,6 @@
     if (c && f === 'per') { onPerInput(e.target, c); saveDraft(); updateRowCost(e.target.closest('.cart-row'), c); }
     else if (c) {
       c[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-      if (f === 'unit' && c.unitAuto) {   // 老師自己選過（就算選一樣的）＝確認過
-        c.unitAuto = false;
-        e.target.classList.remove('u-auto'); e.target.removeAttribute('title');
-        if (!draft.cart.some(function (x) { return x.unitAuto && x.unit; }) && $('uAutoHint')) $('uAutoHint').remove();
-      }
       saveDraft();
       if (f === 'section') renderCart();
       else if (f === 'qty' || f === 'unit' || f === 'noOrder') updateRowCost(e.target.closest('.cart-row'), c);
@@ -2377,7 +2361,7 @@
       it = deptSub(it);
       var old = c.name;
       c.id = it.id; c.name = it.name; c.vendor = it.vendor; c.isNew = false; delete c.keepNew;
-      if (!String(c.unit || '').trim()) { c.unit = catUnit(it).unit; c.unitAuto = catUnit(it).auto; }
+      if (!String(c.unit || '').trim()) c.unit = validUnit(it.unit);
       saveDraft(); renderCart(); renderResults();
       toast('「' + old + '」已換成「' + it.name + '」');
     });

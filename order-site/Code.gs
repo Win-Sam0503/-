@@ -573,11 +573,6 @@ function cachedItems_() {
     }
   }
   const items = readItems_();
-  // 食材總表沒填單位的，帶「大家最常用的單位」（另外放 unitAuto，不寫回試算表）
-  try {
-    const common = commonUnits_();
-    items.forEach(function (it) { if (!it.unit && common[it.id]) it.unitAuto = common[it.id]; });
-  } catch (e) { console.error('commonUnits_ ' + e.message); }
   const json = JSON.stringify(items);
   const CHUNK = 90000;   // 每個暫存值上限 100KB
   const put = {};
@@ -586,31 +581,6 @@ function cachedItems_() {
   put['items:n'] = String(n);
   try { cache.putAll(put, ITEMS_CACHE_MINUTES * 60); } catch (e) { console.error(e.message); }
   return items;
-}
-
-/**
- * 每項食材以前訂單最常用的單位：{ 食材ID: 單位 }。至少 3 筆、6 成以上用同一種才算（各半的不猜）。
- * 讀整張訂單總表比較慢，暫存 6 小時。
- */
-function commonUnits_() {
-  const cache = CacheService.getScriptCache();
-  const hit = cache.get('commonUnits');
-  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
-  const cnt = {};
-  readTable_(SHEET.orders, ['訂單編號', '食材ID']).rows.forEach(function (r) {
-    const id = String(r['食材ID'] || '').trim(), u = String(r['單位'] || '').trim();
-    if (!id || !u || String(r['狀態']).trim() === '已取消') return;
-    const c = cnt[id] || (cnt[id] = { n: 0, u: {} });
-    c.n++;
-    c.u[u] = (c.u[u] || 0) + 1;
-  });
-  const out = {};
-  Object.keys(cnt).forEach(function (id) {
-    const c = cnt[id], top = Object.keys(c.u).sort(function (a, b) { return c.u[b] - c.u[a]; })[0];
-    if (c.n >= 3 && c.u[top] / c.n >= 0.6) out[id] = top;
-  });
-  try { const j = JSON.stringify(out); if (j.length < 90000) cache.put('commonUnits', j, 6 * 3600); } catch (e) {}
-  return out;
 }
 
 function clearItemsCache_() {
