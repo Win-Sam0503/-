@@ -568,9 +568,16 @@
   .vpage tr { page-break-inside: avoid; }
   .unit-input.invalid, .num-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
   .unit-pop {
-    position: absolute; z-index: 50; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    position: absolute; z-index: 1100; background: #fff; border: 1px solid var(--line); border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0,0,0,.15); max-height: 260px; overflow-y: auto; padding: 4px 0; min-width: 170px;
   }
+  .pp-list { max-height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; -webkit-overflow-scrolling: touch; }
+  .pp-row { display: grid; grid-template-columns: 1fr 76px 76px; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .pp-row.on { background: #ecfdf3; }
+  .pp-row label { display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; font-size: 16px; }
+  .pp-row label input { width: 22px; height: 22px; margin: 0; flex: none; }
+  .pp-row input[type=text] { padding: 6px 8px; font-size: 16px; }
+  .pp-row .pp-had { font-size: 12px; color: var(--muted); }
   .unit-pop .grp { font-size: 12px; color: var(--muted); padding: 6px 12px 2px; }
   .unit-pop .opt { padding: 7px 12px; cursor: pointer; font-size: 15px; }
   .unit-pop .opt small { color: var(--muted); margin-left: 4px; }
@@ -5951,6 +5958,65 @@
     var inp = pState && e.target.closest('.vedit input.punit');
     if (inp) pRefresh(pRowFromInput(inp.closest('tr[data-pi]')));
   });
+  // ＋ 補庫存：跳出這家廠商的食材清單，勾選（或直接填數量）一次加很多項；清單沒有的再用「空白一列」
+  function pPick(v, date, group) {
+    var items = data.items.filter(function (it) { return it.vendor === v; }).sort(function (a, b) { return byItemKey(a.name, b.name); });
+    if (!items.length) { pAdd(v, date, group); return; }
+    var had = {};
+    pState.rows.forEach(function (r) { if (r.vendor === v && r.date === date && r.kind === '補庫存' && r.name) had[r.name] = true; });
+    var blank = false;
+    ask('', '加入勾選的', { noText: '取消', html: '<div class="info-check"><h3>補庫存：' + esc(v) + '（' + esc(shortDate(date)) + '）</h3>' +
+      '<div class="muted small">勾要補的食材，旁邊填數量、單位（直接填數量也會自動勾）。最後按「加入勾選的」一次加進去。</div>' +
+      '<input id="ppQ" type="search" placeholder="🔍 搜尋食材" autocomplete="off" style="margin-top:8px">' +
+      '<div class="pp-list" id="ppList">' + items.map(function (it, i) {
+        return '<div class="pp-row" data-ppn="' + esc(normName(it.name + ' ' + (it.alias || ''))) + '"><label><input type="checkbox" data-ppi="' + i + '"><span>' + esc(it.name) +
+          (had[it.name] ? ' <span class="pp-had">（已加過）</span>' : '') + '</span></label>' +
+          '<input type="text" class="num-input" data-ppq="' + i + '" inputmode="decimal" autocomplete="off" placeholder="數量">' +
+          '<input type="text" class="unit-input" data-free="1" data-ppu="' + i + '" autocomplete="off" maxlength="10" placeholder="單位" value="' + esc(it.unit || '') + '"></div>';
+      }).join('') + '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap"><span class="small" id="ppCount">已勾 0 項</span>' +
+      '<button type="button" class="btn ghost small" id="ppBlank">＋ 清單沒有的（空白一列）</button></div></div>' }).then(function (ok) {
+      if (blank) { pAdd(v, date, group); return; }
+      if (!ok) return;
+      var n = 0;
+      items.forEach(function (it, i) {
+        var cb = document.querySelector('[data-ppi="' + i + '"]');
+        if (!cb || !cb.checked) return;
+        var q = normNum(document.querySelector('[data-ppq="' + i + '"]').value);
+        pState.rows.push({ date: date, group: group, vendor: v, name: it.name, id: it.id, need: '', needUnit: '', kind: '補庫存',
+          qty: q === '' ? '' : q === null ? NaN : Number(q), unit: document.querySelector('[data-ppu="' + i + '"]').value.trim(), note: '' });
+        n++;
+      });
+      if (!n) return;
+      pState.dirty[v] = true;
+      if (pState.only && pState.only !== v) { pState.only = ''; $('vVendor').value = ''; }
+      renderPurchase();
+      toast('已加入 ' + n + ' 項補庫存，記得按「先儲存」或「確定叫貨」。');
+    });
+    var list = $('ppList');
+    var count = function () {
+      var n = list.querySelectorAll('[data-ppi]:checked').length;
+      $('ppCount').textContent = '已勾 ' + n + ' 項';
+      $('askYes').textContent = n ? '加入勾選的（' + n + ' 項）' : '加入勾選的';
+    };
+    list.addEventListener('change', function (e) {
+      if (e.target.hasAttribute('data-ppi')) { e.target.closest('.pp-row').classList.toggle('on', e.target.checked); count(); }
+    });
+    list.addEventListener('input', function (e) {
+      var i = e.target.getAttribute('data-ppq');
+      if (i === null || !e.target.value.trim()) return;
+      var cb = list.querySelector('[data-ppi="' + i + '"]');
+      if (!cb.checked) { cb.checked = true; cb.closest('.pp-row').classList.add('on'); count(); }
+    });
+    var filt = function (e) {
+      if (e && e.isComposing) return;
+      var q = normName($('ppQ').value);
+      Array.prototype.forEach.call(list.querySelectorAll('.pp-row'), function (row) { row.style.display = !q || row.getAttribute('data-ppn').indexOf(q) >= 0 ? '' : 'none'; });
+    };
+    $('ppQ').addEventListener('input', filt);
+    $('ppQ').addEventListener('compositionend', filt);
+    $('ppBlank').addEventListener('click', function () { blank = true; $('askNo').click(); });
+  }
   function pAdd(v, date, group) {
     pState.rows.push({ date: date, group: group, vendor: v, name: '', id: '', need: '', needUnit: '', kind: '補庫存', qty: '', unit: '', note: '' });
     var idx = pState.rows.length - 1;
@@ -5963,7 +6029,7 @@
   $('vendorSheets').addEventListener('click', function (e) {
     if (!pState) return;
     var t = e.target, b;
-    if ((b = t.closest('[data-padd]'))) { var p = b.getAttribute('data-padd').split('|'); pAdd(p[0], p[1], p[2]); return; }
+    if ((b = t.closest('[data-padd]'))) { var p = b.getAttribute('data-padd').split('|'); pPick(p[0], p[1], p[2]); return; }
     if ((b = t.closest('[data-povr],[data-povrreset]'))) { pOverride(b); return; }
     if ((b = t.closest('[data-pmove]'))) { pMove([pState.rows[Number(b.getAttribute('data-pmove'))]]); return; }
     if ((b = t.closest('[data-pmoveall]'))) {
@@ -5977,7 +6043,7 @@
       // 送貨組別空白時：這家廠商有分組別（菜商、肉商、海鮮），就照日期自動帶入
       var pv = $('paVendor').value, pd = $('paDate').value, pg = String($('paGroup').value || '').trim();
       if (!pg && pState.rows.some(function (x) { return x.vendor === pv && x.group; })) pg = deliveryCode(parseDate(pd));
-      pAdd(pv, pd, pg); return;
+      pPick(pv, pd, pg); return;
     }
     if ((b = t.closest('[data-preset]'))) {
       var vr = b.getAttribute('data-preset');
