@@ -624,6 +624,8 @@
     .vpage:last-child { page-break-after: auto; }
     .vedit input, .vedit select { border: 0 !important; background: none !important; padding: 0 !important; -webkit-appearance: none; appearance: none; color: #000; }
     .vedit .ptable table { min-width: 0; }
+    .tablewrap, .vedit .ptot-wrap { overflow: visible !important; max-height: none !important; }   /* 平板、手機列印時，可左右捲動的框會把表格右邊切掉 */
+    .vpage table { width: 100% !important; min-width: 0 !important; }
     #vendorSheets.vp-sum .vedit .vpart-detail, #vendorSheets.vp-detail .vedit .vpart-sum { display: none; }
     #vendorSheets.vp-detail .vedit > h1, #vendorSheets.vp-detail .vedit > .vsub { display: none; }
     #vendorSheets.vp-detail .vedit .vdetail-title { display: block; }
