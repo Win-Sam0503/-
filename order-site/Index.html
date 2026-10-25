@@ -4730,15 +4730,23 @@
     return keys.sort(byItemKey).map(function (k) { return m[k]; });
   }
   // 明細表：同一張訂單的班級、老師合併成一格，訂單之間粗線；cells(r) 回傳後面幾欄的 HTML
+  // 同一班品項很多時，每 BLOCK_ROWS 列切一段、重複日期班級老師（標「續」）：
+  // 合併儲存格跨頁會斷掉（下一頁左邊三欄變空白、框線不見），切小段就會整段印在同一頁
+  var BLOCK_ROWS = 20;
   function blockTable(list, head, cells) {
-    var span = {};
-    list.forEach(function (r) { span[blockOf(r)] = (span[blockOf(r)] || 0) + 1; });
+    var keys = [], nIn = {}, span = {};
+    list.forEach(function (r) {
+      var b = blockOf(r), k = (nIn[b] = (nIn[b] || 0) + 1) - 1;
+      var key = b + '#' + Math.floor(k / BLOCK_ROWS);
+      keys.push({ key: key, cont: k >= BLOCK_ROWS });
+      span[key] = (span[key] || 0) + 1;
+    });
     return '<table><thead><tr><th style="width:10%">日期</th><th style="width:10%">班級</th><th style="width:10%">老師</th>' + head + '</tr></thead><tbody>' +
       list.map(function (r, i) {
-        var first = i === 0 || blockOf(list[i - 1]) !== blockOf(r);
-        var rs = ' class="vm" rowspan="' + span[blockOf(r)] + '"';
+        var first = i === 0 || keys[i - 1].key !== keys[i].key, cont = keys[i].cont ? '<div class="small muted">（續）</div>' : '';
+        var rs = ' class="vm" rowspan="' + span[keys[i].key] + '"';
         return '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b></td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? ' <b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? ' <b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
           cells(r) + '</tr>';
       }).join('') + '</tbody></table>';
   }
