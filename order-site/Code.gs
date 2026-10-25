@@ -1249,9 +1249,43 @@ function adminGetIssues(token, from, to, countOnly) {
       x.note = x.item + (it ? ' ' + it.qty + ' ' + it.unit : '') + '（異常）' + (x.note ? '：' + x.note : '');
     }
   });
+  markResent_(out);
   const list = out.filter(function (x) { const u = parseDate_(x.useDate); return u ? inRange(u) : inRange(new Date(x.t)); });
   if (countOnly) return list.filter(function (x) { return !x.done; }).length;
   return list.sort(function (a, b) { return String(b.useDate || '').localeCompare(String(a.useDate || '')) || b.t - a.t; });
+}
+
+/**
+ * 退單後老師重新送單：同一位老師、退單之後送出、上課日期或實作項目或班級一樣、沒取消的訂單。
+ * 找到就在退單那筆寫 resent，舊單的退單、取消、標記異常都自動算已處理。
+ */
+function markResent_(out) {
+  const returned = out.filter(function (x) { return x.type === '退單' && x.teacher; });
+  if (!returned.length) return;
+  const who = {};
+  returned.forEach(function (x) { who[x.teacher] = true; });
+  const sent = {};
+  const rows = readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.filter(function (r) {
+    const t = String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim();
+    if (!who[t]) return false;
+    const d = r['送出時間'] instanceof Date ? r['送出時間'] : errTime_(r['送出時間']);
+    if (d instanceof Date && !isNaN(d)) sent[String(r['訂單編號']).trim()] = d.getTime();
+    return true;
+  });
+  const cands = groupOrders_(rows, null).filter(function (o) { return o.status !== '已取消'; });
+  returned.forEach(function (x) {
+    const hit = cands.filter(function (o) {
+      return o.orderNo !== x.orderNo && (o.onBehalfOf || o.teacher) === x.teacher && (sent[o.orderNo] || 0) > x.t &&
+        (o.useDate === x.useDate || (x.project && o.project === x.project) || (x.className && o.className === x.className));
+    }).sort(function (a, b) { return sent[a.orderNo] - sent[b.orderNo]; })[0];
+    if (!hit) return;
+    x.resent = { orderNo: hit.orderNo, useDate: hit.useDate, time: fmtDateTime_(new Date(sent[hit.orderNo])) };
+    out.forEach(function (y) {
+      if (y.orderNo !== x.orderNo || ['退單', '取消', '標記異常'].indexOf(y.type) < 0) return;
+      y.autoDone = true;
+      if (!y.done) y.done = '老師已重新送單';
+    });
+  });
 }
 
 /** 管理者：異常紀錄勾「已處理」（on）或取消 */

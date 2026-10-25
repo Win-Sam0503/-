@@ -3111,8 +3111,10 @@
           '<td class="iss-type">' + (ISS_TYPES[x.type] || '') + ' ' + esc(x.type) + '</td>' +
           '<td>' + esc(x.className || '') + ' ' + esc(x.project || '') +
             (x.orderNo ? '<div><a href="#" data-isso="' + esc(x.orderNo) + '" data-issd="' + esc(x.useDate || '') + '" class="noprint">' + esc(x.orderNo) + ' 查看</a></div>' : '') + '</td>' +
-          '<td style="white-space:nowrap">' + esc(x.teacher || '') + '</td><td style="white-space:normal">' + x.notes.map(function (n, k) { return '<div' + (x.dones[k] && x.ids.length > 1 ? ' class="muted"' : '') + '>' + esc(n) + '</div>'; }).join('') + '</td>' +
-          '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.ids.join('\n')) + '"' + (x.done ? ' checked' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td><td class="iss-p">' + (x.done ? '✓ ' + esc(x.done) : '未處理') + '</td></tr>';
+          '<td style="white-space:nowrap">' + esc(x.teacher || '') + '</td><td style="white-space:normal">' + x.notes.map(function (n, k) { return '<div' + (x.dones[k] && x.ids.length > 1 ? ' class="muted"' : '') + '>' + esc(n) + '</div>'; }).join('') +
+            (x.resent ? '<div style="color:var(--ok);font-weight:600">✅ 老師已重新送單：' + esc(shortDate(x.resent.useDate)) + '（' + esc(x.resent.time) + ' 送出）' +
+              ' <a href="#" class="noprint" data-isso="' + esc(x.resent.orderNo) + '" data-issd="' + esc(x.resent.useDate) + '">' + esc(x.resent.orderNo) + ' 查看</a></div>' : '') + '</td>' +
+          '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.ids.join('\n')) + '"' + (x.done ? ' checked' : '') + (x.autoDone ? ' disabled title="老師已重新送單，自動算已處理"' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td><td class="iss-p">' + (x.done ? '✓ ' + esc(x.done) : '未處理') + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '<span class="muted">這段期間沒有' + (issType ? '「' + esc(issType) + '」' : '異常') + '紀錄。</span>';
   }
   $('issOpen').addEventListener('click', function () {
