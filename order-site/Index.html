@@ -3463,8 +3463,8 @@
       if (k === 'groups' && v && !/^\d{1,2}$/.test(v)) err = err || '組數請填 1 到 99 的整數。';
       (info = info || {})[k] = v;
     });
-    if (err) { msg('sumMsg', 'error', err); return; }
-    if (!changes.length && !info) { renderSummary(); return; }
+    if (err) { editErr(card, err); return; }
+    if (!changes.length && !info) { toast('沒有改到任何東西，已關閉修改。'); renderSummary(); return; }
     setBusy(btn, true, '儲存中…');
     var created = changes.filter(function (c) { return c.newItem; }).map(function (c) { return c.newItem.name; });
     var notifyT = !card.querySelector('[data-notify]') || card.querySelector('[data-notify]').checked;
@@ -3474,7 +3474,16 @@
         (created.length ? '已加入食材總表：' + created.join('、') + '。' : ''));
       if (created.length) refreshItems();
       loadSummaryKeepMsg();
-    }).catch(function (e2) { msg('sumMsg', 'error', '儲存失敗：' + e2.message); setBusy(btn, false); });
+      toast('訂單 ' + o.orderNo + ' 已儲存。');
+    }).catch(function (e2) { editErr(card, '儲存失敗：' + e2.message); setBusy(btn, false); });
+  }
+  // 修改明細的錯誤直接顯示在這張卡片的「儲存修改」上面（訂單很多時，頁面最上面的訊息看不到）
+  function editErr(card, text) {
+    var box = card.querySelector('.edit-err');
+    if (!box) { card.querySelector('.actions').insertAdjacentHTML('beforebegin', '<div class="msg error edit-err" style="margin:8px 0"></div>'); box = card.querySelector('.edit-err'); }
+    box.textContent = '⚠ ' + text;
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    msg('sumMsg', 'error', text);
   }
   function loadSummaryKeepMsg() {
     var keep = $('sumMsg').innerHTML;
