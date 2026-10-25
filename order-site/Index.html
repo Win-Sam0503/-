@@ -1756,7 +1756,7 @@
       return '<button type="button" class="item' + (added ? ' added' : '') + '" data-id="' + esc(it.id) + '">' +
         '<span><span class="nm">' + esc(it.name) + '</span>' +
         (it.alias ? '<div class="al">又名 ' + esc(it.alias) + '</div>' : '') +
-        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + esc(it.vendor) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
+        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + esc(it.vendor) + (it.unit || it.unitAuto ? '・' + esc(it.unit || it.unitAuto) : '') + '</div></span>' +
         '<span class="add">' + (added ? '<span class="badge info" title="已加入 ' + added + ' 次">已選 ' + added + '</span> +' : '+') + '</span></button>';
     }).join('') + (list.length > SHOW_LIMIT ? '<div class="more">還有 ' + (list.length - SHOW_LIMIT) + ' 項，請輸入關鍵字縮小範圍</div>' : '');
   }
@@ -1778,7 +1778,7 @@
     if (!b) return;
     var it = deptSub(itemById[b.getAttribute('data-id')]);
     // 同一樣食材可以重複加入，每次都是獨立的一列（各自的數量、單位、備註）
-    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
+    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: validUnit(it.unit) || validUnit(it.unitAuto), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
@@ -1889,7 +1889,7 @@
   function addExisting(it, qty, unit) {
     it = deptSub(it);
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: qty || '',
-      unit: validUnit(unit) || validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
+      unit: validUnit(unit) || validUnit(it.unit) || validUnit(it.unitAuto), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
@@ -2361,7 +2361,7 @@
       it = deptSub(it);
       var old = c.name;
       c.id = it.id; c.name = it.name; c.vendor = it.vendor; c.isNew = false; delete c.keepNew;
-      if (!String(c.unit || '').trim()) c.unit = validUnit(it.unit);
+      if (!String(c.unit || '').trim()) c.unit = validUnit(it.unit) || validUnit(it.unitAuto);
       saveDraft(); renderCart(); renderResults();
       toast('「' + old + '」已換成「' + it.name + '」');
     });
