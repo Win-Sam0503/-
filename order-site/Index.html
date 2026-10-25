@@ -921,7 +921,10 @@
           <div><label for="issTo">上課日期（迄）</label><input id="issTo" type="date"></div>
         </div>
         <div class="status-chips noprint" id="issTypes" style="margin:8px 0 4px"></div>
-        <label class="check noprint" style="margin:0 0 6px"><input type="checkbox" id="issUndone"> 只看還沒處理的</label>
+        <div class="noprint" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:0 0 6px">
+          <label for="issTeacher" style="margin:0;display:flex;align-items:center;gap:6px">查詢老師 <select id="issTeacher" style="width:auto"><option value="">全部老師</option></select></label>
+          <label class="check" style="margin:0"><input type="checkbox" id="issUndone"> 只看還沒處理的</label>
+        </div>
         <div id="issBox" class="small"></div>
       </div>
       <div id="sumMsg"></div>
@@ -3097,12 +3100,19 @@
     return out;
   }
   function issRender() {
-    var count = {}, issRows = issMerge(issList);
+    var all = issMerge(issList), tch = $('issTeacher').value, byT = {};
+    all.forEach(function (x) { if (x.teacher) byT[x.teacher] = (byT[x.teacher] || 0) + 1; });
+    var names = Object.keys(byT).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+    if (tch && !byT[tch]) names.unshift(tch);   // 換日期後這位老師沒有紀錄，選單照樣留著
+    $('issTeacher').innerHTML = '<option value="">全部老師（' + all.length + '）</option>' + names.map(function (n) {
+      return '<option value="' + esc(n) + '"' + (n === tch ? ' selected' : '') + '>' + esc(n) + '（' + (byT[n] || 0) + '）</option>';
+    }).join('');
+    var count = {}, issRows = tch ? all.filter(function (x) { return x.teacher === tch; }) : all;
     issRows.forEach(function (x) { count[x.type] = (count[x.type] || 0) + 1; });
     $('issTypes').innerHTML = '<button type="button" data-isst="" class="' + (issType ? '' : 'on') + '">全部（' + issRows.length + '）</button>' +
       Object.keys(ISS_TYPES).map(function (k) { return '<button type="button" data-isst="' + k + '" class="' + (issType === k ? 'on' : '') + '"' + (count[k] ? '' : ' disabled') + '>' + ISS_TYPES[k] + ' ' + k + '（' + (count[k] || 0) + '）</button>'; }).join('');
     var list = issRows.filter(function (x) { return (!issType || x.type === issType) && (!$('issUndone').checked || !x.done); });
-    var printHead = '<div class="iss-p">上課日期：' + esc(shortDate($('issFrom').value) + '～' + shortDate($('issTo').value)) + '　類型：' + esc(issType || '全部') +
+    var printHead = '<div class="iss-p">上課日期：' + esc(shortDate($('issFrom').value) + '～' + shortDate($('issTo').value)) + (tch ? '　老師：' + esc(tch) : '') + '　類型：' + esc(issType || '全部') +
       ($('issUndone').checked ? '（只列還沒處理的）' : '') + '　共 ' + list.length + ' 筆　列印：' + esc(data.account + ' ' + new Date().toLocaleString('zh-TW', { hour12: false })) + '</div>';
     $('issBox').innerHTML = list.length ? printHead + '<div style="overflow-x:auto"><table class="iss-t"><thead><tr><th>上課日期</th><th>類型</th><th>訂單／班級</th><th>老師</th><th>說明</th><th class="noprint">已處理</th><th class="iss-p">處理</th></tr></thead><tbody>' +
       list.map(function (x, i) {
@@ -3115,7 +3125,7 @@
             (x.resent ? '<div style="color:var(--ok);font-weight:600">✅ 老師已重新送單：' + esc(shortDate(x.resent.useDate)) + '（' + esc(x.resent.time) + ' 送出）' +
               ' <a href="#" class="noprint" data-isso="' + esc(x.resent.orderNo) + '" data-issd="' + esc(x.resent.useDate) + '">' + esc(x.resent.orderNo) + ' 查看</a></div>' : '') + '</td>' +
           '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.ids.join('\n')) + '"' + (x.done ? ' checked' : '') + (x.autoDone ? ' disabled title="老師已重新送單，自動算已處理"' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td><td class="iss-p">' + (x.done ? '✓ ' + esc(x.done) : '未處理') + '</td></tr>';
-      }).join('') + '</tbody></table></div>' : '<span class="muted">這段期間沒有' + (issType ? '「' + esc(issType) + '」' : '異常') + '紀錄。</span>';
+      }).join('') + '</tbody></table></div>' : '<span class="muted">這段期間' + (tch ? esc(tch) + ' 老師' : '') + '沒有' + (issType ? '「' + esc(issType) + '」' : '異常') + '紀錄。</span>';
   }
   $('issOpen').addEventListener('click', function () {
     var open = $('issPanel').classList.toggle('hidden') === false;
@@ -3126,6 +3136,7 @@
   window.addEventListener('afterprint', function () { $('viewSummary').classList.remove('print-iss'); });
   ['issFrom', 'issTo'].forEach(function (id) { $(id).addEventListener('change', issLoad); });
   $('issUndone').addEventListener('change', issRender);
+  $('issTeacher').addEventListener('change', issRender);
   $('issTypes').addEventListener('click', function (e) { var b = e.target.closest('[data-isst]'); if (!b) return; issType = b.getAttribute('data-isst'); issRender(); });
   $('issBox').addEventListener('change', function (e) {
     var c = e.target.closest('[data-issi]');
