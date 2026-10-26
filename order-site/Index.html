@@ -3652,6 +3652,7 @@
   // 乾貨、飲調的重量一律換成克（顯示時無條件進位到整數），學生扣貨、廠商都看克數
   function gramVendor(v) { return /^[EF]/.test(v || ''); }
   function convertUnit(qty, unit, vendor, name, forStudents) {
+    if (data && vendor === data.selfVendor) return { qty: qty, unit: unit };   // 自備照老師訂的單位（冰塊用公斤、老麵用克）
     if (GRAMS[unit] && isEgg(name)) return { qty: Math.round(qty * GRAMS[unit] / EGG_GRAMS * 100) / 100, unit: '顆' };
     if (!GRAMS[unit]) return { qty: qty, unit: COUNT_UNITS[unit] || unit };
     if (gramVendor(vendor)) return { qty: Math.round(qty * GRAMS[unit] * 100) / 100, unit: 'g' };   // 顯示時無條件進位到整數克
@@ -4551,7 +4552,7 @@
       return pendingGate(orders, only, kind).then(function (go) {
         if (!go) return null;
         lastSheet = null;
-        if (kind === 'deduct') { lastSheet = { fn: deductSheets, args: [demandLines(orders), from, to, only] }; return deductSheets.apply(null, lastSheet.args); }
+        if (kind === 'deduct') { lastSheet = { fn: deductSheets, args: [demandLines(orders, true), from, to, only] }; return deductSheets.apply(null, lastSheet.args); }
         if (kind === 'order') {
           openPurchase(from, to, orders, pur, only);
           return pState.rows.some(function (r) { return !only || r.vendor === only; }) ? $('vendorSheets').innerHTML : '';
@@ -4680,12 +4681,14 @@
   // 每一班（每張訂單）分開：例如 102 班訂 3 顆洋蔥，扣完庫存只要叫 1 顆，就在 102 那一列改成 1
   // ------------------------------------------------------------------
   // 老師需求：每張訂單的每個食材一列（同訂單同食材同單位合併）；不含已取消、有貨、器具
-  function demandLines(orders) {
+  // withSelf：連「自備」的也列（① 扣貨單用，學校要自己準備）；勾「有貨」的照樣不列
+  function demandLines(orders, withSelf) {
     var map = {}, list = [];
     orders.forEach(function (o) {
       if (o.status === '已取消') return;
       o.items.forEach(function (it) {
-        if (it.id === TOOL || it.noOrder || it.status === '已取消') return;
+        if (it.id === TOOL || it.status === '已取消') return;
+        if (it.noOrder && !(withSelf && it.vendor === data.selfVendor)) return;
         var key = [o.orderNo, it.name, it.unit, it.group || ''].join('|');
         if (!map[key]) {
           map[key] = { key: key, date: o.useDate, group: it.group || '', vendor: it.vendor, orderNo: o.orderNo, className: o.className,
@@ -4791,16 +4794,18 @@
     var part = $('vPart').value || 'sum';
     var by = byVendorBatch(rows.filter(onlyVendor(only)).map(toPage));
     return Object.keys(by).sort().map(function (v) {
+      var self = v === data.selfVendor, act = self ? '已準備' : '實際叫貨';   // 自備：不跟廠商叫，學校自己準備，打勾或寫數量
       var head = function (title) {
-        return '<div class="vpage deduct"><h1>' + esc(v) + ' ' + title + '</h1><div class="vsub">' + esc(rangeText(from, to)) + '　　填寫人：＿＿＿＿＿＿</div>';
+        return '<div class="vpage deduct"><h1>' + esc(v) + ' ' + title + '</h1><div class="vsub">' + esc(rangeText(from, to)) + '　　填寫人：＿＿＿＿＿＿</div>' +
+          (self ? '<div class="vsub">學校自備，不跟廠商叫貨，請照數量準備好</div>' : '');
       };
-      var extra = '<h3>補庫存（老師沒訂、要另外叫的）</h3><table><thead><tr><th style="width:36%">食材</th><th style="width:20%">送貨日期</th><th style="width:22%">現有庫存</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
+      var extra = self ? '' : '<h3>補庫存（老師沒訂、要另外叫的）</h3><table><thead><tr><th style="width:36%">食材</th><th style="width:20%">送貨日期</th><th style="width:22%">現有庫存</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
         '<tr><td></td><td></td><td></td><td></td></tr>'.repeat(4) + '</tbody></table>';
       var sumPage = head('扣貨單') +
         Object.keys(by[v]).sort().map(function (dk) {
           var tot = sumLines(by[v][dk], 'need', 'needUnit', true), mixed = mixedNames(tot);
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
-            '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">實際叫貨</th></tr></thead><tbody>' +
+            '<table class="dsum"><thead><tr><th>食材</th><th style="width:22%">需求合計</th><th style="width:22%">' + act + '</th></tr></thead><tbody>' +
             tot.map(function (t) {
               return '<tr><td>' + esc(t.name) + unitBadges(t, mixed) + '</td><td class="vq" style="text-align:right">' + esc(fmtTotal(t.qty, t.unit, t.name)) + '</td><td></td></tr>';
             }).join('') + '</tbody></table>';
@@ -4809,7 +4814,7 @@
         Object.keys(by[v]).sort().map(function (dk) {
           return '<h3>' + esc(batchLabel(dk)) + '</h3>' +
             blockTable(sortLines(by[v][dk]).map(function (r) { return Object.assign({}, r, { tag: r.dept }); }),   // 班級後面標科別【中餐】【烘焙】【飲調】…，同一種水果才不會搞混是哪一科的
-              '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">實際叫貨</th>', function (r) {
+              '<th>食材</th><th style="width:15%">老師訂</th><th style="width:16%">' + act + '</th>', function (r) {
               return '<td>' + esc(r.name) + '</td><td class="vq" style="text-align:right">' + esc(vendorQty(r.need, r.needUnit, r.vendor, r.name, true)) + '</td><td></td>';
             });
         }).join('') + extra + '</div>';
