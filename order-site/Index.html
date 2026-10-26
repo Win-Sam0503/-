@@ -7720,7 +7720,8 @@
               : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>'
               : (x.orders || []).map(function (o) {
                 return '<button type="button" class="btn ghost small" data-lact="vieworder" data-no="' + esc(o.orderNo) + '">📋 料單' + (many ? '：' + esc(o.project || '') : '') + '</button>' +
-                  '<button type="button" class="btn secondary small" data-lact="editorder" data-no="' + esc(o.orderNo) + '">✏️ 修改' + (many ? '：' + esc(o.project || '') : '') + '</button>';
+                  '<button type="button" class="btn secondary small" data-lact="editorder" data-no="' + esc(o.orderNo) + '">✏️ 修改' + (many ? '：' + esc(o.project || '') : '') + '</button>' +
+                  (o.status === '已取消' || o.status === '已到貨' || (!data.isAdmin && o.status !== '待處理') ? '' : '<button type="button" class="btn danger small" data-lact="cancelorder" data-no="' + esc(o.orderNo) + '" data-proj="' + esc(o.project || '') + '" data-st="' + esc(o.status || '') + '">✖ 取消訂單' + (many ? '：' + esc(o.project || '') : '') + '</button>');
               }).join('');
             return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-source="' + esc(x.source || '') + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
@@ -8271,6 +8272,20 @@
     var tr = b.closest('tr'), act = b.getAttribute('data-lact');
     var x = lessonOfRow(tr);
     if (act === 'vieworder' || act === 'editorder') { lessonOrderAct(act, b.getAttribute('data-no'), x, b); return; }
+    if (act === 'cancelorder') {
+      var cno = b.getAttribute('data-no'), cst = b.getAttribute('data-st'), other = viewingOther();
+      ask('', '確定取消', { noText: '不要取消', html: '<div class="info-check"><h3 style="color:var(--bad)">⚠ 確定要取消整筆訂單？</h3>' +
+        '<div style="margin-bottom:6px"><b>' + esc(shortDate(x.date) + ' ' + x.session + ' ' + (x.className || '') + '「' + (b.getAttribute('data-proj') || x.course) + '」') + '</b><br>' + esc(cno) + (cst ? '・目前狀態：' + esc(cst) : '') + '</div>' +
+        '<div class="muted small">整張訂單的所有品項都會取消，不會跟廠商叫貨。' + (other ? '老師有綁定 LINE 的話會收到取消通知。' : '已經過了訂貨截止或管理者已審核的訂單，不能自己取消，請聯絡管理者。') + '</div></div>' }).then(function (ok) {
+        if (!ok) return;
+        setBusy(b, true, '取消中…');
+        call('cancelOrder', token, cno).then(function () {
+          mineCache = [];   // 我的訂單下次重新讀
+          loadLessons('訂單 ' + cno + ' 已取消。');
+        }).catch(function (err) { msg('lessonsMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
+      });
+      return;
+    }
     if (act === 'order' || act === 'orderlast') {
       if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
       if ((draft.cart.length || draft.tools.length) && !safeConfirm(act === 'orderlast' ? '訂購清單裡有還沒送出的內容，會被上次的內容取代，確定嗎？' : '訂購清單裡有還沒送出的內容，要保留清單、改成這堂課的上課資訊嗎？')) return;
