@@ -2672,10 +2672,21 @@
     var selfLike = forWho && (forWho.indexOf(me) === 0 || me.indexOf(forWho) === 0);
     var nNew = draft.cart.filter(function (c) { return c.isNew; }).length;
     var multi = (draft.multi || []).slice();
+    // 同一天、同一時段、同一班已經訂過 → 確認視窗裡提醒（可能重複）；檢查失敗就照常送
+    var chk = [{ useDate: i.useDate, classTime: i.classTime, className: i.className, onBehalfOf: i.onBehalfOf }].concat(multi.map(function (y) {
+      return { useDate: y.date, classTime: y.session, className: y.className || i.className, onBehalfOf: i.onBehalfOf };
+    }));
+    var sbtn0 = $('submitBtn');
+    setBusy(sbtn0, true, '檢查中…');
+    call('checkDuplicateOrders', token, chk).catch(function () { return []; }).then(function (dups) {
+    setBusy(sbtn0, false);
+    var dupText = dups && dups.length ? '\n\n⚠ 可能重複：你已經訂過\n' + dups.map(function (x) {
+      return '・' + shortDate(x.useDate) + ' ' + x.session + ' ' + x.className + '「' + x.project + '」（' + x.orderNo + '，' + x.submitted + ' 送出）';
+    }).join('\n') + '\n要改原本那張，請按「取消」，到「我的訂單」按「修改訂單」；真的要再訂一張才按「仍要送出」。' : '';
     ask('確定送出 ' + shortDate(i.useDate) + ' ' + i.className + '「' + i.project + '」' + who + '，共 ' + draft.cart.length + ' 項食材' + (tools.length ? '、' + tools.length + ' 項器具' : '') + '？' +
       (multi.length ? '\n\n同一份材料也會送給：' + multi.map(function (y) { return shortDate(y.date) + ' ' + y.session + ' ' + (y.className || ''); }).join('、') + '（共 ' + (multi.length + 1) + ' 張訂單）' : '') +
       (selfLike ? '\n\n⚠ 代訂對象「' + forWho + '」跟你登入的帳號「' + me + '」很像。如果是幫自己訂，請按「取消」，把代訂改回「自己」；也可能是登錯帳號，請用「' + forWho + '」登入。' : '') +
-      (nNew ? '\n\n清單裡有 ' + nNew + ' 項新食材，要等管理者審核。' : ''), '送出訂單').then(function (ok) {
+      (nNew ? '\n\n清單裡有 ' + nNew + ' 項新食材，要等管理者審核。' : '') + dupText, dupText ? '仍要送出' : '送出訂單').then(function (ok) {
     if (!ok) return;
     var btn = $('submitBtn');
     setBusy(btn, true, '送出中…');
@@ -2719,6 +2730,7 @@
       msg('orderMsg', 'error', text);
       toast(text);
     }).then(function () { setBusy(btn, false); });
+    });
     });
   });
 
@@ -2830,6 +2842,7 @@
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
         (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
+        (opts.admin && o.dup && o.dup.length ? '<span class="badge bad noprint" title="同一位老師、同一天、同一時段、同一班還有：' + esc(o.dup.join('、')) + '">⚠ 可能重複（跟 ' + esc(o.dup.join('、')) + '）</span> ' : '') +
         (opts.admin && o.qtyWarn && o.status !== '已取消' ? '<span class="badge warn noprint" title="跟這項食材以前的訂單比，數量或單位不太一樣，請確認是不是打錯">⚠ 數量要確認 ' + o.qtyWarn + ' 項</span> ' : '') +
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + (opts.admin && o.deleted ? ' <span class="badge bad" title="' + esc(o.deleted.by + ' ' + o.deleted.time) + '">老師已刪除</span>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
@@ -3004,6 +3017,21 @@
   // 管理者：訂單彙整
   // ------------------------------------------------------------------
   var sumCache = [];
+  // 可能重複：同一位老師、同一天、同一時段、同一班有兩張以上沒取消的訂單（還料單不算）→ o.dup＝其他張的編號
+  function markDups(list) {
+    var by = {};
+    list.forEach(function (o) {
+      delete o.dup;
+      if (o.status === '已取消' || String(o.project || '').indexOf(RETURN_TAG) === 0) return;
+      var k = [o.onBehalfOf || o.teacher, o.useDate, (String(o.classTime).match(/^(上午|下午|晚上)/) || ['', '上午'])[1], String(o.className || '').trim()].join('|');
+      (by[k] = by[k] || []).push(o);
+    });
+    Object.keys(by).forEach(function (k) {
+      var g = by[k];
+      if (g.length < 2) return;
+      g.forEach(function (o) { o.dup = g.filter(function (x) { return x !== o; }).map(function (x) { return x.orderNo; }); });
+    });
+  }
   var sumSize = 17;   // 廠商叫貨合計的字體大小，記在這台電腦
   try { sumSize = [15, 17, 20, 24].indexOf(Number(localStorage.getItem('ckOrder.sumSize'))) >= 0 ? Number(localStorage.getItem('ckOrder.sumSize')) : 17; } catch (e) {}
   function loadSummary() {
@@ -3016,7 +3044,7 @@
     var btn = $('sLoad');
     setBusy(btn, true, '查詢中…');
     call('adminGetOrders', token, from, to).then(function (list) {
-      sumCache = list;
+      sumCache = list; markDups(sumCache);
       renderSummary();
     }).catch(function (e) { msg('sumMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
@@ -3042,6 +3070,8 @@
   } };
   var FLAGGED = '__flag';
   SPECIAL[FLAGGED] = { label: '⚠ 異常', test: function (o) { return !!o.flag || !!(o.itemFlags && Object.keys(o.itemFlags).length); } };
+  var DUPS = '__dup';
+  SPECIAL[DUPS] = { label: '⚠ 可能重複', test: function (o) { return !!(o.dup && o.dup.length); } };
   var ODDQTY = '__oddqty';
   SPECIAL[ODDQTY] = { label: '⚠ 數量要確認', test: function (o) { return o.status !== '已取消' && !!o.qtyWarn; } };
   var RETURNS = '__return';
@@ -3089,6 +3119,7 @@
   }
   var sumTotalsOpen = false;   // 廠商合計預設收起來
   function renderSummary() {
+    markDups(sumCache);
     var hideCancel = $('sHideCancel').checked;
     fillTeacherFilter();
     var who = $('sTeacher').value;
@@ -3196,10 +3227,10 @@
       '<button type="button" data-ssort="date" class="' + (sby === 'date' ? 'on' : '') + '">上課日期</button>' +
       '<button type="button" data-ssort="sent" class="' + (sby === 'sent' ? 'on' : '') + '">送出時間</button></div>';
     var waits = list.filter(function (o) { return o.status === '待處理' && !o.archived; });
-    sumWaitNos = waits.filter(function (o) { return !o.qtyWarn; }).map(function (o) { return o.orderNo; });   // 「全選」不含數量要確認的，確認過再個別勾
+    sumWaitNos = waits.filter(function (o) { return !o.qtyWarn && !(o.dup && o.dup.length); }).map(function (o) { return o.orderNo; });   // 「全選」不含數量要確認、可能重複的，確認過再個別勾
     var nOdd = waits.length - sumWaitNos.length;
     Object.keys(sumPick).forEach(function (no) { if (!waits.some(function (o) { return o.orderNo === no; })) delete sumPick[no]; });
-    var pickBar = waits.length ? '<div class="pick-bar noprint"><label><input type="checkbox" id="pickAll"' + (sumWaitNos.length ? '' : ' disabled') + '> 全選待處理（' + sumWaitNos.length + ' 張' + (nOdd ? '，不含數量要確認的 ' + nOdd + ' 張' : '') + '）</label>' +
+    var pickBar = waits.length ? '<div class="pick-bar noprint"><label><input type="checkbox" id="pickAll"' + (sumWaitNos.length ? '' : ' disabled') + '> 全選待處理（' + sumWaitNos.length + ' 張' + (nOdd ? '，不含數量要確認或可能重複的 ' + nOdd + ' 張' : '') + '）</label>' +
       '<button type="button" class="btn approve small" id="pickGo" disabled>✓ 審核勾選的</button><span class="muted small">也可以直接按每張的「✓ 審核」</span></div>' : '';
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips +
       '<div class="sum-bar">' + pmenu + sortBar + '</div>' + pickBar + warnUnp + '</div>' +
@@ -3657,7 +3688,7 @@
   function loadSummaryKeepMsg() {
     var keep = $('sumMsg').innerHTML;
     call('adminGetOrders', token, $('sFrom').value, $('sTo').value || $('sFrom').value).then(function (list) {
-      sumCache = list; renderSummary(); $('sumMsg').innerHTML = keep;
+      sumCache = list; markDups(sumCache); renderSummary(); $('sumMsg').innerHTML = keep;
     });
   }
   $('sHideCancel').addEventListener('change', renderSummary);

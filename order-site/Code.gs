@@ -649,6 +649,30 @@ function adminSetLockRule(token, rule) {
  *   newItems: [{ name, vendor, qty, unit, note }]           // 找不到、需審核的食材
  * }
  */
+/**
+ * 送出前檢查重複：同一位老師（代訂就看被代訂的）、同一天、同一時段、同一班已經有沒取消的訂單。
+ * list: [{ useDate, classTime, className, onBehalfOf }]，回傳 [{ orderNo, useDate, session, className, project, submitted }]
+ */
+function checkDuplicateOrders(token, list) {
+  const account = auth_(token);
+  const want = {};
+  (list || []).slice(0, 20).forEach(function (x) {
+    const who = clean_(x.onBehalfOf, 30) || account;
+    want[[who, String(x.useDate || '').trim(), sessionOf_(x.classTime), String(x.className || '').trim()].join('|')] = true;
+  });
+  const out = {};
+  readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.forEach(function (r) {
+    if (String(r['狀態']).trim() === '已取消') return;
+    const no = String(r['訂單編號']).trim();
+    if (out[no]) return;
+    const who = String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim();
+    const d = toDate_(r['使用日期']), ses = sessionOf_(r['上課時間']), cls = String(r['上課班級'] || '').trim();
+    if (!d || !want[[who, dateStr_(d), ses, cls].join('|')]) return;
+    out[no] = { orderNo: no, useDate: dateStr_(d), session: ses, className: cls, project: String(r['實作項目'] || ''), submitted: fmtDateTime_(r['送出時間']) };
+  });
+  return Object.keys(out).map(function (k) { return out[k]; });
+}
+
 function submitOrder(token, payload) {
   const account = auth_(token);
   const o = validateOrder_(payload, account, isAdmin_(account));
