@@ -983,13 +983,13 @@
     <!-- 管理者：廠商訂貨單 -->
     <section id="viewVendor" class="hidden">
       <div class="panel noprint">
-        <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。⑤ 分班標籤：每班每一樣東西印一張貼紙（班級、科別、品名、數量、老師），分貨時貼上，避免拿錯。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>上面的廠商籤可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
+        <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。⑤ 分班標籤：每班每一樣東西印一張貼紙（班級、科別、品名、數量、老師），分貨時貼上，避免拿錯。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>產生後，下面的廠商按鈕（A菜商、B肉商…）可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
         <div class="vweek status-chips" id="vWeeks"><button type="button" data-vw="0">本週</button><button type="button" data-vw="1">下週</button><button type="button" data-vw="2">下下週</button></div>
         <div class="grid2">
           <div><label for="vFrom">上課日期（起）</label><input id="vFrom" type="date"></div>
           <div><label for="vTo">上課日期（迄）</label><input id="vTo" type="date"></div>
-          <div><label for="vVendor">廠商</label><select id="vVendor"></select></div>
         </div>
+        <select id="vVendor" class="hidden" aria-hidden="true" tabindex="-1"></select><!-- 廠商改用下面的廠商按鈕切換；這個一律「全部廠商」 -->
         <div class="vsteps" id="vSteps">
           <button type="button" data-vk="deduct"><b>① 扣貨單</b><span>給學生扣庫存</span></button>
           <button type="button" data-vk="order"><b>② 訂貨單</b><span>改實際叫貨、確定</span></button>
