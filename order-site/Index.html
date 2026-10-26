@@ -900,6 +900,7 @@
             <option value="teacher">教師料單（A～F 分類）</option>
           </select>
           <button type="button" class="btn" id="pPrint">列印</button>
+          <button type="button" class="btn secondary" id="pPdf" title="先看排好的 A4 頁面，沒問題再存成 PDF（平板、手機印不會跑掉）">👁 預覽／存 PDF</button>
           <button type="button" class="btn ghost" id="pBack">返回</button>
         </div>
         <div class="muted small" style="margin-top:6px">一張訂單印一張 A4。如果按「列印」沒有反應，請按鍵盤 Ctrl + P（Mac：⌘ + P）。</div>
@@ -1025,6 +1026,7 @@
           </details>
           <button type="button" class="btn ghost small" id="vLoad">↻ 重新產生</button>
           <button type="button" class="btn" id="vPrint" disabled>列印</button>
+          <button type="button" class="btn secondary" id="vPdf" disabled title="先看排好的 A4 頁面，沒問題再存成 PDF（平板、手機印不會跑掉）">👁 預覽／存 PDF</button>
         </div>
       </div>
       <div id="vendorMsg" class="noprint"></div>
@@ -1385,6 +1387,107 @@
       $('phX').onclick = close;
       setTimeout(close, 12000);
     }, 1500);
+  }
+  // ---- 預覽／存 PDF：把要印的畫面照 A4 排成圖片，先預覽，確認後存成 PDF（平板、手機不會再自己裁切） ----
+  var PDF_LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'];
+  function loadPdfLibs() {
+    if (window.html2canvas && window.jspdf) return Promise.resolve();
+    return PDF_LIBS.reduce(function (p, src) {
+      return p.then(function () {
+        return new Promise(function (res, rej) {
+          var sc = document.createElement('script');
+          sc.src = src; sc.onload = res;
+          sc.onerror = function () { rej(new Error('PDF 工具載入失敗，請確認網路後再試一次。')); };
+          document.head.appendChild(sc);
+        });
+      });
+    }, Promise.resolve());
+  }
+  // 網頁裡「@media print」的設定拿出來，讓截圖跟列印長得一樣（只給 iPhone 的縮放設定不要）
+  function printCssText() {
+    var out = [];
+    Array.prototype.forEach.call(document.styleSheets, function (sh) {
+      var rules;
+      try { rules = sh.cssRules; } catch (e) { return; }
+      Array.prototype.forEach.call(rules || [], function (r) {
+        if (r.media && /print/.test(r.media.mediaText) && r.cssRules) {
+          Array.prototype.forEach.call(r.cssRules, function (x) { if (x.type === 1) out.push(x.cssText); });
+        }
+      });
+    });
+    return out.join('\n');
+  }
+  var PDF_W = 718, PDF_H = 1047;   // A4 扣掉 1 公分邊界（190×277 mm）換成畫面像素
+  function capturePage(el) {
+    var marks = [], forced = [];
+    el.setAttribute('data-pdfcap', '1');
+    return html2canvas(el, { scale: 1.8, backgroundColor: '#ffffff', windowWidth: 820, logging: false,
+      onclone: function (doc) {
+        var st = doc.createElement('style');
+        st.textContent = printCssText() + '\n[data-pdfcap]{width:' + PDF_W + 'px!important;margin:0!important;box-shadow:none!important;zoom:1!important}';
+        doc.head.appendChild(st);
+        var c = doc.querySelector('[data-pdfcap]');
+        c.classList.remove('vcollapsed');
+        // 直書的廠商名稱畫不出來：改成一字一行
+        Array.prototype.forEach.call(c.querySelectorAll('.vtext'), function (x) {
+          x.style.writingMode = 'horizontal-tb'; x.style.whiteSpace = 'normal'; x.style.lineHeight = '1.1';
+          x.innerHTML = Array.from(x.textContent).map(function (ch) { return ch === ' ' ? '' : esc(ch); }).join('<br>');
+        });
+        var top = c.getBoundingClientRect().top;
+        Array.prototype.forEach.call(c.querySelectorAll('.bblk, h3, tr, h1, .vpart-detail'), function (x) {
+          var y = x.getBoundingClientRect().top - top;
+          if (doc.defaultView.getComputedStyle(x).breakBefore === 'page' && y > 5) forced.push(y);
+          marks.push({ y: y, strong: x.classList.contains('bblk') || x.tagName === 'H3' || x.tagName === 'H1' });
+        });
+      } }).then(function (canvas) {
+      el.removeAttribute('data-pdfcap');
+      var k = canvas.width / PDF_W, total = canvas.height / k, cuts = [], start = 0;
+      while (total - start > PDF_H + 1) {
+        var lim = start + PDF_H, best = 0;
+        forced.forEach(function (y) { if (y > start + 5 && y <= lim && (!best || y < best)) best = y; });
+        // 優先在「一班一塊」或標題前面換頁，但至少要用到半頁，不然整頁空空的
+        if (!best) marks.forEach(function (m) { if (m.strong && m.y > start + PDF_H / 2 && m.y <= lim && m.y > best) best = m.y; });
+        if (!best) marks.forEach(function (m) { if (m.y > start + 30 && m.y <= lim && m.y > best) best = m.y; });
+        if (!best) best = lim;
+        cuts.push([start, best]); start = best;
+      }
+      if (total - start > 2) cuts.push([start, total]);
+      return cuts.map(function (c) {
+        var h = Math.round((c[1] - c[0]) * k), cv = document.createElement('canvas');
+        cv.width = canvas.width; cv.height = h;
+        var g = cv.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, h);
+        g.drawImage(canvas, 0, Math.round(c[0] * k), canvas.width, h, 0, 0, canvas.width, h);
+        return { url: cv.toDataURL('image/jpeg', 0.88), hMm: (c[1] - c[0]) / PDF_W * 190 };
+      });
+    }, function (e) { el.removeAttribute('data-pdfcap'); throw e; });
+  }
+  function previewPdf(container, name, btn, onSave) {
+    var els = Array.prototype.filter.call(container.querySelectorAll('.sheet, .vpage'), function (e) { return e.offsetParent !== null; });
+    if (!els.length) { notice('沒有可以預覽的內容。'); return; }
+    if (container.querySelector('.lblpage')) { notice('分班標籤要對準貼紙，請直接用電腦列印。'); return; }
+    setBusy(btn, true, '排版中…');
+    var pages = [];
+    loadPdfLibs().then(function () {
+      return els.reduce(function (p, el) { return p.then(function () { return capturePage(el).then(function (list) { pages = pages.concat(list); }); }); }, Promise.resolve());
+    }).then(function () {
+      setBusy(btn, false);
+      return ask('', '💾 存成 PDF', { noText: '關閉', html: '<div class="info-check"><h3>👁 預覽（共 ' + pages.length + ' 頁，A4）</h3>' +
+        '<div class="muted small">PDF 會長得跟下面一模一樣。確認沒問題再按「存成 PDF」，存好後用 PDF 列印就不會跑掉。</div>' +
+        '<div style="max-height:62vh;overflow:auto;background:#d0d5dd;padding:10px;margin-top:8px;border-radius:8px">' +
+        pages.map(function (pg, i) {
+          return '<div style="background:#fff;margin:0 auto 10px;max-width:520px;aspect-ratio:210/297;padding:4.8% 4.8%;box-shadow:0 1px 6px rgba(0,0,0,.25)">' +
+            '<img src="' + pg.url + '" style="width:100%;display:block" alt="第 ' + (i + 1) + ' 頁"></div><div class="small muted" style="text-align:center;margin:-6px 0 10px">第 ' + (i + 1) + ' 頁</div>';
+        }).join('') + '</div></div>' });
+    }).then(function (ok) {
+      if (!ok) return;
+      var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      pages.forEach(function (pg, i) { if (i) doc.addPage(); doc.addImage(pg.url, 'JPEG', 10, 10, 190, pg.hMm); });
+      var file = name + ' ' + isoDate(new Date()) + '.pdf';
+      try { doc.save(file); toast('已存成「' + file + '」。'); if (onSave) onSave(); }
+      catch (e) { notice('存檔失敗：' + e.message); }
+    }).catch(function (e) { setBusy(btn, false); notice(e.message || String(e)); });
   }
   function printInWindow() {
     var sec = document.querySelector('main > section:not(.hidden)');
@@ -4302,6 +4405,7 @@
   }
   window.addEventListener('beforeprint', markPrinted);
   $('pPrint').addEventListener('click', function () { markPrinted(); doPrint(); });
+  $('pPdf').addEventListener('click', function () { previewPdf($('printArea'), '請料單', this, markPrinted); });
   $('pBack').addEventListener('click', function () {
     // 從「我的訂單」來的就不重新載入；從「送出成功」來的要載入
     keepMine = printBack === 'viewMine' && $('mineList').children.length > 0;
@@ -4555,7 +4659,7 @@
     setBusy(btn, true, '產生中…');
     msg('vendorMsg', 'info', '載入中…');
     $('vendorSheets').innerHTML = '';
-    $('vPrint').disabled = true;
+    $('vPrint').disabled = $('vPdf').disabled = true;
     if (pState && Object.keys(pState.dirty).some(function (k) { return pState.dirty[k]; }) &&
         !safeConfirm('訂貨單有修改還沒儲存，重新產生會不見。確定要繼續？')) { setBusy(btn, false); msg('vendorMsg', '', ''); return; }
     pState = null;
@@ -4589,13 +4693,13 @@
       if (kind === 'labels') {
         $('vendorSheets').innerHTML = html ? labelBar() + html : '';
         msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要貼標籤的東西（不含已取消、勾「有貨」、自備、器具和還料單）。');
-        $('vPrint').disabled = !html;
+        $('vPrint').disabled = $('vPdf').disabled = !html;
         return;
       }
       if (kind === 'pickup') {
         $('vendorSheets').innerHTML = pickupBar() + html;
         msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要跨教室領的食材。只有某一科在進的食材（例如乳酪絲只跟烘焙乾貨叫），請到「審核食材 → 乾貨進貨科別」設成「只有烘焙進」，或在「② 訂貨單」按「換廠商」改跟烘焙乾貨叫，中餐課訂的就會列在這張領料單。系統抓不到的，也可以按「＋ 新增領料」自己加。');
-        $('vPrint').disabled = !html;
+        $('vPrint').disabled = $('vPdf').disabled = !html;
         return;
       }
       if (html === null) { pState = null; msg('vendorMsg', 'warn', '還有未審核的食材，已先停止產生。審核完再回來按「產生」。'); return; }
@@ -4603,11 +4707,12 @@
       if (kind === 'order' && !html) pState = null;
       if (vKeepMsg) { $('vendorMsg').innerHTML = vKeepMsg; vKeepMsg = ''; } else msg('vendorMsg', html ? '' : 'info', html ? '' : kind === 'purchase' ? '這段期間還沒有確定的叫貨，請先到「② 訂貨單」改好數量後按「確定叫貨」。' :
         '這段期間沒有需要叫貨的品項。');
-      $('vPrint').disabled = !html;
+      $('vPrint').disabled = $('vPdf').disabled = !html;
     }).catch(function (e) { msg('vendorMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
   });
   $('vPrint').addEventListener('click', function () { doPrint(); });
+  $('vPdf').addEventListener('click', function () { previewPdf($('vendorSheets'), '廠商訂貨單', this); });
   // 日期快速鍵：本週／下週／下下週（星期一到星期五）
   // 星期一、二／星期三、四、五：跟送貨組別一樣分兩批；再按一次同一個＝整週
   var vDays = '';
