@@ -988,7 +988,8 @@
     <section id="viewVendor" class="hidden">
       <div class="panel noprint">
         <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。⑤ 分班標籤：每班每一樣東西印一張貼紙（班級、科別、品名、數量、老師），分貨時貼上，避免拿錯。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>產生後，下面的廠商按鈕（A菜商、B肉商…）可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
-        <div class="vweek status-chips" id="vWeeks"><button type="button" data-vw="0">本週</button><button type="button" data-vw="1">下週</button><button type="button" data-vw="2">下下週</button></div>
+        <div class="vweek status-chips" id="vWeeks"><button type="button" data-vw="0">本週</button><button type="button" data-vw="1">下週</button><button type="button" data-vw="2">下下週</button>
+          <span class="muted small" style="margin-left:6px">｜</span><button type="button" data-vd="12">星期一、二</button><button type="button" data-vd="345">星期三、四、五</button></div>
         <div class="grid2">
           <div><label for="vFrom">上課日期（起）</label><input id="vFrom" type="date"></div>
           <div><label for="vTo">上課日期（迄）</label><input id="vTo" type="date"></div>
@@ -4595,18 +4596,31 @@
   });
   $('vPrint').addEventListener('click', function () { doPrint(); });
   // 日期快速鍵：本週／下週／下下週（星期一到星期五）
+  // 星期一、二／星期三、四、五：跟送貨組別一樣分兩批；再按一次同一個＝整週
+  var vDays = '';
   function setVendorWeek(n) {
     var t = new Date(), mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() - (t.getDay() + 6) % 7 + 7 * n);
-    $('vFrom').value = isoDate(mon); $('vTo').value = isoDate(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4));
-    Array.prototype.forEach.call($('vWeeks').querySelectorAll('button'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-vw')) === n); });
+    var a = vDays === '345' ? 2 : 0, z = vDays === '12' ? 1 : 4;
+    $('vFrom').value = isoDate(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + a)); $('vTo').value = isoDate(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + z));
+    Array.prototype.forEach.call($('vWeeks').querySelectorAll('button'), function (b) {
+      b.classList.toggle('on', b.hasAttribute('data-vw') ? Number(b.getAttribute('data-vw')) === n : b.getAttribute('data-vd') === vDays);
+    });
+  }
+  // 起日在哪一週（本週＝0）；沒填就用本週
+  function vendorWeekOfFrom() {
+    var d = parseDate($('vFrom').value), t = new Date();
+    if (!d) return 0;
+    var mon = function (x) { return new Date(x.getFullYear(), x.getMonth(), x.getDate() - (x.getDay() + 6) % 7); };
+    return Math.round((mon(d) - mon(t)) / (7 * 86400000));
   }
   $('vWeeks').addEventListener('click', function (e) {
-    var b = e.target.closest('button[data-vw]');
+    var b = e.target.closest('button[data-vw], button[data-vd]');
     if (!b) return;
-    setVendorWeek(Number(b.getAttribute('data-vw')));
+    if (b.hasAttribute('data-vd')) { var d = b.getAttribute('data-vd'); vDays = vDays === d ? '' : d; setVendorWeek(vendorWeekOfFrom()); }
+    else setVendorWeek(Number(b.getAttribute('data-vw')));
     if ($('vendorSheets').innerHTML) $('vLoad').click();
   });
-  ['vFrom', 'vTo'].forEach(function (id) { $(id).addEventListener('change', function () { Array.prototype.forEach.call($('vWeeks').querySelectorAll('button'), function (b) { b.classList.remove('on'); }); }); });
+  ['vFrom', 'vTo'].forEach(function (id) { $(id).addEventListener('change', function () { vDays = ''; Array.prototype.forEach.call($('vWeeks').querySelectorAll('button'), function (b) { b.classList.remove('on'); }); }); });
   // ①②③④ 步驟按鈕：點一下就產生
   function syncSteps() {
     Array.prototype.forEach.call($('vSteps').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-vk') === $('vKind').value && !!$('vendorSheets').innerHTML); });
