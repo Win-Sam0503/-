@@ -410,7 +410,10 @@
   #toTop { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; width: 48px; height: 48px; border-radius: 50%; border: 0;
     background: var(--brand); color: #fff; font-size: 22px; line-height: 48px; text-align: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: opacity .2s, transform .2s; }
   #toTop.off { opacity: 0; pointer-events: none; transform: translateY(10px); }
-  @media print { #toTop { display: none !important; } }
+  @media print { #toTop, .ask-back, .toast, #printHelp, #unitPop { display: none !important; } }
+  #printHelp { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 1002; background: #1d2939; color: #fff; padding: 10px 14px; border-radius: 12px;
+    display: flex; gap: 10px; align-items: center; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 14px; max-width: calc(100vw - 32px); }
+  #printHelp button { white-space: nowrap; }
   #watermark { position: fixed; inset: 0; pointer-events: none; z-index: 40; background-repeat: repeat; }
   .mode-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 14px; }
   .tot { font-size: 12px; color: var(--info); margin-top: 2px; white-space: nowrap; }
@@ -628,6 +631,9 @@
     .vedit input, .vedit select { border: 0 !important; background: none !important; padding: 0 !important; -webkit-appearance: none; appearance: none; color: #000; }
     .vedit .ptable table { min-width: 0; }
     .vpage col.noprint-col { width: 0 !important; }
+    @supports (-webkit-touch-callout: none) {   /* 只有 iPhone、iPad：Safari 不管 break-inside，改成 inline-block 一定整塊印在同一頁 */
+      .vpage .bblk { display: inline-block; width: 100%; vertical-align: top; }
+    }
     .tablewrap, .vedit .ptot-wrap { overflow: visible !important; max-height: none !important; }   /* 平板、手機列印時，可左右捲動的框會把表格右邊切掉 */
     .vpage table { width: 100% !important; min-width: 0 !important; }
     #vendorSheets.vp-sum .vedit .vpart-detail, #vendorSheets.vp-detail .vedit .vpart-sum { display: none; }
@@ -1366,11 +1372,15 @@
   function doPrint() {
     printShown = false;
     try { window.print(); } catch (e) {}
+    // iPad 會跳出列印但不通知網頁，所以不能用會擋住畫面的視窗（會被印進去）；改成下面一條小提示，列印時不會印出來
     setTimeout(function () {
-      if (printShown) return;
-      ask('', '開新視窗列印', { noText: '取消', html: '<div class="info-check"><h3>🖨 列印視窗沒有跳出來？</h3>' +
-        '<div class="muted small">手機、平板（iPhone、iPad）或 LINE 裡打開時，瀏覽器會擋住網頁裡的列印。<br>按「開新視窗列印」，會在新視窗打開要印的內容並跳出列印。<br>' +
-        '還是不行的話，請用電腦，或在 Safari／Chrome（不要在 LINE 裡）打開訂貨系統。</div></div>' }).then(function (ok) { if (ok) printInWindow(); });
+      if (printShown || $('printHelp')) return;
+      document.body.insertAdjacentHTML('beforeend', '<div id="printHelp" class="noprint"><span>列印視窗沒跳出來？</span>' +
+        '<button type="button" class="btn small" id="phGo">開新視窗列印</button><button type="button" class="btn ghost small" id="phX" style="color:#fff">✕</button></div>');
+      var close = function () { var h = $('printHelp'); if (h) h.remove(); };
+      $('phGo').onclick = function () { close(); printInWindow(); };
+      $('phX').onclick = close;
+      setTimeout(close, 12000);
     }, 1500);
   }
   function printInWindow() {
