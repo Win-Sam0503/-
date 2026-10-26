@@ -565,6 +565,9 @@
   .padd-form select, .padd-form input { width: auto; }
   .vpage .dsum { margin-bottom: 8px; }
   .vpage tr.vfirst td { border-top: 2.5px solid #000; }
+  .vpage table.btbl { table-layout: fixed; }
+  .vpage .bblk { break-inside: avoid; page-break-inside: avoid; }
+  .vpage .bblk table.btbl { margin-top: -1px; }
   .vpage tr { page-break-inside: avoid; }
   .unit-input.invalid, .num-input.invalid { border-color: var(--bad); background: var(--bad-soft); }
   .unit-pop {
@@ -624,6 +627,7 @@
     .vpage:last-child { page-break-after: auto; }
     .vedit input, .vedit select { border: 0 !important; background: none !important; padding: 0 !important; -webkit-appearance: none; appearance: none; color: #000; }
     .vedit .ptable table { min-width: 0; }
+    .vpage col.noprint-col { width: 0 !important; }
     .tablewrap, .vedit .ptot-wrap { overflow: visible !important; max-height: none !important; }   /* 平板、手機列印時，可左右捲動的框會把表格右邊切掉 */
     .vpage table { width: 100% !important; min-width: 0 !important; }
     #vendorSheets.vp-sum .vedit .vpart-detail, #vendorSheets.vp-detail .vedit .vpart-sum { display: none; }
@@ -4779,15 +4783,28 @@
       keys.push({ key: key, cont: k >= BLOCK_ROWS });
       span[key] = (span[key] || 0) + 1;
     });
-    return '<table><thead><tr><th style="width:10%">日期</th><th style="width:10%">班級</th><th style="width:10%">老師</th>' + head + '</tr></thead><tbody>' +
-      list.map(function (r, i) {
-        var first = i === 0 || keys[i - 1].key !== keys[i].key, cont = keys[i].cont ? '<div class="small muted">（續）</div>' : '';
-        var rs = ' class="vm" rowspan="' + span[keys[i].key] + '"';
-        return '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-          (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? ' <b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
-          cells(r) + '</tr>';
-      }).join('') + '</tbody></table>';
+    // 每一段（同一班）是一個獨立的小表格，外面包 div 設「不要在中間換頁」：
+    // iPhone、iPad 的 Safari 列印不管合併儲存格，會把一班切成兩頁、下一頁左邊三欄空白；包成一塊就會整塊移到下一頁
+    // 欄寬用同一組 colgroup，標題表和每一段的欄位才對得齊
+    var ths = head.match(/<th\b[^>]*>/g) || [];
+    var cols = '<colgroup><col style="width:10%"><col style="width:10%"><col style="width:10%">' + ths.map(function (t) {
+      var w = t.match(/width:\s*([\d.]+%)/), np = /noprint/.test(t);
+      return '<col' + (w ? ' style="width:' + w[1] + '"' : '') + (np ? ' class="noprint-col"' : '') + '>';
+    }).join('') + '</colgroup>';
+    var html = '<table class="btbl bhead">' + cols + '<thead><tr><th>日期</th><th>班級</th><th>老師</th>' + head + '</tr></thead></table>';
+    var open = false;
+    list.forEach(function (r, i) {
+      var first = i === 0 || keys[i - 1].key !== keys[i].key, cont = keys[i].cont ? '<div class="small muted">（續）</div>' : '';
+      if (first) { if (open) html += '</tbody></table></div>'; html += '<div class="bblk"><table class="btbl">' + cols + '<tbody>'; open = true; }
+      var rs = ' class="vm" rowspan="' + span[keys[i].key] + '"';
+      html += '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
+        (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? ' <b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+        cells(r) + '</tr>';
+    });
+    if (open) html += '</tbody></table></div>';
+    return html;
   }
+
 
   // 扣貨單：合計（旁邊空白給學生寫實際叫貨）和各班明細（寫實際叫貨）分開成不同頁，「列印內容」選要印哪一種；最後留補庫存空白列
   function deductSheets(rows, from, to, only) {
