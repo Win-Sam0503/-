@@ -1354,6 +1354,39 @@
     el.innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : '';
   }
   // 網頁內的確認視窗：回傳 Promise<boolean>
+  // 列印：iPhone、iPad、LINE 內建瀏覽器常常擋住網頁裡的列印（按了沒反應）。
+  // 1.5 秒內列印視窗沒跳出來，就問要不要「開新視窗列印」（把目前畫面複製到新視窗再印）
+  var printShown = false;
+  window.addEventListener('beforeprint', function () { printShown = true; });
+  function doPrint() {
+    printShown = false;
+    try { window.print(); } catch (e) {}
+    setTimeout(function () {
+      if (printShown) return;
+      ask('', '開新視窗列印', { noText: '取消', html: '<div class="info-check"><h3>🖨 列印視窗沒有跳出來？</h3>' +
+        '<div class="muted small">手機、平板（iPhone、iPad）或 LINE 裡打開時，瀏覽器會擋住網頁裡的列印。<br>按「開新視窗列印」，會在新視窗打開要印的內容並跳出列印。<br>' +
+        '還是不行的話，請用電腦，或在 Safari／Chrome（不要在 LINE 裡）打開訂貨系統。</div></div>' }).then(function (ok) { if (ok) printInWindow(); });
+    }, 1500);
+  }
+  function printInWindow() {
+    var sec = document.querySelector('main > section:not(.hidden)');
+    if (!sec) return;
+    // 輸入框打的字要寫回屬性，複製過去才看得到
+    Array.prototype.forEach.call(sec.querySelectorAll('input, textarea, select'), function (el) {
+      if (el.tagName === 'SELECT') Array.prototype.forEach.call(el.options, function (o) { if (o.selected) o.setAttribute('selected', ''); else o.removeAttribute('selected'); });
+      else if (el.type === 'checkbox' || el.type === 'radio') { if (el.checked) el.setAttribute('checked', ''); else el.removeAttribute('checked'); }
+      else if (el.tagName === 'TEXTAREA') el.textContent = el.value;
+      else el.setAttribute('value', el.value);
+    });
+    var w = window.open('', '_blank');
+    if (!w) { notice('新視窗被瀏覽器擋住了，請允許「彈出式視窗」後再試一次，或改用電腦列印。'); return; }
+    var styles = Array.prototype.map.call(document.querySelectorAll('style, link[rel="stylesheet"]'), function (x) { return x.outerHTML; }).join('');
+    w.document.open();
+    w.document.write('<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>列印</title>' + styles +
+      '<style>.noprint{display:none!important}body{background:#fff;margin:0;padding:8px}</style></head><body><main>' + sec.outerHTML + '</main>' +
+      '<script>setTimeout(function(){window.print();},600);<\/script></body></html>');
+    w.document.close();
+  }
   function ask(text, yesText, opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
@@ -3134,7 +3167,7 @@
     if (open) { issLoad(); $('issPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   });
   $('issClose').addEventListener('click', function () { $('issPanel').classList.add('hidden'); });
-  $('issPrint').addEventListener('click', function () { $('viewSummary').classList.add('print-iss'); window.print(); });
+  $('issPrint').addEventListener('click', function () { $('viewSummary').classList.add('print-iss'); doPrint(); });
   window.addEventListener('afterprint', function () { $('viewSummary').classList.remove('print-iss'); });
   ['issFrom', 'issTo'].forEach(function (id) { $(id).addEventListener('change', issLoad); });
   $('issUndone').addEventListener('change', issRender);
@@ -3214,7 +3247,7 @@
     $('erBody').innerHTML = editReportHtml(sumBase || [], $('sTeacher').value, $('sFrom').value, $('sTo').value || $('sFrom').value);
     show('viewEditReport');
   });
-  $('erPrint').addEventListener('click', function () { window.print(); });
+  $('erPrint').addEventListener('click', function () { doPrint(); });
   $('erBack').addEventListener('click', function () { show('viewSummary'); });
   $('sumOrders').addEventListener('click', function (e) {
     var bk = e.target.closest('button[data-bulk]');
@@ -4249,7 +4282,7 @@
     }).catch(function (err) { notice('列印紀錄沒有存到：' + err.message); });
   }
   window.addEventListener('beforeprint', markPrinted);
-  $('pPrint').addEventListener('click', function () { markPrinted(); window.print(); });
+  $('pPrint').addEventListener('click', function () { markPrinted(); doPrint(); });
   $('pBack').addEventListener('click', function () {
     // 從「我的訂單」來的就不重新載入；從「送出成功」來的要載入
     keepMine = printBack === 'viewMine' && $('mineList').children.length > 0;
@@ -4555,7 +4588,7 @@
     }).catch(function (e) { msg('vendorMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
   });
-  $('vPrint').addEventListener('click', function () { window.print(); });
+  $('vPrint').addEventListener('click', function () { doPrint(); });
   // 日期快速鍵：本週／下週／下下週（星期一到星期五）
   function setVendorWeek(n) {
     var t = new Date(), mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() - (t.getDay() + 6) % 7 + 7 * n);
@@ -5369,7 +5402,7 @@
   }
   $('auHistLoad').addEventListener('click', auditHistory);
   ['auFrom', 'auTo'].forEach(function (id) { $(id).addEventListener('change', auditHistory); });
-  $('auHistPrint').addEventListener('click', function () { window.print(); });
+  $('auHistPrint').addEventListener('click', function () { doPrint(); });
   // 「已抽查」空白貼紙：一張 A4（標籤紙跟分班標籤同一種），現場手寫日期時間、勾結果、蓋職章
   $('auStkLayout').addEventListener('change', function () { setLabelPrefs({ layout: this.value }); });
   $('auStickers').addEventListener('click', function () {
@@ -5379,7 +5412,7 @@
     for (var i = 0; i < L.c * L.r; i++) cells.push(cell);
     $('auPrint').innerHTML = '<div class="lblpage lines" style="grid-template-columns:repeat(' + L.c + ',1fr);grid-template-rows:repeat(' + L.r + ',1fr);--lf:4mm">' + cells.join('') + '</div>';
     $('viewAudit').classList.add('stk');
-    window.print();
+    doPrint();
   });
   window.addEventListener('afterprint', function () { $('viewAudit').classList.remove('stk'); });
 
@@ -7911,7 +7944,7 @@
   });
   $('gridPrint').addEventListener('click', function () {
     if (!gridData.week) { notice('課表還沒載入完成。'); return; }
-    window.print();
+    doPrint();
   });
   $('gridTeacher').addEventListener('change', drawGrid);
   $('gridShowOff').addEventListener('change', drawGrid);
