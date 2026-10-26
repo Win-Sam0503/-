@@ -633,6 +633,9 @@
     .vpage col.noprint-col { width: 0 !important; }
     @supports (-webkit-touch-callout: none) {   /* 只有 iPhone、iPad：Safari 不管 break-inside，改成 inline-block 一定整塊印在同一頁 */
       .vpage .bblk { display: inline-block; width: 100%; vertical-align: top; }
+      /* iPhone、iPad 不管 @page 的邊界，自己留比較寬的邊（還加網址、日期），可印範圍大約只有 172×249 mm；
+         請料單是固定 190×277 mm，照原尺寸會被切掉，縮成 88% 剛好放得下 */
+      .sheet { zoom: 0.88; }
     }
     .tablewrap, .vedit .ptot-wrap { overflow: visible !important; max-height: none !important; }   /* 平板、手機列印時，可左右捲動的框會把表格右邊切掉 */
     .vpage table { width: 100% !important; min-width: 0 !important; }
