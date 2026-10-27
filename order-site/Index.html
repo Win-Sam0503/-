@@ -621,7 +621,7 @@
   .sheet.teacher .boxes .bt td { font-size: 12.5pt; text-align: center; height: 8mm; border-width: 1.5px; }
   .sheet.teacher .extra { margin: 5mm 6mm 0; font-size: 10.5pt; white-space: normal; }
 
-  @page { size: A4 portrait; margin: 10mm; }
+  @page { size: A4 portrait; margin: 8mm 10mm; }   /* 上下 8mm：可印高度 281mm，請料單 277mm 有一點餘裕，不會擠到第二頁 */
   @media print {
     body { background: #fff; }
     #viewLogin, #app > header, .noprint, #globalMsg, #watermark, .copyright { display: none !important; }
@@ -647,7 +647,8 @@
     .vedit .p-diff, .vedit .p-zero, .vedit .p-add { background: none !important; color: #000; }
     main { padding: 0 !important; max-width: none !important; }
     .print-scroll { overflow: visible; padding: 0; }
-    .sheet { box-shadow: none; margin: 0; page-break-after: always; break-after: page; }
+    .sheet { box-shadow: none; margin: 0; page-break-after: always; break-after: page; break-inside: avoid; page-break-inside: avoid; }
+    .print-scroll .sheet + .sheet { margin-top: 0 !important; }   /* 畫面上兩張中間的空隙，列印時拿掉，不然每張都多出一點擠到下一頁 */
     .lblpage { page: labels; box-shadow: none; margin: 0; break-after: page; }
     .lblpage:last-child { break-after: auto; }
     .sheet:last-child { page-break-after: auto; break-after: auto; }
