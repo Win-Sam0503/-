@@ -114,6 +114,20 @@
   .slipt input { width: 100%; min-width: 56px; padding: 6px; font: inherit; font-size: 16px; }
   .slipt td.w1 { width: 72px; } .slipt td.w2 { width: 90px; }
   .slipt .sn { font-size: 13px; }
+  /* 快速核對：拿到哪張單就點哪一項（不用照順序翻） */
+  .qk { position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 12px; overflow-y: auto; }
+  .qk .qp { background: #fff; border-radius: 14px; padding: 14px; width: 100%; max-width: 820px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  .qk .qtop { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; position: sticky; top: -12px; background: #fff; padding: 4px 0 8px; z-index: 1; }
+  .qk #qkQ { flex: 1 1 100%; min-width: 160px; font-size: 20px; padding: 10px 12px; }
+  .qwall { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-top: 8px; }
+  .qwall button { border: 2px solid var(--line); background: #fff; border-radius: 12px; padding: 12px 8px; font: inherit; cursor: pointer; text-align: center; color: inherit; }
+  .qwall button b { display: block; font-size: 20px; } .qwall button span { font-size: 13px; color: var(--muted); }
+  .qwall button.done { border-color: #12b76a; background: #ecfdf3; } .qwall button.done span { color: #027a48; font-weight: 700; }
+  .qedit { border: 2px solid var(--brand); border-radius: 12px; padding: 12px; margin-top: 8px; background: #fffbea; }
+  .qedit .qn { font-size: 26px; font-weight: 800; } .qedit .qf { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: flex-end; }
+  .qedit label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); flex: 1 1 90px; }
+  .qedit input { font-size: 18px; padding: 8px; width: 100%; box-sizing: border-box; } .qedit #qkA { font-size: 26px; font-weight: 700; }
+  .qsum { position: sticky; bottom: -12px; background: #fff; border-top: 1px solid var(--line); margin-top: 10px; padding: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .badge.warn { background: var(--warnbg); color: var(--warn); }
   .slipwrap { overflow-x: auto; }
   @media (max-width: 600px) { body { font-size: 16px; } .card b { font-size: 17px; } }
@@ -180,6 +194,7 @@
           <div class="row"><b>💰 銷貨單金額</b>
             <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
             <button type="button" class="btn ghost small" id="slipManual">手動填</button>
+            <button type="button" class="btn small" id="slipQuick" title="一品一張銷貨單（例如菜商）：拿到哪張點哪一項">⚡ 快速核對</button>
             <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
           <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
           <div id="slipBox"></div>
@@ -236,6 +251,15 @@
   </section>
 </main>
 <footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
+<div id="qk" class="qk hidden"><div class="qp">
+  <div class="qtop"><b style="font-size:18px">⚡ 快速核對</b><span id="qkCount" class="muted"></span><span style="flex:1"></span><button type="button" class="btn small" id="qkClose">完成，回到金額表</button>
+    <input id="qkQ" type="search" placeholder="🔍 打品名找，例如「香」" autocomplete="off"></div>
+  <div class="muted small">手上拿到哪一張銷貨單，就點那一項（或打字找），輸入金額按「確定」（或 Enter）。核對好的變綠色排到後面，點它可以再改。</div>
+  <div id="qkEdit"></div>
+  <div id="qkWall" class="qwall"></div>
+  <div style="margin-top:8px"><button type="button" class="btn ghost small" id="qkExtra">＋ 單上有、叫貨單沒有的（例如運費）</button></div>
+  <div class="qsum"><span id="qkSum"></span><span style="flex:1"></span><label class="small" for="qkTotal">銷貨單合計（選填）</label><input id="qkTotal" inputmode="decimal" style="width:110px"></div>
+</div></div>
 <div id="watermark" aria-hidden="true"></div>
 <script>
 (function () {
@@ -766,7 +790,7 @@
         ' <span class="badge ' + (pv > lp.price ? 'bad' : 'ok') + '">' + (pv > lp.price ? '比上次貴' : '比上次便宜') + '（上次 $' + money(lp.price) + '）</span>' : '';
       var flag = r.partial ? '<span class="badge warn">⚠ 請確認品名</span>' : has && r.sure === false ? '<span class="badge warn">請確認數字</span>'
         : sl.ocr && !has ? '<span class="badge none">銷貨單上沒看到</span>' : '';
-      html += '<tr data-q="' + esc((n + ' ' + (r.slipName || '') + ' ' + (r.code || '')).toLowerCase()) + '"' + (r.pre ? ' style="background:#fffbea"' : '') + '><td><b>' + esc(n) + '</b> ' + flag + hint + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
+      html += '<tr data-q="' + esc((n + ' ' + (r.slipName || '') + ' ' + (r.code || '')).toLowerCase()) + '"' + (r.ok ? ' style="background:#ecfdf3"' : r.pre ? ' style="background:#fffbea"' : '') + '><td><b>' + esc(n) + '</b> ' + flag + hint + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
         '<td class="small">' + esc(expect[n].length > 3 ? expect[n].length + ' 筆' : expect[n].join('＋')) + '</td>' +
         ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('sn', n, f, r[f]); }).join('') + '</tr>';
     });
@@ -839,6 +863,98 @@
     });
     $('slipMsg').textContent = n0 ? '已先帶入叫貨數量' + (Object.keys(cur.b.prices || {}).length ? '和單價表的價格' : '') + '（淡黃色），請對照收據改不一樣的地方。' : '';
     renderSlip(); saveDraft();
+  });
+  // ---------- 快速核對：一品一張的銷貨單（菜商），拿到哪張點哪一項 ----------
+  var qkCur = null;   // 正在填的品名；'+extra' ＝ 叫貨單沒有的
+  function qkOpen() {
+    if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] };
+    slipNames().forEach(function (n) { var r = cur.slip.rows[n]; if (!r || (r.qty === '' && r.amount === '')) cur.slip.rows[n] = prefill(n); });
+    qkCur = null; $('qkQ').value = ''; $('qkTotal').value = cur.slip.total === undefined ? '' : cur.slip.total;
+    $('qk').classList.remove('hidden'); document.body.style.overflow = 'hidden';
+    qkRender();
+  }
+  function qkClose() {
+    $('qk').classList.add('hidden'); document.body.style.overflow = '';
+    qkCur = null; renderSlip(); saveDraft();
+    var n = slipNames().filter(function (x) { return cur.slip.rows[x] && cur.slip.rows[x].ok; }).length;
+    $('slipMsg').textContent = n === slipNames().length ? '快速核對：全部 ' + n + ' 項都核對好了（綠色）。' : '快速核對：' + n + '／' + slipNames().length + ' 項已核對（綠色），其他還是預先帶入的金額（淡黃色），請確認。';
+  }
+  function qkExpect(n) { return cur.b.lines.filter(function (x) { return x.name === n; }).map(function (x) { return x.expect; }); }
+  function qkRender() {
+    var sl = cur.slip, q = $('qkQ').value.trim().toLowerCase(), names = slipNames().slice().sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+    var hit = function (n) { var r = sl.rows[n] || {}; return !q || (n + ' ' + (r.slipName || '')).toLowerCase().indexOf(q) >= 0; };
+    var todo = names.filter(function (n) { return !(sl.rows[n] && sl.rows[n].ok) && hit(n); }), done = names.filter(function (n) { return sl.rows[n] && sl.rows[n].ok && hit(n); });
+    var ex = qkExpect;
+    $('qkWall').innerHTML = todo.map(function (n) { var e = ex(n); return '<button type="button" data-qk="' + esc(n) + '"><b>' + esc(n) + '</b><span>' + esc(e.length > 2 ? e.length + ' 筆' : e.join('＋')) + '</span></button>'; }).join('') +
+      done.map(function (n) { return '<button type="button" class="done" data-qk="' + esc(n) + '"><b>' + esc(n) + '</b><span>✓ $' + money(numv(sl.rows[n].amount) || 0) + '</span></button>'; }).join('') +
+      (!todo.length && !done.length ? '<div class="muted">找不到「' + esc(q) + '」。叫貨單沒有的請按下面「＋ 單上有、叫貨單沒有的」。</div>' : '');
+    var nOk = names.filter(function (n) { return sl.rows[n] && sl.rows[n].ok; }).length;
+    $('qkCount').textContent = '已核對 ' + nOk + '／' + names.length;
+    var s = slipSum(), t = numv(sl.total);
+    $('qkSum').innerHTML = '金額加總 <b>$' + money(s.sum) + '</b>' + (t !== null ? (Math.abs(t - s.sum) < 1 ? ' <span class="badge ok">✓ 跟合計一樣</span>' : ' <span class="badge bad">' + (t > s.sum ? '比合計少 $' : '比合計多 $') + money(Math.abs(r2(t - s.sum))) + '</span>') : '') +
+      (nOk < names.length ? ' <span class="muted small">（還沒核對的用預先帶入的金額算）</span>' : '');
+    qkEditBox();
+  }
+  function qkEditBox() {
+    if (!qkCur) { $('qkEdit').innerHTML = ''; return; }
+    var extra = qkCur === '+extra', r = extra ? { slipName: '', qty: '', unit: '', price: '', amount: '' } : cur.slip.rows[qkCur] || prefill(qkCur);
+    var lp = extra ? null : (cur.b.prices || {})[qkCur];
+    $('qkEdit').innerHTML = '<div class="qedit"><div class="row" style="justify-content:space-between"><span class="qn">' + (extra ? '叫貨單沒有的' : esc(qkCur)) + '</span>' +
+      (extra ? '' : '<span class="muted">叫貨 ' + esc(qkExpect(qkCur).join('＋')) + (lp ? '・上次 $' + money(lp.price) + '／' + esc(lp.unit) : '') + '</span>') + '</div>' +
+      '<div class="qf">' + (extra ? '<label>品名<input id="qkN" placeholder="例如：運費"></label>' : '') +
+      '<label>數量<input id="qkQty" inputmode="decimal" value="' + esc(r.qty === undefined ? '' : String(r.qty)) + '"></label>' +
+      '<label>單位<input id="qkU" value="' + esc(r.unit || '') + '" style="max-width:90px"></label>' +
+      '<label>單價<input id="qkP" inputmode="decimal" value="' + esc(r.price === undefined ? '' : String(r.price)) + '"></label>' +
+      '<label style="flex:2 1 140px">金額（銷貨單上的）<input id="qkA" inputmode="decimal" value="' + esc(r.amount === undefined ? '' : String(r.amount)) + '"></label></div>' +
+      '<div class="row" style="margin-top:10px"><button type="button" class="btn" id="qkOk">✓ 確定</button><button type="button" class="btn ghost small" id="qkCancel">取消</button>' +
+      (!extra && r.ok ? '<button type="button" class="btn ghost small" id="qkUndo">改回還沒核對</button>' : '') + '</div></div>';
+    var a = extra ? $('qkN') : $('qkA');
+    a.focus(); try { a.select(); } catch (e) {}
+    $('qkEdit').scrollIntoView({ block: 'nearest' });
+  }
+  function qkSave() {
+    var qty = $('qkQty').value.trim(), pr = $('qkP').value.trim(), am = $('qkA').value.trim(), unit = $('qkU').value.trim();
+    var qn = numv(qty), pn = numv(pr), an = numv(am);
+    if (an === null && qn !== null && pn !== null) { an = r2(qn * pn); am = String(an); }
+    if (an === null) { $('qkA').focus(); $('qkA').placeholder = '請填金額'; return; }
+    if (qn) pr = String(r2(an / qn));
+    if (qkCur === '+extra') {
+      var nm = $('qkN').value.trim();
+      if (!nm) { $('qkN').focus(); $('qkN').placeholder = '請填品名'; return; }
+      cur.slip.extras.push({ slipName: nm, qty: qty, unit: unit, price: qn ? pr : '', amount: am, map: '+' });
+    } else {
+      var o = cur.slip.rows[qkCur] = cur.slip.rows[qkCur] || {};
+      o.qty = qty; o.unit = unit; o.price = pr; o.amount = am; o.sure = true; o.partial = false; o.ok = true; delete o.pre;
+    }
+    var hadQ = !!$('qkQ').value;
+    qkCur = null; $('qkQ').value = ''; saveDraft(); qkRender();
+    if (hadQ) $('qkQ').focus();
+  }
+  $('slipQuick').addEventListener('click', qkOpen);
+  $('qkClose').addEventListener('click', qkClose);
+  $('qkQ').addEventListener('input', function (e) { if (!e.isComposing) qkRender(); });
+  $('qkQ').addEventListener('compositionend', qkRender);
+  // 搜尋只剩一項時按 Enter 直接打開它
+  $('qkQ').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    var b = $('qkWall').querySelectorAll('button[data-qk]:not(.done)');
+    if (b.length === 1) { e.preventDefault(); qkCur = b[0].getAttribute('data-qk'); qkEditBox(); }
+  });
+  $('qkTotal').addEventListener('input', function () { cur.slip.total = this.value; qkRender(); saveDraft(); });
+  $('qkExtra').addEventListener('click', function () { qkCur = '+extra'; qkEditBox(); });
+  $('qk').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-qk]');
+    if (b) { qkCur = b.getAttribute('data-qk'); qkEditBox(); return; }
+    if (e.target.id === 'qkOk') { qkSave(); return; }
+    if (e.target.id === 'qkCancel') { qkCur = null; qkEditBox(); return; }
+    if (e.target.id === 'qkUndo') { var o = cur.slip.rows[qkCur]; if (o) delete o.ok; qkCur = null; saveDraft(); qkRender(); }
+  });
+  $('qk').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing && e.target.closest('.qedit')) { e.preventDefault(); qkSave(); } });
+  // 改數量／單價就重算金額
+  $('qk').addEventListener('input', function (e) {
+    if (e.target.id !== 'qkQty' && e.target.id !== 'qkP') return;
+    var q = numv($('qkQty').value), p = numv($('qkP').value);
+    if (q !== null && p !== null) $('qkA').value = r2(q * p);
   });
   $('slipRead').addEventListener('click', function () {
     if (!cur.photos.length) { $('slipMsg').textContent = '請先按「📷 拍銷貨單」。'; return; }
