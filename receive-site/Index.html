@@ -53,6 +53,11 @@
   .bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 -16px -16px; border-radius: 0 0 14px 14px; }
   .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
+  .mgroup { padding: 8px 0; border-top: 1px solid var(--line); }
+  .mthumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .mthumb { display: block; width: 130px; text-decoration: none; color: inherit; }
+  .mthumb img, .mthumb > span { display: flex; align-items: center; justify-content: center; width: 130px; height: 130px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #f2f4f7; }
+  .mthumb .small { margin-top: 2px; line-height: 1.3; word-break: break-all; }
   .hidden { display: none !important; }
   #sigPad { display: block; width: 100%; height: 180px; background: #fff; border: 2px dashed var(--line); border-radius: 12px; touch-action: none; margin-top: 8px; }
   #sigPad.signed { border-style: solid; border-color: var(--ok); }
@@ -421,7 +426,7 @@
     if (!f || !k) return;
     var x = cur.b.lines.filter(function (y) { return y.key === k; })[0], btn = document.querySelector('[data-k="' + CSS.escape(k) + '"] [data-ph]');
     if (btn) { btn.disabled = true; btn.textContent = '上傳中…'; }
-    shrink(f).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
+    shrink(f, true).then(function (b64) { return uploadRetry(b64, week.from, cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
       .then(function (r) { var m = cur.marks[k] = cur.marks[k] || {}; (m.photos = m.photos || []).push(r.url); renderDo(); saveDraft(); })
       .catch(function (err) { msg('doMsg', 'error', '照片上傳失敗：' + err.message); if (btn) { btn.disabled = false; btn.textContent = '📷 拍照'; } });
   });
@@ -456,22 +461,35 @@
   function renderThumbs() {
     $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　');
   }
-  function shrink(file) {
+  // 照片先在平板上縮小再上傳：長邊 1600、品質 0.75（約 200～400KB，字還看得清楚；原本 2000／0.82 約 1MB，網路慢會一直轉圈）
+  // noRot：品項問題照、發票照不套用「銷貨單轉向」
+  function shrink(file, noRot) {
     return new Promise(function (resolve, reject) {
       var img = new Image(), url = URL.createObjectURL(file);
       img.onload = function () {
-        var s = Math.min(1, 2000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
-        var w = Math.round(img.width * s), h = Math.round(img.height * s), rot = Number($('photoRot').value) || 0, side = rot === 90 || rot === 270;
+        var s = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        var w = Math.round(img.width * s), h = Math.round(img.height * s), rot = noRot ? 0 : Number($('photoRot').value) || 0, side = rot === 90 || rot === 270;
         c.width = side ? h : w; c.height = side ? w : h;
         var g = c.getContext('2d');
         g.translate(c.width / 2, c.height / 2); g.rotate(rot * Math.PI / 180);
         g.drawImage(img, -w / 2, -h / 2, w, h);
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
+        resolve(c.toDataURL('image/jpeg', 0.75).split(',')[1]);
       };
       img.onerror = function () { reject(new Error('照片讀不到，請再拍一次。')); };
       img.src = url;
     });
+  }
+  // 上傳失敗（網路不穩）自動再試 2 次，間隔 2、4 秒
+  function uploadRetry(b64, from, vendor, what) {
+    var tries = 0;
+    var go = function () {
+      return call('uploadPhoto', b64, 'image/jpeg', from, vendor, what).catch(function (e) {
+        if (++tries > 2) throw e;
+        return new Promise(function (r) { setTimeout(r, 2000 * tries); }).then(go);
+      });
+    };
+    return go();
   }
   try { $('photoRot').value = localStorage.getItem('rcvRot') || '0'; } catch (e) {}
   $('photoRot').addEventListener('change', function () { try { localStorage.setItem('rcvRot', this.value); } catch (e) {} });
@@ -479,12 +497,18 @@
     var files = Array.prototype.slice.call(this.files || []);
     this.value = '';
     if (!files.length) return;
-    $('photoMsg').textContent = '上傳中…（' + files.length + ' 張）';
-    files.reduce(function (p, f) {
-      return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', week.from, cur.b.vendor); })
-        .then(function (r) { cur.photos.push(r.url); renderThumbs(); saveDraft(); });
-    }, Promise.resolve()).then(function () { $('photoMsg').textContent = '已上傳，按「完成驗收」才會跟這次驗收存在一起。'; })
-      .catch(function (e) { $('photoMsg').textContent = '上傳失敗：' + e.message; });
+    var ok = 0, bad = 0;
+    $('photoMsg').textContent = '上傳中… 0／' + files.length + ' 張';
+    files.reduce(function (p, f, i) {
+      return p.then(function () {
+        $('photoMsg').textContent = '上傳中… 第 ' + (i + 1) + '／' + files.length + ' 張';
+        return shrink(f).then(function (b64) { return uploadRetry(b64, week.from, cur.b.vendor); })
+          .then(function (r) { ok++; cur.photos.push(r.url); renderThumbs(); saveDraft(); })
+          .catch(function () { bad++; });   // 一張失敗，其他張照樣傳
+      });
+    }, Promise.resolve()).then(function () {
+      $('photoMsg').textContent = bad ? '上傳好 ' + ok + ' 張，' + bad + ' 張失敗（網路不穩），請再拍一次那幾張。' : '已上傳 ' + ok + ' 張，按「完成驗收」才會跟這次驗收存在一起。';
+    });
   });
 
   $('doHold').addEventListener('click', function () {
@@ -722,6 +746,27 @@
       renderMonth();
     }).catch(function (e) { msg('monMsg', 'error', e.message); });
   }
+  // 雲端硬碟照片的縮圖（打不開就顯示文字連結）
+  function photoThumb(u, label) {
+    var id = (String(u).match(/\/d\/([\w-]+)/) || String(u).match(/[?&]id=([\w-]+)/) || [])[1];
+    return '<a href="' + esc(u) + '" target="_blank" class="mthumb" title="' + esc(label) + '">' +
+      (id ? '<img src="https://drive.google.com/thumbnail?id=' + esc(id) + '&sz=w400" alt="' + esc(label) + '" loading="lazy" onerror="this.outerHTML=\'<span>📄 開啟</span>\'">' : '<span>📄 開啟</span>') +
+      '<div class="small">' + esc(label) + '</div></a>';
+  }
+  function monPhotoCount(e) { return e.photos.length + e.itemPhotos.reduce(function (n, l) { return n + l.photos.length; }, 0); }
+  function monGalleryHtml() {
+    var html = '';
+    mon.entries.forEach(function (e) {
+      if (!monPhotoCount(e)) return;
+      html += '<div class="mgroup"><b>' + esc(mdw(e.date) + ' ' + e.label) + '</b>' +
+        (e.photos.length ? '<div class="small muted" style="margin-top:4px">銷貨單</div><div class="mthumbs">' + e.photos.map(function (u, i) { return photoThumb(u, '銷貨單 ' + (i + 1)); }).join('') + '</div>' : '') +
+        (e.itemPhotos.length ? '<div class="small muted" style="margin-top:4px">有問題的品項</div><div class="mthumbs">' + e.itemPhotos.map(function (l) {
+          return l.photos.map(function (u) { return photoThumb(u, l.name + (l.status ? '（' + l.status + '）' : '') + (l.note ? ' ' + l.note : '')); }).join('');
+        }).join('') + '</div>' : '') + '</div>';
+    });
+    if (monPhotos.length) html += '<div class="mgroup"><b>發票／對帳單</b><div class="mthumbs">' + monPhotos.map(function (u, i) { return photoThumb(u, '發票 ' + (i + 1)); }).join('') + '</div></div>';
+    return html || '<div class="muted">這個月這家廠商還沒有照片（驗收時拍的銷貨單、問題品項照片會出現在這裡）。</div>';
+  }
   function renderMonth() {
     var r = mon, sum = 0, est = 0, unchecked = 0, noPrice = 0;
     var html = '<div class="panel"><table><tr><th>送貨日期</th><th>叫貨單</th><th>金額</th></tr>';
@@ -732,10 +777,16 @@
         '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {
           return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">沒有單價</span>') +
             '</td><td>' + (x.amount === null ? '—' : '$' + money(x.amount)) + '</td></tr>';
-        }).join('') + '</table></details></td><td style="white-space:nowrap"><b>$' + money(e.amount) + '</b>' + (e.estimated ? ' <span class="badge none">估</span>' : '') + '</td></tr>';
+        }).join('') + '</table></details>' +
+        (monPhotoCount(e) ? '<button type="button" class="btn ghost small" data-mph="' + i + '" style="margin-top:4px">📷 照片 ' + monPhotoCount(e) + ' 張</button>' : '') +
+        '</td><td style="white-space:nowrap"><b>$' + money(e.amount) + '</b>' + (e.estimated ? ' <span class="badge none">估</span>' : '') + '</td></tr>';
     });
     if (!r.entries.length) html += '<tr><td colspan="3" class="muted">這個月沒有這家廠商的叫貨單。</td></tr>';
     sum = r2(sum);
+    var nPh = r.entries.reduce(function (n, e) { return n + monPhotoCount(e); }, 0) + monPhotos.length;
+    html = '<div class="panel"><div class="row" style="justify-content:space-between"><b>' + esc(r.vendor + ' ' + r.ym) + '</b>' +
+      '<button type="button" class="btn secondary small" id="monGalBtn">📷 查看照片明細（' + nPh + ' 張）</button></div>' +
+      '<div id="monGallery" class="hidden" style="margin-top:8px"></div></div>' + html;
     html += '</table><div style="margin-top:10px;font-size:18px">系統合計 <b>$' + money(sum) + '</b></div><div class="muted small">' +
       (est ? '其中 $' + money(r2(est)) + ' 是估算的。' : '') + (unchecked ? unchecked + ' 張還沒驗收（照叫貨量估）。' : '') +
       (noPrice ? noPrice + ' 項沒有單價，沒算進去（驗收時填銷貨單金額，或在「單價表」補價格）。' : '') + '</div>' +
@@ -766,12 +817,31 @@
     if (!files.length) return;
     $('monPhotoMsg').textContent = '上傳中…';
     files.reduce(function (p, f) {
-      return p.then(function () { return shrink(f); }).then(function (b64) { return call('uploadPhoto', b64, 'image/jpeg', mon.ym + '-01', mon.vendor + ' 月結發票'); })
+      return p.then(function () { return shrink(f, true); }).then(function (b64) { return uploadRetry(b64, mon.ym + '-01', mon.vendor + ' 月結發票'); })
         .then(function (r) { monPhotos.push(r.url); monThumbs(); });
     }, Promise.resolve()).then(function () { $('monPhotoMsg').textContent = '已上傳，按「確認對帳」才會存在一起。'; })
       .catch(function (err) { $('monPhotoMsg').textContent = '上傳失敗：' + err.message; });
   });
   $('monBox').addEventListener('click', function (e) {
+    var gb = e.target.closest('#monGalBtn, [data-mph]');
+    if (gb) {
+      var g = $('monGallery'), one = gb.getAttribute('data-mph');
+      if (one !== null) {   // 單一張叫貨單的照片：只列那一張
+        var keep = mon.entries, keepP = monPhotos;
+        mon.entries = [keep[Number(one)]]; monPhotos = [];
+        g.innerHTML = monGalleryHtml() + '<button type="button" class="btn ghost small" id="monGalAll" style="margin-top:6px">看這個月全部照片</button>';
+        mon.entries = keep; monPhotos = keepP;
+        g.classList.remove('hidden');
+      } else {
+        var open = g.classList.contains('hidden') || g.getAttribute('data-one');
+        g.innerHTML = monGalleryHtml();
+        g.classList.toggle('hidden', !open);
+      }
+      g.toggleAttribute('data-one', one !== null);
+      if (!g.classList.contains('hidden')) g.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (e.target.id === 'monGalAll') { $('monGallery').innerHTML = monGalleryHtml(); $('monGallery').removeAttribute('data-one'); return; }
     if (e.target.id !== 'monSave') return;
     var b = e.target;
     b.disabled = true;

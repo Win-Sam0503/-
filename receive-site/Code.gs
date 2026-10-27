@@ -586,6 +586,10 @@ function getMonth(vendor, ym) {
       // 點總量的（乾貨、蛋）一週只送一次：照第一天算在哪個月
       if (!b.perClass && dates[0] < ms) return;
       const e = { id: b.id, label: b.label, date: inMonth.map(function (r) { return r.date; }).sort()[0], checked: !!b.check, items: [], amount: 0, estimated: false, noPrice: [] };
+      // 照片明細：驗收時拍的銷貨單照片、有問題品項的照片
+      e.photos = b.check ? (b.check.photos || []) : [];
+      e.itemPhotos = b.check ? (b.check.lines || []).filter(function (l) { return l.photos && l.photos.length; })
+        .map(function (l) { return { name: (l.cls ? l.cls + ' ' : '') + l.name, status: l.status, note: l.note, photos: l.photos }; }) : [];
       const lineDate = {};
       b.lines.forEach(function (x) { lineDate[x.cls + '|' + x.name] = x.date || dates[0]; });
       if (b.check && b.check.slip && whole && b.check.amount > 0) {
