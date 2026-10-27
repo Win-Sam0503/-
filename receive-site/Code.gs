@@ -7,7 +7,7 @@
  * 亦不得提供予校外人士使用。違者將依法追究相關法律責任。
  *
  * 跟訂貨系統共用同一份試算表：讀「叫貨紀錄」（③ 叫貨單，已確定的），驗收結果寫進「驗收紀錄」「驗收明細」分頁。
- * 部署成網頁應用程式：執行身分「我」、存取權「只有我自己」（用你的 Google 帳號登入才打得開，不用另外的帳號密碼）。
+ * 部署成網頁應用程式：執行身分「我」。打開後要用訂貨系統的「管理者」帳號、密碼登入（跟訂貨系統同一組密碼）。
  */
 
 const SPREADSHEET_ID = '1qIQe4STafrhzQk4I7NLkZQxJGe5hozf0g04zvJ-qZ_I';   // 訂貨系統的試算表
@@ -26,8 +26,58 @@ const CHECK_STATUS = ['到齊', '少送', '沒送', '送錯', '多送', '品質�
 // 同一家廠商、送兩個地方：訂貨系統裡分開記（C烘焙蛋／C中餐蛋），驗收時合成一張，分「送烘焙教室」「送中餐教室」兩段
 const SITE_VENDORS = { 'C烘焙蛋': { base: 'C蛋商', site: '送烘焙教室' }, 'C中餐蛋': { base: 'C蛋商', site: '送中餐教室' } };
 
-/** 浮水印用：現在登入的 Google 帳號 */
-function whoAmI() { return Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || ''; }
+// ---------------------------------------------------------------------
+// 登入：用訂貨系統的帳號密碼（「帳號設定」分頁），只有管理者可以進來
+// ---------------------------------------------------------------------
+const ADMIN_ACCOUNTS = ['管理者'];          // 跟訂貨系統一樣：內建管理者＋「帳號設定」管理者欄打勾的
+const RCV_SESSION_HOURS = 12;               // 登入後幾小時內不用再登入（平板放著隔天要重登）
+const RCV_MAX_FAILS = 5, RCV_LOCK_MINUTES = 15;
+let CURRENT_USER_ = '';                      // 這次呼叫是誰（驗收人、浮水印用）
+
+function rcvLogin(account, password) {
+  account = clean_(account, 30);
+  password = String(password == null ? '' : password);
+  if (!account || !password) throw new Error('請輸入帳號和密碼。');
+  const cache = CacheService.getScriptCache(), failKey = 'rfail:' + account;
+  const fails = Number(cache.get(failKey) || 0);
+  if (fails >= RCV_MAX_FAILS) throw new Error('密碼錯誤次數過多，請 ' + RCV_LOCK_MINUTES + ' 分鐘後再試。');
+  const t = readTable_('帳號設定', ['帳號', '密碼', '啟用']);
+  const acc = t.rows.find(function (r) { return String(r['帳號']).trim() === account; });
+  const ok = acc && isTrue_(acc['啟用']) && String(acc['密碼']) === password;
+  const admin = ok && (ADMIN_ACCOUNTS.indexOf(account) >= 0 || (t.cols['管理者'] !== undefined && isTrue_(acc['管理者'])));
+  rcvLog_(account, ok ? (admin ? '成功（驗收系統）' : '不是管理者（驗收系統）') : '失敗（驗收系統）');
+  if (!ok) {
+    cache.put(failKey, String(fails + 1), RCV_LOCK_MINUTES * 60);
+    throw new Error('帳號或密碼不正確（跟訂貨系統同一組，有分大小寫）。');
+  }
+  if (!admin) throw new Error('驗收系統只有管理者可以登入。');
+  cache.remove(failKey);
+  const token = Utilities.getUuid();
+  cache.put('rsess:' + token, account, RCV_SESSION_HOURS * 3600);
+  return { token: token, account: account };
+}
+function rcvLogout(token) { CacheService.getScriptCache().remove('rsess:' + String(token || '')); return true; }
+function rcvLog_(account, result) {
+  try { appendRows_('登入資訊', [{ '登入時間': new Date(), '帳號': account, '結果': result }]); } catch (e) { console.error(e.message); }
+}
+function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'TRUE' || String(v).trim() === '是'; }   // 跟訂貨系統一樣
+
+/** 網頁呼叫伺服器一律經過這裡：先檢查登入，再呼叫對應的功能（功能名稱後面有 _，網頁不能直接呼叫） */
+const API_ = {
+  getWeek: function (a) { return getWeek_.apply(null, a); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
+  uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
+  getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
+  saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
+  getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
+  whoAmI: function () { return CURRENT_USER_; },
+};
+function api(token, fn, args) {
+  const account = CacheService.getScriptCache().get('rsess:' + String(token || ''));
+  if (!account) throw new Error('請重新登入。');
+  if (!API_[fn]) throw new Error('沒有這個功能：' + fn);
+  CURRENT_USER_ = account;
+  return API_[fn](args || []);
+}
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -40,7 +90,7 @@ function doGet() {
 // ---------------------------------------------------------------------
 
 /** monday：'yyyy-MM-dd'（那週星期一）。回傳每一張 ③ 叫貨單（廠商＋送貨組別）和驗收狀態 */
-function getWeek(monday) {
+function getWeek_(monday) {
   const from = parseDate_(monday) || mondayOf_(today_());
   const to = addDays_(from, 4);
   const f = dateStr_(from), t = dateStr_(to);
@@ -217,7 +267,7 @@ function checkId_(from, vendor, group) { return 'R' + from.replace(/-/g, '') + '
  *       slip: { total, rows: [{ name（食材名稱，空白＝叫貨單沒有的）, slipName, qty, unit, price, amount }] }（選填，銷貨單金額） }
  * status：到齊／少送／沒送／送錯／多送。同一張叫貨單重新驗收會蓋掉上次的（已經處理過的問題保留處理狀態）。
  */
-function saveCheck(p) {
+function saveCheck_(p) {
   const from = dateStr_(parseDate_(p.from)), to = dateStr_(parseDate_(p.to));
   const vendor = clean_(p.vendor, 30), group = clean_(p.group, 10);
   if (!from || !vendor) throw new Error('資料不完整，請重新整理。');
@@ -264,7 +314,7 @@ function saveCheck(p) {
     if (oldChecks.length) deleteRows_(ct.sheet, oldChecks.map(function (r) { return r._row; }));
     appendRows_(SHEET.checks, [{ '驗收編號': id, '送貨日期（起）': from, '送貨日期（迄）': to, '廠商': vendor, '送貨組別': group,
       '驗收時間': new Date(), '品項數': items.length, '問題數': issues.length, '銷貨單照片': (p.photos || []).join('\n'),
-      '備註': clean_(p.note, 200), '驗收人': Session.getActiveUser().getEmail() || '',
+      '備註': clean_(p.note, 200), '驗收人': CURRENT_USER_ || Session.getActiveUser().getEmail() || '',
       '銷貨單金額': slip.length ? Math.round(slipSum * 100) / 100 : '', '銷貨單合計': slipTotal, '簽名人': signer, '驗收人簽名': sigUrl }]);
     dropDraft_(id);
     const st = readTable_(SHEET.slip, ['驗收編號']);
@@ -317,7 +367,7 @@ function issueText_(x) {
 // ---------------------------------------------------------------------
 
 /** data：base64（不含 data: 開頭），回傳 { url, name } */
-function uploadPhoto(data, mime, from, vendor, what) {
+function uploadPhoto_(data, mime, from, vendor, what) {
   if (!data) throw new Error('沒有照片。');
   return saveImage_(data, mime || 'image/jpeg', from, vendor, clean_(what, 40) || '銷貨單', 'jpg');
 }
@@ -348,7 +398,7 @@ function folderNamed_(name, parent) {
  * photos：這次拍的銷貨單照片網址；names：這張叫貨單的食材名稱。
  * 回傳 { text, rows: { 食材名稱: { slipName, qty, unit, price, amount, sure } }, extras: [{ slipName, qty, unit, price, amount }], total }
  */
-function readSlip(photos, vendor, names) {
+function readSlip_(photos, vendor, names) {
   const ids = (photos || []).map(fileIdOf_).filter(Boolean);
   if (!ids.length) throw new Error('請先拍銷貨單。');
   const text = ids.slice(0, 6).map(ocrText_).join('\n');
@@ -564,7 +614,7 @@ function round2_(n) { return Math.round(Number(n) * 100) / 100; }
 const MONTH_HEADERS = ['廠商', '月份', '系統金額', '發票金額', '差額', '對帳時間', '發票照片', '備註'];
 
 /** vendor：叫貨單上的廠商（A菜商、C蛋商、E烘焙乾貨…）；ym：'yyyy-MM' */
-function getMonth(vendor, ym) {
+function getMonth_(vendor, ym) {
   const m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
   if (!m) throw new Error('月份不正確。');
   const start = new Date(Number(m[1]), Number(m[2]) - 1, 1), end = new Date(Number(m[1]), Number(m[2]), 0);
@@ -671,7 +721,7 @@ function parseQty_(s) {
 }
 
 /** 存對帳結果（同一家同一個月存一筆，重存會蓋掉） */
-function saveMonth(p) {
+function saveMonth_(p) {
   const vendor = clean_(p.vendor, 30), ym = String(p.ym || '');
   if (!vendor || !/^\d{4}-\d{2}$/.test(ym)) throw new Error('資料不完整，請重新整理。');
   const sys = num_(p.system), inv = num_(p.invoice);
@@ -706,7 +756,7 @@ function readDrafts_() {
 }
 
 /** id：驗收編號；data：JSON 字串（點到哪裡、實到、備註、照片、銷貨單金額…，不含簽名） */
-function saveDraftRemote(id, data) {
+function saveDraftRemote_(id, data) {
   id = String(id || '').trim();
   if (!/^R\d{8}-/.test(id)) throw new Error('驗收編號不正確，請重新整理。');
   data = String(data || '');
@@ -726,7 +776,7 @@ function saveDraftRemote(id, data) {
 }
 
 /** 「清掉、重新點」：刪掉試算表裡的暫存 */
-function dropDraftRemote(id) {
+function dropDraftRemote_(id) {
   id = String(id || '').trim();
   if (!/^R\d{8}-/.test(id)) return { ok: true };
   const lock = LockService.getScriptLock();
@@ -747,7 +797,7 @@ function dropDraft_(id) {
 // ---------------------------------------------------------------------
 
 /** all = true 連處理完的一起列（最近 60 天） */
-function getIssues(all) {
+function getIssues_(all) {
   const sh = ss_().getSheetByName(SHEET.lines);
   if (!sh || sh.getLastRow() < 2) return { list: [], states: ISSUE_STATES, pending: draftIssues_() };
   const checks = {};
@@ -795,7 +845,7 @@ function draftIssues_() {
 }
 
 /** 記錄問題的處理結果：rows = 驗收明細的列號 */
-function setIssues(rows, state, note) {
+function setIssues_(rows, state, note) {
   if (ISSUE_STATES.indexOf(state) < 0) throw new Error('處理狀態不正確。');
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -811,7 +861,7 @@ function setIssues(rows, state, note) {
   } finally {
     lock.releaseLock();
   }
-  return getIssues(false);
+  return getIssues_(false);
 }
 
 // ---------------------------------------------------------------------

@@ -59,6 +59,9 @@
   .mthumb img, .mthumb > span { display: flex; align-items: center; justify-content: center; width: 130px; height: 130px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #f2f4f7; }
   .mthumb .small { margin-top: 2px; line-height: 1.3; word-break: break-all; }
   .hidden { display: none !important; }
+  #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #rLogin .panel { width: min(380px, 100%); }
+  #rLogin input { width: 100%; font-size: 18px; padding: 10px; margin: 4px 0 10px; box-sizing: border-box; }
   #sigPad { display: block; width: 100%; height: 180px; background: #fff; border: 2px dashed var(--line); border-radius: 12px; touch-action: none; margin-top: 8px; }
   #sigPad.signed { border-style: solid; border-color: var(--ok); }
   .copyright { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; padding: 16px; }
@@ -76,8 +79,16 @@
 <body>
 <header>
   <h1>進貨驗收</h1>
-  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button><button type="button" data-v="vMonth">月結對帳</button></nav>
+  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button><button type="button" data-v="vMonth">月結對帳</button><button type="button" id="rOut" title="登出">登出</button></nav>
 </header>
+<div id="rLogin" class="hidden"><div class="panel">
+  <h2 style="margin-top:0">進貨驗收 登入</h2>
+  <div class="muted small" style="margin-bottom:8px">用訂貨系統的<b>管理者</b>帳號登入，密碼跟訂貨系統一樣。</div>
+  <label for="rAcc">帳號</label><input id="rAcc" autocomplete="username">
+  <label for="rPw">密碼</label><input id="rPw" type="password" autocomplete="current-password">
+  <button type="button" class="btn" id="rGo" style="width:100%">登入</button>
+  <div id="rMsg" style="margin-top:8px"></div>
+</div></div>
 <main>
   <!-- 選週、選一張叫貨單 -->
   <section id="vCheck">
@@ -175,13 +186,39 @@
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   function msg(id, type, text) { $(id).innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : ''; }
+  // 呼叫伺服器：一律帶登入的 token（伺服器的 api 先檢查登入）；登入過期就跳回登入畫面
+  var rToken = '';
+  try { rToken = localStorage.getItem('rcvToken') || ''; } catch (e) {}
   function call(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
     return new Promise(function (resolve, reject) {
       google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
-        reject(new Error(String(e && e.message || e).replace(/^(Error|Exception):\s*/, '')));
-      })[fn].apply(null, args);
+        var m = String(e && e.message || e).replace(/^(Error|Exception):\s*/, '');
+        if (/請重新登入/.test(m)) showLogin('登入已過期，請重新登入。');
+        reject(new Error(m));
+      }).api(rToken, fn, args);
     });
+  }
+  function showLogin(why) {
+    $('rLogin').classList.remove('hidden');
+    $('rMsg').innerHTML = why ? '<div class="msg info">' + esc(why) + '</div>' : '';
+    try { $('rAcc').value = localStorage.getItem('rcvAcc') || ''; } catch (e) {}
+    setTimeout(function () { ($('rAcc').value ? $('rPw') : $('rAcc')).focus(); }, 50);
+  }
+  function doLogin() {
+    var a = $('rAcc').value.trim(), pw = $('rPw').value, b = $('rGo');
+    if (!a || !pw) { $('rMsg').innerHTML = '<div class="msg error">請輸入帳號和密碼。</div>'; return; }
+    b.disabled = true; b.textContent = '登入中…';
+    google.script.run.withSuccessHandler(function (r) {
+      rToken = r.token;
+      try { localStorage.setItem('rcvToken', r.token); localStorage.setItem('rcvAcc', r.account); } catch (e) {}
+      $('rPw').value = ''; $('rMsg').innerHTML = ''; b.disabled = false; b.textContent = '登入';
+      $('rLogin').classList.add('hidden');
+      start();
+    }).withFailureHandler(function (e) {
+      b.disabled = false; b.textContent = '登入';
+      $('rMsg').innerHTML = '<div class="msg error">' + esc(String(e && e.message || e).replace(/^(Error|Exception):\s*/, '')) + '</div>';
+    }).rcvLogin(a, pw);
   }
   var iso = function (d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); };
   var md = function (s) { var p = String(s).split('-'); return Number(p[1]) + '/' + Number(p[2]); };
@@ -207,7 +244,6 @@
   }
   drawWatermark();
   setInterval(drawWatermark, 60000);
-  call('whoAmI').then(function (e) { wmWho = e || ''; drawWatermark(); }).catch(function () {});
 
   // ---------------- 分頁 ----------------
   function show(v) {
@@ -944,8 +980,19 @@
       .catch(function (err) { msg('issueMsg', 'error', err.message); s.disabled = false; });
   });
 
-  setWeek(0);
-  refreshIssueCount();
+  $('rGo').addEventListener('click', doLogin);
+  $('rPw').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+  $('rOut').addEventListener('click', function () {
+    google.script.run.rcvLogout(rToken);
+    rToken = ''; try { localStorage.removeItem('rcvToken'); } catch (e) {}
+    showLogin('已登出。');
+  });
+  function start() {
+    setWeek(0);
+    refreshIssueCount();
+    call('whoAmI').then(function (e) { wmWho = e || ''; drawWatermark(); }).catch(function () {});
+  }
+  if (rToken) start(); else showLogin('');
 })();
 </script>
 </body>
