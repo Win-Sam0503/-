@@ -301,7 +301,7 @@ function saveCheck_(p) {
   if (!sigUrl && !allStopped) throw new Error('請在「驗收人簽名」簽名。');   // 整張停送（沒有貨）不用簽
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
-      code: normCode_(clean_(x.code, 20)) };
+      code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice };   // noPrice：這一行含別的品項（廠商開在一起），單價不準，不進單價表
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const slipSum = slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0);
   const slipTotal = p.slip ? num_(p.slip.total) : '';
@@ -614,7 +614,7 @@ function slipNumbers_(ns) {
 
 /** 單價表：每家廠商每樣食材（同一單位）留最新的單價，之後算成本用 */
 function savePrices_(vendor, from, id, slip) {
-  const list = slip.filter(function (x) { return x.name && Number(x.price) > 0; });
+  const list = slip.filter(function (x) { return x.name && Number(x.price) > 0 && !x.noPrice; });
   if (!list.length) return;
   ensureSheet_(SHEET.prices, PRICE_HEADERS);
   const t = readTable_(SHEET.prices, ['廠商', '食材名稱']);
