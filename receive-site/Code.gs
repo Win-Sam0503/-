@@ -299,8 +299,7 @@ function saveCheck_(p) {
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const slipSum = slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0);
   const slipTotal = p.slip ? num_(p.slip.total) : '';
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try {
     ensureSheet_(SHEET.checks, CHECK_HEADERS);
     ensureSheet_(SHEET.lines, LINE_HEADERS);
@@ -730,8 +729,7 @@ function saveMonth_(p) {
   if (!vendor || !/^\d{4}-\d{2}$/.test(ym)) throw new Error('資料不完整，請重新整理。');
   const sys = num_(p.system), inv = num_(p.invoice);
   if (inv === '') throw new Error('請填發票（或對帳單）上的金額。');
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try {
     ensureSheet_('月結對帳', MONTH_HEADERS);
     const t = readTable_('月結對帳', ['廠商', '月份']);
@@ -766,8 +764,7 @@ function saveDraftRemote_(id, data) {
   data = String(data || '');
   if (data.length > 45000) throw new Error('內容太多，存不進去（照片請少一點）。');
   try { JSON.parse(data); } catch (e) { throw new Error('內容格式不正確。'); }
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try {
     ensureSheet_(SHEET.drafts, DRAFT_HEADERS);
     dropDraft_(id);
@@ -783,8 +780,7 @@ function saveDraftRemote_(id, data) {
 function dropDraftRemote_(id) {
   id = String(id || '').trim();
   if (!/^R\d{8}-/.test(id)) return { ok: true };
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try { dropDraft_(id); } finally { lock.releaseLock(); }
   return { ok: true };
 }
@@ -851,8 +847,7 @@ function draftIssues_() {
 /** 記錄問題的處理結果：rows = 驗收明細的列號 */
 function setIssues_(rows, state, note) {
   if (ISSUE_STATES.indexOf(state) < 0) throw new Error('處理狀態不正確。');
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try {
     const t = readTable_(SHEET.lines, ['驗收編號', '處理狀態']);
     (rows || []).forEach(function (row) {
@@ -933,8 +928,7 @@ function hxSaveCats_(list) {
   if (!list.length) throw new Error('至少要有一個類別。');
   const seen = {};
   list.forEach(function (x) { if (seen[x.name]) throw new Error('類別「' + x.name + '」重複了。'); seen[x.name] = true; });
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try {
     ensureSheet_('核銷類別', HX_CAT_HEADERS);
     const t = readTable_('核銷類別', ['類別']);
@@ -1068,13 +1062,9 @@ function hxSaveInvoice_(p) {
   const sum = round2_(allocs.reduce(function (n, a) { return n + a.amount; }, 0));
   if (Math.abs(sum - amount) >= 1) throw new Error('各類別合計 $' + sum + '，跟發票合計 $' + amount + ' 不一樣。');
   allocs.forEach(function (a) { if (handler[a.cat] === undefined) throw new Error('沒有「' + a.cat + '」這個類別。'); });
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  hxEnsureSheets_();   // 建分頁、補欄位放在鎖外面（第一次比較慢，不要卡住別人）
+  const lock = waitLock_();
   try {
-    ensureSheet_('核銷發票', HX_INVOICE_HEADERS);
-    ensureSheet_('核銷分配', HX_ALLOC_HEADERS);
-    ensureSheet_('核銷發票明細', HX_LINE_HEADERS);
-    ensureSheet_('核銷另外叫料', HX_EXTRA_HEADERS);
     let id = clean_(p.id, 40), old = {};
     if (id) {
       const ti = readTable_('核銷發票', ['發票編號']), ta = readTable_('核銷分配', ['發票編號', '類別']);
@@ -1112,10 +1102,27 @@ function hxSaveInvoice_(p) {
   }
 }
 
+/** 核銷用到的分頁：沒有就建、缺欄位就補；檢查過記 6 小時，之後不再每次檢查 */
+function hxEnsureSheets_() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('hxSheetsOk2')) return;
+  ensureSheet_('核銷發票', HX_INVOICE_HEADERS);
+  ensureSheet_('核銷分配', HX_ALLOC_HEADERS);
+  ensureSheet_('核銷發票明細', HX_LINE_HEADERS);
+  ensureSheet_('核銷另外叫料', HX_EXTRA_HEADERS);
+  cache.put('hxSheetsOk2', '1', 6 * 3600);
+}
+
+/** 等別人存完再存：最多等 30 秒，等不到就請使用者稍等再按（不要顯示 Google 的英文／技術訊息） */
+function waitLock_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('系統正在儲存別的資料（可能是另一台平板或手機），請等幾秒再按一次。');
+  return lock;
+}
+
 function hxDeleteInvoice_(id) {
   id = clean_(id, 40);
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lock = waitLock_();
   try {
     ['核銷分配', '核銷發票明細', '核銷另外叫料', '核銷發票'].forEach(function (n) {
       if (!ss_().getSheetByName(n)) return;
@@ -1218,7 +1225,14 @@ function setCell_(table, row, header, value) {
 
 /** 從下往上刪，列號才不會跑掉 */
 function deleteRows_(sh, rows) {
-  rows.slice().sort(function (a, b) { return b - a; }).forEach(function (r) { sh.deleteRow(r); });
+  // 連在一起的列一次刪（一列一列刪很慢，存檔時會一直佔著鎖）
+  const list = rows.slice().sort(function (a, b) { return b - a; });
+  for (let i = 0; i < list.length;) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] - 1) j++;
+    sh.deleteRows(list[j], j - i + 1);
+    i = j + 1;
+  }
 }
 
 function retry_(fn) {

@@ -232,15 +232,24 @@
   // 呼叫伺服器：一律帶登入的 token（伺服器的 api 先檢查登入）；登入過期就跳回登入畫面
   var rToken = '';
   try { rToken = localStorage.getItem('rcvToken') || ''; } catch (e) {}
+  // 別人正在存（鎖定逾時）時，自動等 3 秒再試，最多 2 次；這時候伺服器還沒寫任何東西，重試不會重複
   function call(fn) {
-    var args = Array.prototype.slice.call(arguments, 1);
-    return new Promise(function (resolve, reject) {
-      google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
-        var m = String(e && e.message || e).replace(/^(Error|Exception):\s*/, '');
-        if (/請重新登入/.test(m)) showLogin('登入已過期，請重新登入。');
-        reject(new Error(m));
-      }).api(rToken, fn, args);
-    });
+    var args = Array.prototype.slice.call(arguments, 1), tries = 0;
+    var once = function () {
+      return new Promise(function (resolve, reject) {
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+          var m = String(e && e.message || e).replace(/^(Error|Exception):\s*/, '');
+          if (/請重新登入/.test(m)) showLogin('登入已過期，請重新登入。');
+          reject(new Error(m));
+        }).api(rToken, fn, args);
+      }).catch(function (err) {
+        if (/鎖定逾時|佔用鎖定|Lock timeout|正在儲存別的資料/i.test(err.message) && tries++ < 2) {
+          return new Promise(function (r) { setTimeout(r, 3000); }).then(once);
+        }
+        throw err;
+      });
+    };
+    return once();
   }
   function showLogin(why) {
     $('rLogin').classList.remove('hidden');
@@ -1206,7 +1215,7 @@
     if ((b = t.closest('[data-hxdel]'))) {
       var iv = hx.invoices.filter(function (x) { return x.id === b.getAttribute('data-hxdel'); })[0];
       if (!window.confirm('刪除發票 ' + (iv.no || '') + '（' + iv.vendor + ' $' + money(iv.amount) + '）？\n連同各類別的核銷紀錄一起刪掉，無法復原。')) return;
-      call('hxDeleteInvoice', iv.id).then(function () { hxOpen('list'); msg('hxMsg', 'ok', '已刪除。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); });
+      call('hxDeleteInvoice', iv.id).then(function () { return hxOpen('list'); }).then(function () { msg('hxMsg', 'ok', '已刪除。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); });
       return;
     }
     if (t.id === 'hxList') {
