@@ -3041,6 +3041,7 @@ function automationStatus_() {
     lineTokenSet: !!props.getProperty('LINE_TOKEN'),
     lineBound: !!props.getProperty('LINE_TO'),
     webhookUrl: webAppUrl_(),
+    receiveUrl: props.getProperty('RECEIVE_URL') || '',
     siteUrlSaved: !!props.getProperty('SITE_URL'),
     autoUrl: autoUrl_(),
     lastVendorUrl: props.getProperty('LAST_VENDOR_URL') || '',

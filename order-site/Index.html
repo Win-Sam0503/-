@@ -64,7 +64,7 @@
   .grid2 .wide { grid-column: span 2; }
   label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
   .req { color: var(--bad); }
-  input[type=text], input[type=password], input[type=date], input[type=number], input[type=search], select, textarea {
+  input[type=text], input[type=password], input[type=date], input[type=number], input[type=search], input[type=url], select, textarea {
     width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 16px;
   }
   input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: transparent; }
@@ -1089,7 +1089,8 @@
           <div><label for="aSiteUrl">網頁應用程式網址</label><input id="aSiteUrl" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></div>
           <button type="button" class="btn secondary small" id="aSiteSave">儲存網址</button>
         </div>
-        <div id="aSiteInfo" class="small" style="margin-top:4px"></div>
+        <div id="aSiteInfo" class="small" style="margin-top:4px;word-break:break-all"></div>
+        <div id="aRcvInfo" class="small" style="margin-top:10px;word-break:break-all"></div>
         <h3 style="font-size:16px;margin:18px 0 6px">LINE 官方帳號通知</h3>
         <div class="muted small">到 LINE Developers 後台 → 你的 Messaging API channel → 「Messaging API」分頁最下面，按 Issue 取得 <b>Channel access token</b>，貼在這裡。</div>
         <div class="tpl-row" style="margin-top:6px">
@@ -6508,6 +6509,10 @@
     $('aSiteInfo').innerHTML = st.siteUrlSaved
       ? '<span style="color:var(--ok)">✓ 已指定網址</span>' + (st.autoUrl && st.autoUrl !== st.webhookUrl ? '<span class="muted">（系統自動判斷的是另一個舊網址，已改用你指定的）</span>' : '')
       : '<span style="color:var(--bad)">尚未指定，目前用系統自動判斷的網址；部署很多個時可能是舊的，建議貼上正確網址後儲存。</span>';
+    if (st.webhookUrl) $('aSiteInfo').innerHTML += '<br>訂貨網：<a href="' + esc(st.webhookUrl) + '" target="_blank" rel="noopener">' + esc(st.webhookUrl) + '</a> <button type="button" class="btn ghost small" data-copyurl="' + esc(st.webhookUrl) + '">複製</button>';
+    $('aRcvInfo').innerHTML = '<b>📦 驗收核銷系統網址</b>（給其他管理者老師，用自己訂貨系統的帳號密碼登入）<br>' + (st.receiveUrl
+      ? '<a href="' + esc(st.receiveUrl) + '" target="_blank" rel="noopener">' + esc(st.receiveUrl) + '</a> <button type="button" class="btn ghost small" data-copyurl="' + esc(st.receiveUrl) + '">複製</button>'
+      : '<span class="muted">系統還沒記錄到（之前是手動部署的）。請用內建「管理者」帳號到「⟳ 更新程式」最下面按一次「更新進貨驗收」，之後這裡就會顯示。</span>');
   }
   function renderAdmins(r) {
     $('admList').innerHTML = r.builtin.map(function (a) { return '<div><span>' + esc(a) + ' <span class="muted">（內建，不能取消）</span></span></div>'; }).join('') +
@@ -6742,6 +6747,13 @@
   });
   $('aEmailTest').addEventListener('click', function () {
     autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
+  });
+  // 網址旁的「複製」
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-copyurl]');
+    if (!b) return;
+    copyText(b.getAttribute('data-copyurl')).then(function () { b.textContent = '✓ 已複製'; setTimeout(function () { b.textContent = '複製'; }, 1500); })
+      .catch(function () { window.prompt('請長按複製：', b.getAttribute('data-copyurl')); });
   });
   $('aSiteSave').addEventListener('click', function () {
     var v = $('aSiteUrl').value.trim();
