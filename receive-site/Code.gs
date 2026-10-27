@@ -76,6 +76,7 @@ const API_ = {
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
   hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudgets_([a[0]]); },
   hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
+  hxItems: function () { return hxItems_(); }, hxOrders: function (a) { return hxOrders_.apply(null, a); },
   hxDeleteBudget: function (a) { return hxDeleteBudget_.apply(null, a); },
 };
 function api(token, fn, args) {
@@ -1143,6 +1144,55 @@ function hxEnsureSheets_() {
   ensureSheet_('核銷發票明細', HX_LINE_HEADERS);
   ensureSheet_('核銷另外叫料', HX_EXTRA_HEADERS);
   cache.put('hxSheetsOk2', '1', 6 * 3600);
+}
+
+// ---------------------------------------------------------------------
+// 另外叫料快速 key：食材總表的品名（打字跳出來選）、從老師的訂單匯入
+// ---------------------------------------------------------------------
+
+/** 食材總表啟用中的品名：[[名稱, 別名, 廠商]]（快取 1 小時） */
+function hxItems_() {
+  const cache = CacheService.getScriptCache(), hit = cache.get('hxItems');
+  if (hit) return JSON.parse(hit);
+  const out = [];
+  if (ss_().getSheetByName(SHEET.items)) readTable_(SHEET.items, ['食材名稱']).rows.forEach(function (r) {
+    const n = String(r['食材名稱'] || '').trim();
+    if (!n || (r['啟用'] !== undefined && String(r['啟用']).trim() !== '' && !isTrue_(r['啟用']))) return;
+    out.push([n, String(r['別名'] || '').trim(), String(r['廠商'] || '').trim()]);
+  });
+  try { cache.put('hxItems', JSON.stringify(out), 3600); } catch (e) {}
+  return out;
+}
+
+/**
+ * 老師的訂單（訂單總表＋歷史訂單），使用日期在 from～to：
+ * [{ no, date, teacher, cls, project, dept, items: [{ name, qty, unit, vendor, bought }] }]（bought＝已經透過廠商叫貨）
+ */
+function hxOrders_(from, to, q) {
+  const f = parseDate_(from), t = parseDate_(to);
+  if (!f || !t) throw new Error('請選日期。');
+  if ((t - f) / 86400000 > 92) throw new Error('日期範圍最多 3 個月。');
+  const fs = dateStr_(f), ts = dateStr_(t), by = {}, words = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  ['訂單總表', '歷史訂單'].forEach(function (name) {
+    if (!ss_().getSheetByName(name)) return;
+    readTable_(name, ['訂單編號', '食材名稱']).rows.forEach(function (r) {
+      const d = purchaseDate_(r['使用日期']), st = String(r['狀態'] || '').trim();
+      if (d < fs || d > ts || st === '已取消') return;
+      const no = String(r['訂單編號'] || '').trim(), n = String(r['食材名稱'] || '').trim();
+      if (!no || !n) return;
+      const o = by[no] = by[no] || { no: no, date: d, teacher: String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim(),
+        cls: String(r['上課班級'] || '').trim(), project: String(r['實作項目'] || '').trim(), dept: String(r['科別'] || '').trim(), items: [] };
+      o.items.push({ name: n, qty: r['數量'] === '' ? '' : Number(r['數量']) || r['數量'], unit: String(r['單位'] || '').trim(), vendor: String(r['廠商'] || '').trim(),
+        bought: st === '已叫貨' && !isTrue_(r['不叫貨']) && String(r['廠商'] || '').trim() !== '自備' });
+    });
+  });
+  let list = Object.keys(by).map(function (k) { return by[k]; });
+  if (words.length) list = list.filter(function (o) {
+    const hay = [o.teacher, o.cls, o.project, o.dept, o.items.map(function (x) { return x.name; }).join(' ')].join(' ').toLowerCase();
+    return words.every(function (w) { return hay.indexOf(w) >= 0; });
+  });
+  list.sort(function (a, b) { return b.date.localeCompare(a.date) || a.cls.localeCompare(b.cls); });
+  return { list: list.slice(0, 80), more: Math.max(0, list.length - 80) };
 }
 
 // ---------------------------------------------------------------------

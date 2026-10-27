@@ -1235,15 +1235,16 @@
       '<div id="hxRef" style="margin-top:8px"></div>' +
       '<label>另外叫料（不在叫貨單裡的：臨時加叫、外面商店、活動用、老師先買後報帳）</label><div id="hxEx"></div>' +
       '<div class="row" style="margin-top:6px"><button type="button" class="btn ghost small" id="hxExAdd">＋ 加一項另外叫料</button>' +
-      '<button type="button" class="btn ghost small" id="hxExPasteBtn">📋 一次貼很多項</button><span id="hxExSum" class="small muted"></span></div>' +
+      '<button type="button" class="btn ghost small" id="hxExPasteBtn">📋 一次貼很多項</button><button type="button" class="btn ghost small" id="hxOrdBtn">📥 從訂單匯入</button><span id="hxExSum" class="small muted"></span></div>' +
       '<div id="hxExPaste" class="hidden" style="margin-top:6px"><div class="muted small">一行一項，最後面的數字當金額，例如「草莓 2盒 300」「鮮奶油 1 瓶 185」。可以從 Excel、LINE、記事本複製整段貼上。日期、類別、購買人、備註用下面「整批設定」的。</div>' +
       '<textarea id="hxExText" rows="6" style="width:100%" placeholder="草莓 2盒 300&#10;鮮奶油 1瓶 185&#10;低筋麵粉 1包 65"></textarea>' +
       '<div class="row"><button type="button" class="btn small" id="hxExParse">加進去</button><button type="button" class="btn ghost small" id="hxExPasteCancel">取消</button><span id="hxExPasteMsg" class="small"></span></div></div>' +
-      '<datalist id="hxExNames">' + hxExNames().map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' +
+      '<div id="hxOrd" class="hidden hxcard" style="margin-top:6px"></div>' +
+      '<datalist id="hxExNames">' + hxExNameOpts() + '</datalist>' +
       '<label>拆到各類別（每一類可以按「＋」填好幾筆，也可以直接打 150+80；另外叫料會自動算進去）</label><div id="hxCats"></div>' +
       '<label for="hxNote">備註</label><textarea id="hxNote" rows="2" style="width:100%">' + esc(f.note || '') + '</textarea>' +
       '<div class="hxsum"><div id="hxSum"></div><div class="row" style="margin-top:6px"><button type="button" class="btn" id="hxSave">💾 儲存</button><button type="button" class="btn ghost small" id="hxCancel">取消</button></div></div></div>';
-    hxRenderLines(); hxRenderExtras(); hxRenderCats(); hxRenderCands(); hxSumUp();
+    hxRenderLines(); hxRenderExtras(); hxRenderCats(); hxRenderCands(); hxSumUp(); hxLoadItems();
     if (f.vendor && !f.cands && hx.vendors.indexOf(f.vendor) >= 0) $('hxList').click();
   }
   function hxRenderLines() {
@@ -1256,6 +1257,81 @@
         (hxF.lines.length > 1 ? '<button type="button" class="btn ghost small" data-hldel="' + i + '" title="拿掉這張">✕</button>' : '') + '</div>';
     }).join('');
   }
+  // 打品名時跳出來選：以前另外叫料打過的＋食材總表（第一次打開表單時讀一次）
+  var hxItemList = null;
+  function hxExNameOpts() {
+    var seen = {}, html = '';
+    hxExNames().forEach(function (n) { seen[n] = 1; html += '<option value="' + esc(n) + '">'; });
+    (hxItemList || []).forEach(function (r) { if (seen[r[0]]) return; seen[r[0]] = 1; html += '<option value="' + esc(r[0]) + '">' + esc([r[1], r[2]].filter(Boolean).join('・')) + '</option>'; });
+    return html;
+  }
+  function hxLoadItems() {
+    if (hxItemList) return;
+    call('hxItems').then(function (r) { hxItemList = r; var dl = $('hxExNames'); if (dl) dl.innerHTML = hxExNameOpts(); }).catch(function () {});
+  }
+  // 從老師的訂單匯入：選日期、搜尋，勾要的品項（已經透過廠商叫貨的預設不勾，避免跟送貨重複算）
+  var hxOrdRes = null;
+  function hxOrdOpen() {
+    var d = new Date(), f = iso(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 14)), t = iso(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7));
+    $('hxOrd').classList.remove('hidden');
+    $('hxOrd').innerHTML = '<div class="row"><b>📥 從老師的訂單匯入</b><span style="flex:1"></span><button type="button" class="btn ghost small" id="hxOrdClose">關閉</button></div>' +
+      '<div class="muted small">選上課日期，找到那張訂單，勾要的品項按「匯入」。品名、日期、老師（購買人）、班級會自動帶，只要填金額。已經透過廠商叫貨的品項預設不勾（送貨那邊已經算過）。</div>' +
+      '<div class="row" style="margin-top:6px"><input id="hxOrdF" type="date" value="' + f + '"> ～ <input id="hxOrdT" type="date" value="' + t + '">' +
+      '<input id="hxOrdQ" type="search" placeholder="🔍 老師、班級、實作項目、食材" style="flex:1;min-width:160px"><button type="button" class="btn small" id="hxOrdGo">查詢</button></div>' +
+      '<div id="hxOrdList" class="small" style="margin-top:6px"></div>';
+    $('hxOrdGo').click();
+  }
+  function hxOrdRender() {
+    var r = hxOrdRes;
+    if (!r.list.length) { $('hxOrdList').innerHTML = '<div class="muted">這段日期沒有符合的訂單。</div>'; return; }
+    var fq = function (q) { return q === '' || q === undefined ? '' : String(Math.round(Number(q) * 100) / 100 || q); };
+    $('hxOrdList').innerHTML = r.list.map(function (o, i) {
+      return '<details class="hxcand" style="display:block" data-oi="' + i + '"><summary style="cursor:pointer"><b>' + esc(mdw(o.date)) + '　' + esc(o.cls) + '　' + esc(o.teacher) + '</b>　' + esc(o.project) +
+        ' <span class="muted">（' + o.items.length + ' 項）</span></summary>' +
+        '<div style="padding:4px 0 4px 8px"><label><input type="checkbox" data-oall="' + i + '"> 全選</label>' + o.items.map(function (x, k) {
+          return '<div><label><input type="checkbox" data-oi="' + i + '" data-ok="' + k + '"' + (x.bought ? ' data-bought="1"' : '') + '> ' + esc(x.name) + ' ' + esc(fq(x.qty) + x.unit) +
+            (x.bought ? ' <span class="badge none">已透過 ' + esc(x.vendor) + ' 叫貨</span>' : x.vendor ? ' <span class="muted">' + esc(x.vendor) + '</span>' : '') + '</label></div>';
+        }).join('') + '</div></details>';
+    }).join('') + (r.more ? '<div class="muted">還有 ' + r.more + ' 張沒列出來，請縮小日期或用搜尋。</div>' : '') +
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="hxOrdAdd">匯入勾選的品項</button><span id="hxOrdMsg"></span></div>';
+  }
+  $('hxBox').addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.id === 'hxOrdBtn') { hxOrdOpen(); return; }
+    if (t.id === 'hxOrdClose') { $('hxOrd').classList.add('hidden'); return; }
+    if (t.id === 'hxOrdGo') {
+      $('hxOrdList').textContent = '讀取中…';
+      call('hxOrders', $('hxOrdF').value, $('hxOrdT').value, $('hxOrdQ').value).then(function (r) { hxOrdRes = r; hxOrdRender(); }).catch(function (err) { $('hxOrdList').textContent = err.message; });
+      return;
+    }
+    if (t.id === 'hxOrdAdd') {
+      var fq = function (q) { return q === '' || q === undefined ? '' : String(Math.round(Number(q) * 100) / 100 || q); }, add = [];
+      Array.prototype.forEach.call(document.querySelectorAll('#hxOrdList input[data-ok]:checked'), function (c) {
+        var o = hxOrdRes.list[Number(c.getAttribute('data-oi'))], x = o.items[Number(c.getAttribute('data-ok'))], n = hxExNew((x.name + ' ' + fq(x.qty) + x.unit).trim(), '');
+        n.date = o.date; n.buyer = o.teacher; n.note = [o.cls, o.project].filter(Boolean).join(' ');
+        add.push(n);
+      });
+      if (!add.length) { $('hxOrdMsg').textContent = '還沒勾品項。'; return; }
+      if (hxF.extras.length === 1 && !hxF.extras[0].name && !hxF.extras[0].amount) hxF.extras = [];
+      hxF.extras = hxF.extras.concat(add);
+      $('hxOrd').classList.add('hidden');
+      hxRenderExtras(); hxSumUp();
+      msg('hxMsg', 'ok', '已匯入 ' + add.length + ' 項，請照收據填金額、選類別（可以用「整批設定」一次選）。');
+      var first = document.querySelector('[data-he="amount"][data-i="' + (hxF.extras.length - add.length) + '"]'); if (first) first.focus();
+    }
+  });
+  $('hxBox').addEventListener('change', function (e) {
+    var t = e.target, i = t.getAttribute('data-oall');
+    if (i !== null && t.hasAttribute('data-oall')) Array.prototype.forEach.call(document.querySelectorAll('#hxOrdList input[data-oi="' + i + '"][data-ok]'), function (c) { c.checked = t.checked; });
+  });
+  // 打開一張訂單：先幫忙勾好沒透過廠商叫貨的品項（只有第一次打開時）
+  $('hxBox').addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d.matches || !d.matches('#hxOrdList details') || !d.open || d.getAttribute('data-seen')) return;
+    d.setAttribute('data-seen', '1');
+    Array.prototype.forEach.call(d.querySelectorAll('input[data-ok]'), function (c) { if (!c.hasAttribute('data-bought')) c.checked = true; });
+  }, true);
+  $('hxBox').addEventListener('keydown', function (e) { if (e.target.id === 'hxOrdQ' && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('hxOrdGo').click(); } });
   // 以前另外叫料打過的品名（打字時跳出來選）
   function hxExNames() {
     var seen = {}, out = [];
