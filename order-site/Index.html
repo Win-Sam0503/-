@@ -3158,7 +3158,7 @@
       o.items.forEach(function (it) {
         if (hideCancel && it.status === '已取消') return;
         if (it.id === TOOL) return;   // 器具另外列
-        if (it.noOrder) { if (it.vendor !== data.selfVendor) stockCount++; return; }   // 現有庫存、自備的不叫貨
+        if (it.noOrder && it.vendor !== data.selfVendor) { stockCount++; return; }   // 現有庫存不叫貨；自備的照樣列（學校要準備），放在最後一家
         if (it.status === '已取消') return;
         var v = byVendor[it.vendor] = byVendor[it.vendor] || {};
         var dkey = it.group || '';   // 照送貨批次合計（菜商、肉商、海鮮分一二／三四五，其他整段期間一起）
@@ -3188,6 +3188,7 @@
               }).join('') + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }).join('');
+      if (vName === data.selfVendor) return '<div class="panel"><h2>' + esc(vName) + ' <span class="muted small" style="font-weight:normal">學校自己準備，不跟廠商叫貨</span></h2>' + body + '</div>';
       return '<div class="panel"><h2>' + esc(vName) + ' <button type="button" class="btn secondary small" data-copy="' + esc(vName) + '">複製叫貨文字</button></h2>' + body + '</div>';
     }).join('');
     if (stockCount) $('sumVendors').innerHTML = '<div class="msg info">另有 ' + stockCount + ' 項勾選「有貨」（現有庫存），不列入廠商叫貨。</div>' + $('sumVendors').innerHTML;
@@ -3204,7 +3205,7 @@
     }
     // 廠商合計、器具收在可以展開的區塊裡
     $('sumVendors').innerHTML = '<details class="sum-totals"' + (sumTotalsOpen ? ' open' : '') + '><summary><span>廠商叫貨合計　<span class="muted" style="font-weight:normal;font-size:15px">' +
-      vendors.length + ' 家廠商、' + foodCount + ' 項食材' + (toolOrders.length ? '、' + toolOrders.length + ' 張有器具' : '') + '</span></span><span class="tog"></span></summary>' +
+      vendors.filter(function (v) { return v !== data.selfVendor; }).length + ' 家廠商、' + foodCount + ' 項食材' + (toolOrders.length ? '、' + toolOrders.length + ' 張有器具' : '') + '</span></span><span class="tog"></span></summary>' +
       '<div class="status-chips sum-size" style="margin:0 0 10px;padding-left:4px;align-items:center"><span class="muted small">字體大小：</span>' +
       [['15', '小'], ['17', '中'], ['20', '大'], ['24', '特大']].map(function (x) {
         return '<button type="button" data-ssize="' + x[0] + '"' + (String(sumSize) === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>';
