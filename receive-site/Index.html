@@ -77,7 +77,10 @@
   /* 核銷表單：一筆一張小卡，欄位會自動換行（手機一行兩格、電腦一行排滿） */
   .hxrow { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-end; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; background: #fff; }
   .hxrow .no { font-weight: 700; color: var(--muted); align-self: center; }
-  .hxform label.hxf { display: flex; flex-direction: column; flex: 1 1 130px; min-width: 0; margin: 0; font-weight: normal; }
+  .hxrow .hxck { display: flex; flex-direction: column; align-items: center; align-self: center; cursor: pointer; gap: 2px; }
+  .hxrow .hxck input { width: 26px; height: 26px; margin: 0; cursor: pointer; }
+  .hxrow.ck { background: #ecfdf3; border-color: #12b76a; }
+  .hxform label.hxf { display: flex; flex-direction: column; flex: 1 1 110px; min-width: 0; margin: 0; font-weight: normal; }
   .hxform label.hxf > span { font-size: 12px; color: var(--muted); }
   .hxform .hxf input, .hxform .hxf select { width: 100%; }
   .hxcat { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 0; border-bottom: 1px solid #eaecf0; }
@@ -1269,13 +1272,20 @@
       '<label class="hxf"><span>備註</span><input data-hb="note" value="' + esc(d.note) + '" placeholder="例如：成果展"></label>' +
       '<button type="button" class="btn small" id="hxExApply" title="把上面四格套到下面每一項">套用到全部 ' + hxF.extras.length + ' 項</button></div>';
   }
+  function hxExCount() {
+    var rows = hxF.extras.filter(function (x) { return String(x.name || '').trim() || numv(x.amount); });
+    var tot = rows.reduce(function (n, x) { return n + (numv(x.amount) || 0); }, 0), ck = rows.filter(function (x) { return x.ck; }).length;
+    var el = $('hxExSum');
+    if (!el) return;
+    setHtml(el, rows.length ? '共 ' + rows.length + ' 項，$' + money(r2(tot)) + '　' + (ck === rows.length ? '<span class="badge ok">✓ 全部對過</span>' : '<b>已對 ' + ck + '／' + rows.length + '</b>') +
+      (ck ? ' <button type="button" class="btn ghost small" id="hxExUnck">清掉勾勾</button>' : '') : '');
+  }
   function hxExNew(name, amount) { var d = hxF.exBulk || {}; return { date: d.date || iso(new Date()), name: name || '', amount: amount === undefined ? '' : amount, cat: d.cat || '', buyer: d.buyer || '', note: d.note || '' }; }
   function hxRenderExtras() {
-    var tot = hxF.extras.reduce(function (n, x) { return n + (numv(x.amount) || 0); }, 0);
-    if ($('hxExSum')) $('hxExSum').textContent = hxF.extras.length ? '共 ' + hxF.extras.filter(function (x) { return String(x.name || '').trim() || numv(x.amount); }).length + ' 項，$' + money(r2(tot)) : '';
+    hxExCount();
     $('hxEx').innerHTML = (hxF.extras.length >= 2 ? hxExBulk() : '') + (hxF.extras.length ? hxF.extras.map(function (x, i) {
       var f = function (k, label, attrs) { return '<label class="hxf"><span>' + label + '</span><input data-he="' + k + '" data-i="' + i + '" ' + attrs + ' value="' + esc(x[k] === undefined ? '' : String(x[k])) + '"></label>'; };
-      return '<div class="hxrow"><span class="no">' + (i + 1) + '</span>' + f('name', '品名', 'list="hxExNames" placeholder="例如：草莓 2 盒"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
+      return '<div class="hxrow' + (x.ck ? ' ck' : '') + '"><label class="hxck" title="對過收據就打勾"><input type="checkbox" data-heck="' + i + '"' + (x.ck ? ' checked' : '') + '><span class="no">' + (i + 1) + '</span></label>' + f('name', '品名', 'list="hxExNames" placeholder="例如：草莓 2 盒"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
         '<label class="hxf"><span>類別</span><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
         f('date', '日期', 'type="date"') + f('buyer', '購買人', 'placeholder="老師先買的填名字"') + f('note', '備註', 'placeholder="例如：成果展"') +
         '<button type="button" class="btn ghost small" data-hedel="' + i + '" title="拿掉這項">✕</button></div>';
@@ -1608,6 +1618,7 @@
     }
     if (t.id === 'hxCancel') { hxF = null; hxOpen('list'); return; }
     if (t.id === 'hxExAdd') { hxExAddRow(); return; }
+    if (t.id === 'hxExUnck') { hxF.extras.forEach(function (x) { delete x.ck; }); hxRenderExtras(); return; }
     if (t.id === 'hxExPasteBtn') { $('hxExPaste').classList.remove('hidden'); $('hxExText').focus(); return; }
     if (t.id === 'hxExPasteCancel') { $('hxExPaste').classList.add('hidden'); return; }
     if (t.id === 'hxExParse') {
@@ -1683,6 +1694,7 @@
       hxRenderCands(); hxSumUp(); return;
     }
     if (t.hasAttribute('data-hb')) { (hxF.exBulk = hxF.exBulk || {})[t.getAttribute('data-hb')] = t.value; return; }
+    if (t.hasAttribute('data-heck')) { var ex = hxF.extras[Number(t.getAttribute('data-heck'))]; ex.ck = t.checked; t.closest('.hxrow').classList.toggle('ck', t.checked); hxExCount(); return; }
     if (t.hasAttribute('data-he')) { hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value; hxSumUp(); return; }
     if (t.id === 'hxV' && t.value) {
       hxCollect(); hxF.cands = null; hxF.checks = [];
@@ -1708,7 +1720,7 @@
     if (t.hasAttribute('data-he')) {
       hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value;
       if (/amount|cat/.test(t.getAttribute('data-he'))) hxSumUp();
-      if (t.getAttribute('data-he') === 'amount' && $('hxExSum')) { var tot = hxF.extras.reduce(function (n, x) { return n + (numv(x.amount) || 0); }, 0); $('hxExSum').textContent = '共 ' + hxF.extras.filter(function (x) { return String(x.name || '').trim() || numv(x.amount); }).length + ' 項，$' + money(r2(tot)); }
+      if (/amount|name/.test(t.getAttribute('data-he'))) hxExCount();
       return;
     }
     if (t.hasAttribute('data-hxp')) hxSumUp();
