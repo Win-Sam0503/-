@@ -49,6 +49,9 @@
   .st.on[data-s="少送"], .st.on[data-s="多送"], .st.on[data-s="缺貨"] { background: var(--warn); border-color: var(--warn); color: #fff; }
   .st.on[data-s="沒送"], .st.on[data-s="送錯"], .st.on[data-s="品質不好"] { background: var(--bad); border-color: var(--bad); color: #fff; }
   .item.ok { background: #f6fef9; } .item.bad { background: #fff6f5; }
+  .item.hl { background: #fff3b0; box-shadow: inset 5px 0 #f5b301; } .item.hl .nm { background: #ffe066; border-radius: 4px; padding: 0 4px; }
+  .item .nm { cursor: pointer; }
+  .item .clr { border: 1.5px solid #f04438; color: #d92d20; background: #fff; border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 16px; cursor: pointer; margin-left: auto; }
   .item input.got { width: 120px; } .item input.note { flex: 1; min-width: 160px; }
   .bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 -16px -16px; border-radius: 0 0 14px 14px; }
   .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
@@ -369,7 +372,7 @@
       cur.marks = d.marks; cur.photos = d.photos; if (d.slip) cur.slip = d.slip;
       $('draftMsg').innerHTML = '<div class="msg info">已恢復 ' + esc(d.at) + (d.remote ? ' 暫時儲存' : ' 點到一半') + '的內容（' + Object.keys(d.marks).length + ' 項），點完按「完成驗收」才會存。 <button type="button" class="btn ghost small" id="draftDrop">清掉、重新點</button></div>';
     } else msg('draftMsg', '', '');
-    $('doQ').value = '';
+    $('doQ').value = ''; hlName = '';
     var cl = [];
     b.lines.forEach(function (x) { if (x.cls && cl.indexOf(x.cls) < 0) cl.push(x.cls); });
     $('doCls').innerHTML = '<option value="">全部班級</option>' + cl.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
@@ -389,15 +392,15 @@
     sigReset();
   }
   function renderDo() {
-    var b = cur.b, last = null, html = '', shown = visibleLines();
-    shown.forEach(function (x) {
+    var b = cur.b, last = null, html = '', shown = visibleLines(), hl = hlKeys(shown), list = displayLines(shown);
+    list.forEach(function (x) {
       if (b.perClass || x.cls) {
         var g = (x.date ? mdw(x.date) + '　' : '') + x.cls + (x.teacher ? '　' + x.teacher : '');
         if (g !== last) { html += '<div class="grp">' + esc(g) + (x.date ? '<button type="button" class="btn ghost small stopday" data-stopday="' + esc(x.date) + '">這天停送</button>' : '') + '</div>'; last = g; }
       }
       var m = cur.marks[x.key] || {}, s = m.status || '';
-      var cls = s === '到齊' ? ' ok' : s === '停送' ? ' stop' : s ? ' bad' : '';
-      html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm">' + esc(x.name) + '</span>' +
+      var cls = (s === '到齊' ? ' ok' : s === '停送' ? ' stop' : s ? ' bad' : '') + (hl[x.key] ? ' hl' : '');
+      html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm" title="點一下：其他班的同樣食材一起標黃色">' + esc(x.name) + '</span>' +
         (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') + '</div>' +
         '<div class="ex">' + esc(x.expect) + '</div><div class="acts">' +
         (s === '停送' ? '<span class="badge none">⛔ 停送' + (m.note ? '（' + esc(m.note) + '）' : '') + '</span> ' : '') +
@@ -408,13 +411,14 @@
         (s && s !== '到齊' && s !== '停送' ? '<input class="note" type="text" maxlength="100" placeholder="' + ({ '品質不好': '哪裡不好，例如：葉子爛、有異味', '缺貨': '例如：廠商來電說缺貨，改下週送', '其他': '是什麼狀況（必填）' }[s] || '備註，例如：送成牛番茄') + '" value="' + esc(m.note || '') + '">' +
           '<button type="button" class="btn ghost small" data-ph="1">📷 拍照</button>' +
           (m.photos || []).map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">照片' + (i + 1) + '</a>'; }).join(' ') : '') +
+        (s ? '<button type="button" class="clr" data-clr="1" title="按錯了：這一行回到還沒點">✕</button>' : '') +
         '</div></div>';
     });
     $('doList').innerHTML = html || '<div class="muted" style="padding:16px 0">沒有符合的品項。</div>';
-    var f = filtering();
-    $('doCount').textContent = f ? '顯示 ' + shown.length + '／' + b.lines.length + ' 項' : '';
+    var f = filtering(), q = $('doQ').value.trim();
+    $('doCount').textContent = f ? (q ? '找到 ' + shown.length + ' 項（黃色）' : '顯示 ' + shown.length + '／' + b.lines.length + ' 項') : '';
     $('allOk').textContent = f ? '✓ 這 ' + shown.length + ' 項都到齊' : '✓ 全部到齊';
-    $('allOkHint').textContent = f ? '只會改目前搜尋到、還沒點的品項。' : '先按全部到齊，再改有問題的那幾項。';
+    $('allOkHint').textContent = q ? '只會改黃色（搜尋到）、還沒點的品項。' : f ? '只會改目前這班、還沒點的品項。' : '先按全部到齊，再改有問題的那幾項。';
     progress();
   }
   function filtering() { return !!($('doQ').value.trim() || $('doCls').value); }
@@ -425,7 +429,38 @@
       return !q || q.split(/\s+/).every(function (w) { return [x.name, x.cls, x.teacher, x.note].join(' ').toLowerCase().indexOf(w) >= 0; });
     });
   }
-  $('doQ').addEventListener('input', function () { renderDo(); });
+  // 搜尋時：照班級整班列出（有找到的班級），找到的食材標黃色；不是照班級的叫貨單就只列找到的
+  function displayLines(shown) {
+    if (!$('doQ').value.trim()) return shown;
+    var c = $('doCls').value, gk = function (x) { return (x.date || '') + '|' + x.cls + '|' + (x.teacher || ''); }, hit = {};
+    shown.forEach(function (x) { if (x.cls) hit[gk(x)] = true; });
+    return cur.b.lines.filter(function (x) { return x.cls ? hit[gk(x)] && (!c || x.cls === c) : shown.indexOf(x) >= 0; });
+  }
+  // 黃色：搜尋找到的，或點了食材名稱的同樣食材（各班一起亮）
+  var hlName = '';
+  function hlKeys(shown) {
+    var out = {};
+    if ($('doQ').value.trim()) shown.forEach(function (x) { out[x.key] = true; });
+    if (hlName) cur.b.lines.forEach(function (x) { if (x.name === hlName) out[x.key] = true; });
+    return out;
+  }
+  $('doList').addEventListener('click', function (e) {
+    var n = e.target.closest('.nm');
+    if (!n) return;
+    var x = n.textContent;
+    hlName = hlName === x ? '' : x;
+    renderDo();
+  });
+  // ✕ 按錯了：這一行回到還沒點（照片留著）
+  $('doList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-clr]');
+    if (!b) return;
+    var k = b.closest('[data-k]').getAttribute('data-k'), m = cur.marks[k];
+    if (m) { var ph = m.photos; if (ph && ph.length) cur.marks[k] = { photos: ph }; else delete cur.marks[k]; }
+    renderDo();
+    saveDraft();
+  });
+  $('doQ').addEventListener('input', function () { hlName = ''; renderDo(); });
   $('doCls').addEventListener('change', function () { renderDo(); });
 
   // 點到一半自動暫存在這台平板（網路斷掉、關掉網頁也不會不見）；完成驗收後清掉
