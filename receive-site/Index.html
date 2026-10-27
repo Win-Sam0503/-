@@ -127,6 +127,7 @@
             <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
             <button type="button" class="btn ghost small" id="slipManual">手動填</button>
             <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
+          <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
           <div id="slipBox"></div>
         </div>
         <textarea id="doNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註（選填），例如：司機說洋蔥明天補"></textarea>
@@ -605,7 +606,7 @@
   }
   function renderSlip() {
     var sl = cur.slip;
-    if (!sl) { $('slipBox').innerHTML = ''; return; }
+    if (!sl) { $('slipBox').innerHTML = ''; $('slipQWrap').classList.add('hidden'); $('slipQ').value = ''; return; }
     var expect = {};
     cur.b.lines.forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
     var html = '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th></tr>';
@@ -616,7 +617,7 @@
         ' <span class="badge ' + (pv > lp.price ? 'bad' : 'ok') + '">' + (pv > lp.price ? '比上次貴' : '比上次便宜') + '（上次 $' + money(lp.price) + '）</span>' : '';
       var flag = r.partial ? '<span class="badge warn">⚠ 請確認品名</span>' : has && r.sure === false ? '<span class="badge warn">請確認數字</span>'
         : sl.ocr && !has ? '<span class="badge none">銷貨單上沒看到</span>' : '';
-      html += '<tr' + (r.pre ? ' style="background:#fffbea"' : '') + '><td><b>' + esc(n) + '</b> ' + flag + hint + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
+      html += '<tr data-q="' + esc((n + ' ' + (r.slipName || '') + ' ' + (r.code || '')).toLowerCase()) + '"' + (r.pre ? ' style="background:#fffbea"' : '') + '><td><b>' + esc(n) + '</b> ' + flag + hint + (r.slipName && r.slipName.replace(/\s/g, '') !== n || r.code ? '<div class="muted sn">銷貨單：' + esc((r.code ? r.code + ' ' : '') + (r.slipName || '')) + '</div>' : '') + '</td>' +
         '<td class="small">' + esc(expect[n].length > 3 ? expect[n].length + ' 筆' : expect[n].join('＋')) + '</td>' +
         ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('sn', n, f, r[f]); }).join('') + '</tr>';
     });
@@ -624,7 +625,7 @@
     if (sl.extras.length) {
       html += '<div class="small" style="margin-top:10px"><b>銷貨單上有、叫貨單沒有的</b>（選「另外算」會算進金額，例如運費；選食材名稱＝是同一樣，會記住這個叫法）</div>' +
         '<div class="slipwrap"><table class="slipt">' + sl.extras.map(function (x, i) {
-          return '<tr><td><input data-xn="' + i + '" value="' + esc(x.slipName) + '" placeholder="品名"></td>' +
+          return '<tr data-q="' + esc(String(x.slipName || '').toLowerCase()) + '"><td><input data-xn="' + i + '" value="' + esc(x.slipName) + '" placeholder="品名"></td>' +
             ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('x', i, f, x[f]); }).join('') +
             '<td><select data-xmap="' + i + '" style="width:auto"><option value=""' + (!x.map ? ' selected' : '') + '>不算</option><option value="+"' + (x.map === '+' ? ' selected' : '') + '>另外算</option>' +
             slipNames().map(function (n) { return '<option value="=' + esc(n) + '">＝ ' + esc(n) + '</option>'; }).join('') + '</select></td></tr>';
@@ -635,7 +636,21 @@
       (sl.text ? '<details class="small" style="margin-top:6px"><summary style="cursor:pointer">看辨識出來的原始文字</summary><pre style="white-space:pre-wrap">' + esc(sl.text) + '</pre></details>' : '');
     $('slipBox').innerHTML = html;
     slipFooter();
+    $('slipQWrap').classList.remove('hidden');
+    slipFilter();
   }
+  // 關鍵字搜尋：只顯示品名（含銷貨單上的叫法、貨品編號）有這幾個字的列；搜尋框不重畫，注音選字不會被打斷
+  function slipFilter() {
+    var q = $('slipQ').value.trim().toLowerCase().split(/\s+/).filter(Boolean), n = 0, all = 0;
+    Array.prototype.forEach.call($('slipBox').querySelectorAll('tr[data-q]'), function (tr) {
+      var hit = q.every(function (k) { return tr.getAttribute('data-q').indexOf(k) >= 0; });
+      tr.style.display = hit ? '' : 'none';
+      all++; if (hit) n++;
+    });
+    $('slipQN').textContent = q.length ? '符合 ' + n + '／' + all + ' 項' : '';
+  }
+  $('slipQ').addEventListener('input', function (e) { if (!e.isComposing) slipFilter(); });
+  $('slipQ').addEventListener('compositionend', slipFilter);
   function slipSum() {
     var sl = cur.slip, sum = 0, n = 0;
     Object.keys(sl.rows).forEach(function (k) { var a = numv(sl.rows[k].amount); if (a !== null && slipNames().indexOf(k) >= 0) { sum += a; n++; } });
@@ -722,6 +737,7 @@
   });
   $('slipBox').addEventListener('click', function (e) {
     if (e.target.id !== 'slipAddX') return;
+    $('slipQ').value = '';   // 新加的空白列才看得到
     cur.slip.extras.push({ slipName: '', qty: '', unit: '', price: '', amount: '', map: '+' });
     renderSlip(); saveDraft();
   });
