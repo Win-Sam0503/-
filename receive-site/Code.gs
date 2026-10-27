@@ -74,6 +74,8 @@ const API_ = {
   hxSaveInvoice: function (a) { return hxSaveInvoice_.apply(null, a); }, hxDeleteInvoice: function (a) { return hxDeleteInvoice_.apply(null, a); },
   hxSetDone: function (a) { return hxSetDone_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
+  hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudget_.apply(null, a); },
+  hxDeleteBudget: function (a) { return hxDeleteBudget_.apply(null, a); },
 };
 function api(token, fn, args) {
   const account = CacheService.getScriptCache().get('rsess:' + String(token || ''));
@@ -910,6 +912,7 @@ const HX_LINE_HEADERS = ['發票編號', '發票號碼', '發票日期', '金額
 // 另外叫料：不在叫貨單裡的（臨時電話加叫、系統外的商店、活動用、老師先買後報帳），一項一列，金額算進那一類
 const HX_EXTRA_HEADERS = ['發票編號', '日期', '品名', '金額', '類別', '購買人', '備註'];   // 一筆核銷可以有好幾張發票（「發票編號」是這筆核銷的編號）
 const HX_CAT_HEADERS = ['類別', '經手人', '排序'];
+const HX_BUDGET_HEADERS = ['預算編號', '類別', '名稱', '起', '迄', '預算', '備註', '更新時間', '更新人'];
 const HX_DEFAULT_CATS = ['國中技藝班（餐旅）', '國中技藝班（食品）', '特教班', '實習實作', '餐飲科課費', '國中生涯實作（三信）', '國中生涯實作（國中）', '未未成果展'];
 const HX_STOCK_CAT = '餐飲科課費';   // 補庫存（沒有班級、大家共用的）先帶這一類
 
@@ -994,9 +997,10 @@ function hxGet_(vendor, ym) {
     const v = String(r['廠商'] || '').trim(), sv = SITE_VENDORS[v];
     if (v) vendors[sv ? sv.base : v] = true;
   });
+  const budgets = hxBudgets_(list);
   if (vendor) list = list.filter(function (x) { return x.vendor === vendor; });
   if (ym) list = list.filter(function (x) { return x.date.slice(0, 7) === ym; });
-  return { cats: cats, vendors: Object.keys(vendors).filter(Boolean).sort(), invoices: list, me: CURRENT_USER_ };
+  return { cats: cats, vendors: Object.keys(vendors).filter(Boolean).sort(), invoices: list, budgets: budgets, me: CURRENT_USER_ };
 }
 
 /** 這家廠商在 from～to 之間的每一次送貨（驗收）：金額、各班金額，已經算進哪張發票 */
@@ -1114,6 +1118,73 @@ function hxEnsureSheets_() {
   ensureSheet_('核銷發票明細', HX_LINE_HEADERS);
   ensureSheet_('核銷另外叫料', HX_EXTRA_HEADERS);
   cache.put('hxSheetsOk2', '1', 6 * 3600);
+}
+
+// ---------------------------------------------------------------------
+// 預算：每一類可以有好幾筆（各自的起迄日），已用＝這段期間發票日期落在裡面、分到這一類的金額
+// ---------------------------------------------------------------------
+
+/** [{ id, cat, name, from, to, amount, note, done, pending, used, left }]（invoices 不給就自己讀） */
+function hxBudgets_(invoices) {
+  if (!ss_().getSheetByName('核銷預算')) return [];
+  const ds = function (v) { return v instanceof Date ? dateStr_(v) : String(v || '').replace(/^'/, ''); };
+  const list = readTable_('核銷預算', ['預算編號', '類別']).rows.filter(function (r) { return String(r['預算編號']).trim(); }).map(function (r) {
+    return { id: String(r['預算編號']).trim(), cat: String(r['類別'] || '').trim(), name: String(r['名稱'] || ''), from: ds(r['起']), to: ds(r['迄']),
+      amount: Number(r['預算']) || 0, note: String(r['備註'] || ''), done: 0, pending: 0, n: 0 };
+  });
+  if (!list.length) return [];
+  (invoices || hxReadInvoices_()).forEach(function (inv) {
+    inv.allocs.forEach(function (a) {
+      list.forEach(function (b) {
+        if (b.cat !== a.cat || inv.date < b.from || inv.date > b.to) return;
+        if (a.status === '已核銷') b.done = round2_(b.done + a.amount); else b.pending = round2_(b.pending + a.amount);
+        b.n++;
+      });
+    });
+  });
+  list.forEach(function (b) { b.used = round2_(b.done + b.pending); b.left = round2_(b.amount - b.used); });
+  return list.sort(function (a, b) { return b.from.localeCompare(a.from) || a.cat.localeCompare(b.cat, 'zh-Hant'); });
+}
+
+/** 新增或修改一筆預算：b = { id?, cat, name, from, to, amount, note } */
+function hxSaveBudget_(b) {
+  b = b || {};
+  const cat = clean_(b.cat, 30), name = clean_(b.name, 40), f = parseDate_(b.from), t = parseDate_(b.to), amt = Number(String(b.amount || '').replace(/[,，\s$]/g, ''));
+  if (!cat) throw new Error('請選類別。');
+  if (!f || !t) throw new Error('請填預算的起訖日期。');
+  if (t < f) throw new Error('迄日不能比起日早。');
+  if (!(amt > 0)) throw new Error('請填預算金額。');
+  const row = { '類別': cat, '名稱': name, '起': "'" + dateStr_(f), '迄': "'" + dateStr_(t), '預算': amt, '備註': clean_(b.note, 100), '更新時間': new Date(), '更新人': CURRENT_USER_ || '' };
+  ensureSheet_('核銷預算', HX_BUDGET_HEADERS);
+  const lock = waitLock_();
+  try {
+    const id = clean_(b.id, 40);
+    if (id) {
+      const tb = readTable_('核銷預算', ['預算編號']);
+      const r = tb.rows.filter(function (x) { return String(x['預算編號']).trim() === id; })[0];
+      if (!r) throw new Error('找不到這筆預算，可能被別人刪掉了。');
+      Object.keys(row).forEach(function (h) { setCell_(tb, r._row, h, row[h]); });
+    } else {
+      row['預算編號'] = 'BG' + Utilities.formatDate(new Date(), tz_(), 'yyyyMMddHHmmss') + Math.floor(Math.random() * 90 + 10);
+      appendRows_('核銷預算', [row]);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return hxBudgets_();
+}
+
+function hxDeleteBudget_(id) {
+  id = clean_(id, 40);
+  if (!ss_().getSheetByName('核銷預算')) return [];
+  const lock = waitLock_();
+  try {
+    const tb = readTable_('核銷預算', ['預算編號']);
+    deleteRows_(tb.sheet, tb.rows.filter(function (r) { return String(r['預算編號']).trim() === id; }).map(function (r) { return r._row; }));
+  } finally {
+    lock.releaseLock();
+  }
+  return hxBudgets_();
 }
 
 /** 等別人存完再存：最多等 30 秒，等不到就請使用者稍等再按（不要顯示 Google 的英文／技術訊息） */

@@ -91,6 +91,11 @@
     .hxcard .hxt td, .hxcard .hxt th { padding: 4px 2px; font-size: 14px; }
     .hxtabs .btn { padding: 6px 8px; }
   }
+  .bgbar { height: 10px; border-radius: 5px; background: #eaecf0; overflow: hidden; margin: 6px 0 2px; display: flex; }
+  .bgbar i { display: block; height: 100%; } .bgbar .d { background: #12b76a; } .bgbar .p { background: #fdb022; }
+  .bgcard.warn { border-color: #f79009; background: #fffcf5; } .bgcard.over { border-color: #f04438; background: #fff6f5; }
+  .bgnums { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 15px; }
+  .hxbud { font-size: 13px; margin-top: 2px; } .hxbud.over { color: var(--bad); font-weight: 700; }
   .hxsum { position: sticky; bottom: 0; background: #fff; border-top: 2px solid var(--line); padding: 8px 0; margin-top: 8px; }
   @media print { header, .hxtabs, .noprint { display: none !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -219,6 +224,7 @@
       <button type="button" class="btn ghost small on" data-hx="list">📄 發票</button>
       <button type="button" class="btn ghost small" data-hx="new">＋ 新增核銷</button>
       <button type="button" class="btn ghost small" data-hx="stats">📊 統計表</button>
+      <button type="button" class="btn ghost small" data-hx="budget">💰 預算</button>
       <button type="button" class="btn ghost small" data-hx="cats">⚙ 類別與經手人</button>
     </div></div>
     <div id="hxMsg"></div>
@@ -994,7 +1000,7 @@
   var hx = null, hxTab = 'list', hxF = null;
   var hxYm = function (d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); };
   function hxOpen(tab) {
-    hxTab = tab || hxTab;
+    hxTab = tab || hxTab; hxBg = null;
     Array.prototype.forEach.call(document.querySelectorAll('.hxtabs button'), function (b) { b.classList.toggle('on', b.getAttribute('data-hx') === (hxTab === 'edit' ? 'new' : hxTab)); });
     msg('hxMsg', 'info', '讀取中…'); $('hxBox').innerHTML = '';
     var fv = $('hxFv') ? $('hxFv').value : '', fm = $('hxFm') ? $('hxFm').value : '';
@@ -1004,6 +1010,7 @@
       else if (hxTab === 'new') { hxF = null; hxForm(); }
       else if (hxTab === 'edit') hxForm();
       else if (hxTab === 'stats') hxStatsView();
+      else if (hxTab === 'budget') hxBudgetView();
       else hxCatsView();
     }).catch(function (e) { msg('hxMsg', 'error', e.message); });
   }
@@ -1053,6 +1060,7 @@
       var dd = new Date(String(f.date || iso(d)).replace(/-/g, '/')); if (isNaN(dd)) dd = d;
       f.from = iso(new Date(dd.getFullYear(), dd.getMonth() - 2, dd.getDate())); f.to = iso(new Date(dd.getFullYear(), dd.getMonth(), dd.getDate() + 7));
     }
+    if (f.id && !f._orig) { f._orig = { date: f.date, by: {} }; (f.allocs || []).forEach(function (x) { f._orig.by[x.cat] = r2((f._orig.by[x.cat] || 0) + (Number(x.amount) || 0)); }); }
     if (!f.parts) { f.parts = {}; (f.allocs || []).forEach(function (x) { f.parts[x.cat] = (x.parts || [x.amount]).slice(); }); }
     hxF = f; hxF.cands = hxF.cands || null;
     $('hxBox').innerHTML = '<div class="panel hxform"><h2 style="margin-top:0">' + (f.id ? '修改核銷' : '新增核銷') + '</h2>' +
@@ -1107,7 +1115,7 @@
       return '<div class="hxcat"><div class="nm"><b>' + esc(c.name) + '</b><div class="muted small">經手人：' + esc(c.handler || '（還沒設定）') + '</div></div><div class="ps">' +
         ps.map(function (v, k) { return '<input data-hxp="' + esc(c.name) + '" data-k="' + k + '" inputmode="decimal" value="' + esc(v === '' ? '' : String(v)) + '" placeholder="0">'; }).join('') +
         '<button type="button" class="btn ghost small" data-hxpadd="' + esc(c.name) + '" title="這一類再加一筆">＋</button></div>' +
-        '<div class="sub">小計 <b data-hxsub="' + esc(c.name) + '"></b></div></div>';
+        '<div class="sub">小計 <b data-hxsub="' + esc(c.name) + '"></b><div class="hxbud" data-hxbud="' + esc(c.name) + '"></div></div></div>';
     }).join('');
   }
   function hxReadParts() {
@@ -1155,6 +1163,7 @@
       sub = r2(sub + (exBy[c.name] || 0)); cat += sub;
       var el = document.querySelector('[data-hxsub="' + CSS.escape(c.name) + '"]');
       if (el) el.innerHTML = sub ? '$' + money(sub) + (exBy[c.name] ? '<div class="muted small" style="font-weight:normal">含另外叫料 $' + money(exBy[c.name]) + '</div>' : '') : '—';
+      hxBudHint(c.name, sub);
     });
     cat = r2(cat);
     hxPicked().forEach(function (c) { sys += c.amount; });
@@ -1168,6 +1177,76 @@
     $('hxSum').innerHTML = '發票合計 <b>$' + money(inv) + '</b>（' + hxF.lines.length + ' 張）　各類別合計 <b>$' + money(cat) + '</b> ' +
       (bad === 'cat' ? '<span class="badge bad">另外叫料有一項還沒選類別</span>' : bad ? '<span class="badge bad">有金額看不懂</span>' : !inv && !cat ? '' : Math.abs(left) < 1 ? '<span class="badge ok">✓ 剛好</span>' : '<span class="badge bad">' + (left > 0 ? '還剩 $' + money(left) + ' 沒分' : '多分了 $' + money(-left)) + '</span>');
   }
+  // 這一類在發票日期那段的預算：顯示存了以後還剩多少（修改舊發票時，先把它原本分的錢加回去）
+  function hxBudHint(cat, sub) {
+    var el = document.querySelector('[data-hxbud="' + CSS.escape(cat) + '"]');
+    if (!el) return;
+    var d = hxF.lines.map(function (l) { return l.date; }).filter(Boolean).sort().pop() || iso(new Date());
+    var b = (hx.budgets || []).filter(function (x) { return x.cat === cat && d >= x.from && d <= x.to; })[0];
+    if (!b) { el.innerHTML = ''; el.className = 'hxbud'; return; }
+    var back = 0;
+    var o = hxF._orig;
+    if (o && o.date >= b.from && o.date <= b.to) back = o.by[cat] || 0;
+    var left = r2(b.left + back - sub);
+    el.className = 'hxbud' + (left < 0 ? ' over' : ' muted');
+    el.textContent = (b.name || '預算') + (left < 0 ? (sub ? ' 存了會超支 $' : ' 已超支 $') + money(-left) : (sub ? ' 存了剩 $' : ' 剩 $') + money(left));
+  }
+  // ⑤ 預算
+  var hxBg = null;   // 正在改的那一筆（新增是 {}）
+  function hxBudgetView() {
+    var list = hx.budgets || [], today = iso(new Date());
+    var html = '<div class="panel"><div class="row" style="justify-content:space-between"><h2 style="margin:0">各類別預算</h2><button type="button" class="btn small" id="bgAdd">＋ 新增預算</button></div>' +
+      '<div class="muted small">每一類可以有好幾筆預算，各自填起訖日（例如 115 上學期、成果展）。已用＝發票日期在這段期間、分到這一類的金額（已核銷＋待核銷）。用到 80% 變橘色，超過變紅色。</div>' +
+      '<div id="bgForm"></div>';
+    if (!list.length) html += '<div class="muted" style="padding:16px 0">還沒有預算。按「＋ 新增預算」開始。</div>';
+    var on = list.filter(function (b) { return b.to >= today; }), old = list.filter(function (b) { return b.to < today; });
+    html += on.map(hxBgCard).join('');
+    if (old.length) html += '<details style="margin-top:12px"><summary style="cursor:pointer">已經結束的預算（' + old.length + '）</summary>' + old.map(hxBgCard).join('') + '</details>';
+    $('hxBox').innerHTML = html + '</div>';
+    if (hxBg) hxBgForm();
+  }
+  function hxBgCard(b) {
+    var pct = b.amount ? b.used / b.amount : 0, st = pct > 1 ? ' over' : pct >= 0.8 ? ' warn' : '';
+    var w = function (v) { return Math.min(100, b.amount ? v / b.amount * 100 : 0).toFixed(1) + '%'; };
+    return '<div class="hxcard bgcard' + st + '"><h3>' + esc(b.cat) + (b.name ? '　<span style="font-weight:normal">' + esc(b.name) + '</span>' : '') + '</h3>' +
+      '<div class="muted small">' + esc(b.from.replace(/-/g, '/')) + '～' + esc(b.to.replace(/-/g, '/')) + '・經手人 ' + esc(catHandler(b.cat) || '—') + (b.note ? '・' + esc(b.note) : '') + '</div>' +
+      '<div class="bgbar"><i class="d" style="width:' + w(b.done) + '"></i><i class="p" style="width:' + w(Math.min(b.pending, Math.max(0, b.amount - b.done))) + '"></i></div>' +
+      '<div class="bgnums"><span>預算 <b>$' + money(b.amount) + '</b></span><span style="color:#027a48">已核銷 $' + money(b.done) + '</span><span style="color:#b54708">待核銷 $' + money(b.pending) + '</span>' +
+      '<span>' + (b.left < 0 ? '<b style="color:var(--bad)">超支 $' + money(-b.left) + '</b>' : '剩餘 <b' + (st ? ' style="color:#b54708"' : '') + '>$' + money(b.left) + '</b>') + '（用了 ' + Math.round(pct * 100) + '%）</span></div>' +
+      '<div class="row" style="margin-top:6px"><button type="button" class="btn ghost small" data-bgedit="' + esc(b.id) + '">修改</button><button type="button" class="btn ghost small" data-bgdel="' + esc(b.id) + '">刪除</button></div></div>';
+  }
+  function hxBgForm() {
+    var b = hxBg;
+    $('bgForm').innerHTML = '<div class="hxcard hxform"><h3>' + (b.id ? '修改預算' : '新增預算') + '</h3><div class="hxrow" style="border:0;padding:0">' +
+      '<label class="hxf"><span>類別</span><select id="bgCat">' + hx.cats.map(function (c) { return '<option' + (c.name === b.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="hxf"><span>名稱（選填）</span><input id="bgName" maxlength="40" value="' + esc(b.name || '') + '" placeholder="例如：115 上學期"></label>' +
+      '<label class="hxf"><span>起</span><input id="bgFrom" type="date" value="' + esc(b.from || '') + '"></label>' +
+      '<label class="hxf"><span>迄</span><input id="bgTo" type="date" value="' + esc(b.to || '') + '"></label>' +
+      '<label class="hxf"><span>預算金額</span><input id="bgAmt" inputmode="decimal" value="' + esc(b.amount ? String(b.amount) : '') + '" placeholder="例如 50000"></label>' +
+      '<label class="hxf"><span>備註（選填）</span><input id="bgNote" maxlength="100" value="' + esc(b.note || '') + '"></label></div>' +
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn" id="bgSave">💾 儲存</button><button type="button" class="btn ghost small" id="bgCancel">取消</button></div></div>';
+  }
+  // 起日填了，迄日還空著就跳到迄日
+  $('hxBox').addEventListener('change', function (e) { if (e.target.id === 'bgFrom' && e.target.value && !$('bgTo').value) { $('bgTo').min = e.target.value; try { $('bgTo').showPicker(); } catch (x) { $('bgTo').focus(); } } });
+  $('hxBox').addEventListener('click', function (e) {
+    var t = e.target, id;
+    if (t.id === 'bgAdd') { hxBg = {}; hxBgForm(); $('bgForm').scrollIntoView({ block: 'nearest' }); return; }
+    if (t.id === 'bgCancel') { hxBg = null; $('bgForm').innerHTML = ''; return; }
+    if ((id = t.getAttribute('data-bgedit'))) { hxBg = (hx.budgets || []).filter(function (x) { return x.id === id; })[0] || {}; hxBgForm(); $('bgForm').scrollIntoView({ block: 'nearest' }); return; }
+    if ((id = t.getAttribute('data-bgdel'))) {
+      var bd = (hx.budgets || []).filter(function (x) { return x.id === id; })[0];
+      if (!bd || !window.confirm('確定刪除「' + bd.cat + (bd.name ? ' ' + bd.name : '') + '」這筆預算？（發票不會被刪）')) return;
+      t.disabled = true;
+      call('hxDeleteBudget', id).then(function (r) { hx.budgets = r; hxBudgetView(); msg('hxMsg', 'ok', '已刪除預算。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; });
+      return;
+    }
+    if (t.id === 'bgSave') {
+      var p = { id: hxBg.id || '', cat: $('bgCat').value, name: $('bgName').value.trim(), from: $('bgFrom').value, to: $('bgTo').value, amount: $('bgAmt').value, note: $('bgNote').value.trim() };
+      t.disabled = true; t.textContent = '儲存中…';
+      call('hxSaveBudget', p).then(function (r) { hx.budgets = r; hxBg = null; hxBudgetView(); msg('hxMsg', 'ok', '預算已儲存。'); })
+        .catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; t.textContent = '💾 儲存'; });
+    }
+  });
   function hxCollect() {
     hxF.vendor = $('hxV').value; hxF.from = $('hxFrom').value; hxF.to = $('hxTo').value; hxF.note = $('hxNote').value;
     var parts = hxReadParts();
