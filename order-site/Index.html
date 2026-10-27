@@ -2895,7 +2895,9 @@
   });
   var mineDays = 60;   // 按「顯示更早的訂單」後改成一年
   // 排序：date＝上課日期近→遠（還沒上的課最近的在最上面，再來是上過的、最近上過的在前）；sent＝送出時間新→舊（以前的排法）
-  function mineSort() { try { return localStorage.getItem('ckOrder.mineSort') === 'sent' ? 'sent' : 'date'; } catch (e) { return 'date'; } }
+  // 排序：date 上課日期近→遠（上過的收起來）、datedesc 遠→近、sent 送出時間新→舊、sentasc 舊→新
+  var MINE_SORTS = ['date', 'datedesc', 'sent', 'sentasc'];
+  function mineSort() { try { var v = localStorage.getItem('ckOrder.mineSort'); return MINE_SORTS.indexOf(v) >= 0 ? v : 'date'; } catch (e) { return 'date'; } }
   // 我的訂單搜尋：實作項目、班級、食材、訂單編號、科別、日期（例如 11/3）
   var mineQ = '';
   var minePastOpen = false;   // 「已經上過的課」預設收起來（清單比較短）；搜尋時、沒有還沒上的課時自動展開
@@ -2918,7 +2920,9 @@
         (past.length ? '<details class="mine-past"' + (minePastOpen || mineQ.trim() || mineDated() || !soon.length ? ' open' : '') + '><summary class="mine-sep">已經上過的課（' + past.length + ' 張）<span class="small" style="font-weight:normal">　點一下' +
           '<span class="when-closed">展開</span><span class="when-open">收起來</span></span></summary>' + past.map(function (o) { return orderCard(o, { mine: true }); }).join('') + '</details>' : '');
     } else {
-      html = list.map(function (o) { return orderCard(o, { mine: true }); }).join('');
+      var sorted = by === 'datedesc' ? sortOrders(list, 'date').reverse() : sortOrders(list, 'sent');
+      if (by === 'sentasc') sorted.reverse();
+      html = sorted.map(function (o) { return orderCard(o, { mine: true }); }).join('');
     }
     $('mineQWrap').classList.toggle('hidden', !all.length && !mineQ && !mineDated());
     $('mineDateClr').classList.toggle('hidden', !mineDated());   // 搜尋框固定在清單上面，不跟著重畫（注音選字才不會被打斷）
@@ -2926,8 +2930,9 @@
     $('mineList').innerHTML = (nCancel ? '<div style="margin:0 0 8px"><button type="button" class="btn ghost small" id="mineClearCancel">🗑 清除已取消的訂單（' + nCancel + ' 張）</button></div>' : '') +
       ((mineQ || mineDated()) && !list.length ? '<div class="msg info">找不到符合' + (mineQ ? '「' + esc(mineQ) + '」' : '') + (mineDated() ? '（上課日期 ' + esc(($('mineFrom').value ? shortDate($('mineFrom').value) : '') + '～' + ($('mineTo').value ? shortDate($('mineTo').value) : '')) + '）' : '') + '的訂單。</div>' : '') +
       (list.length ? '<div class="status-chips" id="mineSortBar" style="margin:0 0 10px;align-items:center"><span class="muted small">排序：</span>' +
-        '<button type="button" data-msort="date" class="' + (by === 'date' ? 'on' : '') + '">上課日期（近→遠）</button>' +
-        '<button type="button" data-msort="sent" class="' + (by === 'sent' ? 'on' : '') + '">送出時間（新→舊）</button></div>' : '') + html +
+        [['date', '上課日期（近→遠）'], ['datedesc', '上課日期（遠→近）'], ['sent', '送出時間（新→舊）'], ['sentasc', '送出時間（舊→新）']].map(function (x) {
+          return '<button type="button" data-msort="' + x[0] + '" class="' + (by === x[0] ? 'on' : '') + '">' + x[1] + '</button>';
+        }).join('') + '</div>' : '') + html +
       '<div class="actions" style="justify-content:center">' + (mineDays > 60
         ? '<span class="muted small">已顯示最近一年的訂單（上課日期過了 2 週的訂單只能查看、列印、再訂一次）。更早的請找管理者。</span>'
         : '<button type="button" class="btn ghost small" id="mineMore">顯示更早的訂單（最近一年）</button>') + '</div>';
