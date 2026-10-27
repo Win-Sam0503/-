@@ -56,6 +56,9 @@
   .bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 -16px -16px; border-radius: 0 0 14px 14px; }
   .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
+  .thumbs .up { position: relative; display: inline-block; } .thumbs .up img { height: 70px; opacity: .55; }
+  .thumbs .up span { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 12px; font-weight: 700; color: #344054; }
+  .thumbs .up.bad img { opacity: .3; } .thumbs .up.bad span { color: var(--bad); }
   .mgroup { padding: 8px 0; border-top: 1px solid var(--line); }
   .mthumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
   .mthumb { display: block; width: 130px; text-decoration: none; color: inherit; }
@@ -586,12 +589,20 @@
     renderDo();
     saveDraft();
   });
-  $('doBack').addEventListener('click', function () { show('vCheck'); loadWeek(); });
+  $('doBack').addEventListener('click', function () {
+    if (uploading(cur.b) && !window.confirm('銷貨單照片還在上傳，離開的話這張叫貨單會少掉還沒傳完的照片。確定要回列表？')) return;
+    show('vCheck'); loadWeek();
+  });
 
   // 銷貨單照片：在平板上先縮小（長邊 2000），再上傳到雲端硬碟
+  var upQ = [];   // 正在上傳的：{ b: 哪一張叫貨單, src: 平板上的預覽, st: 'wait'|'up'|'bad' }
   function renderThumbs() {
-    $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　');
+    $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　') +
+      upQ.filter(function (q) { return q.b === cur.b; }).map(function (q) {
+        return '<span class="up' + (q.st === 'bad' ? ' bad' : '') + '"><img src="' + q.src + '" alt=""><span>' + (q.st === 'bad' ? '失敗' : q.st === 'up' ? '上傳中…' : '排隊中') + '</span></span>';
+      }).join('');
   }
+  function uploading(b) { return upQ.some(function (q) { return q.b === b && q.st !== 'bad'; }); }
   // 照片先在平板上縮小再上傳：長邊 1600、品質 0.75（約 200～400KB，字還看得清楚；原本 2000／0.82 約 1MB，網路慢會一直轉圈）
   // noRot：品項問題照、發票照不套用「銷貨單轉向」
   function shrink(file, noRot) {
@@ -624,20 +635,27 @@
   }
   try { $('photoRot').value = localStorage.getItem('rcvRot') || '0'; } catch (e) {}
   $('photoRot').addEventListener('change', function () { try { localStorage.setItem('rcvRot', this.value); } catch (e) {} });
+  // 銷貨單照片：先在畫面上顯示預覽，同時 2 張一起上傳；上傳時可以繼續點貨
   $('photoIn').addEventListener('change', function () {
     var files = Array.prototype.slice.call(this.files || []);
     this.value = '';
     if (!files.length) return;
-    var ok = 0, bad = 0;
-    $('photoMsg').textContent = '上傳中… 0／' + files.length + ' 張';
-    files.reduce(function (p, f, i) {
-      return p.then(function () {
-        $('photoMsg').textContent = '上傳中… 第 ' + (i + 1) + '／' + files.length + ' 張';
-        return shrink(f).then(function (b64) { return uploadRetry(b64, week.from, cur.b.vendor); })
-          .then(function (r) { ok++; cur.photos.push(r.url); renderThumbs(); saveDraft(); })
-          .catch(function () { bad++; });   // 一張失敗，其他張照樣傳
-      });
-    }, Promise.resolve()).then(function () {
+    var c = cur, here = function () { return cur && cur.b === c.b; }, items = files.map(function (f) { var q = { b: c.b, f: f, src: URL.createObjectURL(f), st: 'wait' }; upQ.push(q); return q; });
+    var ok = 0, bad = 0, next = 0;
+    var tell = function () { if (here()) $('photoMsg').textContent = ok + bad < items.length ? '上傳中… ' + ok + '／' + items.length + ' 張（可以先繼續點貨）' : ''; };
+    var done = function (q) { URL.revokeObjectURL(q.src); upQ.splice(upQ.indexOf(q), 1); };
+    var one = function () {
+      if (next >= items.length) return Promise.resolve();
+      var q = items[next++];
+      q.st = 'up'; if (here()) renderThumbs();
+      return shrink(q.f).then(function (b64) { return uploadRetry(b64, week.from, c.b.vendor); })
+        .then(function (r) { ok++; (here() ? cur : c).photos.push(r.url); done(q); })
+        .catch(function () { bad++; q.st = 'bad'; setTimeout(function () { done(q); if (here()) renderThumbs(); }, 6000); })   // 一張失敗，其他張照樣傳
+        .then(function () { if (here()) { renderThumbs(); saveDraft(); } tell(); return one(); });
+    };
+    tell(); renderThumbs();
+    Promise.all([one(), one()]).then(function () {
+      if (!here()) return;
       $('photoMsg').textContent = bad ? '上傳好 ' + ok + ' 張，' + bad + ' 張失敗（網路不穩），請再拍一次那幾張。' : '已上傳 ' + ok + ' 張，按「完成驗收」才會跟這次驗收存在一起。';
     });
   });
@@ -653,6 +671,7 @@
       .then(function () { btn.disabled = false; btn.textContent = '💾 暫時儲存'; });
   });
   $('doSave').addEventListener('click', function () {
+    if (uploading(cur.b)) { msg('doMsg', 'error', '銷貨單照片還在上傳，等上傳完再按「完成驗收」。'); return; }
     clearTimeout(autoHold);
     var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
@@ -824,7 +843,8 @@
   $('slipRead').addEventListener('click', function () {
     if (!cur.photos.length) { $('slipMsg').textContent = '請先按「📷 拍銷貨單」。'; return; }
     var btn = this;
-    btn.disabled = true; $('slipMsg').textContent = '辨識中，一張大約 10 秒…';
+    if (uploading(cur.b)) { $('slipMsg').textContent = '照片還在上傳，等上傳完再按。'; return; }
+    btn.disabled = true; $('slipMsg').textContent = '辨識中，' + (cur.photos.length > 1 ? cur.photos.length + ' 張一起讀，' : '') + '大約 10～20 秒…';
     call('readSlip', cur.photos, cur.b.vendor, slipNames()).then(function (r) {
       var sl = cur.slip || { rows: {}, extras: [] };
       sl.ocr = true; sl.text = r.text;

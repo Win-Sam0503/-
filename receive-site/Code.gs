@@ -386,12 +386,26 @@ function photoList_(v) { return String(v || '').split(/\n+/).filter(Boolean); }
 /** 圖片存到雲端硬碟「進貨銷貨單」資料夾的那週子資料夾 */
 function saveImage_(data, mime, from, vendor, what, ext) {
   const week = dateStr_(parseDate_(from) || today_());
-  const root = folderNamed_(PHOTO_FOLDER_NAME, null);
-  const sub = folderNamed_(week + ' 那週', root);
+  const sub = weekFolder_(week);
   const name = week + ' ' + clean_(vendor, 30) + ' ' + what + ' ' + Utilities.formatDate(new Date(), tz_(), 'HHmmss') + '.' + ext;
   const blob = Utilities.newBlob(Utilities.base64Decode(String(data).replace(/^data:[^,]*,/, '')), mime, name);
   const f = sub.createFile(blob);
   return { url: f.getUrl(), name: name, id: f.getId() };
+}
+
+/** 那週的照片資料夾：記住資料夾編號，不用每張照片都在整個雲端硬碟找一次（找資料夾很慢） */
+function weekFolder_(week) {
+  const cache = CacheService.getScriptCache(), key = 'phfolder:' + week;
+  const id = cache.get(key);
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  const props = PropertiesService.getScriptProperties();
+  let root = null;
+  const rid = props.getProperty('PHOTO_ROOT_ID');
+  if (rid) { try { root = DriveApp.getFolderById(rid); if (root.isTrashed()) root = null; } catch (e) { root = null; } }
+  if (!root) { root = folderNamed_(PHOTO_FOLDER_NAME, null); props.setProperty('PHOTO_ROOT_ID', root.getId()); }
+  const sub = folderNamed_(week + ' 那週', root);
+  cache.put(key, sub.getId(), 6 * 3600);
+  return sub;
 }
 
 function folderNamed_(name, parent) {
@@ -410,7 +424,7 @@ function folderNamed_(name, parent) {
 function readSlip_(photos, vendor, names) {
   const ids = (photos || []).map(fileIdOf_).filter(Boolean);
   if (!ids.length) throw new Error('請先拍銷貨單。');
-  const text = ids.slice(0, 6).map(ocrText_).join('\n');
+  const text = ocrTexts_(ids.slice(0, 6)).join('\n');
   return parseSlip_(text, slipKeys_(clean_(vendor, 30), (names || []).map(function (n) { return clean_(n, 40); }).filter(Boolean)));
 }
 
@@ -419,26 +433,36 @@ function fileIdOf_(url) {
   return m ? m[1] : '';
 }
 
-/** 照片 → 文字：轉成 Google 文件（會做中文文字辨識）、匯出純文字，再把暫存的文件丟到垃圾桶 */
-function ocrText_(fileId) {
-  const blob = DriveApp.getFileById(fileId).getBlob();
-  const boundary = 'slip' + Date.now();
-  const meta = JSON.stringify({ name: '[銷貨單辨識暫存]', mimeType: 'application/vnd.google-apps.document' });
-  const head = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
-    '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.getContentType() || 'image/jpeg') + '\r\n\r\n').getBytes();
-  const tail = Utilities.newBlob('\r\n--' + boundary + '--').getBytes();
+/** 照片 → 文字：轉成 Google 文件（會做中文文字辨識）、匯出純文字，再把暫存的文件丟到垃圾桶。好幾張同時送，不用一張一張排隊 */
+function ocrTexts_(fileIds) {
   const auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
-  const res = retry_(function () {
-    return UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&ocrLanguage=zh-TW', {
-      method: 'post', contentType: 'multipart/related; boundary=' + boundary, payload: head.concat(blob.getBytes(), tail), headers: auth, muteHttpExceptions: true });
+  const reqs = fileIds.map(function (fileId, i) {
+    const blob = DriveApp.getFileById(fileId).getBlob();
+    const boundary = 'slip' + Date.now() + i;
+    const meta = JSON.stringify({ name: '[銷貨單辨識暫存]', mimeType: 'application/vnd.google-apps.document' });
+    const head = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
+      '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.getContentType() || 'image/jpeg') + '\r\n\r\n').getBytes();
+    const tail = Utilities.newBlob('\r\n--' + boundary + '--').getBytes();
+    return { url: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&ocrLanguage=zh-TW', method: 'post',
+      contentType: 'multipart/related; boundary=' + boundary, payload: head.concat(blob.getBytes(), tail), headers: auth, muteHttpExceptions: true };
   });
-  if (res.getResponseCode() >= 300) throw new Error('銷貨單辨識失敗（' + res.getResponseCode() + '），請再試一次或手動填。');
-  const docId = JSON.parse(res.getContentText()).id;
+  let res = UrlFetchApp.fetchAll(reqs);
+  // 失敗的（Google 忙碌）等一下再送一次
+  const again = [];
+  res.forEach(function (r, i) { if (r.getResponseCode() >= 300) again.push(i); });
+  if (again.length) {
+    Utilities.sleep(1500);
+    const r2 = UrlFetchApp.fetchAll(again.map(function (i) { return reqs[i]; }));
+    again.forEach(function (i, k) { res[i] = r2[k]; });
+  }
+  const docIds = res.map(function (r) { return r.getResponseCode() < 300 ? JSON.parse(r.getContentText()).id : ''; });
+  if (!docIds.some(Boolean)) throw new Error('銷貨單辨識失敗（' + res[0].getResponseCode() + '），請再試一次或手動填。');
   try {
-    const out = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + docId + '/export?mimeType=text/plain', { headers: auth, muteHttpExceptions: true });
-    return out.getResponseCode() < 300 ? out.getContentText('UTF-8') : '';
+    const ok = docIds.filter(Boolean);
+    const outs = UrlFetchApp.fetchAll(ok.map(function (id) { return { url: 'https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text/plain', headers: auth, muteHttpExceptions: true }; }));
+    return outs.map(function (o) { return o.getResponseCode() < 300 ? o.getContentText('UTF-8') : ''; });
   } finally {
-    try { DriveApp.getFileById(docId).setTrashed(true); } catch (e) {}
+    docIds.filter(Boolean).forEach(function (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} });
   }
 }
 
