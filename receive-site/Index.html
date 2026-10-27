@@ -958,11 +958,14 @@
         : '<span class="badge bad">送貨金額 $' + money(inv.system) + '（' + (inv.amount > inv.system ? '發票多' : '發票少') + ' $' + money(Math.abs(r2(inv.amount - inv.system))) + '）</span>';
       var allDone = inv.allocs.length && inv.allocs.every(function (a) { return a.status === '已核銷'; });
       html += '<div class="hxcard"><h3>' + esc(inv.vendor) + '　' + esc(inv.lines.length > 1 ? inv.lines.length + ' 張發票' : (inv.no || '（沒填號碼）')) + ' ' + (allDone ? '<span class="badge ok">✓ 全部已核銷</span>' : '') + '</h3>' +
-        '<div class="small muted">發票日期 ' + esc(inv.date) + '・' + (inv.mode === '日期區間' && inv.from ? '送貨 ' + esc(md(inv.from) + '～' + md(inv.to)) : '包含 ' + inv.checks.length + ' 次送貨') +
+        '<div class="small muted">發票日期 ' + esc(inv.date) + '・' + (inv.mode === '日期區間' && inv.from ? '送貨 ' + esc(md(inv.from) + '～' + md(inv.to)) : inv.checks.length ? '包含 ' + inv.checks.length + ' 次送貨' : inv.extras.length ? '只有另外叫料' : '沒有勾送貨') +
           '・' + esc(inv.by) + ' ' + esc(inv.created) + '</div>' +
         '<div style="margin:4px 0"><b style="font-size:18px">$' + money(inv.amount) + '</b> ' + diff + '</div>' +
-        (inv.lines.length > 1 || inv.lines[0].photos.length ? '<div class="small">' + inv.lines.map(function (l) {
-          return '<div>🧾 ' + esc(l.no || '（沒填號碼）') + '　' + esc(l.date) + '　$' + money(l.amount) + l.photos.map(function (u, i) { return ' <a href="' + esc(u) + '" target="_blank">照片' + (i + 1) + '</a>'; }).join('') + '</div>';
+        (inv.lines.length > 1 || inv.lines[0].photos.length || inv.lines[0].note ? '<div class="small">' + inv.lines.map(function (l) {
+          return '<div>🧾 ' + esc(l.no || '（沒填號碼）') + '　' + esc(l.date) + '　$' + money(l.amount) + (l.note ? '　<span class="muted">' + esc(l.note) + '</span>' : '') + l.photos.map(function (u, i) { return ' <a href="' + esc(u) + '" target="_blank">照片' + (i + 1) + '</a>'; }).join('') + '</div>';
+        }).join('') + '</div>' : '') +
+        (inv.extras.length ? '<div class="small" style="margin-top:4px"><b>另外叫料</b>' + inv.extras.map(function (x) {
+          return '<div>・' + esc((x.date ? md(x.date) + ' ' : '') + x.name) + '　$' + money(x.amount) + '　<span class="badge none">' + esc(x.cat) + '</span>' + (x.buyer ? '　' + esc(x.buyer) + ' 先買' : '') + (x.note ? '　<span class="muted">' + esc(x.note) + '</span>' : '') + '</div>';
         }).join('') + '</div>' : '') +
         (inv.note ? '<div class="small">備註：' + esc(inv.note) + '</div>' : '') +
         '<table class="hxt" style="margin-top:6px"><tr><th>類別</th><th>金額</th><th>經手人</th><th>核銷</th></tr>' + inv.allocs.map(function (a) {
@@ -978,9 +981,10 @@
   }
   // ② 新增／修改：一筆核銷可以有好幾張發票；每一類可以填好幾筆，自動加總
   function hxForm() {
-    var d = new Date(), f = hxF || { id: '', vendor: '', mode: 'pick', from: iso(new Date(d.getFullYear(), d.getMonth() - 1, 1)), to: iso(d), checks: [], note: '', allocs: [], lines: [] };
+    var d = new Date(), f = hxF || { id: '', vendor: '', mode: 'pick', from: iso(new Date(d.getFullYear(), d.getMonth() - 1, 1)), to: iso(d), checks: [], note: '', allocs: [], lines: [], extras: [] };
     if (f.mode === '日期區間') f.mode = 'range'; else if (f.mode === '勾選') f.mode = 'pick';
-    if (!f.lines || !f.lines.length) f.lines = [{ no: '', date: iso(d), amount: '', photos: [] }];
+    if (!f.lines || !f.lines.length) f.lines = [{ no: '', date: iso(d), amount: '', photos: [], note: '' }];
+    f.extras = f.extras || [];
     if (!f.from || !f.to) {   // 修改「自己勾選」的：列發票日期前兩個月內的送貨
       var dd = new Date(String(f.date || iso(d)).replace(/-/g, '/')); if (isNaN(dd)) dd = d;
       f.from = iso(new Date(dd.getFullYear(), dd.getMonth() - 2, dd.getDate())); f.to = iso(new Date(dd.getFullYear(), dd.getMonth(), dd.getDate() + 7));
@@ -988,7 +992,8 @@
     if (!f.parts) { f.parts = {}; (f.allocs || []).forEach(function (x) { f.parts[x.cat] = (x.parts || [x.amount]).slice(); }); }
     hxF = f; hxF.cands = hxF.cands || null;
     $('hxBox').innerHTML = '<div class="panel hxform"><h2 style="margin-top:0">' + (f.id ? '修改核銷' : '新增核銷') + '</h2>' +
-      '<label for="hxV">廠商</label><select id="hxV"><option value="">選廠商</option>' + hx.vendors.map(function (v) { return '<option' + (v === f.vendor ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') + '</select>' +
+      '<label for="hxV">廠商</label><input id="hxV" list="hxVl" value="' + esc(f.vendor) + '" placeholder="選系統裡的廠商，或直接打名字（例如全聯）" style="width:min(360px,100%)" autocomplete="off">' +
+      '<datalist id="hxVl">' + hx.vendors.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
       '<label>發票（不只一張就按「＋ 新增發票」）</label><div id="hxLines"></div>' +
       '<button type="button" class="btn ghost small" id="hxLineAdd" style="margin-top:6px">＋ 新增發票</button>' +
       '<label>包含哪幾次送貨？</label>' +
@@ -997,22 +1002,34 @@
       '<input id="hxFrom" type="date" value="' + esc(f.from) + '"> ～ <input id="hxTo" type="date" value="' + esc(f.to) + '"><button type="button" class="btn small" id="hxList">列出送貨</button></div>' +
       '<div id="hxCands" class="small" style="margin-top:6px"></div><div id="hxSys" class="small" style="margin-top:4px"></div>' +
       '<div id="hxRef" style="margin-top:8px"></div>' +
-      '<label>拆到各類別（每一類可以按「＋」填好幾筆，也可以直接打 150+80）</label><div class="slipwrap"><table class="hxt" id="hxCats"></table></div>' +
+      '<label>另外叫料（不在叫貨單裡的：臨時加叫、外面商店、活動用、老師先買後報帳）</label><div class="slipwrap" id="hxEx"></div>' +
+      '<button type="button" class="btn ghost small" id="hxExAdd" style="margin-top:6px">＋ 加一項另外叫料</button>' +
+      '<label>拆到各類別（每一類可以按「＋」填好幾筆，也可以直接打 150+80；另外叫料會自動算進去）</label><div class="slipwrap"><table class="hxt" id="hxCats"></table></div>' +
       '<label for="hxNote">備註</label><textarea id="hxNote" rows="2" style="width:100%">' + esc(f.note || '') + '</textarea>' +
       '<div class="hxsum"><div id="hxSum"></div><div class="row" style="margin-top:6px"><button type="button" class="btn" id="hxSave">💾 儲存</button><button type="button" class="btn ghost small" id="hxCancel">取消</button></div></div></div>';
-    hxRenderLines(); hxRenderCats(); hxRenderCands(); hxSumUp();
-    if (f.vendor && !f.cands) $('hxList').click();
+    hxRenderLines(); hxRenderExtras(); hxRenderCats(); hxRenderCands(); hxSumUp();
+    if (f.vendor && !f.cands && hx.vendors.indexOf(f.vendor) >= 0) $('hxList').click();
   }
   function hxRenderLines() {
-    $('hxLines').innerHTML = '<table class="hxt"><tr><th></th><th>發票號碼</th><th>日期</th><th>金額</th><th>照片</th><th></th></tr>' + hxF.lines.map(function (l, i) {
+    $('hxLines').innerHTML = '<div class="slipwrap"><table class="hxt"><tr><th></th><th>發票號碼</th><th>日期</th><th>金額</th><th>備註</th><th>照片</th><th></th></tr>' + hxF.lines.map(function (l, i) {
       return '<tr><td class="muted">' + (i + 1) + '</td>' +
         '<td><input data-hl="no" data-i="' + i + '" value="' + esc(l.no) + '" placeholder="AB12345678" style="width:140px"></td>' +
         '<td><input data-hl="date" data-i="' + i + '" type="date" value="' + esc(l.date) + '" style="width:150px"></td>' +
         '<td><input data-hl="amount" data-i="' + i + '" inputmode="decimal" value="' + esc(l.amount === '' ? '' : String(l.amount)) + '" style="width:110px"></td>' +
+        '<td><input data-hl="note" data-i="' + i + '" value="' + esc(l.note || '') + '" placeholder="選填" style="width:140px"></td>' +
         '<td style="white-space:nowrap"><label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0">📷</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
           l.photos.map(function (u, k) { return ' <a href="' + esc(u) + '" target="_blank" class="small">🧾' + (k + 1) + '</a>'; }).join('') + ' <span class="small muted" data-hlmsg="' + i + '"></span></td>' +
         '<td>' + (hxF.lines.length > 1 ? '<button type="button" class="btn ghost small" data-hldel="' + i + '">✕</button>' : '') + '</td></tr>';
-    }).join('') + '</table>';
+    }).join('') + '</table></div>';
+  }
+  function hxRenderExtras() {
+    $('hxEx').innerHTML = hxF.extras.length ? '<table class="hxt"><tr><th>日期</th><th>品名</th><th>金額</th><th>類別</th><th>購買人</th><th>備註</th><th></th></tr>' + hxF.extras.map(function (x, i) {
+      var inp = function (f, w, ph, im) { return '<input data-he="' + f + '" data-i="' + i + '"' + (f === 'date' ? ' type="date"' : '') + (im ? ' inputmode="decimal"' : '') + ' value="' + esc(x[f] === undefined ? '' : String(x[f])) + '" placeholder="' + ph + '" style="width:' + w + 'px">'; };
+      return '<tr><td>' + inp('date', 150, '') + '</td><td>' + inp('name', 150, '例如：草莓 2 盒') + '</td><td>' + inp('amount', 100, '金額', true) + '</td>' +
+        '<td><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></td>' +
+        '<td>' + inp('buyer', 100, '老師先買的填名字') + '</td><td>' + inp('note', 140, '例如：成果展') + '</td>' +
+        '<td><button type="button" class="btn ghost small" data-hedel="' + i + '">✕</button></td></tr>';
+    }).join('') + '</table>' : '<div class="muted small">沒有就不用加。</div>';
   }
   // 「150+80」「150＋80」都算成 230；看不懂的回傳 null
   function sumExpr(v) {
@@ -1066,23 +1083,28 @@
   }
   function hxInvTotal() { return r2(hxF.lines.reduce(function (n, l) { return n + (numv(l.amount) || 0); }, 0)); }
   function hxSumUp() {
-    var inv = hxInvTotal(), cat = 0, bad = false, sys = 0;
+    var inv = hxInvTotal(), cat = 0, bad = false, sys = 0, exAll = 0, exBy = {};
     var parts = hxReadParts();
+    hxF.extras.forEach(function (x) { var a = numv(x.amount) || 0; exAll += a; if (x.cat) exBy[x.cat] = r2((exBy[x.cat] || 0) + a); });
+    exAll = r2(exAll);
     hx.cats.forEach(function (c) {
       var sub = 0;
       (parts[c.name] || []).forEach(function (v) { var x = sumExpr(v); if (x === null) bad = true; else sub += x; });
-      sub = r2(sub); cat += sub;
+      sub = r2(sub + (exBy[c.name] || 0)); cat += sub;
       var el = document.querySelector('[data-hxsub="' + CSS.escape(c.name) + '"]');
-      if (el) el.textContent = sub ? '$' + money(sub) : '—';
+      if (el) el.innerHTML = sub ? '$' + money(sub) + (exBy[c.name] ? '<div class="muted small" style="font-weight:normal">含另外叫料 $' + money(exBy[c.name]) + '</div>' : '') : '—';
     });
     cat = r2(cat);
     hxPicked().forEach(function (c) { sys += c.amount; });
     sys = r2(sys);
     hxF._sys = hxF.cands ? sys : '';
-    $('hxSys').innerHTML = hxF.cands ? '勾選的送貨金額 <b>$' + money(sys) + '</b>' + (inv ? (Math.abs(inv - sys) < 1 ? ' <span class="badge ok">✓ 跟發票合計一樣</span>' : ' <span class="badge bad">發票合計' + (inv > sys ? '多' : '少') + ' $' + money(Math.abs(r2(inv - sys))) + '</span>') : '') : '';
+    var got = r2(sys + exAll);
+    $('hxSys').innerHTML = hxF.cands || exAll ? (hxF.cands ? '勾選的送貨金額 <b>$' + money(sys) + '</b>' : '') + (exAll ? (hxF.cands ? '＋' : '') + '另外叫料 <b>$' + money(exAll) + '</b>' + (hxF.cands ? '＝ <b>$' + money(got) + '</b>' : '') : '') +
+      (inv ? (Math.abs(inv - got) < 1 ? ' <span class="badge ok">✓ 跟發票合計一樣</span>' : ' <span class="badge bad">發票合計' + (inv > got ? '多' : '少') + ' $' + money(Math.abs(r2(inv - got))) + '</span>') : '') : '';
+    if (exAll && hxF.extras.some(function (x) { return (numv(x.amount) || 0) && !x.cat; })) bad = bad || 'cat';
     var left = r2(inv - cat);
     $('hxSum').innerHTML = '發票合計 <b>$' + money(inv) + '</b>（' + hxF.lines.length + ' 張）　各類別合計 <b>$' + money(cat) + '</b> ' +
-      (bad ? '<span class="badge bad">有金額看不懂</span>' : !inv && !cat ? '' : Math.abs(left) < 1 ? '<span class="badge ok">✓ 剛好</span>' : '<span class="badge bad">' + (left > 0 ? '還剩 $' + money(left) + ' 沒分' : '多分了 $' + money(-left)) + '</span>');
+      (bad === 'cat' ? '<span class="badge bad">另外叫料有一項還沒選類別</span>' : bad ? '<span class="badge bad">有金額看不懂</span>' : !inv && !cat ? '' : Math.abs(left) < 1 ? '<span class="badge ok">✓ 剛好</span>' : '<span class="badge bad">' + (left > 0 ? '還剩 $' + money(left) + ' 沒分' : '多分了 $' + money(-left)) + '</span>');
   }
   function hxCollect() {
     hxF.vendor = $('hxV').value; hxF.from = $('hxFrom').value; hxF.to = $('hxTo').value; hxF.note = $('hxNote').value;
@@ -1186,6 +1208,12 @@
       return;
     }
     if (t.id === 'hxCancel') { hxF = null; hxOpen('list'); return; }
+    if (t.id === 'hxExAdd') {
+      var last = hxF.extras[hxF.extras.length - 1];
+      hxF.extras.push({ date: last ? last.date : iso(new Date()), name: '', amount: '', cat: last ? last.cat : '', buyer: '', note: last ? last.note : '' });
+      hxRenderExtras(); hxSumUp(); var en = document.querySelectorAll('[data-he="name"]'); en[en.length - 1].focus(); return;
+    }
+    if ((b = t.closest('[data-hedel]'))) { hxF.extras.splice(Number(b.getAttribute('data-hedel')), 1); hxRenderExtras(); hxSumUp(); return; }
     if (t.id === 'hxLineAdd') { hxF.lines.push({ no: '', date: iso(new Date()), amount: '', photos: [] }); hxRenderLines(); hxSumUp(); var ins = document.querySelectorAll('[data-hl="no"]'); ins[ins.length - 1].focus(); return; }
     if ((b = t.closest('[data-hldel]'))) {
       var li = Number(b.getAttribute('data-hldel')), ln = hxF.lines[li];
@@ -1203,7 +1231,7 @@
       var bad = Array.prototype.some.call(document.querySelectorAll('[data-hxp]'), function (i) { return sumExpr(i.value) === null; });
       if (bad) { msg('hxMsg', 'error', '類別裡有金額看不懂，請只打數字，或用 + 連起來（例如 150+80）。'); window.scrollTo(0, 0); return; }
       var p = { id: hxF.id, vendor: hxF.vendor, lines: hxF.lines, mode: hxF.mode, from: hxF.mode === 'range' ? hxF.from : '', to: hxF.mode === 'range' ? hxF.to : '',
-        checks: hxF.cands ? hxPicked().map(function (c) { return c.key; }) : hxF.checks, system: hxF.cands ? hxF._sys : hxF.system, note: hxF.note, allocs: hxF.allocs };
+        checks: hxF.cands ? hxPicked().map(function (c) { return c.key; }) : hxF.checks, system: hxF.cands ? hxF._sys : hxF.system, note: hxF.note, allocs: hxF.allocs, extras: hxF.extras };
       t.disabled = true; t.textContent = '儲存中…';
       call('hxSaveInvoice', p).then(function () { hxF = null; hxOpen('list').then(function () { msg('hxMsg', 'ok', '已儲存。各類別經手人確認後，按「✓ 確認已核銷」。'); }); })
         .catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; t.textContent = '💾 儲存'; window.scrollTo(0, 0); });
@@ -1234,7 +1262,12 @@
       if (t.checked && i < 0) hxF.checks.push(k); else if (!t.checked && i >= 0) hxF.checks.splice(i, 1);
       hxRenderCands(); hxSumUp(); return;
     }
-    if (t.id === 'hxV' && t.value) { hxCollect(); hxF.cands = null; hxF.checks = []; $('hxList').click(); return; }
+    if (t.hasAttribute('data-he')) { hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value; hxSumUp(); return; }
+    if (t.id === 'hxV' && t.value) {
+      hxCollect(); hxF.cands = null; hxF.checks = [];
+      if (hx.vendors.indexOf(t.value) >= 0) $('hxList').click(); else { hxRenderCands(); hxSumUp(); $('hxCands').innerHTML = '<span class="muted">「' + esc(t.value) + '」不在叫貨單裡，沒有送貨可以勾，請用下面的「另外叫料」填。</span>'; }
+      return;
+    }
     if (t.hasAttribute('data-hlph')) {
       var li2 = Number(t.getAttribute('data-hlph')), files = Array.prototype.slice.call(t.files || []), ln2 = hxF.lines[li2];
       t.value = '';
@@ -1250,6 +1283,7 @@
   $('hxBox').addEventListener('input', function (e) {
     var t = e.target;
     if (t.hasAttribute('data-hl')) { hxF.lines[Number(t.getAttribute('data-i'))][t.getAttribute('data-hl')] = t.value; if (t.getAttribute('data-hl') === 'amount') hxSumUp(); return; }
+    if (t.hasAttribute('data-he')) { hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value; if (/amount|cat/.test(t.getAttribute('data-he'))) hxSumUp(); return; }
     if (t.hasAttribute('data-hxp')) hxSumUp();
   });
 
