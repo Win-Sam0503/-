@@ -74,7 +74,8 @@ const API_ = {
   hxSaveInvoice: function (a) { return hxSaveInvoice_.apply(null, a); }, hxDeleteInvoice: function (a) { return hxDeleteInvoice_.apply(null, a); },
   hxSetDone: function (a) { return hxSetDone_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
-  hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudget_.apply(null, a); },
+  hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudgets_([a[0]]); },
+  hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
   hxDeleteBudget: function (a) { return hxDeleteBudget_.apply(null, a); },
 };
 function api(token, fn, args) {
@@ -1146,28 +1147,32 @@ function hxBudgets_(invoices) {
   return list.sort(function (a, b) { return b.from.localeCompare(a.from) || a.cat.localeCompare(b.cat, 'zh-Hant'); });
 }
 
-/** 新增或修改一筆預算：b = { id?, cat, name, from, to, amount, note } */
-function hxSaveBudget_(b) {
-  b = b || {};
-  const cat = clean_(b.cat, 30), name = clean_(b.name, 40), f = parseDate_(b.from), t = parseDate_(b.to), amt = Number(String(b.amount || '').replace(/[,，\s$]/g, ''));
-  if (!cat) throw new Error('請選類別。');
-  if (!f || !t) throw new Error('請填預算的起訖日期。');
-  if (t < f) throw new Error('迄日不能比起日早。');
-  if (!(amt > 0)) throw new Error('請填預算金額。');
-  const row = { '類別': cat, '名稱': name, '起': "'" + dateStr_(f), '迄': "'" + dateStr_(t), '預算': amt, '備註': clean_(b.note, 100), '更新時間': new Date(), '更新人': CURRENT_USER_ || '' };
+/** 新增或修改預算（一次好幾類）：list = [{ id?, cat, name, from, to, amount, note }] */
+function hxSaveBudgets_(list) {
+  const rows = (list || []).map(function (b) {
+    const cat = clean_(b.cat, 30), name = clean_(b.name, 40), f = parseDate_(b.from), t = parseDate_(b.to), amt = Number(String(b.amount || '').replace(/[,，\s$]/g, ''));
+    if (!cat) throw new Error('請選類別。');
+    if (!f || !t) throw new Error('「' + cat + '」請填起訖日期。');
+    if (t < f) throw new Error('「' + cat + '」迄日不能比起日早。');
+    if (!(amt > 0)) throw new Error('「' + cat + '」請填核定金額。');
+    return { id: clean_(b.id, 40), row: { '類別': cat, '名稱': name, '起': "'" + dateStr_(f), '迄': "'" + dateStr_(t), '預算': amt, '備註': clean_(b.note, 100), '更新時間': new Date(), '更新人': CURRENT_USER_ || '' } };
+  });
+  if (!rows.length) return hxBudgets_();
   ensureSheet_('核銷預算', HX_BUDGET_HEADERS);
   const lock = waitLock_();
   try {
-    const id = clean_(b.id, 40);
-    if (id) {
-      const tb = readTable_('核銷預算', ['預算編號']);
-      const r = tb.rows.filter(function (x) { return String(x['預算編號']).trim() === id; })[0];
-      if (!r) throw new Error('找不到這筆預算，可能被別人刪掉了。');
-      Object.keys(row).forEach(function (h) { setCell_(tb, r._row, h, row[h]); });
-    } else {
-      row['預算編號'] = 'BG' + Utilities.formatDate(new Date(), tz_(), 'yyyyMMddHHmmss') + Math.floor(Math.random() * 90 + 10);
-      appendRows_('核銷預算', [row]);
-    }
+    const tb = readTable_('核銷預算', ['預算編號']), add = [];
+    rows.forEach(function (x, i) {
+      if (x.id) {
+        const r = tb.rows.filter(function (y) { return String(y['預算編號']).trim() === x.id; })[0];
+        if (!r) throw new Error('「' + x.row['類別'] + '」這一期找不到，可能被別人刪掉了，請重新整理。');
+        Object.keys(x.row).forEach(function (h) { setCell_(tb, r._row, h, x.row[h]); });
+      } else {
+        x.row['預算編號'] = 'BG' + Utilities.formatDate(new Date(), tz_(), 'yyyyMMddHHmmss') + ('0' + i).slice(-2) + Math.floor(Math.random() * 90 + 10);
+        add.push(x.row);
+      }
+    });
+    if (add.length) appendRows_('核銷預算', add);
   } finally {
     lock.releaseLock();
   }
