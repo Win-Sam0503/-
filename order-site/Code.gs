@@ -3598,7 +3598,7 @@ const RECEIVE_DIR = 'receive-site';
 
 /**
  * 管理者：輸入 LINE 驗證碼後，建立（第一次）或更新「進貨驗收」網站：
- * 在你的 Google 帳號新增一個 Apps Script 專案、貼上 GitHub 上 receive-site 的程式、部署成「只有我自己」打得開的網頁應用程式。
+ * 在你的 Google 帳號新增一個 Apps Script 專案、貼上 GitHub 上 receive-site 的程式、部署成網頁應用程式（誰都打得開網址，但要用管理者帳號密碼登入）。
  */
 function adminReceiveSite(token, branch, sha, code) {
   const who = updateOwner_(token);
