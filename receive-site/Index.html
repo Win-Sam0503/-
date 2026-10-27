@@ -362,7 +362,7 @@
     msg('doneMsg', '', '');
     var marks = {};
     if (b.check) b.check.lines.forEach(function (l) {
-      var x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name; })[0];
+      var x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name && !marks[y.key]; })[0];   // 同班同樣食材有好幾行：照順序一行對一行
       if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' || l.status === '品質不好' || l.status === '缺貨' || (l.status === '其他' && l.got === x.expect) ? '' : l.got, note: l.note, photos: (l.photos || []).slice() };
     });
     cur = { b: b, marks: marks, photos: b.check ? b.check.photos.slice() : [] };

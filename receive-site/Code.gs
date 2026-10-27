@@ -195,10 +195,13 @@ function batchLines_(list, vendor) {
     const out = live.map(function (r) {
       const cls = r.kind === '補庫存' ? '補庫存' : r.className || '（沒填班級）';
       const show = vendorQty_(r.qty, r.unit, vendor, r.name);
-      return { key: cls + '|' + r.name + '|' + r.unit, cls: cls, teacher: r.kind === '補庫存' ? '' : r.teacher, date: r.date, name: r.name,
+      return { key: r.date + '|' + cls + '|' + r.teacher + '|' + r.name + '|' + r.unit, cls: cls, teacher: r.kind === '補庫存' ? '' : r.teacher, date: r.date, name: r.name,
         expect: show, note: r.note, ovr: ovr[r.name] ? '合計改成 ' + (ovr[r.name].qty > 0 ? fmtQty_(ovr[r.name].qty) + ' ' + ovr[r.name].unit : '不叫') : '' };
     });
     // 被直接改成「不叫」的品項不用點
+    // 同班同一樣食材不同天（或同一天叫兩次）要各點各的：key 帶日期、老師，完全一樣的再加 #2、#3
+    const seen = {};
+    out.forEach(function (x) { const n = seen[x.key] = (seen[x.key] || 0) + 1; if (n > 1) x.key += '#' + n; });
     return out.filter(function (x) { return !(ovr[x.name] && !(ovr[x.name].qty > 0)); })
       .sort(function (a, b) { return (a.date + a.cls).localeCompare(b.date + b.cls, 'zh-Hant') || a.name.localeCompare(b.name, 'zh-Hant'); });
   }
