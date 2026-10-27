@@ -68,6 +68,26 @@
   .hxform input, .hxform select, .hxform textarea { font-size: 16px; padding: 8px; box-sizing: border-box; }
   .hxcand { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #eaecf0; }
   .hxcand input { width: 22px; height: 22px; margin-top: 2px; }
+  /* 核銷表單：一筆一張小卡，欄位會自動換行（手機一行兩格、電腦一行排滿） */
+  .hxrow { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-end; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; background: #fff; }
+  .hxrow .no { font-weight: 700; color: var(--muted); align-self: center; }
+  .hxform label.hxf { display: flex; flex-direction: column; flex: 1 1 130px; min-width: 0; margin: 0; font-weight: normal; }
+  .hxform label.hxf > span { font-size: 12px; color: var(--muted); }
+  .hxform .hxf input, .hxform .hxf select { width: 100%; }
+  .hxcat { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 0; border-bottom: 1px solid #eaecf0; }
+  .hxcat .nm { flex: 1 1 170px; }
+  .hxcat .ps { flex: 2 1 220px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .hxcat .ps input { width: 96px; }
+  .hxcat .sub { min-width: 100px; text-align: right; }
+  .hxform .row input[type=date] { max-width: 160px; }
+  @media (max-width: 600px) {
+    .hxform label.hxf { flex-basis: 40%; }
+    .hxcat .nm { flex: 1 1 50%; }
+    .hxcat .sub { order: 2; min-width: 0; }
+    .hxcat .ps { order: 3; flex-basis: 100%; }
+    .hxcard .hxt td, .hxcard .hxt th { padding: 4px 2px; font-size: 14px; }
+    .hxtabs .btn { padding: 6px 8px; }
+  }
   .hxsum { position: sticky; bottom: 0; background: #fff; border-top: 2px solid var(--line); padding: 8px 0; margin-top: 8px; }
   @media print { header, .hxtabs, .noprint { display: none !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -992,44 +1012,42 @@
     if (!f.parts) { f.parts = {}; (f.allocs || []).forEach(function (x) { f.parts[x.cat] = (x.parts || [x.amount]).slice(); }); }
     hxF = f; hxF.cands = hxF.cands || null;
     $('hxBox').innerHTML = '<div class="panel hxform"><h2 style="margin-top:0">' + (f.id ? '修改核銷' : '新增核銷') + '</h2>' +
-      '<label for="hxV">廠商</label><input id="hxV" list="hxVl" value="' + esc(f.vendor) + '" placeholder="選系統裡的廠商，或直接打名字（例如全聯）" style="width:min(360px,100%)" autocomplete="off">' +
+      '<label for="hxV">廠商</label><input id="hxV" list="hxVl" value="' + esc(f.vendor) + '" placeholder="選系統裡的廠商，或直接打名字（例如全聯）" style="width:100%;max-width:360px" autocomplete="off">' +
       '<datalist id="hxVl">' + hx.vendors.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
       '<label>發票（不只一張就按「＋ 新增發票」）</label><div id="hxLines"></div>' +
       '<button type="button" class="btn ghost small" id="hxLineAdd" style="margin-top:6px">＋ 新增發票</button>' +
       '<label>包含哪幾次送貨？</label>' +
       '<div class="row"><label style="font-weight:normal;margin:0"><input type="radio" name="hxMode" value="pick"' + (f.mode !== 'range' ? ' checked' : '') + '> 自己勾選</label>' +
       '<label style="font-weight:normal;margin:0"><input type="radio" name="hxMode" value="range"' + (f.mode === 'range' ? ' checked' : '') + '> 這段日期全部</label>' +
-      '<input id="hxFrom" type="date" value="' + esc(f.from) + '"> ～ <input id="hxTo" type="date" value="' + esc(f.to) + '"><button type="button" class="btn small" id="hxList">列出送貨</button></div>' +
+      '</div><div class="row" style="margin-top:4px"><input id="hxFrom" type="date" value="' + esc(f.from) + '"> ～ <input id="hxTo" type="date" value="' + esc(f.to) + '"><button type="button" class="btn small" id="hxList">列出送貨</button></div>' +
       '<div id="hxCands" class="small" style="margin-top:6px"></div><div id="hxSys" class="small" style="margin-top:4px"></div>' +
       '<div id="hxRef" style="margin-top:8px"></div>' +
-      '<label>另外叫料（不在叫貨單裡的：臨時加叫、外面商店、活動用、老師先買後報帳）</label><div class="slipwrap" id="hxEx"></div>' +
+      '<label>另外叫料（不在叫貨單裡的：臨時加叫、外面商店、活動用、老師先買後報帳）</label><div id="hxEx"></div>' +
       '<button type="button" class="btn ghost small" id="hxExAdd" style="margin-top:6px">＋ 加一項另外叫料</button>' +
-      '<label>拆到各類別（每一類可以按「＋」填好幾筆，也可以直接打 150+80；另外叫料會自動算進去）</label><div class="slipwrap"><table class="hxt" id="hxCats"></table></div>' +
+      '<label>拆到各類別（每一類可以按「＋」填好幾筆，也可以直接打 150+80；另外叫料會自動算進去）</label><div id="hxCats"></div>' +
       '<label for="hxNote">備註</label><textarea id="hxNote" rows="2" style="width:100%">' + esc(f.note || '') + '</textarea>' +
       '<div class="hxsum"><div id="hxSum"></div><div class="row" style="margin-top:6px"><button type="button" class="btn" id="hxSave">💾 儲存</button><button type="button" class="btn ghost small" id="hxCancel">取消</button></div></div></div>';
     hxRenderLines(); hxRenderExtras(); hxRenderCats(); hxRenderCands(); hxSumUp();
     if (f.vendor && !f.cands && hx.vendors.indexOf(f.vendor) >= 0) $('hxList').click();
   }
   function hxRenderLines() {
-    $('hxLines').innerHTML = '<div class="slipwrap"><table class="hxt"><tr><th></th><th>發票號碼</th><th>日期</th><th>金額</th><th>備註</th><th>照片</th><th></th></tr>' + hxF.lines.map(function (l, i) {
-      return '<tr><td class="muted">' + (i + 1) + '</td>' +
-        '<td><input data-hl="no" data-i="' + i + '" value="' + esc(l.no) + '" placeholder="AB12345678" style="width:140px"></td>' +
-        '<td><input data-hl="date" data-i="' + i + '" type="date" value="' + esc(l.date) + '" style="width:150px"></td>' +
-        '<td><input data-hl="amount" data-i="' + i + '" inputmode="decimal" value="' + esc(l.amount === '' ? '' : String(l.amount)) + '" style="width:110px"></td>' +
-        '<td><input data-hl="note" data-i="' + i + '" value="' + esc(l.note || '') + '" placeholder="選填" style="width:140px"></td>' +
-        '<td style="white-space:nowrap"><label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0">📷</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
-          l.photos.map(function (u, k) { return ' <a href="' + esc(u) + '" target="_blank" class="small">🧾' + (k + 1) + '</a>'; }).join('') + ' <span class="small muted" data-hlmsg="' + i + '"></span></td>' +
-        '<td>' + (hxF.lines.length > 1 ? '<button type="button" class="btn ghost small" data-hldel="' + i + '">✕</button>' : '') + '</td></tr>';
-    }).join('') + '</table></div>';
+    $('hxLines').innerHTML = hxF.lines.map(function (l, i) {
+      var f = function (k, label, attrs) { return '<label class="hxf"><span>' + label + '</span><input data-hl="' + k + '" data-i="' + i + '" ' + attrs + ' value="' + esc(l[k] === undefined || l[k] === null ? '' : String(l[k])) + '"></label>'; };
+      return '<div class="hxrow"><span class="no">' + (i + 1) + '</span>' +
+        f('no', '發票號碼', 'placeholder="AB12345678" autocomplete="off"') + f('date', '日期', 'type="date"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') + f('note', '備註', 'placeholder="選填"') +
+        '<span style="white-space:nowrap"><label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0">📷 照片</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
+          l.photos.map(function (u, k) { return ' <a href="' + esc(u) + '" target="_blank" class="small">🧾' + (k + 1) + '</a>'; }).join('') + ' <span class="small muted" data-hlmsg="' + i + '"></span></span>' +
+        (hxF.lines.length > 1 ? '<button type="button" class="btn ghost small" data-hldel="' + i + '" title="拿掉這張">✕</button>' : '') + '</div>';
+    }).join('');
   }
   function hxRenderExtras() {
-    $('hxEx').innerHTML = hxF.extras.length ? '<table class="hxt"><tr><th>日期</th><th>品名</th><th>金額</th><th>類別</th><th>購買人</th><th>備註</th><th></th></tr>' + hxF.extras.map(function (x, i) {
-      var inp = function (f, w, ph, im) { return '<input data-he="' + f + '" data-i="' + i + '"' + (f === 'date' ? ' type="date"' : '') + (im ? ' inputmode="decimal"' : '') + ' value="' + esc(x[f] === undefined ? '' : String(x[f])) + '" placeholder="' + ph + '" style="width:' + w + 'px">'; };
-      return '<tr><td>' + inp('date', 150, '') + '</td><td>' + inp('name', 150, '例如：草莓 2 盒') + '</td><td>' + inp('amount', 100, '金額', true) + '</td>' +
-        '<td><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></td>' +
-        '<td>' + inp('buyer', 100, '老師先買的填名字') + '</td><td>' + inp('note', 140, '例如：成果展') + '</td>' +
-        '<td><button type="button" class="btn ghost small" data-hedel="' + i + '">✕</button></td></tr>';
-    }).join('') + '</table>' : '<div class="muted small">沒有就不用加。</div>';
+    $('hxEx').innerHTML = hxF.extras.length ? hxF.extras.map(function (x, i) {
+      var f = function (k, label, attrs) { return '<label class="hxf"><span>' + label + '</span><input data-he="' + k + '" data-i="' + i + '" ' + attrs + ' value="' + esc(x[k] === undefined ? '' : String(x[k])) + '"></label>'; };
+      return '<div class="hxrow"><span class="no">' + (i + 1) + '</span>' + f('name', '品名', 'placeholder="例如：草莓 2 盒"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
+        '<label class="hxf"><span>類別</span><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
+        f('date', '日期', 'type="date"') + f('buyer', '購買人', 'placeholder="老師先買的填名字"') + f('note', '備註', 'placeholder="例如：成果展"') +
+        '<button type="button" class="btn ghost small" data-hedel="' + i + '" title="拿掉這項">✕</button></div>';
+    }).join('') : '<div class="muted small">沒有就不用加。</div>';
   }
   // 「150+80」「150＋80」都算成 230；看不懂的回傳 null
   function sumExpr(v) {
@@ -1042,10 +1060,10 @@
   function hxRenderCats() {
     $('hxCats').innerHTML = hx.cats.map(function (c) {
       var ps = hxF.parts[c.name] && hxF.parts[c.name].length ? hxF.parts[c.name] : [''];
-      return '<tr><td style="white-space:nowrap">' + esc(c.name) + '<div class="muted small">經手人：' + esc(c.handler || '（還沒設定）') + '</div></td><td>' +
-        ps.map(function (v, k) { return '<input data-hxp="' + esc(c.name) + '" data-k="' + k + '" inputmode="decimal" value="' + esc(v === '' ? '' : String(v)) + '" style="width:100px;margin:2px">'; }).join('') +
-        '<button type="button" class="btn ghost small" data-hxpadd="' + esc(c.name) + '" title="這一類再加一筆">＋</button></td>' +
-        '<td style="white-space:nowrap">小計 <b data-hxsub="' + esc(c.name) + '"></b></td></tr>';
+      return '<div class="hxcat"><div class="nm"><b>' + esc(c.name) + '</b><div class="muted small">經手人：' + esc(c.handler || '（還沒設定）') + '</div></div><div class="ps">' +
+        ps.map(function (v, k) { return '<input data-hxp="' + esc(c.name) + '" data-k="' + k + '" inputmode="decimal" value="' + esc(v === '' ? '' : String(v)) + '" placeholder="0">'; }).join('') +
+        '<button type="button" class="btn ghost small" data-hxpadd="' + esc(c.name) + '" title="這一類再加一筆">＋</button></div>' +
+        '<div class="sub">小計 <b data-hxsub="' + esc(c.name) + '"></b></div></div>';
     }).join('');
   }
   function hxReadParts() {
