@@ -7966,10 +7966,20 @@
       });
     });
   }
+  // 這天的料單：只讀訂單本身（lite，不比對課表、異常、列印紀錄，快很多）；1 分鐘內再看同一天不用重讀
+  var dayOrders = {};
+  function lessonDayOrders(date) {
+    var c = dayOrders[date];
+    if (c && Date.now() - c.at < 60000) return c.p;
+    var p = call('adminGetOrders', token, date, date, true);
+    dayOrders[date] = { at: Date.now(), p: p };
+    p.catch(function () { delete dayOrders[date]; });
+    return p;
+  }
   function showLessonOrders(x) {
     var nos = x.orders.map(function (o) { return o.orderNo; });
     msg('gridMsg', 'info', '載入料單中…');
-    return call('adminGetOrders', token, x.date, x.date).then(function (list) {
+    return lessonDayOrders(x.date).then(function (list) {
       msg('gridMsg', '', '');
       var orders = list.filter(function (o) { return nos.indexOf(o.orderNo) >= 0; });
       var body = orders.length ? orders.map(function (o) {
@@ -8166,6 +8176,7 @@
       var lx = lb.hasAttribute('data-gextra') ? (gridData.extras || [])[Number(lb.getAttribute('data-gextra'))]
         : gridRows.find(function (y) { return y.row === Number(lb.getAttribute('data-grow')); });
       if (lx) {
+        if ((lx.orders || []).length && lx.date) lessonDayOrders(lx.date).catch(function () {});   // 選單開著時就先讀，按「查看材料清單」馬上出來
         var direct = function () { lb.setAttribute('data-direct', '1'); lb.click(); lb.removeAttribute('data-direct'); };
         gridChoose(lx).then(function (c) {
           if (c === 'edit') direct();
@@ -8347,7 +8358,7 @@
   // 已訂的課：看料單、修改（找自己的訂單；管理者看別的老師的課時用訂單彙整的資料）
   function lessonOrderAct(act, no, x, b) {
     var find = viewingOther()
-      ? call('adminGetOrders', token, x.date, x.date).then(function (list) { return list.find(function (o) { return o.orderNo === no; }); })
+      ? lessonDayOrders(x.date).then(function (list) { return list.find(function (o) { return o.orderNo === no; }); })
       : ((mineCache || []).some(function (o) { return o.orderNo === no; }) ? Promise.resolve(mineCache.find(function (o) { return o.orderNo === no; }))
         : call('getMyOrders', token, mineDays).then(function (list) { mineCache = list; return list.find(function (o) { return o.orderNo === no; }); }));
     setBusy(b, true, '載入中…');
