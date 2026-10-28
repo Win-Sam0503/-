@@ -121,6 +121,12 @@
   .slipt input { width: 100%; min-width: 56px; padding: 6px; font: inherit; font-size: 16px; }
   .slipt td.w1 { width: 72px; } .slipt td.w2 { width: 90px; }
   .slipt .sn { font-size: 13px; }
+  .paper { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-top: 10px; background: #fcfcfd; }
+  .paper .slipt td input[data-pf="name"] { min-width: 140px; }
+  .paper.gear { background: #fffaeb; border-color: #fec84b; }
+  .kindsw { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .kindsw button { border: 0; background: #fff; padding: 4px 10px; font: inherit; font-size: 14px; cursor: pointer; color: inherit; }
+  .kindsw button.on { background: var(--brand); color: #fff; }
   .slipt tr.hintrow { background: #fff3b0 !important; outline: 2px solid #f5b301; }
   .slipt .clr { border: 1.5px solid #f04438; color: #d92d20; background: #fff; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 16px; cursor: pointer; }
   /* 快速核對：拿到哪張單就點哪一項（不用照順序翻） */
@@ -225,6 +231,8 @@
           <div class="row"><b>💰 金額</b>
             <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
             <button type="button" class="btn ghost small" id="slipManual">手動填</button>
+            <button type="button" class="btn ghost small hidden" id="slipPaperMode" title="照手上的紙本一張一張打">📄 一張一張打</button>
+            <button type="button" class="btn ghost small" id="slipOldMode" title="舊版：照叫貨單的品項填（可以用快速核對、✕併到）">舊版表格</button>
             <button type="button" class="btn ghost small" id="slipTotalOnly" title="品項太多時先只打總金額，品項之後有空再補">只填合計</button>
             <button type="button" class="btn small" id="slipQuick" title="一品一張銷貨單（例如菜商）：拿到哪張點哪一項">⚡ 快速核對</button>
             <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
@@ -485,7 +493,7 @@
       $('slDraftMsg').innerHTML = '<div class="msg info">已恢復這台 ' + esc(d.at) + ' 還沒存的內容，按「💾 儲存銷貨單」才會存。 <button type="button" class="btn ghost small" id="slDraftDrop">清掉、用已存的</button></div>';
     } else $('slDraftMsg').innerHTML = '';
     $('slNote').value = d ? d.note || '' : sl ? sl.note || '' : '';
-    if (b.extra && !cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [{ slipName: '', qty: '', unit: '', price: '', amount: '', map: '+' }] };
+    if (!cur.slip) paperMode();   // 預設：照紙本一張一張打
     $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
     $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
@@ -901,6 +909,17 @@
       if (r.name) sl.rows[r.name] = v; else { v.map = '+'; sl.extras.push(v); }
     });
     if (!sv.rows.length && String(sv.total || '') !== '') sl.totalOnly = true;   // 上次只填合計
+    // 照紙本一張一張打（舊資料沒有「第幾張」：整份當成一張）
+    if (sv.rows.length) {
+      var pp = [];
+      sv.rows.forEach(function (r) {
+        var k = Math.max(0, (Number(r.sheet) || 1) - 1), q = isJin(r.unit) && numv(r.qty) !== null ? jinText(r.qty) : r.qty;
+        pp[k] = pp[k] || { date: r.date || '', kind: r.kind || '食材', rows: [] };
+        if (!pp[k].date && r.date) pp[k].date = r.date;
+        pp[k].rows.push({ name: r.name || r.slipName || '', qty: q, unit: r.unit, price: r.price, amount: r.amount });
+      });
+      sl.papers = pp.filter(Boolean);
+    }
     return sl;
   }
   function money(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
@@ -924,6 +943,7 @@
   function jinText(j) {
     j = Number(j); if (isNaN(j)) return '';
     var jin = Math.floor(j + 1e-9), liang = Math.round((j - jin) * 16 * 100) / 100;
+    if (Math.abs(liang - Math.round(liang)) < 0.1) liang = Math.round(liang);   // 舊資料存成 2 位小數（1.19 斤）：還原成 3 兩
     if (liang >= 16) { jin++; liang = 0; }
     return !liang ? String(jin) : (jin ? jin + '斤' : '') + liang + '兩';
   }
@@ -954,12 +974,15 @@
   }
   function renderSlip() {
     var sl = cur.slip;
-    if (!sl) { $('slipBox').innerHTML = ''; $('slipQWrap').classList.add('hidden'); $('slipQ').value = ''; return; }
+    if (!sl) { $('slipBox').innerHTML = ''; $('slipQWrap').classList.add('hidden'); $('slipQ').value = ''; $('slipManual').classList.toggle('hidden', !!cur.b.extra); $('slipQuick').classList.toggle('hidden', !!cur.b.extra); $('slipOldMode').classList.add('hidden'); $('slipPaperMode').classList.remove('hidden'); return; }
+    $('slipManual').classList.toggle('hidden', !!sl.papers || !!cur.b.extra); $('slipQuick').classList.toggle('hidden', !!sl.papers || !!cur.b.extra);
+    $('slipOldMode').classList.toggle('hidden', !sl.papers || sl.totalOnly || !!cur.b.extra); $('slipPaperMode').classList.toggle('hidden', !!sl.papers);
+    if (sl.papers && !sl.totalOnly) { renderPapers(); return; }
     if (sl.totalOnly) {   // 只填合計：一格總金額就好，品項之後再補
       $('slipQWrap').classList.add('hidden');
       $('slipBox').innerHTML = '<div class="row" style="margin-top:10px;align-items:center"><label for="slipTotal"><b>銷貨單合計（總金額）</b></label>' +
         '<input id="slipTotal" inputmode="decimal" style="width:160px;font-size:22px;font-weight:700" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '" placeholder="例如 12850">' +
-        '<span class="muted small">只存總金額（月結、核銷照這個算）。品項之後有空再補：按「手動填」。</span></div>';
+        '<span class="muted small">只存總金額（月結、核銷照這個算）。</span><button type="button" class="btn ghost small" id="paperFromTotal">品項之後補：照紙本一張一張打</button></div>';
       return;
     }
     var expect = {};
@@ -1013,6 +1036,7 @@
   $('slipQ').addEventListener('compositionend', slipFilter);
   function slipSum() {
     var sl = cur.slip, sum = 0, n = 0;
+    if (sl.papers) { sl.papers.forEach(function (pp) { pp.rows.forEach(function (r) { var a = numv(r.amount); if (a !== null) { sum += a; n++; } }); }); return { sum: r2(sum), n: n }; }
     Object.keys(sl.rows).forEach(function (k) { var a = numv(sl.rows[k].amount); if (a !== null && slipNames().indexOf(k) >= 0) { sum += a; n++; } });
     sl.extras.forEach(function (x) { var a = numv(x.amount); if (x.map === '+' && a !== null) { sum += a; n++; } });
     return { sum: r2(sum), n: n };
@@ -1020,8 +1044,11 @@
   // 合計對不上：找可能打錯的行（還沒填、剛好等於差額、多／少打一個 0、數字打反、金額≠數量×單價、單價跟上次差很多）
   function slipHints(diff) {
     var sl = cur.slip, out = [], rows = [];
-    slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && !r.merged) rows.push({ label: n, r: r, sel: '[data-sn="' + CSS.escape(n) + '"]', lp: (cur.b.prices || {})[n] }); });
-    sl.extras.forEach(function (x, i) { if (x.map === '+') rows.push({ label: x.slipName || '（第 ' + (i + 1) + ' 行）', r: x, sel: '[data-x="' + i + '"]' }); });
+    if (sl.papers) sl.papers.forEach(function (pp, i) { pp.rows.forEach(function (r, j) { var n = String(r.name || '').trim(); rows.push({ label: '第' + (i + 1) + '張 ' + (n || '第 ' + (j + 1) + ' 行'), r: r, sel: '[data-pi="' + i + '"][data-pj="' + j + '"][data-pf="amount"]', lp: (cur.b.prices || {})[n] }); }); });
+    else {
+      slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && !r.merged) rows.push({ label: n, r: r, sel: '[data-sn="' + CSS.escape(n) + '"][data-f="amount"]', lp: (cur.b.prices || {})[n] }); });
+      sl.extras.forEach(function (x, i) { if (x.map === '+') rows.push({ label: x.slipName || '（第 ' + (i + 1) + ' 行）', r: x, sel: '[data-x="' + i + '"][data-f="amount"]' }); });
+    }
     var near = function (a, b) { return Math.abs(a - b) < 1; }, add = function (row, text, strong) { out.push({ sel: row.sel, text: '「' + row.label + '」' + text, strong: strong }); };
     rows.forEach(function (row) {
       var r = row.r, a = numv(r.amount);
@@ -1052,10 +1079,127 @@
     }
     $('slipSum').innerHTML = '金額加總 <b>$' + money(s.sum) + '</b>' + (t !== null ? (Math.abs(t - s.sum) < 1 ? ' <span class="badge ok">✓ 跟合計一樣</span>' : ' <span class="badge bad">' + (t > s.sum ? '比合計少 $' : '比合計多 $') + money(Math.abs(r2(t - s.sum))) + '</span>') : '') + '　';
   }
+  // ---------- 照紙本一張一張打：一張銷貨單一塊，同一個品項重複出現也可以 ----------
+  function newPaper(kind) { var d = cur.b.extra ? cur.b.date : (function () { var t = iso(new Date()); return week && t >= week.from && t <= week.to ? t : ''; })(); return { date: d, kind: kind || '食材', rows: [{ name: '', qty: '', unit: '', price: '', amount: '' }] }; }
+  function paperMode() { if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] }; if (!cur.slip.papers) cur.slip.papers = [newPaper()]; delete cur.slip.totalOnly; }
+  function itemNames() { var out = slipNames().slice(); Object.keys(cur.b.prices || {}).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); }); return out; }
+  function renderPapers() {
+    var sl = cur.slip;
+    $('slipQWrap').classList.add('hidden');
+    var html = '<datalist id="itemList">' + itemNames().map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
+    html += sl.papers.map(function (pp, i) {
+      return '<div class="paper' + (pp.kind === '器材' ? ' gear' : '') + '"><div class="row" style="align-items:center"><b>📄 第 ' + (i + 1) + ' 張</b>' +
+        '<span class="kindsw"><button type="button" data-pk="' + i + '" data-k="食材" class="' + (pp.kind !== '器材' ? 'on' : '') + '">🥬 食材</button><button type="button" data-pk="' + i + '" data-k="器材" class="' + (pp.kind === '器材' ? 'on' : '') + '">🔧 器材</button></span><label class="small">日期 <input type="date" data-pd="' + i + '" value="' + esc(pp.date || '') + '" style="width:auto"></label>' +
+        '<span style="flex:1"></span><span class="small">小計 <b data-psub="' + i + '"></b></span>' + (sl.papers.length > 1 ? '<button type="button" class="btn ghost small" data-pdel="' + i + '" title="刪掉這一張">🗑</button>' : '') + '</div>' +
+        '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th><th></th></tr>' +
+        pp.rows.map(function (r, j) {
+          var a = function (f, ph, extra) { return '<input data-pi="' + i + '" data-pj="' + j + '" data-pf="' + f + '" value="' + esc(r[f] === undefined || r[f] === null ? '' : String(r[f])) + '" placeholder="' + ph + '"' + (extra || '') + '>'; };
+          return '<tr><td>' + a('name', '品名', ' list="itemList" autocomplete="off" style="min-width:140px"') + '</td><td class="w2">' + a('qty', '數量', ' inputmode="decimal"') + '</td>' +
+            '<td class="w1">' + a('unit', '單位', ' list="unitList" autocomplete="off"') + '</td>' +
+            '<td class="w2">' + a('price', '單價', ' inputmode="decimal"') + '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="pu" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (jinRow(r) ? '' : ';display:none') + '"><option value="斤">元／斤</option><option value="兩"' + (r.pu === '兩' ? ' selected' : '') + '>元／兩</option></select></td>' +
+            '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"') + '</td><td><button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
+        }).join('') + '</table></div><button type="button" class="btn ghost small" data-padd="' + i + '">＋ 加一行</button></div>';
+    }).join('');
+    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">Enter：品名 → 數量 → 單價 → 金額 → 下一行（最後一行自動加一行）</span></div>' +
+      '<div id="paperSum"></div>' +
+      '<div class="row" style="margin-top:8px"><span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">全部銷貨單合計（選填，用來檢查）</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div><div id="slipHint"></div>';
+    $('slipBox').innerHTML = html;
+    unitListRefresh();
+    paperTotals();
+  }
+  // 每張小計、品項合計（跟叫貨量對照）、總計
+  function paperTotals() {
+    var sl = cur.slip, by = {}, order = [];
+    sl.papers.forEach(function (pp, i) {
+      var sub = 0;
+      pp.rows.forEach(function (r) {
+        var a = numv(r.amount), n = String(r.name || '').trim();
+        if (a !== null) sub += a;
+        if (!n) return;
+        if (!by[n]) { by[n] = { q: [], amt: 0, lines: 0 }; order.push(n); }
+        by[n].lines++; if (a !== null) by[n].amt += a;
+        if (String(r.qty).trim()) by[n].q.push(String(r.qty).trim() + (r.unit || ''));
+      });
+      var el = document.querySelector('[data-psub="' + i + '"]'); if (el) el.textContent = '$' + money(r2(sub));
+    });
+    var names = slipNames(), expect = {};
+    cur.b.lines.forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
+    var miss = names.filter(function (n) { return !by[n]; });
+    var html = order.length || miss.length ? '<details style="margin-top:8px"' + (order.length ? ' open' : '') + '><summary style="cursor:pointer"><b>品項合計</b>（同一個品項好幾行會加在一起，跟叫貨量對照）</summary><div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>單上</th><th>金額</th></tr>' +
+      order.map(function (n) { var b0 = by[n]; return '<tr><td><b>' + esc(n) + '</b>' + (names.indexOf(n) < 0 && names.length ? ' <span class="badge none">叫貨單沒有</span>' : '') + '</td><td class="small">' + esc((expect[n] || []).join('＋') || '—') + '</td><td class="small">' + esc(b0.q.join('＋') || '—') + (b0.lines > 1 ? '（' + b0.lines + ' 行）' : '') + '</td><td>$' + money(r2(b0.amt)) + '</td></tr>'; }).join('') +
+      miss.map(function (n) { return '<tr class="muted"><td>' + esc(n) + '</td><td class="small">' + esc(expect[n].join('＋')) + '</td><td class="small">單上沒有</td><td>—</td></tr>'; }).join('') + '</table></div></details>' : '';
+    var kt = { 食材: 0, 器材: 0 };
+    sl.papers.forEach(function (pp) { pp.rows.forEach(function (r) { var a = numv(r.amount); if (a !== null) kt[pp.kind === '器材' ? '器材' : '食材'] += a; }); });
+    if (kt['器材']) html = '<div style="margin-top:8px"><span class="badge ok">🥬 食材 $' + money(r2(kt['食材'])) + '</span> <span class="badge warn">🔧 器材 $' + money(r2(kt['器材'])) + '</span></div>' + html;
+    setHtml($('paperSum'), html);
+    slipFooter();
+  }
+  function paperRowOf(t) { return cur.slip.papers[Number(t.getAttribute('data-pi'))].rows[Number(t.getAttribute('data-pj'))]; }
+  $('slipBox').addEventListener('input', function (e) {
+    var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
+    if (t.hasAttribute && t.hasAttribute('data-pd')) { cur.slip.papers[Number(t.getAttribute('data-pd'))].date = t.value; saveDraft(); return; }
+    if (!f || f === 'pu') return;
+    var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
+    r[f] = t.value;
+    if (f === 'name') {   // 選了叫貨單／單價表的品項：自動帶單位、上次單價
+      var n = t.value.trim(), lp = (cur.b.prices || {})[n], tt = (cur.b.totals || {})[n];
+      // 這次已經打過同一樣：跟那一行的單位、單價一樣
+      var same = null;
+      cur.slip.papers.forEach(function (pp) { pp.rows.forEach(function (y) { if (y !== r && String(y.name || '').trim() === n && String(y.price || '').trim()) same = y; }); });
+      if (same) { if (!String(r.unit || '').trim()) { r.unit = same.unit; sib('unit').value = r.unit; } if (!String(r.price || '').trim()) { r.price = same.price; r.pu = same.pu; sib('price').value = r.price; sib('pu').value = r.pu || '斤'; } }
+      else if (lp || tt) {
+        if (!String(r.unit || '').trim()) { r.unit = lp ? lp.unit : { '兩': '斤', 'g': '公斤' }[tt.unit] || tt.unit; sib('unit').value = r.unit; }
+        if (!String(r.price || '').trim() && lp) { r.price = String(lp.price); sib('price').value = r.price; }
+      }
+    }
+    if (f === 'qty' && !String(r.unit || '').trim() && /[斤兩]/.test(r.qty)) { r.unit = '斤'; sib('unit').value = '斤'; }
+    sib('pu').style.display = jinRow(r) ? '' : 'none';
+    slipCalc(r, f === 'name' ? 'price' : f, sib);
+    paperTotals(); saveDraft();
+  });
+  $('slipBox').addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.getAttribute && t.getAttribute('data-pf') === 'pu') { var r = paperRowOf(t), tr = t.closest('tr'); r.pu = t.value; slipCalc(r, 'pu', function (g) { return tr.querySelector('[data-pf="' + g + '"]'); }); paperTotals(); saveDraft(); }
+  });
+  $('slipBox').addEventListener('click', function (e) {
+    var t = e.target, sl = cur.slip, v;
+    if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll('[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
+    if ((v = t.getAttribute && t.getAttribute('data-padd')) !== null && v !== undefined && t.hasAttribute('data-padd')) { var i = Number(v); sl.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="' + (sl.papers[i].rows.length - 1) + '"][data-pf="name"]').focus(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-prdel')) { var p2 = t.getAttribute('data-prdel').split('-'), pp = sl.papers[Number(p2[0])]; pp.rows.splice(Number(p2[1]), 1); if (!pp.rows.length) pp.rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pdel')) { var k = Number(t.getAttribute('data-pdel')); if (sl.papers[k].rows.some(function (r) { return String(r.name || '').trim() || numv(r.amount) !== null; }) && !window.confirm('刪掉第 ' + (k + 1) + ' 張銷貨單（含裡面的品項）？')) return; sl.papers.splice(k, 1); renderPapers(); saveDraft(); return; }
+    if (t.id === 'paperFromTotal') { paperMode(); renderSlip(); saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pk')) { sl.papers[Number(t.getAttribute('data-pk'))].kind = t.getAttribute('data-k'); renderPapers(); saveDraft(); return; }
+  });
+  // Enter：品名 → 數量 → 單價 → 金額 → 下一行品名（這一張最後一行就自動加一行）
+  $('slipBox').addEventListener('keydown', function (e) {
+    var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
+    if (e.key !== 'Enter' || e.isComposing || !f || f === 'pu') return;
+    e.preventDefault();
+    var i = Number(t.getAttribute('data-pi')), j = Number(t.getAttribute('data-pj')), order = ['name', 'qty', 'price', 'amount'], k = order.indexOf(f);
+    var go = function (jj, ff) { var x = $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="' + jj + '"][data-pf="' + ff + '"]'); if (x) { x.focus(); try { x.select(); } catch (z) {} } return x; };
+    if (f === 'unit') { go(j, 'price'); return; }
+    if (k < order.length - 1) { go(j, order[k + 1]); return; }
+    if (!go(j + 1, 'name')) {
+      var r = cur.slip.papers[i].rows[j];
+      if (!String(r.name || '').trim() && numv(r.amount) === null) return;
+      cur.slip.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); go(j + 1, 'name');
+    }
+  });
   function slipToSave() {
     var sl = cur.slip;
     if (!sl) return null;
     var rows = [];
+    if (sl.papers) {   // 照紙本一張一張打：每一行都存，記第幾張、哪一天
+      sl.papers.forEach(function (pp, i) {
+        pp.rows.forEach(function (r) {
+          var n = String(r.name || '').trim();
+          if (!n && numv(r.amount) === null) return;
+          var c = jinRow(r) ? { qty: slipQty(r) === null ? r.qty : Math.round(slipQty(r) * 10000) / 10000, unit: '斤', price: slipPrice(r) === null ? r.price : r2(slipPrice(r)) } : { qty: r.qty, unit: r.unit || '', price: r.price };
+          rows.push({ name: n, slipName: n, qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: '', sheet: i + 1, date: pp.date || '', kind: pp.kind || '食材' });
+        });
+      });
+      return { total: sl.total, rows: rows };
+    }
     // 被 ✕ 併進來的那一行：品名記成「洋蔥＋高麗菜」，單價不進單價表（含兩樣，不準）
     var withs = {};
     slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && r.merged && r.into) (withs[r.into] = withs[r.into] || []).push(n); });
@@ -1080,6 +1224,23 @@
     }
     return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? r2(qty * price) : '', sure: true, pre: true };
   }
+  // 切換「一張一張打」／「舊版表格（照叫貨單品項）」：兩種存法不一樣，有打東西時先問
+  function slipHasData() {
+    var sl = cur.slip;
+    if (!sl) return false;
+    if (sl.papers) return sl.papers.some(function (pp) { return pp.rows.some(function (r) { return String(r.name || '').trim() || numv(r.amount) !== null; }); });
+    return Object.keys(sl.rows).some(function (k) { return numv(sl.rows[k].amount) !== null && !sl.rows[k].pre; }) || sl.extras.some(function (x) { return numv(x.amount) !== null; });
+  }
+  $('slipOldMode').addEventListener('click', function () {
+    if (slipHasData() && !window.confirm('換成舊版表格，這裡一張一張打的內容會清掉（還沒存的）。確定？')) return;
+    var tot = cur.slip ? cur.slip.total : ''; cur.slip = null; renderSlip();
+    $('slipMsg').textContent = '舊版表格：按「手動填」照叫貨單品項填，或「⚡ 快速核對」。'; if (tot) { cur.slip = { ocr: false, text: '', total: tot, rows: {}, extras: [] }; }
+    saveDraft();
+  });
+  $('slipPaperMode').addEventListener('click', function () {
+    if (slipHasData() && !window.confirm('換成一張一張打，舊版表格填的內容會清掉（還沒存的）。確定？')) return;
+    var tot = cur.slip ? cur.slip.total : ''; cur.slip = null; paperMode(); cur.slip.total = tot || ''; renderSlip(); saveDraft();
+  });
   $('slipTotalOnly').addEventListener('click', function () {
     var sl = cur.slip, any = sl && (Object.keys(sl.rows).some(function (k) { return numv(sl.rows[k].amount) !== null && !sl.rows[k].pre; }) || sl.extras.some(function (x) { return numv(x.amount) !== null; }));
     if (any) { $('slipMsg').textContent = '已經有填品項了，直接在表格下面的「銷貨單合計」打總金額就好。'; if ($('slipTotal')) $('slipTotal').focus(); return; }
@@ -1213,6 +1374,17 @@
     if (uploading(cur.b)) { $('slipMsg').textContent = '照片還在上傳，等上傳完再按。'; return; }
     btn.disabled = true; $('slipMsg').textContent = '辨識中，' + (cur.photos.length > 1 ? cur.photos.length + ' 張一起讀，' : '') + '大約 10～20 秒…';
     call('readSlip', cur.photos, cur.b.vendor, slipNames()).then(function (r) {
+      if (cur.slip && cur.slip.papers) {   // 一張一張打：讀到的變成新的一張
+        var pp = newPaper(); pp.rows = [];
+        Object.keys(r.rows).forEach(function (n) { var x = r.rows[n]; pp.rows.push({ name: n, qty: x.qty, unit: x.unit, price: x.price, amount: x.amount }); });
+        r.extras.forEach(function (x) { pp.rows.push({ name: x.slipName || '', qty: x.qty, unit: x.unit, price: x.price, amount: x.amount }); });
+        if (!pp.rows.length) { $('slipMsg').textContent = '沒有讀到品項，請手動打。'; return; }
+        var ps = cur.slip.papers, last = ps[ps.length - 1];
+        if (ps.length && last.rows.every(function (y) { return !String(y.name || '').trim() && numv(y.amount) === null; })) ps[ps.length - 1] = pp; else ps.push(pp);
+        cur.slip.text = r.text;
+        $('slipMsg').textContent = '讀到 ' + pp.rows.length + ' 行，放在第 ' + ps.length + ' 張。辨識不一定準，請對照銷貨單看一下。';
+        renderSlip(); saveDraft(); return;
+      }
       var sl = cur.slip || { rows: {}, extras: [] };
       delete sl.totalOnly;
       sl.ocr = true; sl.text = r.text;
@@ -1294,10 +1466,10 @@
     var h = e.target.closest('[data-hint]');
     if (!h) return;
     e.preventDefault();
-    var hint = ($('slipHint')._hints || [])[Number(h.getAttribute('data-hint'))], el = hint && $('slipBox').querySelector(hint.sel + '[data-f="amount"]');
+    var hint = ($('slipHint')._hints || [])[Number(h.getAttribute('data-hint'))], el = hint && $('slipBox').querySelector(hint.sel);
     if (!el) return;
     $('slipQ').value = ''; slipFilter();
-    Array.prototype.forEach.call($('slipBox').querySelectorAll('tr.hintrow'), function (tr) { tr.classList.remove('hintrow'); });
+    Array.prototype.forEach.call($('slipBox').querySelectorAll('.hintrow'), function (tr) { tr.classList.remove('hintrow'); });
     el.closest('tr').classList.add('hintrow');
     el.scrollIntoView({ block: 'center' }); el.focus(); try { el.select(); } catch (x) {}
   });
@@ -1774,7 +1946,8 @@
       return '<label class="hxcand"><input type="checkbox" data-hxc="' + esc(c.key) + '"' + (on ? ' checked' : '') + (c.usedBy || hxF.mode === 'range' ? ' disabled' : '') + '>' +
         '<span><b>' + esc(mdw(c.date)) + '</b> ' + esc(c.label) + '　<b>$' + money(c.amount) + '</b>' + (c.estimated ? ' <span class="badge none">估</span>' : '') +
         (c.checked ? '' : ' <span class="badge warn">還沒驗收</span>') + (c.noPrice ? ' <span class="badge bad">' + c.noPrice + ' 項沒單價</span>' : '') +
-        (c.usedBy ? ' <span class="badge none">已在發票 ' + esc(c.usedBy) + '</span>' : '') + '</span></label>';
+        (c.usedBy ? ' <span class="badge none">已在發票 ' + esc(c.usedBy) + '</span>' : '') +
+        (c.byKind && c.byKind['器材'] ? '<div class="small">🥬 食材 $' + money(c.byKind['食材'] || 0) + '　🔧 器材 $' + money(c.byKind['器材']) + '</div>' : '') + '</span></label>';
     }).join('');
     // 各班金額參考（補庫存、沒有班級的另外列）
     var by = {};
@@ -1784,6 +1957,10 @@
       return '<tr><td>' + (k ? esc(k) : '補庫存／沒有班級') + '</td><td>$' + money(by[k]) + '</td></tr>';
     }).join('') + '</table><div class="muted small">在「💰 銷貨單」填了金額的，照銷貨單；沒填的用單價表估算。</div></details>' : '';
     hxF._stock = by[''] || 0;
+    // 食材／器材分開（銷貨單上每張選的類別）
+    var bk = {};
+    hxPicked().forEach(function (c) { Object.keys(c.byKind || {}).forEach(function (k) { bk[k] = r2((bk[k] || 0) + c.byKind[k]); }); });
+    if (bk['器材']) $('hxRef').innerHTML = '<div style="margin-bottom:6px"><b>食材／器材</b>　🥬 食材 <b>$' + money(bk['食材'] || 0) + '</b>　🔧 器材 <b>$' + money(bk['器材']) + '</b></div>' + $('hxRef').innerHTML;
   }
   function hxInvTotal() { return r2(hxF.lines.reduce(function (n, l) { return n + (numv(l.amount) || 0); }, 0)); }
   function hxSumUp() {

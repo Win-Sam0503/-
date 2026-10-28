@@ -17,7 +17,7 @@ const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收
 const DRAFT_HEADERS = ['驗收編號', '暫存時間', '內容'];
 const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人'];
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
-const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號'];
+const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號', '第幾張', '銷貨單日期', '類型'];   // 類型：食材／器材（每張銷貨單選一類）   // 第幾張：照紙本一張一張打的
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
 const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註', '照片'];
 // 照班級點貨的廠商（其他廠商點品項總量）
@@ -261,7 +261,8 @@ function slipsById_() {
     const id = String(r['驗收編號']).trim();
     (out[id] = out[id] || []).push({ name: String(r['食材名稱'] || ''), slipName: String(r['銷貨單品名'] || ''), qty: String(r['數量'] === undefined ? '' : r['數量']),
       unit: String(r['單位'] || ''), price: String(r['單價'] === undefined ? '' : r['單價']), amount: String(r['金額'] === undefined ? '' : r['金額']),
-      code: String(r['貨品編號'] || '') });
+      code: String(r['貨品編號'] || ''), sheet: Number(r['第幾張']) || 0, date: r['銷貨單日期'] instanceof Date ? dateStr_(r['銷貨單日期']) : String(r['銷貨單日期'] || '').replace(/^'/, ''),
+      kind: String(r['類型'] || '').trim() === '器材' ? '器材' : '食材' });
   });
   return out;
 }
@@ -310,8 +311,9 @@ function saveSlip_(p) {
   const id = extra ? (/^S\d{8}-/.test(String(p.id || '')) ? clean_(p.id, 60) : 'S' + from.replace(/-/g, '') + '-' + vendor + '-' + Utilities.formatDate(new Date(), tz_(), 'HHmmss')) : checkId_(from, vendor, group);
   const photos = (p.photos || []).filter(function (u) { return /^https:\/\/(drive|docs)\.google\.com\//.test(String(u)); }).slice(0, 30);
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
-    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
-      code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice };
+    const q4 = num_(x.qty) === '' ? '' : Math.round(Number(String(x.qty).replace(/[,，\s]/g, '')) * 10000) / 10000;   // 斤兩換成斤會有 4 位小數（3 兩＝0.1875 斤）
+    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: q4, unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
+      code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice, sheet: Number(x.sheet) || '', date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', kind: x.kind === '器材' ? '器材' : '食材' };
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const sum = Math.round(slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0) * 100) / 100;
   const total = p.slip ? num_(p.slip.total) : '';
@@ -329,7 +331,8 @@ function saveSlip_(p) {
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
     if (slip.length) {
       appendRows_(SHEET.slip, slip.map(function (x) {
-        return { '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '食材名稱': x.name, '銷貨單品名': x.slipName, '數量': x.qty, '單位': x.unit, '單價': x.price, '金額': x.amount, '貨品編號': x.code };
+        return { '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '食材名稱': x.name, '銷貨單品名': x.slipName, '數量': x.qty, '單位': x.unit, '單價': x.price, '金額': x.amount, '貨品編號': x.code,
+          '第幾張': x.sheet, '銷貨單日期': x.date ? "'" + x.date : '', '類型': x.kind };
       }));
       savePrices_(vendor, from, id, slip);
     }
@@ -775,7 +778,7 @@ function getMonth_(vendor, ym) {
       if (b.slip && whole && b.slip.amount > 0) {
         // 填了銷貨單金額：照填的（只填合計的沒有品項，列一行合計）
         b.slip.rows.forEach(function (x) {
-          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0 });
+          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0, kind: x.kind || '食材' });
         });
         if (!b.slip.rows.length) e.items.push({ cls: '', name: '銷貨單合計（只填合計，沒有品項）', got: '', price: '', amount: b.slip.amount });
         e.fromSlip = true;
@@ -801,7 +804,7 @@ function getMonth_(vendor, ym) {
   // 臨時銷貨單（不在叫貨單裡的送貨）：照填的金額
   extraSlips_(recs, ms, me, vendor).forEach(function (x) {
     out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, fromSlip: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
-      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0 }; }) });
+      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材' }; }) });
   });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
   if (ss_().getSheetByName('月結對帳')) {
@@ -1152,9 +1155,10 @@ function hxCandidates_(vendor, from, to, exceptId) {
     getMonth_(vendor, ym).entries.forEach(function (e) {
       if (e.date < dateStr_(f) || e.date > dateStr_(t)) return;
       const byCls = {};
-      e.items.forEach(function (x) { const k = x.cls || ''; byCls[k] = round2_((byCls[k] || 0) + (Number(x.amount) || 0)); });
+      const byKind = {};
+      e.items.forEach(function (x) { const k = x.cls || ''; byCls[k] = round2_((byCls[k] || 0) + (Number(x.amount) || 0)); const kd = x.kind || '食材'; byKind[kd] = round2_((byKind[kd] || 0) + (Number(x.amount) || 0)); });
       out.push({ key: e.id + '@' + ym, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated,
-        noPrice: e.noPrice.length, byCls: byCls, items: e.items, usedBy: used[e.id + '@' + ym] || '' });
+        noPrice: e.noPrice.length, byCls: byCls, byKind: byKind, items: e.items, usedBy: used[e.id + '@' + ym] || '' });
     });
   }
   return out.sort(function (a, b) { return a.date.localeCompare(b.date); });
