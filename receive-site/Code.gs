@@ -1497,7 +1497,20 @@ function ss_() {
   return SS_CACHE_;
 }
 
+// 同一次動作裡同一個分頁只讀一次（月結、核銷會一週一週重複讀，讀太多次 Google 會回 RESOURCE_EXHAUSTED）；有寫入就清掉重讀
+let TABLE_MEMO_ = {};
+function tableMemoClear_() { TABLE_MEMO_ = {}; SLIPS_MEMO_ = null; }
 function readTable_(name, required) {
+  const hit = TABLE_MEMO_[name];
+  if (hit) {
+    (required || []).forEach(function (k) { if (hit.cols[k] === undefined) throw new Error('分頁「' + name + '」缺少「' + k + '」欄位。'); });
+    return { sheet: hit.sheet, cols: hit.cols, rows: hit.rows.map(function (o) { return Object.assign({}, o); }) };
+  }
+  const t = readTableNow_(name, required);
+  TABLE_MEMO_[name] = t;
+  return { sheet: t.sheet, cols: t.cols, rows: t.rows.map(function (o) { return Object.assign({}, o); }) };
+}
+function readTableNow_(name, required) {
   const sh = ss_().getSheetByName(name);
   if (!sh) throw new Error('試算表找不到「' + name + '」分頁。');
   const lastRow = sh.getLastRow(), lastCol = Math.max(sh.getLastColumn(), 1);
@@ -1516,6 +1529,7 @@ function readTable_(name, required) {
 }
 
 function ensureSheet_(name, headers) {
+  tableMemoClear_();
   let sh = ss_().getSheetByName(name);
   if (!sh) {
     sh = ss_().insertSheet(name);
@@ -1531,6 +1545,7 @@ function ensureSheet_(name, headers) {
 }
 
 function appendRows_(name, objs) {
+  tableMemoClear_();
   if (!objs.length) return;
   const sh = ss_().getSheetByName(name);
   const lastCol = Math.max(sh.getLastColumn(), 1);
@@ -1541,6 +1556,7 @@ function appendRows_(name, objs) {
 }
 
 function setCell_(table, row, header, value) {
+  tableMemoClear_();
   const c = table.cols[header];
   if (c === undefined) throw new Error('分頁缺少「' + header + '」欄位。');
   table.sheet.getRange(row, c).setValue(value);
@@ -1548,6 +1564,7 @@ function setCell_(table, row, header, value) {
 
 /** 從下往上刪，列號才不會跑掉 */
 function deleteRows_(sh, rows) {
+  tableMemoClear_();
   // 連在一起的列一次刪（一列一列刪很慢，存檔時會一直佔著鎖）
   const list = rows.slice().sort(function (a, b) { return b - a; });
   for (let i = 0; i < list.length;) {
@@ -1563,8 +1580,9 @@ function retry_(fn) {
   for (let i = 0; i < 3; i++) {
     try { return fn(); } catch (e) {
       lastErr = e;
-      if (!/Service|服務|無法正常運作|timed out|逾時|Internal error|內部錯誤|try again|稍後再試/i.test(String(e && e.message || e))) throw e;
-      Utilities.sleep(800 * (i + 1));
+      const m = String(e && e.message || e);
+      if (!/Service|服務|無法正常運作|timed out|逾時|Internal error|內部錯誤|try again|稍後再試|RESOURCE_EXHAUSTED|儲存空間|storage/i.test(m)) throw e;
+      Utilities.sleep((/RESOURCE_EXHAUSTED|儲存空間|storage/i.test(m) ? 2000 : 800) * (i + 1));
     }
   }
   throw new Error('Google 試算表暫時沒有回應，請稍等一下再試一次。（' + (lastErr && lastErr.message) + '）');

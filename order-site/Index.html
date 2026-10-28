@@ -1313,7 +1313,18 @@
       speedLog('（打開網頁）', nav ? nav.loadEventStart || nav.duration : performance.now(), true);
     });
   } catch (e) {}
+  // Google 暫時忙碌（RESOURCE_EXHAUSTED、讀取儲存空間時發生伺服器錯誤）：等一下自動再試，最多 2 次
   function call(fn) {
+    var args = arguments, tries = 0;
+    var go = function () {
+      return call1.apply(null, args).catch(function (e) {
+        if (/RESOURCE_EXHAUSTED|儲存空間時發生伺服器錯誤|INTERNAL/i.test(e.message) && tries++ < 2) return new Promise(function (r) { setTimeout(r, 2500 * tries); }).then(go);
+        throw e;
+      });
+    };
+    return go();
+  }
+  function call1(fn) {
     var args = Array.prototype.slice.call(arguments, 1), t0 = Date.now();
     return new Promise(function (resolve0, reject0) {
       var resolve = function (v) { speedLog(fn, Date.now() - t0, true); resolve0(v); };
