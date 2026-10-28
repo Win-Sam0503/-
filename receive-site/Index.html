@@ -801,10 +801,33 @@
   function slipQty(o) { return jinRow(o) ? jinOf(o.qty, o.unit) : numv(o.qty); }
   function slipPrice(o) { var p = numv(o.price); return p === null ? null : jinRow(o) && o.pu === '兩' ? p * 16 : p; }
   function r4(n) { return Math.round(n * 10000) / 10000; }
+  // 單位：下拉選（不用打字、不會跳輸入法）。常用的＋這家廠商單價表用過的＋這張單上已經有的
+  var UNIT_BASE = ['斤', '兩', '公斤', 'g', '顆', '個', '條', '把', '支', '根', '片', '粒', '包', '袋', '盒', '箱', '瓶', '罐', '桶', '打', '盤', '份', '組', '公升', 'ml', '式'];
+  function slipUnits(v) {
+    var out = UNIT_BASE.slice(), add = function (u) { u = String(u || '').trim(); if (u && out.indexOf(u) < 0) out.push(u); };
+    if (cur && cur.b) Object.keys(cur.b.prices || {}).forEach(function (n) { add(cur.b.prices[n].unit); });
+    if (cur && cur.slip) { Object.keys(cur.slip.rows).forEach(function (n) { add(cur.slip.rows[n].unit); }); cur.slip.extras.forEach(function (x) { add(x.unit); }); }
+    add(v);
+    return out;
+  }
+  function unitSelect(attrs, v) {
+    v = String(v == null ? '' : v).trim();
+    return '<select ' + attrs + ' style="width:100%;min-width:64px;font-size:16px;padding:6px 2px"><option value="">單位</option>' +
+      slipUnits(v).map(function (u) { return '<option' + (u === v ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '<option value="__other">＋其他…</option></select>';
+  }
+  // 選「＋其他…」：問一次單位名稱
+  function unitOther(sel, old) {
+    var u = (window.prompt('單位名稱（例如：籃、捆）', '') || '').trim().slice(0, 10);
+    if (!u) { sel.value = old || ''; return old || ''; }
+    if (!Array.prototype.some.call(sel.options, function (o) { return o.value === u; })) sel.add(new Option(u, u), sel.options.length - 1);
+    sel.value = u;
+    return u;
+  }
   function slipCell(scope, i, f, v, row) {
     var pu = row && f === 'price';
+    if (f === 'unit') return '<td class="w1">' + unitSelect('data-' + scope + '="' + esc(String(i)) + '" data-f="unit"', v) + '</td>';
     return '<td class="' + (f === 'unit' ? 'w1' : 'w2') + '"><input data-' + scope + '="' + esc(String(i)) + '" data-f="' + f + '" value="' + esc(v === undefined || v === null ? '' : String(v)) + '"' +
-      (f === 'unit' || f === 'qty' ? '' : ' inputmode="decimal"') + ' placeholder="' + { qty: '數量', unit: '單位', price: '單價', amount: '金額' }[f] + '">' +
+      ' inputmode="decimal" placeholder="' + { qty: '數量', unit: '單位', price: '單價', amount: '金額' }[f] + '">' +
       (pu ? '<select data-pu="' + esc(String(i)) + '" data-scope="' + scope + '" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (jinRow(row) ? '' : ';display:none') + '"><option value="斤">元／斤</option><option value="兩"' + (row.pu === '兩' ? ' selected' : '') + '>元／兩</option></select>' : '') + '</td>';
   }
   function renderSlip() {
@@ -945,8 +968,8 @@
     $('qkEdit').innerHTML = '<div class="qedit"><div class="row" style="justify-content:space-between"><span class="qn">' + (extra ? '叫貨單沒有的' : esc(qkCur)) + '</span>' +
       (extra ? '' : '<span class="muted">叫貨 ' + esc(qkExpect(qkCur).join('＋')) + (lp ? '・上次 $' + money(lp.price) + '／' + esc(lp.unit) : '') + '</span>') + '</div>' +
       '<div class="qf">' + (extra ? '<label>品名<input id="qkN" placeholder="例如：運費"></label>' : '') +
-      '<label>數量<input id="qkQty" value="' + esc(r.qty === undefined ? '' : String(r.qty)) + '"></label>' +
-      '<label>單位<input id="qkU" value="' + esc(r.unit || '') + '" style="max-width:90px"></label>' +
+      '<label>數量<input id="qkQty" inputmode="decimal" value="' + esc(r.qty === undefined ? '' : String(r.qty)) + '"></label>' +
+      '<label>單位' + unitSelect('id="qkU"', r.unit || '') + '</label>' +
       '<label>單價<input id="qkP" inputmode="decimal" value="' + esc(r.price === undefined ? '' : String(r.price)) + '"><select id="qkPu" style="font-size:13px;padding:2px;margin-top:2px' + (jinRow(r) ? '' : ';display:none') + '"><option value="斤">元／斤</option><option value="兩"' + (r.pu === '兩' ? ' selected' : '') + '>元／兩</option></select></label>' +
       '<label style="flex:2 1 140px">金額（銷貨單上的）<input id="qkA" inputmode="decimal" value="' + esc(r.amount === undefined ? '' : String(r.amount)) + '"></label></div>' +
       '<div class="row" style="margin-top:10px"><button type="button" class="btn" id="qkOk">✓ 確定</button><button type="button" class="btn ghost small" id="qkCancel">取消</button>' +
@@ -1008,7 +1031,9 @@
     if (q !== null && p !== null) $('qkA').value = r2(q * p);
   });
   $('qk').addEventListener('change', function (e) {
-    if (e.target.id !== 'qkPu') return;
+    if (e.target.id === 'qkU' && e.target.value === '__other') unitOther(e.target, '');
+    if (e.target.id === 'qkU') { $('qkPu').style.display = jinRow({ qty: $('qkQty').value, unit: $('qkU').value }) ? '' : 'none'; }
+    if (e.target.id !== 'qkPu' && e.target.id !== 'qkU') return;
     var row = { qty: $('qkQty').value, unit: $('qkU').value, price: $('qkP').value, pu: $('qkPu').value }, q = slipQty(row), p = slipPrice(row);
     if (q !== null && p !== null) $('qkA').value = r2(q * p);
   });
@@ -1031,13 +1056,16 @@
     }).catch(function (e) { $('slipMsg').textContent = e.message; })
       .then(function () { btn.disabled = false; });
   });
-  $('slipBox').addEventListener('input', function (e) {
+  $('slipBox').addEventListener('input', slipInput);
+  function slipInput(e) {
     var t = e.target, sl = cur.slip, f = t.getAttribute('data-f'), o = null;
     if (t.id === 'slipTotal') { sl.total = t.value; slipFooter(); saveDraft(); return; }
     if (t.hasAttribute('data-xn')) { sl.extras[Number(t.getAttribute('data-xn'))].slipName = t.value; saveDraft(); return; }
     if (t.hasAttribute('data-sn')) { var n = t.getAttribute('data-sn'); o = sl.rows[n] = sl.rows[n] || {}; o.sure = true; o.partial = false; delete o.pre; t.closest('tr').style.background = ''; }
     else if (t.hasAttribute('data-x')) o = sl.extras[Number(t.getAttribute('data-x'))];
     if (!o || !f) return;
+    if (f === 'unit' && t.value === '__other') unitOther(t, o.unit);
+    if (f === 'unit' && o.unit === t.value && e.type === 'change') return;   // input 已經處理過
     o[f] = t.value;
     // 數量×單價＝金額：改數量或單價就重算金額；改金額就重算單價
     var sib = function (g) { return t.closest('tr').querySelector('[data-f="' + g + '"]'); };
@@ -1046,7 +1074,7 @@
     if (puSel) puSel.style.display = jinRow(o) ? '' : 'none';   // 單位是斤／兩才出現「元／斤、元／兩」
     slipCalc(o, f, sib);
     slipFooter(); saveDraft();
-  });
+  }
   // 數量×單價＝金額（斤兩自動換算）：改數量或單價就重算金額；改金額就重算單價
   function slipCalc(o, f, sib) {
     var q = slipQty(o), pr = slipPrice(o), a = numv(o.amount), mul = jinRow(o) && o.pu === '兩' ? 16 : 1;
@@ -1055,6 +1083,7 @@
   }
   $('slipBox').addEventListener('change', function (e) {
     var t = e.target;
+    if (t.tagName === 'SELECT' && t.getAttribute('data-f') === 'unit') { slipInput(e); return; }   // 有些平板選單只送 change
     if (t.hasAttribute('data-pu')) {
       var sc = t.getAttribute('data-scope') || (t.hasAttribute('data-sn') ? 'sn' : 'x'), key = t.getAttribute('data-pu') || t.getAttribute('data-' + sc);
       var o = sc === 'sn' ? cur.slip.rows[key] : cur.slip.extras[Number(key)];
