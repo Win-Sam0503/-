@@ -7571,6 +7571,7 @@
   var lessonAs = '';   // 管理者正在查看的老師（空白 = 自己）
   function loadLessons(note) {
     if (!note) msg('lessonsMsg', 'info', '載入中…');
+    if (!data) return Promise.resolve();   // 還在載入（剛登入、重新整理）時點到「我的課」：等載入完再看
     if (data.isAdmin && !$('lessonsAs')._filled) fillLessonsAs();
     return call('getMyLessons', token, lessonAs).then(function (r) { renderLessons(r, note); })
       .catch(function (e) { msg('lessonsMsg', 'error', '載入失敗：' + e.message); });
@@ -7976,11 +7977,15 @@
     p.catch(function () { delete dayOrders[date]; });
     return p;
   }
+  var lessonSeq = 0;
   function showLessonOrders(x) {
     var nos = x.orders.map(function (o) { return o.orderNo; });
-    msg('gridMsg', 'info', '載入料單中…');
-    return lessonDayOrders(x.date).then(function (list) {
-      msg('gridMsg', '', '');
+    // 視窗先打開顯示「載入中」（總課表很長、捲到下面時，上面的訊息看不到，會以為沒反應）
+    var title = '<div style="font-weight:700;font-size:17px">' + esc(x.teacher + ' 的料單：' + x.course) + '</div>';
+    var seq = ++lessonSeq, mine = function () { return !$('askBox').classList.contains('hidden') && $('askText').querySelector('[data-lseq="' + seq + '"]'); };
+    var shown = ask('', '修改這堂課', { noText: '關閉', html: title + '<div class="msg info" data-lseq="' + seq + '" style="margin-top:10px">⏳ 載入料單中…</div>' });
+    lessonDayOrders(x.date).then(function (list) {
+      if (!mine()) return;   // 已經關掉（或換成別的視窗）了
       var orders = list.filter(function (o) { return nos.indexOf(o.orderNo) >= 0; });
       var body = orders.length ? orders.map(function (o) {
         var items = o.items.filter(function (it) { return it.status !== '已取消'; });
@@ -7995,9 +8000,11 @@
           (tools.length ? '<tr><td colspan="5" class="muted small">器具：' + esc(tools.map(function (t) { return t.name + ' ' + fmtQty(t.qty) + (t.note ? '（' + t.note + '）' : ''); }).join('、')) + '</td></tr>' : '') +
           '</tbody></table></div></div>';
       }).join('') : '<div class="muted">找不到這堂課的訂單（可能已取消或日期被改過），請到「訂單彙整」查詢。</div>';
-      return ask('', '修改這堂課', { noText: '關閉', html: '<div style="font-weight:700;font-size:17px">' + esc(x.teacher + ' 的料單：' + x.course) + '</div>' +
-        '<div class="muted small" style="text-align:left">要改料單請到「訂單彙整」按「修改明細」。</div>' + body });
-    }).catch(function (err) { msg('gridMsg', 'error', '載入料單失敗：' + err.message); return false; });
+      $('askText').innerHTML = title + '<div class="muted small" style="text-align:left">要改料單請到「訂單彙整」按「修改明細」。</div>' + body;
+    }).catch(function (err) {
+      if (mine()) $('askText').innerHTML = title + '<div class="msg error" style="margin-top:10px">載入料單失敗：' + esc(err.message) + '<br>請關掉再按一次；一直失敗請截圖給 Claude。</div>';
+    });
+    return shown;
   }
   function saveGridMark(x, m) {
     return call('adminSetLessonMark', token, x.teacher, x.date, x.session, x.course, m.mark, m.note, gridWeekOf());
