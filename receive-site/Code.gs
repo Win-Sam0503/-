@@ -78,7 +78,7 @@ const API_ = {
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
   hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudgets_([a[0]]); },
   hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
-  hxItems: function () { return hxItems_(); }, hxOrders: function (a) { return hxOrders_.apply(null, a); },
+  hxItems: function () { return hxItems_(); }, hxPrintData: function (a) { return hxPrintData_.apply(null, a); }, hxOrders: function (a) { return hxOrders_.apply(null, a); },
   hxDeleteBudget: function (a) { return hxDeleteBudget_.apply(null, a); },
 };
 function api(token, fn, args) {
@@ -1263,6 +1263,36 @@ function hxEnsureSheets_() {
 // ---------------------------------------------------------------------
 // 另外叫料快速 key：食材總表的品名（打字跳出來選）、從老師的訂單匯入
 // ---------------------------------------------------------------------
+
+/**
+ * 列印請購單：這筆核銷勾的送貨，照銷貨單上每張選的「食材／器材」分開
+ * 回傳 { vendor, date, amount, no, kinds: { 食材: { amount, items: [{ name, unit, qty, amount }] }, 器材: {…} } }
+ */
+function hxPrintData_(id) {
+  const inv = hxReadInvoices_().filter(function (x) { return x.id === id; })[0];
+  if (!inv) throw new Error('找不到這筆核銷，可能被刪掉了。');
+  const kinds = {}, add = function (kind, name, qty, unit, amount) {
+    const k = kinds[kind] = kinds[kind] || { amount: 0, items: [] };
+    const n = String(name || '').trim() || '（沒有品名）', u = String(unit || '').trim();
+    let it = k.items.filter(function (x) { return x.name === n && x.unit === u; })[0];
+    if (!it) { it = { name: n, unit: u, qty: 0, amount: 0 }; k.items.push(it); }
+    const q = Number(qty); if (q > 0) it.qty = Math.round((it.qty + q) * 10000) / 10000;
+    it.amount = round2_(it.amount + (Number(amount) || 0)); k.amount = round2_(k.amount + (Number(amount) || 0));
+  };
+  const months = {};
+  inv.checks.forEach(function (key) { const m = String(key).split('@'); if (m[1]) (months[m[1]] = months[m[1]] || []).push(m[0]); });
+  Object.keys(months).forEach(function (ym) {
+    getMonth_(inv.vendor, ym).entries.forEach(function (e) {
+      if (months[ym].indexOf(e.id) < 0) return;
+      e.items.forEach(function (x) {
+        const m = String(x.got || '').trim().match(/^([\d.]+)\s*(.*)$/);
+        add(x.kind || '食材', x.name, m ? m[1] : '', m ? m[2] : '', x.amount);
+      });
+    });
+  });
+  inv.extras.forEach(function (x) { add('食材', x.name, '', '', x.amount); });   // 另外叫料當食材
+  return { id: inv.id, vendor: inv.vendor, date: inv.date, amount: inv.amount, no: inv.no, kinds: kinds };
+}
 
 /** 食材總表啟用中的品名：[[名稱, 別名, 廠商]]（快取 1 小時） */
 function hxItems_() {

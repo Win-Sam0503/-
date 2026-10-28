@@ -109,6 +109,20 @@
   .hxcpi input { width: 20px; height: 20px; } .hxcpi .amt { margin-left: auto; } .hxcpi.on { background: #eff8ff; } .hxcpi.used { color: var(--muted); }
   .hxsum { position: sticky; bottom: 0; background: #fff; border-top: 2px solid var(--line); padding: 8px 0; margin-top: 8px; }
   @media print { header, .hxtabs, .noprint { display: none !important; } }
+  @media print { #vHx > .panel:first-child { display: none !important; } }
+  /* 請購單＋黏貼憑證（A4） */
+  .rqpage { background: #fff; color: #000; max-width: 190mm; margin: 12px auto; padding: 8mm; border: 1px solid #ccc; font-size: 13px; }
+  .rqpage .rqh1 { text-align: center; font-size: 18px; font-weight: 700; }
+  .rqpage .rqtop { display: flex; justify-content: center; position: relative; margin-top: 2px; }
+  .rqpage .rqh2 { font-size: 20px; font-weight: 700; letter-spacing: 2px; }
+  .rqpage .rqpaid { position: absolute; right: 0; top: -14px; border: 1px solid #000; padding: 2px 8px; font-size: 11px; text-align: center; }
+  .rqpage .rqline { margin: 6px 0 4px; }
+  .rqpage table.rqt { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  .rqpage .rqt th, .rqpage .rqt td { border: 1px solid #000; padding: 4px 3px; text-align: center; font-size: 12px; height: 22px; }
+  .rqpage .rqt .dg { width: 4.2%; font-size: 12px; }
+  .rqpage .rqsign td { height: 30px; text-align: left; vertical-align: top; }
+  .rqpage .rqpaste { border: 1px dashed #000; text-align: center; padding: 30px 0 34px; margin-top: 6px; letter-spacing: 2px; }
+  @media print { .rqpage { border: 0; margin: 0 auto; padding: 0; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #rLogin .panel { width: min(380px, 100%); }
   #rLogin input { width: 100%; font-size: 18px; padding: 10px; margin: 4px 0 10px; box-sizing: border-box; }
@@ -1655,7 +1669,7 @@
             (done ? '<span class="badge ok">✓ 已核銷 ' + esc(a.doneDate) + '</span> <span class="muted small">' + esc(a.doneBy) + '</span> <button type="button" class="btn ghost small" data-hxundo="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '">取消</button>'
               : '<button type="button" class="btn small" data-hxdone="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '">✓ 確認已核銷</button>') + '</td></tr>';
         }).join('') + '</table>' +
-        '<div class="row" style="margin-top:6px"><button type="button" class="btn ghost small" data-hxedit="' + esc(inv.id) + '">✏️ 修改</button>' +
+        '<div class="row" style="margin-top:6px"><button type="button" class="btn ghost small" data-hxedit="' + esc(inv.id) + '">✏️ 修改</button><button type="button" class="btn ghost small" data-hxprint="' + esc(inv.id) + '">🖨 請購單</button>' +
         '<button type="button" class="btn ghost small" data-hxdel="' + esc(inv.id) + '" style="color:var(--bad);border-color:var(--bad)">🗑 刪除</button></div></div>';
     });
     $('hxBox').innerHTML = html + '</div>';
@@ -2012,6 +2026,76 @@
     var txt = (b.name || '預算') + (left < 0 ? (sub ? ' 存了會超支 $' : ' 已超支 $') + money(-left) : (sub ? ' 存了剩 $' : ' 剩 $') + money(left));
     if (el.textContent !== txt) el.textContent = txt;
   }
+  // ⑦ 列印請購單＋黏貼憑證：食材套 21457、器材套 2145C（跟學校的 Excel 範本一樣的版面）
+  var RQ_FORM = { '食材': { code: '21457', plan: '餐飲科', use: '食材費', desc: '餐飲科食材費' }, '器材': { code: '2145C', plan: '餐旅群', use: '科務費', desc: '餐旅群科務費' } };
+  var rq = null;   // { data, set: { 食材: { no, name, desc }, 器材: {…} }, fill, need, dept }
+  function rocParts(d) { var p = String(d || '').split('-'); return p.length === 3 ? [Number(p[0]) - 1911, Number(p[1]), Number(p[2])] : ['', '', '']; }
+  function hxPrintOpen(id) {
+    msg('hxMsg', 'info', '讀取中…');
+    call('hxPrintData', id).then(function (d) {
+      msg('hxMsg', '', '');
+      var ks = ['食材', '器材'].filter(function (k) { return d.kinds[k] && d.kinds[k].amount; });
+      if (!ks.length) { msg('hxMsg', 'warn', '這筆核銷沒有勾送貨、也沒有另外叫料，沒有東西可以印。'); return; }
+      rq = { data: d, kinds: ks, fill: d.date, need: d.date, dept: '餐飲科', set: {} };
+      ks.forEach(function (k) { rq.set[k] = { no: '', name: (hxVendorKey(d.vendor) || '') + '材料一批', desc: RQ_FORM[k].desc }; });
+      hxPrintView();
+    }).catch(function (e) { msg('hxMsg', 'error', e.message); });
+  }
+  function hxPrintView() {
+    var d = rq.data, sum = rq.kinds.reduce(function (n, k) { return n + d.kinds[k].amount; }, 0);
+    var ctl = '<div class="panel noprint"><div class="row" style="justify-content:space-between"><h2 style="margin:0">🖨 請購單＋黏貼憑證：' + esc(d.vendor) + ' ' + esc(d.no || '') + '</h2><button type="button" class="btn ghost small" id="rqBack">← 回核銷</button></div>' +
+      '<div class="muted small">食材套「21457 餐飲科食材費」、器材套「2145C 餐旅群科務費」，一類一張 A4。下面先填好再按列印。</div>' +
+      (Math.abs(sum - d.amount) >= 1 ? '<div class="msg warn">銷貨單合計 $' + money(r2(sum)) + '，跟這筆核銷的發票合計 $' + money(d.amount) + ' 不一樣，請確認（例如有些送貨沒填銷貨單金額）。</div>' : '') +
+      '<div class="row" style="margin-top:6px"><label class="small">填單日期 <input type="date" id="rqFill" value="' + esc(rq.fill) + '" style="width:auto"></label><label class="small">需用日期 <input type="date" id="rqNeed" value="' + esc(rq.need) + '" style="width:auto"></label>' +
+      '<label class="small">處（室）<input id="rqDept" value="' + esc(rq.dept) + '" style="width:120px"></label></div>' +
+      rq.kinds.map(function (k) {
+        var st = rq.set[k];
+        return '<div class="row" style="margin-top:6px"><b style="min-width:70px">' + (k === '食材' ? '🥬 食材' : '🔧 器材') + '</b><span class="small">$' + money(d.kinds[k].amount) + '</span>' +
+          '<label class="small">憑證編號 第<input data-rq="' + k + '" data-f="no" value="' + esc(st.no) + '" placeholder="例如 1-29" style="width:90px">號</label>' +
+          (k === '食材' ? '<label class="small">品名 <input data-rq="' + k + '" data-f="name" value="' + esc(st.name) + '" style="width:160px"></label>' : '<span class="small muted">品名逐項列（' + d.kinds[k].items.length + ' 項）</span>') +
+          '<label class="small">用途說明 <input data-rq="' + k + '" data-f="desc" value="' + esc(st.desc) + '" style="width:140px"></label></div>';
+      }).join('') +
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn" id="rqPrint">🖨 列印</button></div></div>';
+    $('hxBox').innerHTML = ctl + '<div id="rqPages">' + rq.kinds.map(rqPage).join('') + '</div>';
+  }
+  function rqPage(k) {
+    var d = rq.data, f = RQ_FORM[k], st = rq.set[k], amt = Math.round(d.kinds[k].amount), fd = rocParts(rq.fill), nd = rocParts(rq.need);
+    var digits = ('000000000' + amt).slice(-9).split('');
+    var rows = k === '食材' ? [{ name: st.name, spec: '', unit: '批', qty: '1', price: '', total: amt }]
+      : d.kinds[k].items.filter(function (x) { return x.amount; }).map(function (x) { return { name: x.name, spec: '', unit: x.unit, qty: x.qty ? fmtN(x.qty) : '', price: x.qty ? fmtN(r2(x.amount / x.qty)) : '', total: x.amount }; });
+    while (rows.length < 6) rows.push({ name: '', spec: '', unit: '', qty: '', price: '', total: '' });
+    var cell = function (v) { return '<td>' + esc(v === '' || v === undefined ? '' : String(v)) + '</td>'; };
+    return '<div class="rqpage"><div class="rqh1">高雄市三信家商</div><div class="rqtop"><span class="rqh2">黏 貼 憑 證 用 紙</span><span class="rqpaid">零用金付訖<br>年　 月　 日</span></div>' +
+      '<div class="rqline">' + fd[0] + ' 年 ' + fd[1] + ' 月 ' + fd[2] + ' 日（付款憑單、支出傳票）第　　　號　　憑證共　　張</div>' +
+      '<table class="rqt"><tr><th rowspan="2" style="width:13%">憑證編號</th><th rowspan="2" style="width:30%">預　算　科　目</th><th colspan="9">金　　　額</th><th rowspan="2">用　途　說　明</th></tr>' +
+      '<tr>' + ['億', '千萬', '百萬', '十萬', '萬', '千', '百', '十', '元'].map(function (x) { return '<th class="dg">' + x + '</th>'; }).join('') + '</tr>' +
+      '<tr style="height:90px"><td>第 ' + esc(st.no) + ' 號</td><td style="text-align:left;line-height:1.9">業務計劃：' + esc(f.code) + '<br>工作計劃：' + esc(f.plan) + '<br>用途科別：' + esc(f.use) + '</td>' +
+      digits.map(function (x) { return '<td class="dg">' + x + '</td>'; }).join('') + '<td>' + esc(st.desc) + '</td></tr></table>' +
+      '<table class="rqt rqsign"><tr><th>經辦單位</th><th>驗收或證明</th><th>會 計 室</th><th>校　　長</th></tr>' +
+      '<tr><td>經手人</td><td>財物登記</td><td>審核</td><td rowspan="3"></td></tr><tr><td>組長</td><td>保管</td><td>主任</td></tr><tr><td>主任</td><td></td><td></td></tr></table>' +
+      '<div class="rqpaste">－－－－ 憑　證　黏　貼　處 －－－－<div class="small">（請經手人於憑證黏貼處背面加蓋騎縫章）</div></div>' +
+      '<div class="rqh2" style="text-align:center;margin-top:6px">' + esc(rq.dept) + ' 處（室）　請 購（修）單</div>' +
+      '<div class="rqline">填單日期：' + fd[0] + ' 年 ' + fd[1] + ' 月 ' + fd[2] + ' 日　　　需用日期：' + nd[0] + ' 年 ' + nd[1] + ' 月 ' + nd[2] + ' 日</div>' +
+      '<table class="rqt"><tr><th rowspan="2" style="width:26%">品　　名</th><th rowspan="2" style="width:16%">規　　格</th><th rowspan="2">單位</th><th rowspan="2">數量</th><th colspan="2">估（詢）價</th><th rowspan="2" style="width:16%">用 途 說 明</th></tr><tr><th>單　價</th><th>總　價</th></tr>' +
+      rows.map(function (r, i) { return '<tr>' + cell(r.name) + cell(r.spec) + cell(r.unit) + cell(r.qty) + cell(r.price === '' ? '' : r.price) + '<td style="text-align:right">' + (r.total === '' ? '' : money(r.total)) + '</td>' + (i === 0 ? '<td rowspan="' + rows.length + '">' + esc(st.desc) + '</td>' : '') + '</tr>'; }).join('') +
+      '<tr><th>合　　計</th><td colspan="4"></td><td style="text-align:right"><b>' + money(amt) + '</b></td><td></td></tr></table>' +
+      '<table class="rqt rqsign"><tr><th>請購單位</th><th>經辦單位</th><th>會 計 室</th><th>校　　長</th></tr>' +
+      '<tr><td>請購人</td><td>經手人</td><td>審核</td><td rowspan="3"></td></tr><tr><td>單位主管</td><td>組長</td><td>主任</td></tr><tr><td>經費來源 ' + esc(f.code) + '</td><td>主任</td><td></td></tr></table></div>';
+  }
+  function fmtN(n) { return String(Math.round(Number(n) * 100) / 100); }
+  $('hxBox').addEventListener('click', function (e) {
+    var t = e.target, b = t.closest && t.closest('[data-hxprint]');
+    if (b) { hxPrintOpen(b.getAttribute('data-hxprint')); return; }
+    if (t.id === 'rqBack') { rq = null; hxOpen('list'); return; }
+    if (t.id === 'rqPrint') { window.print(); }
+  });
+  $('hxBox').addEventListener('input', function (e) {
+    var t = e.target;
+    if (!rq || !$('rqPages')) return;
+    if (t.hasAttribute('data-rq')) rq.set[t.getAttribute('data-rq')][t.getAttribute('data-f')] = t.value;
+    else if (t.id === 'rqFill') rq.fill = t.value; else if (t.id === 'rqNeed') rq.need = t.value; else if (t.id === 'rqDept') rq.dept = t.value; else return;
+    $('rqPages').innerHTML = rq.kinds.map(rqPage).join('');
+  });
   // ⑥ 經費編號：每個編號的金額、已用、剩餘、用在哪幾張發票
   var hxCodeF = { q: '', st: '' };
   function hxCodesView() {
