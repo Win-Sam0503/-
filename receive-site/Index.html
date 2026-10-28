@@ -758,7 +758,7 @@
     tell(); renderThumbs();
     Promise.all([one(), one()]).then(function () {
       if (!here()) return;
-      $('photoMsg').textContent = bad ? '上傳好 ' + ok + ' 張，' + bad + ' 張失敗（網路不穩），請再拍一次那幾張。' : '已上傳 ' + ok + ' 張，按「完成驗收」才會跟這次驗收存在一起。';
+      $('photoMsg').textContent = bad ? '上傳好 ' + ok + ' 張，' + bad + ' 張失敗（網路不穩），請再拍一次那幾張。' : '已上傳 ' + ok + ' 張，按「💾 儲存銷貨單」才會存。';
     });
   });
 
