@@ -227,7 +227,7 @@
         </div>
         <textarea id="slNote" rows="2" style="width:100%;margin-top:8px" placeholder="銷貨單備註（選填），例如：運費另計、少一張單"></textarea>
       <div id="slMsg"></div>
-      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
+      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost small hidden" id="slDel">🗑 刪除這張</button><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
     </div>
   </section>
 
@@ -395,9 +395,14 @@
       week = w;
       $('weekText').textContent = mdw(w.from) + '～' + mdw(w.to);
       msg('listMsg', w.drafts.length ? 'warn' : '', w.drafts.length ? w.drafts.join('、') + ' 還是草稿、還沒「確定叫貨」，確定後才會出現在這裡。' : '');
+      $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）。選一張叫貨單開始；不在叫貨單裡的送貨按「＋ 新增銷貨單」。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
+      if (listMode === 'slip') {
+        if (!w.batches.length) msg('listMsg', 'info', '這週沒有叫貨單；不在叫貨單裡的送貨可以按「＋ 新增銷貨單」。');
+        $('cards').innerHTML = '<button type="button" class="card" id="slNew" style="border-style:dashed;text-align:center"><b>＋ 新增銷貨單</b><div class="muted small">不在叫貨單裡的送貨（臨時叫的、外面買的）</div></button>' +
+          w.batches.map(slipCard).join('') + (w.extras || []).map(extraCard).join('');
+        return;
+      }
       if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
-      $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）。選一張叫貨單開始。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
-      if (listMode === 'slip') { $('cards').innerHTML = w.batches.map(slipCard).join(''); return; }
       $('cards').innerHTML = w.batches.map(function (b, i) {
         var c = b.check, n = b.lines.length;
         var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
@@ -409,9 +414,40 @@
     }).catch(function (e) { msg('listMsg', 'error', '載入失敗：' + e.message); });
   }
   $('cards').addEventListener('click', function (e) {
-    var b = e.target.closest('[data-b]');
+    var b = e.target.closest('[data-b]'), x = e.target.closest('[data-xs]');
     if (b) (listMode === 'slip' ? openSlip : openBatch)(week.batches[Number(b.getAttribute('data-b'))]);
+    else if (x) openSlip(extraBatch(week.extras[Number(x.getAttribute('data-xs'))]));
+    else if (e.target.closest('#slNew')) newSlipForm();
   });
+  // 臨時銷貨單（不在叫貨單裡）
+  function extraBatch(x) { return { id: x.id, extra: true, vendor: x.vendor, date: x.date, group: '', lines: [], totals: {}, prices: {}, slip: x.slip }; }
+  function extraCard(x, i) {
+    var sl = x.slip;
+    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + '" data-xs="' + i + '"><b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' +
+      '<div class="muted">' + esc(mdw(x.date)) + ' 送貨・不在叫貨單裡</div><div style="margin-top:6px">' + (sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : '<span class="badge none">還沒填金額</span>') +
+      ' <span class="muted small">' + (sl.photos.length ? '照片 ' + sl.photos.length + ' 張' : '') + '</span></div></button>';
+  }
+  function newSlipForm() {
+    var vs = {};
+    week.batches.forEach(function (b) { vs[b.vendor] = 1; }); (week.extras || []).forEach(function (x) { vs[x.vendor] = 1; });
+    var today = iso(new Date()), d = today >= week.from && today <= week.to ? today : week.from;
+    $('cards').insertAdjacentHTML('afterbegin', '<div class="panel" id="slNewForm" style="grid-column:1/-1"><b>＋ 新增銷貨單</b>' +
+      '<div class="row" style="margin-top:8px"><input id="slNewV" list="slNewVl" placeholder="廠商或店名（例如：全聯、A菜商）" style="flex:1;min-width:200px" autocomplete="off">' +
+      '<datalist id="slNewVl">' + Object.keys(vs).map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
+      '<label class="small">送貨日期 <input id="slNewD" type="date" value="' + d + '" style="width:auto"></label>' +
+      '<button type="button" class="btn" id="slNewGo">開始填</button><button type="button" class="btn ghost small" id="slNewCancel">取消</button></div><div id="slNewMsg"></div></div>');
+    $('slNew').classList.add('hidden');
+    $('slNewV').focus();
+  }
+  $('cards').addEventListener('click', function (e) {
+    if (e.target.id === 'slNewCancel') { $('slNewForm').remove(); $('slNew').classList.remove('hidden'); return; }
+    if (e.target.id !== 'slNewGo') return;
+    var v = $('slNewV').value.trim(), d = $('slNewD').value;
+    if (!v) { msg('slNewMsg', 'error', '請填廠商或店名。'); $('slNewV').focus(); return; }
+    if (!d) { msg('slNewMsg', 'error', '請選送貨日期。'); return; }
+    openSlip({ id: '', extra: true, vendor: v, date: d, group: '', lines: [], totals: {}, prices: {}, slip: null });
+  });
+  $('cards').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing && (e.target.id === 'slNewV' || e.target.id === 'slNewD')) { e.preventDefault(); $('slNewGo').click(); } });
   function slipCard(b, i) {
     var sl = b.slip, d = readSlipDraft(b), c = b.check;
     var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
@@ -422,7 +458,7 @@
   }
 
   // ---------------- 💰 銷貨單：照片＋金額（跟驗收點貨分開） ----------------
-  function slipDraftKey(b) { return 'rcvSlip:' + b.id; }
+  function slipDraftKey(b) { return 'rcvSlip:' + (b.id || 'new-' + b.vendor + '-' + b.date); }
   function readSlipDraft(b) { try { var d = JSON.parse(localStorage.getItem(slipDraftKey(b)) || 'null'); return d && (d.photos || d.slip || d.note) ? d : null; } catch (e) { return null; } }
   function saveSlipDraft() {
     try {
@@ -442,8 +478,11 @@
       $('slDraftMsg').innerHTML = '<div class="msg info">已恢復這台 ' + esc(d.at) + ' 還沒存的內容，按「💾 儲存銷貨單」才會存。 <button type="button" class="btn ghost small" id="slDraftDrop">清掉、用已存的</button></div>';
     } else $('slDraftMsg').innerHTML = '';
     $('slNote').value = d ? d.note || '' : sl ? sl.note || '' : '';
-    $('slTitle').textContent = '💰 ' + b.vendor + (b.group ? '　送貨組別 ' + b.group : '');
-    $('slSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收') + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
+    if (b.extra && !cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [{ slipName: '', qty: '', unit: '', price: '', amount: '', map: '+' }] };
+    $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
+    $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
+    $('slDel').classList.toggle('hidden', !(b.extra && b.id));
+    $('slipManual').classList.toggle('hidden', !!b.extra); $('slipQuick').classList.toggle('hidden', !!b.extra);   // 這兩個是對叫貨單品項用的
     $('slipQ').value = '';
     $('slipMsg').textContent = '存起來的單價會進「單價表」，之後算成本用。';
     renderThumbs(); renderSlip();
@@ -455,6 +494,15 @@
     openSlip(cur.b);
   });
   $('slNote').addEventListener('input', saveDraft);
+  $('slDel').addEventListener('click', function () {
+    var b = cur.b, btn = this;
+    if (!b.extra || !b.id || !window.confirm('刪除這張臨時銷貨單（' + b.vendor + ' ' + mdw(b.date) + '）？照片會留在雲端硬碟。')) return;
+    btn.disabled = true;
+    call('deleteSlip', b.id).then(function () {
+      try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
+      msg('doneMsg', 'ok', '已刪除 ' + b.vendor + ' 的臨時銷貨單。'); show('vCheck'); loadWeek();
+    }).catch(function (e) { msg('slMsg', 'error', e.message); }).then(function () { btn.disabled = false; });
+  });
   $('slBack').addEventListener('click', function () {
     if (uploading(cur.b) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要回列表？')) return;
     show('vCheck'); loadWeek();
@@ -463,8 +511,9 @@
     if (uploading(cur.b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再存。'); return; }
     var b = cur.b, btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, photos: cur.photos, note: $('slNote').value, slip: slipToSave() }).then(function (r) {
+    call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave() }).then(function (r) {
       try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
+      if (b.extra) b.id = r.id;
       msg('doneMsg', 'ok', b.vendor + ' 銷貨單已儲存：' + (r.amount !== '' ? '金額 $' + money(r.amount) + '（' + r.rows + ' 行）' : '還沒填金額') + '，照片 ' + r.photos + ' 張。');
       show('vCheck'); loadWeek();
     }).catch(function (e) { msg('slMsg', 'error', e.message); })
@@ -916,16 +965,17 @@
             '<td><button type="button" class="clr" data-merge="' + esc(n) + '" title="廠商把這一樣跟別的品項開在同一行：這一行清掉、不另外算錢">✕</button></td>') + '</tr>';
     });
     html += '</table></div>';
+    if (cur.b.extra && !slipNames().length) html = '';   // 臨時銷貨單：沒有叫貨單的品項，只有下面自己加的
     if (sl.extras.length) {
-      html += '<div class="small" style="margin-top:10px"><b>銷貨單上有、叫貨單沒有的</b>（選「另外算」會算進金額，例如運費；選食材名稱＝是同一樣，會記住這個叫法）</div>' +
+      html += (cur.b.extra ? '<div class="small" style="margin-top:10px"><b>品項</b>（一行一項，照銷貨單填；按「＋ 加一行」再加）</div>' : '<div class="small" style="margin-top:10px"><b>銷貨單上有、叫貨單沒有的</b>（選「另外算」會算進金額，例如運費；選食材名稱＝是同一樣，會記住這個叫法）</div>') +
         '<div class="slipwrap"><table class="slipt">' + sl.extras.map(function (x, i) {
           return '<tr data-q="' + esc(String(x.slipName || '').toLowerCase()) + '"><td><input data-xn="' + i + '" value="' + esc(x.slipName) + '" placeholder="品名"></td>' +
             ['qty', 'unit', 'price', 'amount'].map(function (f) { return slipCell('x', i, f, x[f], x); }).join('') +
-            '<td><select data-xmap="' + i + '" style="width:auto"><option value=""' + (!x.map ? ' selected' : '') + '>不算</option><option value="+"' + (x.map === '+' ? ' selected' : '') + '>另外算</option>' +
+            '<td><select data-xmap="' + i + '" style="width:auto' + (cur.b.extra ? ';display:none' : '') + '"><option value=""' + (!x.map ? ' selected' : '') + '>不算</option><option value="+"' + (x.map === '+' ? ' selected' : '') + '>另外算</option>' +
             slipNames().map(function (n) { return '<option value="=' + esc(n) + '">＝ ' + esc(n) + '</option>'; }).join('') + '</select></td></tr>';
         }).join('') + '</table></div>';
     }
-    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn ghost small" id="slipAddX">＋ 加一行（叫貨單沒有的）</button>' +
+    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn ghost small" id="slipAddX">' + (cur.b.extra ? '＋ 加一行' : '＋ 加一行（叫貨單沒有的）') + '</button>' +
       '<span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">銷貨單合計</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div>' +
       (sl.text ? '<details class="small" style="margin-top:6px"><summary style="cursor:pointer">看辨識出來的原始文字</summary><pre style="white-space:pre-wrap">' + esc(sl.text) + '</pre></details>' : '');
     $('slipBox').innerHTML = html;

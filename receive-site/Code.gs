@@ -66,7 +66,7 @@ function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'T
 /** 網頁呼叫伺服器一律經過這裡：先檢查登入，再呼叫對應的功能（功能名稱後面有 _，網頁不能直接呼叫） */
 const API_ = {
   getWeek: function (a) { return getWeek_.apply(null, a); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
-  saveSlip: function (a) { return saveSlip_.apply(null, a); },
+  saveSlip: function (a) { return saveSlip_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
@@ -104,7 +104,9 @@ function getWeek_(monday) {
   const from = parseDate_(monday) || mondayOf_(today_());
   const to = addDays_(from, 4);
   const f = dateStr_(from), t = dateStr_(to);
-  const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_(), readSlipRecs_());
+  const recs = readSlipRecs_();
+  const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_(), recs);
+  out.extras = extraSlips_(recs, f, t);
   const drafts = readDrafts_();
   out.batches.forEach(function (b) { delete b.list; b.draft = drafts[b.id] || null; });
   return out;
@@ -288,7 +290,8 @@ function readSlipRecs_() {
   if (!ss_().getSheetByName(SLIP_REC)) return out;
   readTable_(SLIP_REC, ['驗收編號']).rows.forEach(function (r) {
     const id = String(r['驗收編號']).trim();
-    if (id) out[id] = { photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), amount: Number(r['銷貨單金額']) || 0,
+    if (id) out[id] = { id: id, date: purchaseDate_(r['送貨日期（起）']), vendor: String(r['廠商'] || '').trim(), group: String(r['送貨組別'] || '').trim(),
+      photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), amount: Number(r['銷貨單金額']) || 0,
       total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']), note: String(r['備註'] || ''), time: fmtDateTime_(r['更新時間']), by: String(r['更新人'] || '') };
   });
   return out;
@@ -299,9 +302,12 @@ function readSlipRecs_() {
  * p = { from, vendor, group, photos: [url], note, slip: { total, rows: [{ name, slipName, qty, unit, price, amount, code, noPrice }] } }
  */
 function saveSlip_(p) {
-  const from = dateStr_(parseDate_(p.from)), vendor = clean_(p.vendor, 30), group = clean_(p.group, 10);
-  if (!from || !vendor) throw new Error('資料不完整，請重新整理。');
-  const id = checkId_(from, vendor, group);
+  // 臨時銷貨單（不在叫貨單裡）：編號 S 開頭，日期是送貨那天
+  const extra = !!p.extra, vendor = clean_(p.vendor, 30), group = extra ? '' : clean_(p.group, 10);
+  const from = dateStr_(parseDate_(extra ? p.date : p.from));
+  if (!vendor) throw new Error('請填廠商（不在系統裡的商店也可以直接打名字）。');
+  if (!from) throw new Error(extra ? '請選送貨日期。' : '資料不完整，請重新整理。');
+  const id = extra ? (/^S\d{8}-/.test(String(p.id || '')) ? clean_(p.id, 60) : 'S' + from.replace(/-/g, '') + '-' + vendor + '-' + Utilities.formatDate(new Date(), tz_(), 'HHmmss')) : checkId_(from, vendor, group);
   const photos = (p.photos || []).filter(function (u) { return /^https:\/\/(drive|docs)\.google\.com\//.test(String(u)); }).slice(0, 30);
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
@@ -331,6 +337,30 @@ function saveSlip_(p) {
     lock.releaseLock();
   }
   return { id: id, amount: slip.length ? sum : '', rows: slip.length, photos: photos.length };
+}
+
+/** 刪掉一張臨時銷貨單（叫貨單上的不能刪，只能清空） */
+function deleteSlip_(id) {
+  id = clean_(id, 60);
+  if (!/^S\d{8}-/.test(id)) throw new Error('只有「臨時銷貨單」可以刪除。');
+  const lock = waitLock_();
+  try {
+    [SLIP_REC, SHEET.slip].forEach(function (n) {
+      if (!ss_().getSheetByName(n)) return;
+      const t = readTable_(n, ['驗收編號']);
+      deleteRows_(t.sheet, t.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; }).map(function (r) { return r._row; }));
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  return true;
+}
+
+/** 臨時銷貨單（S 開頭），送貨日期在 f～t：[{ id, vendor, date, slip }] */
+function extraSlips_(recs, f, t, vendor) {
+  return Object.keys(recs).filter(function (id) { const r = recs[id]; return /^S\d{8}-/.test(id) && r.date >= f && r.date <= t && (!vendor || r.vendor === vendor); })
+    .map(function (id) { const r = recs[id]; return { id: id, vendor: r.vendor, date: r.date, slip: { rows: slipsFor_(id), total: r.total, amount: r.amount, photos: r.photos, note: r.note, time: r.time, by: r.by } }; })
+    .sort(function (a, b) { return a.date.localeCompare(b.date) || a.vendor.localeCompare(b.vendor, 'zh-Hant'); });
 }
 
 /**
@@ -722,6 +752,7 @@ function getMonth_(vendor, ym) {
   const rows = purchaseRows_(dateStr_(first), me), prices = readPrices_(), recs = readSlipRecs_();
   const vendors = {};
   rows.forEach(function (r) { const sv = SITE_VENDORS[r.vendor]; vendors[sv ? sv.base : r.vendor] = true; });
+  extraSlips_(recs, ms, me).forEach(function (x) { vendors[x.vendor] = true; });
   vendor = clean_(vendor, 30);
   const out = { vendor: vendor, ym: ym, vendors: Object.keys(vendors).sort(), entries: [], record: null };
   if (!vendor) return out;
@@ -765,6 +796,11 @@ function getMonth_(vendor, ym) {
       out.entries.push(e);
     });
   }
+  // 臨時銷貨單（不在叫貨單裡的送貨）：照填的金額
+  extraSlips_(recs, ms, me, vendor).forEach(function (x) {
+    out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
+      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0 }; }) });
+  });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
   if (ss_().getSheetByName('月結對帳')) {
     const r = readTable_('月結對帳', ['廠商', '月份']).rows.filter(function (x) { return String(x['廠商']).trim() === vendor && monthStr_(x['月份']) === ym; })[0];
@@ -1090,6 +1126,8 @@ function hxGet_(vendor, ym) {
     const v = String(r['廠商'] || '').trim(), sv = SITE_VENDORS[v];
     if (v) vendors[sv ? sv.base : v] = true;
   });
+  const rc = readSlipRecs_();   // 臨時銷貨單的廠商（例如全聯）也列進選單
+  Object.keys(rc).forEach(function (id) { if (/^S\d{8}-/.test(id) && rc[id].vendor) vendors[rc[id].vendor] = true; });
   const budgets = hxBudgets_(list);
   if (vendor) list = list.filter(function (x) { return x.vendor === vendor; });
   if (ym) list = list.filter(function (x) { return x.date.slice(0, 7) === ym; });
