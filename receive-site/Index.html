@@ -140,7 +140,7 @@
 <body>
 <header>
   <h1>進貨驗收</h1>
-  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button><button type="button" data-v="vMonth">月結對帳</button><button type="button" data-v="vHx">核銷</button><button type="button" id="rOut" title="登出">登出</button></nav>
+  <nav class="row"><button type="button" data-v="vCheck" class="on">驗收</button><button type="button" data-v="vSlip">💰 銷貨單</button><button type="button" data-v="vIssues">問題追蹤 <span id="issueCount"></span></button><button type="button" data-v="vMonth">月結對帳</button><button type="button" data-v="vHx">核銷</button><button type="button" id="rOut" title="登出">登出</button></nav>
 </header>
 <div id="rLogin" class="hidden"><div class="panel">
   <h2 style="margin-top:0">進貨驗收 登入</h2>
@@ -159,7 +159,7 @@
         <input id="weekDate" type="date" aria-label="哪一週">
         <span id="weekText" class="muted"></span>
       </div>
-      <div class="muted small" style="margin-top:6px">列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。</div>
+      <div class="muted small" style="margin-top:6px" id="listHint">列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。</div>
     </div>
     <div id="doneMsg"></div>
     <div id="listMsg"></div>
@@ -187,22 +187,6 @@
       <div id="doList"></div>
       <input id="itemPhotoIn" type="file" accept="image/*" capture="environment" class="hidden">
       <div style="margin-top:14px">
-        <div class="row">
-          <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
-          <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
-          <select id="photoRot" style="width:auto" title="照片拍成橫的，自動讀不出來時選"><option value="0">照片不轉</option><option value="90">向右轉 90°</option><option value="270">向左轉 90°</option><option value="180">轉 180°</option></select>
-          <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。字要是正的才讀得準（拍歪了先選轉向再拍）。</span>
-        </div>
-        <div id="thumbs" class="thumbs"></div>
-        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
-          <div class="row"><b>💰 銷貨單金額</b>
-            <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
-            <button type="button" class="btn ghost small" id="slipManual">手動填</button>
-            <button type="button" class="btn small" id="slipQuick" title="一品一張銷貨單（例如菜商）：拿到哪張點哪一項">⚡ 快速核對</button>
-            <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
-          <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
-          <div id="slipBox"></div>
-        </div>
         <textarea id="doNote" rows="2" style="width:100%;margin-top:8px" placeholder="備註（選填），例如：司機說洋蔥明天補"></textarea>
       </div>
       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
@@ -214,6 +198,36 @@
       </div>
       <div id="doMsg"></div>
       <div class="bar"><span id="doProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost" id="doHold">💾 暫時儲存</button><button type="button" class="btn" id="doSave">完成驗收</button></div>
+    </div>
+  </section>
+
+  <!-- 銷貨單：照片＋金額（跟驗收點貨分開） -->
+  <section id="vSlipDo" class="hidden">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div><b id="slTitle" style="font-size:20px"></b><div id="slSub" class="muted small"></div></div>
+        <button type="button" class="btn ghost small" id="slBack">← 回列表</button>
+      </div>
+      <div id="slDraftMsg"></div>
+        <div class="row">
+          <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
+          <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
+          <select id="photoRot" style="width:auto" title="照片拍成橫的，自動讀不出來時選"><option value="0">照片不轉</option><option value="90">向右轉 90°</option><option value="270">向左轉 90°</option><option value="180">轉 180°</option></select>
+          <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。字要是正的才讀得準（拍歪了先選轉向再拍）。</span>
+        </div>
+        <div id="thumbs" class="thumbs"></div>
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="row"><b>💰 金額</b>
+            <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
+            <button type="button" class="btn ghost small" id="slipManual">手動填</button>
+            <button type="button" class="btn small" id="slipQuick" title="一品一張銷貨單（例如菜商）：拿到哪張點哪一項">⚡ 快速核對</button>
+            <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
+          <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
+          <div id="slipBox"></div>
+        </div>
+        <textarea id="slNote" rows="2" style="width:100%;margin-top:8px" placeholder="銷貨單備註（選填），例如：運費另計、少一張單"></textarea>
+      <div id="slMsg"></div>
+      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
     </div>
   </section>
 
@@ -235,7 +249,7 @@
         <input id="monYm" type="month" style="width:auto">
         <button type="button" class="btn small" id="monGo">產生</button>
       </div>
-      <div class="muted small" style="margin-top:6px">把這家廠商這個月每一次送貨的金額加起來，跟發票（或對帳單）比。驗收時有填銷貨單金額的用填的；沒填的用「實到數量 × 單價表的價格」估算（標「估」）；還沒驗收的照叫貨量估。</div>
+      <div class="muted small" style="margin-top:6px">把這家廠商這個月每一次送貨的金額加起來，跟發票（或對帳單）比。在「💰 銷貨單」有填金額的用填的；沒填的用「實到數量 × 單價表的價格」估算（標「估」）；還沒驗收的照叫貨量估。</div>
     </div>
     <div id="monMsg"></div>
     <div id="monBox"></div>
@@ -341,19 +355,21 @@
 
   // ---------------- 分頁 ----------------
   function show(v) {
-    ['vCheck', 'vDo', 'vIssues', 'vMonth', 'vHx'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
-    Array.prototype.forEach.call(document.querySelectorAll('header nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === (v === 'vDo' ? 'vCheck' : v)); });
+    ['vCheck', 'vDo', 'vSlipDo', 'vIssues', 'vMonth', 'vHx'].forEach(function (x) { $(x).classList.toggle('hidden', x !== v); });
+    var nv = v === 'vDo' ? 'vCheck' : v === 'vSlipDo' || (v === 'vCheck' && listMode === 'slip') ? 'vSlip' : v;
+    Array.prototype.forEach.call(document.querySelectorAll('header nav button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === nv); });
     window.scrollTo(0, 0);
   }
   document.querySelector('header nav').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-v]');
     if (!b) return;
     var v = b.getAttribute('data-v');
-    if (v === 'vIssues') { show('vIssues'); loadIssues(); } else if (v === 'vMonth') { show('vMonth'); openMonth(); } else if (v === 'vHx') { show('vHx'); hxOpen('list'); } else { show('vCheck'); loadWeek(); }
+    if (v === 'vIssues') { show('vIssues'); loadIssues(); } else if (v === 'vMonth') { show('vMonth'); openMonth(); } else if (v === 'vHx') { show('vHx'); hxOpen('list'); }
+    else { if ((cur && cur.mode === 'slip' && uploading(cur.b)) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要離開？')) return; listMode = v === 'vSlip' ? 'slip' : 'check'; msg('doneMsg', '', ''); show('vCheck'); loadWeek(); }
   });
 
   // ---------------- 這週的叫貨單 ----------------
-  var week = null;
+  var week = null, listMode = 'check';   // check＝驗收點貨、slip＝銷貨單（照片＋金額）
   function setWeek(offset) {
     var m = mondayOf(new Date());
     m.setDate(m.getDate() + 7 * offset);
@@ -380,6 +396,8 @@
       $('weekText').textContent = mdw(w.from) + '～' + mdw(w.to);
       msg('listMsg', w.drafts.length ? 'warn' : '', w.drafts.length ? w.drafts.join('、') + ' 還是草稿、還沒「確定叫貨」，確定後才會出現在這裡。' : '');
       if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
+      $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）。選一張叫貨單開始。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
+      if (listMode === 'slip') { $('cards').innerHTML = w.batches.map(slipCard).join(''); return; }
       $('cards').innerHTML = w.batches.map(function (b, i) {
         var c = b.check, n = b.lines.length;
         var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
@@ -392,7 +410,65 @@
   }
   $('cards').addEventListener('click', function (e) {
     var b = e.target.closest('[data-b]');
-    if (b) openBatch(week.batches[Number(b.getAttribute('data-b'))]);
+    if (b) (listMode === 'slip' ? openSlip : openBatch)(week.batches[Number(b.getAttribute('data-b'))]);
+  });
+  function slipCard(b, i) {
+    var sl = b.slip, d = readSlipDraft(b), c = b.check;
+    var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
+    return '<button type="button" class="card' + (sl && sl.amount ? ' done' : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
+      (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
+      '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
+      ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span></div></button>';
+  }
+
+  // ---------------- 💰 銷貨單：照片＋金額（跟驗收點貨分開） ----------------
+  function slipDraftKey(b) { return 'rcvSlip:' + b.id; }
+  function readSlipDraft(b) { try { var d = JSON.parse(localStorage.getItem(slipDraftKey(b)) || 'null'); return d && (d.photos || d.slip || d.note) ? d : null; } catch (e) { return null; } }
+  function saveSlipDraft() {
+    try {
+      if (!cur.photos.length && !cur.slip && !$('slNote').value) { localStorage.removeItem(slipDraftKey(cur.b)); return; }
+      var t = new Date();
+      localStorage.setItem(slipDraftKey(cur.b), JSON.stringify({ photos: cur.photos, slip: cur.slip, note: $('slNote').value,
+        at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
+    } catch (e) {}
+  }
+  function openSlip(b) {
+    msg('doneMsg', '', ''); msg('slMsg', '', '');
+    var sl = b.slip;
+    cur = { mode: 'slip', b: b, marks: {}, photos: sl ? sl.photos.slice() : [], slip: sl && (sl.rows.length || sl.total !== '') ? slipFromSaved({ rows: sl.rows, total: sl.total }) : null };
+    var d = readSlipDraft(b);
+    if (d) {
+      cur.photos = d.photos || cur.photos; if (d.slip) cur.slip = d.slip;
+      $('slDraftMsg').innerHTML = '<div class="msg info">已恢復這台 ' + esc(d.at) + ' 還沒存的內容，按「💾 儲存銷貨單」才會存。 <button type="button" class="btn ghost small" id="slDraftDrop">清掉、用已存的</button></div>';
+    } else $('slDraftMsg').innerHTML = '';
+    $('slNote').value = d ? d.note || '' : sl ? sl.note || '' : '';
+    $('slTitle').textContent = '💰 ' + b.vendor + (b.group ? '　送貨組別 ' + b.group : '');
+    $('slSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收') + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
+    $('slipQ').value = '';
+    $('slipMsg').textContent = '存起來的單價會進「單價表」，之後算成本用。';
+    renderThumbs(); renderSlip();
+    show('vSlipDo');
+  }
+  $('slDraftMsg').addEventListener('click', function (e) {
+    if (e.target.id !== 'slDraftDrop') return;
+    try { localStorage.removeItem(slipDraftKey(cur.b)); } catch (x) {}
+    openSlip(cur.b);
+  });
+  $('slNote').addEventListener('input', saveDraft);
+  $('slBack').addEventListener('click', function () {
+    if (uploading(cur.b) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要回列表？')) return;
+    show('vCheck'); loadWeek();
+  });
+  $('slSave').addEventListener('click', function () {
+    if (uploading(cur.b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再存。'); return; }
+    var b = cur.b, btn = this;
+    btn.disabled = true; btn.textContent = '儲存中…';
+    call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, photos: cur.photos, note: $('slNote').value, slip: slipToSave() }).then(function (r) {
+      try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
+      msg('doneMsg', 'ok', b.vendor + ' 銷貨單已儲存：' + (r.amount !== '' ? '金額 $' + money(r.amount) + '（' + r.rows + ' 行）' : '還沒填金額') + '，照片 ' + r.photos + ' 張。');
+      show('vCheck'); loadWeek();
+    }).catch(function (e) { msg('slMsg', 'error', e.message); })
+      .then(function () { btn.disabled = false; btn.textContent = '💾 儲存銷貨單'; });
   });
 
   // ---------------- 點一張叫貨單 ----------------
@@ -404,11 +480,10 @@
       var x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name && !marks[y.key]; })[0];   // 同班同樣食材有好幾行：照順序一行對一行
       if (x) marks[x.key] = { status: l.status, got: l.status === '到齊' || l.status === '品質不好' || l.status === '缺貨' || (l.status === '其他' && l.got === x.expect) ? '' : l.got, note: l.note, photos: (l.photos || []).slice() };
     });
-    cur = { b: b, marks: marks, photos: b.check ? b.check.photos.slice() : [] };
-    cur.slip = b.check && b.check.slip ? slipFromSaved(b.check.slip) : null;
+    cur = { b: b, marks: marks, photos: [] };   // 銷貨單照片、金額在「💰 銷貨單」分頁
     var d = readDraft(b);
     if (d) {
-      cur.marks = d.marks; cur.photos = d.photos; if (d.slip) cur.slip = d.slip;
+      cur.marks = d.marks;
       $('draftMsg').innerHTML = '<div class="msg info">已恢復 ' + esc(d.at) + (d.remote ? ' 暫時儲存' : ' 點到一半') + '的內容（' + Object.keys(d.marks).length + ' 項），點完按「完成驗收」才會存。 <button type="button" class="btn ghost small" id="draftDrop">清掉、重新點</button></div>';
     } else msg('draftMsg', '', '');
     $('doQ').value = ''; hlName = '';
@@ -422,9 +497,6 @@
     $('doNote').value = d ? d.note : b.check ? b.check.note : '';
     msg('doMsg', '', '');
     renderDo();
-    renderThumbs();
-    $('slipMsg').textContent = '選填。存起來的單價會進「單價表」，之後算成本用。';
-    renderSlip();
     show('vDo');
     cur.sig = d && d.sig || null; cur.sigUrl = b.check ? b.check.signature : '';
     try { $('sigName').value = (d && d.signer) || (b.check && b.check.signer) || localStorage.getItem('rcvSigner') || ''; } catch (e) { $('sigName').value = (b.check && b.check.signer) || ''; }
@@ -522,11 +594,12 @@
   }
   function saveDraft() {
     if (!cur) return;
+    if (cur.mode === 'slip') return saveSlipDraft();
     try {
       var any = Object.keys(cur.marks).some(function (k) { return cur.marks[k].status; });
-      if (!any && !cur.photos.length && !$('doNote').value && !cur.slip) { localStorage.removeItem(draftKey(cur.b)); return; }
+      if (!any && !$('doNote').value) { localStorage.removeItem(draftKey(cur.b)); return; }
       var t = new Date();
-      localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, sig: cur.sig, signer: $('sigName').value,
+      localStorage.setItem(draftKey(cur.b), JSON.stringify({ marks: cur.marks, note: $('doNote').value, sig: cur.sig, signer: $('sigName').value,
         ts: t.getTime(), at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
       autoRemoteDraft();
     } catch (e) {}
@@ -540,7 +613,7 @@
     clearTimeout(autoHold);
     autoHold = setTimeout(function () {
       if (!cur || cur.b !== b) return;
-      var data = JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, signer: $('sigName').value });
+      var data = JSON.stringify({ marks: cur.marks, note: $('doNote').value, signer: $('sigName').value });
       call('saveDraftRemote', b.id, data).then(function (r) { b.draft = { ts: r.ts, at: r.at, data: data }; refreshIssueCount(); }).catch(function () {});
     }, 2500);
   }
@@ -691,7 +764,7 @@
 
   $('doHold').addEventListener('click', function () {
     var b = cur.b, btn = this;
-    var data = JSON.stringify({ marks: cur.marks, photos: cur.photos, note: $('doNote').value, slip: cur.slip, signer: $('sigName').value });
+    var data = JSON.stringify({ marks: cur.marks, note: $('doNote').value, signer: $('sigName').value });
     btn.disabled = true; btn.textContent = '儲存中…';
     call('saveDraftRemote', b.id, data).then(function (r) {
       b.draft = { ts: r.ts, at: r.at, data: data };
@@ -700,7 +773,6 @@
       .then(function () { btn.disabled = false; btn.textContent = '💾 暫時儲存'; });
   });
   $('doSave').addEventListener('click', function () {
-    if (uploading(cur.b)) { msg('doMsg', 'error', '銷貨單照片還在上傳，等上傳完再按「完成驗收」。'); return; }
     clearTimeout(autoHold);
     var b = cur.b, miss = b.lines.filter(function (x) { return !(cur.marks[x.key] && cur.marks[x.key].status); });
     if (miss.length) { msg('doMsg', 'error', '還有 ' + miss.length + ' 項沒點（例如「' + miss[0].name + '」），請按 ✓ 或標記問題。'); return; }
@@ -710,11 +782,11 @@
     var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '', photos: m.photos || [] }; });
     var btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, photos: cur.photos, items: items, slip: slipToSave(),
+    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, items: items,
       signer: $('sigName').value.trim(), signature: cur.sig || '', signatureUrl: cur.sig ? '' : cur.sigUrl }).then(function (r) {
       dropDraft(b);
       msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + (allStop ? ' 已標成停送（' + r.items + ' 項，不算錢）。' : ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : stopN ? '，其他都到齊。' : '，全部到齊。') + (stopN ? '停送 ' + stopN + ' 項（不算錢）。' : '')) +
-        (r.amount ? '銷貨單金額 $' + money(r.amount) + '。' : ''));
+        '銷貨單照片、金額請到上面「💰 銷貨單」。');
       show('vCheck'); loadWeek(); refreshIssueCount();
     }).catch(function (e) { msg('doMsg', 'error', e.message); })
       .then(function () { btn.disabled = false; btn.textContent = '完成驗收'; });
@@ -1159,7 +1231,7 @@
         }).join('') + '</div>' : '') + '</div>';
     });
     if (monPhotos.length) html += '<div class="mgroup"><b>發票／對帳單</b><div class="mthumbs">' + monPhotos.map(function (u, i) { return photoThumb(u, '發票 ' + (i + 1)); }).join('') + '</div></div>';
-    return html || '<div class="muted">這個月這家廠商還沒有照片（驗收時拍的銷貨單、問題品項照片會出現在這裡）。</div>';
+    return html || '<div class="muted">這個月這家廠商還沒有照片（「💰 銷貨單」拍的照片、驗收時問題品項的照片會出現在這裡）。</div>';
   }
   function renderMonth() {
     var r = mon, sum = 0, est = 0, unchecked = 0, noPrice = 0;
@@ -1183,7 +1255,7 @@
       '<div id="monGallery" class="hidden" style="margin-top:8px"></div></div>' + html;
     html += '</table><div style="margin-top:10px;font-size:18px">系統合計 <b>$' + money(sum) + '</b></div><div class="muted small">' +
       (est ? '其中 $' + money(r2(est)) + ' 是估算的。' : '') + (unchecked ? unchecked + ' 張還沒驗收（照叫貨量估）。' : '') +
-      (noPrice ? noPrice + ' 項沒有單價，沒算進去（驗收時填銷貨單金額，或在「單價表」補價格）。' : '') + '</div>' +
+      (noPrice ? noPrice + ' 項沒有單價，沒算進去（在「💰 銷貨單」填金額，或在「單價表」補價格）。' : '') + '</div>' +
       '<div class="row" style="margin-top:12px"><label for="monInv"><b>發票／對帳單金額</b></label><input id="monInv" inputmode="decimal" style="width:140px" value="' + esc(r.record ? r.record.invoice : '') + '">' +
       '<span id="monDiff"></span></div>' +
       '<div class="row" style="margin-top:8px"><label class="btn ghost small" for="monPhoto" style="cursor:pointer">📷 拍發票</label><input id="monPhoto" type="file" accept="image/*" capture="environment" multiple class="hidden">' +
@@ -1520,7 +1592,7 @@
     var ks = Object.keys(by).sort(function (a, b) { return a === '' ? 1 : b === '' ? -1 : a.localeCompare(b); });
     $('hxRef').innerHTML = ks.length ? '<details open><summary style="cursor:pointer"><b>各班金額（參考）</b></summary><table class="hxt">' + ks.map(function (k) {
       return '<tr><td>' + (k ? esc(k) : '補庫存／沒有班級') + '</td><td>$' + money(by[k]) + '</td></tr>';
-    }).join('') + '</table><div class="muted small">驗收時填了銷貨單金額的，照銷貨單；沒填的用單價表估算。</div></details>' : '';
+    }).join('') + '</table><div class="muted small">在「💰 銷貨單」填了金額的，照銷貨單；沒填的用單價表估算。</div></details>' : '';
     hxF._stock = by[''] || 0;
   }
   function hxInvTotal() { return r2(hxF.lines.reduce(function (n, l) { return n + (numv(l.amount) || 0); }, 0)); }
