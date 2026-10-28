@@ -121,6 +121,7 @@
   .slipt input { width: 100%; min-width: 56px; padding: 6px; font: inherit; font-size: 16px; }
   .slipt td.w1 { width: 72px; } .slipt td.w2 { width: 90px; }
   .slipt .sn { font-size: 13px; }
+  .slipt tr.hintrow { background: #fff3b0 !important; outline: 2px solid #f5b301; }
   .slipt .clr { border: 1.5px solid #f04438; color: #d92d20; background: #fff; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 16px; cursor: pointer; }
   /* 快速核對：拿到哪張單就點哪一項（不用照順序翻） */
   .qk { position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 12px; overflow-y: auto; }
@@ -224,6 +225,7 @@
           <div class="row"><b>💰 金額</b>
             <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
             <button type="button" class="btn ghost small" id="slipManual">手動填</button>
+            <button type="button" class="btn ghost small" id="slipTotalOnly" title="品項太多時先只打總金額，品項之後有空再補">只填合計</button>
             <button type="button" class="btn small" id="slipQuick" title="一品一張銷貨單（例如菜商）：拿到哪張點哪一項">⚡ 快速核對</button>
             <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
           <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
@@ -898,6 +900,7 @@
       var v = { slipName: r.slipName, qty: isJin(r.unit) && numv(r.qty) !== null ? jinText(r.qty) : r.qty, unit: r.unit, price: r.price, amount: r.amount, sure: true, code: r.code || '' };
       if (r.name) sl.rows[r.name] = v; else { v.map = '+'; sl.extras.push(v); }
     });
+    if (!sv.rows.length && String(sv.total || '') !== '') sl.totalOnly = true;   // 上次只填合計
     return sl;
   }
   function money(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
@@ -952,6 +955,13 @@
   function renderSlip() {
     var sl = cur.slip;
     if (!sl) { $('slipBox').innerHTML = ''; $('slipQWrap').classList.add('hidden'); $('slipQ').value = ''; return; }
+    if (sl.totalOnly) {   // 只填合計：一格總金額就好，品項之後再補
+      $('slipQWrap').classList.add('hidden');
+      $('slipBox').innerHTML = '<div class="row" style="margin-top:10px;align-items:center"><label for="slipTotal"><b>銷貨單合計（總金額）</b></label>' +
+        '<input id="slipTotal" inputmode="decimal" style="width:160px;font-size:22px;font-weight:700" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '" placeholder="例如 12850">' +
+        '<span class="muted small">只存總金額（月結、核銷照這個算）。品項之後有空再補：按「手動填」。</span></div>';
+      return;
+    }
     var expect = {};
     cur.b.lines.forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
     var html = '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th><th></th></tr>';
@@ -981,7 +991,7 @@
         }).join('') + '</table></div>';
     }
     html += '<div class="row" style="margin-top:8px"><button type="button" class="btn ghost small" id="slipAddX">' + (cur.b.extra ? '＋ 加一行' : '＋ 加一行（叫貨單沒有的）') + '</button>' +
-      '<span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">銷貨單合計</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div>' +
+      '<span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">銷貨單合計</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div><div id="slipHint"></div>' +
       (sl.text ? '<details class="small" style="margin-top:6px"><summary style="cursor:pointer">看辨識出來的原始文字</summary><pre style="white-space:pre-wrap">' + esc(sl.text) + '</pre></details>' : '');
     $('slipBox').innerHTML = html;
     unitListRefresh();
@@ -1007,8 +1017,39 @@
     sl.extras.forEach(function (x) { var a = numv(x.amount); if (x.map === '+' && a !== null) { sum += a; n++; } });
     return { sum: r2(sum), n: n };
   }
+  // 合計對不上：找可能打錯的行（還沒填、剛好等於差額、多／少打一個 0、數字打反、金額≠數量×單價、單價跟上次差很多）
+  function slipHints(diff) {
+    var sl = cur.slip, out = [], rows = [];
+    slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && !r.merged) rows.push({ label: n, r: r, sel: '[data-sn="' + CSS.escape(n) + '"]', lp: (cur.b.prices || {})[n] }); });
+    sl.extras.forEach(function (x, i) { if (x.map === '+') rows.push({ label: x.slipName || '（第 ' + (i + 1) + ' 行）', r: x, sel: '[data-x="' + i + '"]' }); });
+    var near = function (a, b) { return Math.abs(a - b) < 1; }, add = function (row, text, strong) { out.push({ sel: row.sel, text: '「' + row.label + '」' + text, strong: strong }); };
+    rows.forEach(function (row) {
+      var r = row.r, a = numv(r.amount);
+      if (a === null) { if (diff > 0) add(row, '還沒填金額', false); return; }
+      if (near(a, Math.abs(diff))) add(row, '$' + money(a) + ' 剛好等於差額：' + (diff < 0 ? '是不是單上沒有這項、或重複填了？' : '單上是不是有兩筆？'), true);
+      if (near(a - a / 10, -diff)) add(row, '可能多打一個 0（$' + money(a) + ' → $' + money(r2(a / 10)) + '）', true);
+      if (near(a * 10 - a, diff)) add(row, '可能少打一個 0（$' + money(a) + ' → $' + money(a * 10) + '）', true);
+      var str = String(Math.round(a));
+      for (var i = 0; i < str.length - 1; i++) {
+        var sw = str.slice(0, i) + str[i + 1] + str[i] + str.slice(i + 2);
+        if (sw !== str && sw[0] !== '0' && near(Number(sw) - a, diff)) { add(row, '可能數字打反（$' + money(a) + ' → $' + money(Number(sw)) + '）', true); break; }
+      }
+      var q = slipQty(r), p = slipPrice(r);
+      if (q !== null && p !== null && q && !near(q * p, a)) add(row, '金額 $' + money(a) + ' 跟數量×單價 $' + money(r2(q * p)) + ' 不一樣', near(q * p - a, diff));
+      if (row.lp && p && (!r.unit || r.unit === row.lp.unit) && (p > row.lp.price * 1.5 || p < row.lp.price / 1.5)) add(row, '單價 $' + money(r2(p)) + ' 跟上次 $' + money(row.lp.price) + ' 差很多', false);
+    });
+    out.sort(function (x, y) { return (y.strong ? 1 : 0) - (x.strong ? 1 : 0); });
+    return out.slice(0, 8);
+  }
   function slipFooter() {
+    if (!$('slipSum')) return;   // 只填合計
     var s = slipSum(), t = numv(cur.slip.total);
+    var hb = $('slipHint');
+    if (hb) {
+      var hs = t !== null && !(Math.abs(t - s.sum) < 1) ? slipHints(r2(t - s.sum)) : [];
+      hb.innerHTML = hs.length ? '<div class="msg warn" style="margin-top:6px"><b>🔍 可能的原因</b>（點一下跳到那一行）' + hs.map(function (h, i) { return '<div><a href="#" data-hint="' + i + '">' + (h.strong ? '⭐ ' : '・') + esc(h.text) + '</a></div>'; }).join('') + '</div>' : '';
+      hb._hints = hs;
+    }
     $('slipSum').innerHTML = '金額加總 <b>$' + money(s.sum) + '</b>' + (t !== null ? (Math.abs(t - s.sum) < 1 ? ' <span class="badge ok">✓ 跟合計一樣</span>' : ' <span class="badge bad">' + (t > s.sum ? '比合計少 $' : '比合計多 $') + money(Math.abs(r2(t - s.sum))) + '</span>') : '') + '　';
   }
   function slipToSave() {
@@ -1039,7 +1080,14 @@
     }
     return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? r2(qty * price) : '', sure: true, pre: true };
   }
+  $('slipTotalOnly').addEventListener('click', function () {
+    var sl = cur.slip, any = sl && (Object.keys(sl.rows).some(function (k) { return numv(sl.rows[k].amount) !== null && !sl.rows[k].pre; }) || sl.extras.some(function (x) { return numv(x.amount) !== null; }));
+    if (any) { $('slipMsg').textContent = '已經有填品項了，直接在表格下面的「銷貨單合計」打總金額就好。'; if ($('slipTotal')) $('slipTotal').focus(); return; }
+    cur.slip = { ocr: false, text: '', total: sl ? sl.total || '' : '', rows: {}, extras: [], totalOnly: true };
+    renderSlip(); saveDraft(); $('slipTotal').focus();
+  });
   $('slipManual').addEventListener('click', function () {
+    if (cur.slip && cur.slip.totalOnly) delete cur.slip.totalOnly;
     if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] };
     var n0 = 0;
     slipNames().forEach(function (n) {
@@ -1054,6 +1102,7 @@
   var qkCur = null;   // 正在填的品名；'+extra' ＝ 叫貨單沒有的
   function qkOpen() {
     if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] };
+    delete cur.slip.totalOnly;
     slipNames().forEach(function (n) { var r = cur.slip.rows[n]; if (!r || (!r.merged && r.qty === '' && r.amount === '')) cur.slip.rows[n] = prefill(n); });
     qkCur = null; $('qkQ').value = ''; $('qkTotal').value = cur.slip.total === undefined ? '' : cur.slip.total;
     $('qk').classList.remove('hidden'); document.body.style.overflow = 'hidden';
@@ -1165,6 +1214,7 @@
     btn.disabled = true; $('slipMsg').textContent = '辨識中，' + (cur.photos.length > 1 ? cur.photos.length + ' 張一起讀，' : '') + '大約 10～20 秒…';
     call('readSlip', cur.photos, cur.b.vendor, slipNames()).then(function (r) {
       var sl = cur.slip || { rows: {}, extras: [] };
+      delete sl.totalOnly;
       sl.ocr = true; sl.text = r.text;
       if (r.total !== '') sl.total = r.total;
       Object.keys(r.rows).forEach(function (n) { sl.rows[n] = r.rows[n]; });
@@ -1241,6 +1291,17 @@
     else if (u) { cur.slip.rows[u] = prefill(u); renderSlip(); saveDraft(); }
   });
   $('slipBox').addEventListener('click', function (e) {
+    var h = e.target.closest('[data-hint]');
+    if (!h) return;
+    e.preventDefault();
+    var hint = ($('slipHint')._hints || [])[Number(h.getAttribute('data-hint'))], el = hint && $('slipBox').querySelector(hint.sel + '[data-f="amount"]');
+    if (!el) return;
+    $('slipQ').value = ''; slipFilter();
+    Array.prototype.forEach.call($('slipBox').querySelectorAll('tr.hintrow'), function (tr) { tr.classList.remove('hintrow'); });
+    el.closest('tr').classList.add('hintrow');
+    el.scrollIntoView({ block: 'center' }); el.focus(); try { el.select(); } catch (x) {}
+  });
+  $('slipBox').addEventListener('click', function (e) {
     if (e.target.id !== 'slipAddX') return;
     $('slipQ').value = '';   // 新加的空白列才看得到
     cur.slip.extras.push({ slipName: '', qty: '', unit: '', price: '', amount: '', map: '+' });
@@ -1292,11 +1353,11 @@
     var r = mon, sum = 0, est = 0, unchecked = 0, noPrice = 0;
     var html = '<div class="panel"><table><tr><th>送貨日期</th><th>叫貨單</th><th>金額</th></tr>';
     r.entries.forEach(function (e, i) {
-      sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked) unchecked++; noPrice += e.noPrice.length;
+      sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked && !e.fromSlip) unchecked++; noPrice += e.noPrice.length;
       html += '<tr><td>' + esc(mdw(e.date)) + '</td><td>' + esc(e.label) + ' ' +
         (e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
         '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {
-          return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">沒有單價</span>') +
+          return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">' + (e.fromSlip ? '—' : '沒有單價') + '</span>') +
             '</td><td>' + (x.amount === null ? '—' : '$' + money(x.amount)) + '</td></tr>';
         }).join('') + '</table></details>' +
         (monPhotoCount(e) ? '<button type="button" class="btn ghost small" data-mph="' + i + '" style="margin-top:4px">📷 照片 ' + monPhotoCount(e) + ' 張</button>' : '') +

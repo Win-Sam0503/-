@@ -323,7 +323,7 @@ function saveSlip_(p) {
     const old = rt.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (old.length) deleteRows_(rt.sheet, old.map(function (r) { return r._row; }));
     appendRows_(SLIP_REC, [{ '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '送貨組別': group, '銷貨單照片': photos.join('\n'),
-      '銷貨單金額': slip.length ? sum : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '' }]);
+      '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '' }]);
     const st = readTable_(SHEET.slip, ['驗收編號']);
     const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
@@ -336,7 +336,7 @@ function saveSlip_(p) {
   } finally {
     lock.releaseLock();
   }
-  return { id: id, amount: slip.length ? sum : '', rows: slip.length, photos: photos.length };
+  return { id: id, amount: slip.length ? sum : total !== '' ? Number(total) : '', rows: slip.length, photos: photos.length };   // 只填合計：金額＝合計
 }
 
 /** 刪掉一張臨時銷貨單（叫貨單上的不能刪，只能清空） */
@@ -772,11 +772,13 @@ function getMonth_(vendor, ym) {
         .map(function (l) { return { name: (l.cls ? l.cls + ' ' : '') + l.name, status: l.status, note: l.note, photos: l.photos }; }) : [];
       const lineDate = {};
       b.lines.forEach(function (x) { lineDate[x.cls + '|' + x.name] = x.date || dates[0]; });
-      if (b.slip && b.slip.rows.length && whole && b.slip.amount > 0) {
-        // 填了銷貨單金額：照填的
+      if (b.slip && whole && b.slip.amount > 0) {
+        // 填了銷貨單金額：照填的（只填合計的沒有品項，列一行合計）
         b.slip.rows.forEach(function (x) {
           e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0 });
         });
+        if (!b.slip.rows.length) e.items.push({ cls: '', name: '銷貨單合計（只填合計，沒有品項）', got: '', price: '', amount: b.slip.amount });
+        e.fromSlip = true;
         e.amount = b.slip.amount;
       } else if (b.check) {
         b.check.lines.forEach(function (l) {
@@ -798,7 +800,7 @@ function getMonth_(vendor, ym) {
   }
   // 臨時銷貨單（不在叫貨單裡的送貨）：照填的金額
   extraSlips_(recs, ms, me, vendor).forEach(function (x) {
-    out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
+    out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, fromSlip: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
       photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0 }; }) });
   });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
