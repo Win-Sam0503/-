@@ -1100,11 +1100,24 @@
   // ---------- 照紙本一張一張打：一張銷貨單一塊，同一個品項重複出現也可以 ----------
   function newPaper(kind) { var d = cur.b.extra ? cur.b.date : (function () { var t = iso(new Date()); return week && t >= week.from && t <= week.to ? t : ''; })(); return { date: d, kind: kind || '食材', rows: [{ name: '', qty: '', unit: '', price: '', amount: '' }] }; }
   function paperMode() { if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] }; if (!cur.slip.papers) cur.slip.papers = [newPaper()]; delete cur.slip.totalOnly; }
+  // 品名選單：叫貨單的、這家單價表的、食材總表（這家廠商的排前面）；選單的說明是別名，打別名也找得到
   function itemNames() { var out = slipNames().slice(); Object.keys(cur.b.prices || {}).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); }); return out; }
+  function itemOpts() {
+    var seen = {}, html = '', v = cur.b.vendor, list = hxItemList || [];
+    var info = {}; list.forEach(function (r) { info[r[0]] = r; });
+    var opt = function (n, lab) { if (seen[n]) return; seen[n] = 1; html += '<option value="' + esc(n) + '">' + esc(lab || '') + '</option>'; };
+    itemNames().forEach(function (n) { var r = info[n]; opt(n, '叫貨單' + (r && r[1] ? '・' + r[1] : '')); });
+    list.filter(function (r) { return r[2] === v; }).forEach(function (r) { opt(r[0], [r[1], r[2]].filter(Boolean).join('・')); });
+    list.forEach(function (r) { opt(r[0], [r[1], r[2]].filter(Boolean).join('・')); });
+    return html;
+  }
+  function itemUnit(n) { var r = (hxItemList || []).filter(function (x) { return x[0] === n; })[0]; return r && r[3] || ''; }
   function renderPapers() {
     var sl = cur.slip;
     $('slipQWrap').classList.add('hidden');
-    var html = '<datalist id="itemList">' + itemNames().map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
+    if (!hxItemList) call('hxItems').then(function (r) { hxItemList = r; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts(); }).catch(function () {});
+    var html = '<datalist id="itemList">' + itemOpts() + '</datalist>' +
+      '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     html += sl.papers.map(function (pp, i) {
       return '<div class="paper' + (pp.kind === '器材' ? ' gear' : '') + '"><div class="row" style="align-items:center"><b>📄 第 ' + (i + 1) + ' 張</b>' +
         '<span class="kindsw"><button type="button" data-pk="' + i + '" data-k="食材" class="' + (pp.kind !== '器材' ? 'on' : '') + '">🥬 食材</button><button type="button" data-pk="' + i + '" data-k="器材" class="' + (pp.kind === '器材' ? 'on' : '') + '">🔧 器材</button></span><label class="small">日期 <input type="date" data-pd="' + i + '" value="' + esc(pp.date || '') + '" style="width:auto"></label>' +
@@ -1152,6 +1165,8 @@
     setHtml($('paperSum'), html);
     slipFooter();
   }
+  function nameAmtOn() { try { return localStorage.getItem('rcvNameAmt') === '1'; } catch (e) { return false; } }
+  $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} } });
   function paperRowOf(t) { return cur.slip.papers[Number(t.getAttribute('data-pi'))].rows[Number(t.getAttribute('data-pj'))]; }
   $('slipBox').addEventListener('input', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
@@ -1168,7 +1183,7 @@
       else if (lp || tt) {
         if (!String(r.unit || '').trim()) { r.unit = lp ? lp.unit : { '兩': '斤', 'g': '公斤' }[tt.unit] || tt.unit; sib('unit').value = r.unit; }
         if (!String(r.price || '').trim() && lp) { r.price = String(lp.price); sib('price').value = r.price; }
-      }
+      } else if (itemUnit(n) && !String(r.unit || '').trim()) { r.unit = itemUnit(n); sib('unit').value = r.unit; }   // 食材總表的單位
     }
     if (f === 'qty' && !String(r.unit || '').trim() && /[斤兩]/.test(r.qty)) { r.unit = '斤'; sib('unit').value = '斤'; }
     sib('pu').style.display = jinRow(r) ? '' : 'none';
@@ -1196,6 +1211,7 @@
     var i = Number(t.getAttribute('data-pi')), j = Number(t.getAttribute('data-pj')), order = ['name', 'qty', 'price', 'amount'], k = order.indexOf(f);
     var go = function (jj, ff) { var x = $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="' + jj + '"][data-pf="' + ff + '"]'); if (x) { x.focus(); try { x.select(); } catch (z) {} } return x; };
     if (f === 'unit') { go(j, 'price'); return; }
+    if (f === 'name' && nameAmtOn()) { go(j, 'amount'); return; }   // 只打品名＋金額
     if (k < order.length - 1) { go(j, order[k + 1]); return; }
     if (!go(j + 1, 'name')) {
       var r = cur.slip.papers[i].rows[j];

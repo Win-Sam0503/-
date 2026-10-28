@@ -1296,15 +1296,15 @@ function hxPrintData_(id) {
 
 /** 食材總表啟用中的品名：[[名稱, 別名, 廠商]]（快取 1 小時） */
 function hxItems_() {
-  const cache = CacheService.getScriptCache(), hit = cache.get('hxItems');
+  const cache = CacheService.getScriptCache(), hit = cache.get('hxItems2');
   if (hit) return JSON.parse(hit);
   const out = [];
   if (ss_().getSheetByName(SHEET.items)) readTable_(SHEET.items, ['食材名稱']).rows.forEach(function (r) {
     const n = String(r['食材名稱'] || '').trim();
     if (!n || (r['啟用'] !== undefined && String(r['啟用']).trim() !== '' && !isTrue_(r['啟用']))) return;
-    out.push([n, String(r['別名'] || '').trim(), String(r['廠商'] || '').trim()]);
+    out.push([n, String(r['別名'] || '').trim(), String(r['廠商'] || '').trim(), String(r['單位'] || '').trim()]);
   });
-  try { cache.put('hxItems', JSON.stringify(out), 3600); } catch (e) {}
+  try { cache.put('hxItems2', JSON.stringify(out), 3600); } catch (e) {}
   return out;
 }
 
