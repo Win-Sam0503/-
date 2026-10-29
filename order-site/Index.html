@@ -5651,7 +5651,18 @@
   function labelPrefs() {
     var p = {};
     try { p = JSON.parse(localStorage.getItem('ckOrder.labels') || '{}') || {}; } catch (e) {}
-    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item' };
+    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item',
+      vendors: Array.isArray(p.vendors) ? p.vendors : [] };
+  }
+  // 貼標選廠商：選的廠商這次有東西才算（都沒有＝全部印）
+  function labelVendorsOf(orders, only) {
+    var vs = [];
+    labelItems(orders, only).forEach(function (x) { if (vs.indexOf(x.vendor) < 0) vs.push(x.vendor); });
+    return vs.sort();
+  }
+  function labelPick(orders, only) {
+    var all = labelVendorsOf(orders, only);
+    return labelPrefs().vendors.filter(function (v) { return all.indexOf(v) >= 0; });
   }
   function setLabelPrefs(ch) {
     var p = labelPrefs();
@@ -5676,7 +5687,8 @@
   }
   var SESSIONS_ = ['上午', '下午', '晚上'];
   function labelSheets(orders, only) {
-    var items = labelItems(orders, only);
+    var pick = labelPick(orders, only);
+    var items = labelItems(orders, only).filter(function (x) { return !pick.length || pick.indexOf(x.vendor) >= 0; });
     if (!items.length) return '';
     var pf = labelPrefs(), L = LABEL_LAYOUTS[pf.layout], per = L.c * L.r, skip = pf.skip % per;
     var cells = [];
@@ -5723,7 +5735,11 @@
     var pf = labelPrefs(), per = LABEL_LAYOUTS[pf.layout].c * LABEL_LAYOUTS[pf.layout].r;
     var html0 = lastSheet && lastSheet.fn === labelSheets ? labelSheets.apply(null, lastSheet.args) : '';
     var n = (html0.match(/<div class="lbl( multi)?"><div/g) || []).length;   // 有內容的標籤（不算跳過、空白格）
+    var vs = lastSheet && lastSheet.fn === labelSheets ? labelVendorsOf.apply(null, lastSheet.args) : [], pick = vs.length ? labelPick.apply(null, lastSheet.args) : [];
     return '<div class="noprint panel" style="padding:10px 14px;margin-bottom:10px">' +
+      (vs.length > 1 ? '<div class="status-chips" style="margin:0 0 6px;align-items:center"><span class="muted small">廠商（可以選好幾家）：</span>' +
+        '<button type="button" data-lbven="" class="' + (pick.length ? '' : 'on') + '">全部</button>' +
+        vs.map(function (v) { return '<button type="button" data-lbven="' + esc(v) + '" class="' + (pick.indexOf(v) >= 0 ? 'on' : '') + '">' + esc(v) + '</button>'; }).join('') + '</div>' : '') +
       '<div class="status-chips" style="margin:0 0 6px;align-items:center"><span class="muted small">印法：</span>' +
       '<button type="button" data-lbmode="item" class="' + (pf.mode === 'item' ? 'on' : '') + '">每樣一張（分開裝袋）</button>' +
       '<button type="button" data-lbmode="class" class="' + (pf.mode === 'class' ? 'on' : '') + '">每班一張清單（同一籃）</button></div>' +
@@ -5743,6 +5759,12 @@
     if (ly) { setLabelPrefs({ layout: ly.getAttribute('data-lblayout') }); redrawLabels(); }
     var lm = e.target.closest('[data-lbmode]');
     if (lm) { setLabelPrefs({ mode: lm.getAttribute('data-lbmode') }); redrawLabels(); }
+    var lv = e.target.closest('[data-lbven]');
+    if (lv && lastSheet && lastSheet.fn === labelSheets) {
+      var v = lv.getAttribute('data-lbven'), cur = labelPick.apply(null, lastSheet.args);
+      if (!v) cur = []; else if (cur.indexOf(v) >= 0) cur.splice(cur.indexOf(v), 1); else cur.push(v);
+      setLabelPrefs({ vendors: cur }); redrawLabels();
+    }
   });
   $('vendorSheets').addEventListener('change', function (e) {
     if (e.target.matches('[data-lblines]')) { setLabelPrefs({ lines: e.target.checked }); redrawLabels(); }
