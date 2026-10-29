@@ -130,7 +130,8 @@
   .rqpage .rqt .dg { width: 4.2%; font-size: 12px; }
   .rqpage .rqsign td { height: 30px; text-align: left; vertical-align: top; }
   .rqpage .rqpaste { border: 1px dashed #000; text-align: center; padding: 30px 0 34px; margin-top: 6px; letter-spacing: 2px; }
-  @media print { .rqpage { border: 0; margin: 0 auto; padding: 0; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
+  /* 印請購單時紙張邊界設 0（按列印時才加，見 rqPrint），瀏覽器就不會印頁首（日期、標題）和頁尾（網址）；邊界改由內距留 */
+  @media print { .rqpage { border: 0; margin: 0 auto; padding: 10mm 12mm; max-width: none; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #rLogin .panel { width: min(380px, 100%); }
   #rLogin input { width: 100%; font-size: 18px; padding: 10px; margin: 4px 0 10px; box-sizing: border-box; }
@@ -2317,7 +2318,11 @@
     var t = e.target, b = t.closest && t.closest('[data-hxprint]');
     if (b) { hxPrintOpen(b.getAttribute('data-hxprint')); return; }
     if (t.id === 'rqBack') { rq = null; hxOpen('list'); return; }
-    if (t.id === 'rqPrint') { window.print(); }
+    if (t.id === 'rqPrint') {
+      var ps = document.createElement('style'); ps.textContent = '@page { size: A4; margin: 0; }'; document.head.appendChild(ps);
+      window.print();
+      setTimeout(function () { ps.remove(); }, 1000);
+    }
   });
   $('hxBox').addEventListener('input', function (e) {
     var t = e.target;
