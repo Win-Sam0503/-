@@ -66,7 +66,7 @@ function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'T
 /** 網頁呼叫伺服器一律經過這裡：先檢查登入，再呼叫對應的功能（功能名稱後面有 _，網頁不能直接呼叫） */
 const API_ = {
   getWeek: function (a) { return getWeek_.apply(null, a); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
-  saveSlip: function (a) { return saveSlip_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
+  saveSlip: function (a) { return saveSlip_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
@@ -505,6 +505,41 @@ function weekFolder_(week) {
   const sub = folderNamed_(week + ' 那週', root);
   cache.put(key, sub.getId(), 6 * 3600);
   return sub;
+}
+
+/**
+ * 在驗收系統裡看照片（其他管理者不用 Google 帳號）：只讀「進貨銷貨單」資料夾裡的照片。
+ * small＝縮圖（月結的照片明細用），否則原圖（上傳時已經縮到長邊 1600）。回傳 data URL。
+ */
+function getPhoto_(url, small) {
+  const id = fileIdOf_(url) || (/^[\w-]{20,}$/.test(String(url || '')) ? String(url) : '');
+  if (!id) throw new Error('照片連結不正確。');
+  const cache = CacheService.getScriptCache(), ck = 'ph' + (small ? 's:' : ':') + id, hit = small ? cache.get(ck) : null;
+  if (hit) return hit;
+  let f;
+  try { f = DriveApp.getFileById(id); } catch (e) { throw new Error('找不到這張照片（可能被刪掉了）。'); }
+  if (!inPhotoFolder_(f)) throw new Error('這不是驗收系統的照片。');
+  let blob = small ? (f.getThumbnail ? f.getThumbnail() : null) : null;
+  if (!blob) blob = f.getBlob();
+  if (blob.getBytes().length > 4 * 1024 * 1024) throw new Error('照片太大，請到雲端硬碟看。');
+  const out = 'data:' + (blob.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(blob.getBytes());
+  if (small && out.length < 90000) { try { cache.put(ck, out, 6 * 3600); } catch (e) {} }
+  return out;
+}
+/** 這個檔案是不是在「進貨銷貨單」資料夾（或它的每週子資料夾）裡 */
+function inPhotoFolder_(f) {
+  const props = PropertiesService.getScriptProperties();
+  let rid = props.getProperty('PHOTO_ROOT_ID');
+  if (!rid) { const it = DriveApp.getFoldersByName(PHOTO_FOLDER_NAME); if (it.hasNext()) { rid = it.next().getId(); props.setProperty('PHOTO_ROOT_ID', rid); } }
+  if (!rid) return false;
+  const ps = f.getParents();
+  while (ps.hasNext()) {
+    const p = ps.next();
+    if (p.getId() === rid) return true;
+    const pp = p.getParents();
+    while (pp.hasNext()) if (pp.next().getId() === rid) return true;
+  }
+  return false;
 }
 
 function folderNamed_(name, parent) {

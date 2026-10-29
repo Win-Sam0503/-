@@ -97,6 +97,12 @@
     .hxcard .hxt td, .hxcard .hxt th { padding: 4px 2px; font-size: 14px; }
     .hxtabs .btn { padding: 6px 8px; }
   }
+  #phView { position: fixed; inset: 0; z-index: 95; background: rgba(16,24,40,.92); display: flex; flex-direction: column; }
+  #phView.hidden { display: none; }
+  #phView .phbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #fff; flex-wrap: wrap; }
+  #phView .phbody { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 10px; }
+  #phView img { max-width: 100%; height: auto; background: #fff; cursor: zoom-in; } #phView img.big { max-width: none; cursor: zoom-out; }
+  #phView #phMsg { color: #fff; margin-top: 40px; }
   .bgbar { height: 10px; border-radius: 5px; background: #eaecf0; overflow: hidden; margin: 6px 0 2px; display: flex; }
   .bgbar i { display: block; height: 100%; } .bgbar .d { background: #12b76a; } .bgbar .p { background: #fdb022; }
   .bgcard.warn { border-color: #f79009; background: #fffcf5; } .bgcard.over { border-color: #f04438; background: #fff6f5; }
@@ -308,6 +314,8 @@
   <div class="qsum"><span id="qkSum"></span><span style="flex:1"></span><label class="small" for="qkTotal">銷貨單合計（選填）</label><input id="qkTotal" inputmode="decimal" style="width:110px"></div>
 </div></div>
 <datalist id="unitList"></datalist>
+<div id="phView" class="hidden"><div class="phbar"><span id="phInfo"></span><span style="flex:1"></span><button type="button" class="btn ghost small" id="phPrev">◀ 上一張</button><button type="button" class="btn ghost small" id="phNext">下一張 ▶</button><a id="phDrive" class="small" target="_blank" rel="noopener">雲端硬碟</a><button type="button" class="btn small" id="phClose">✕ 關閉</button></div>
+  <div class="phbody"><div id="phMsg" class="muted">載入中…</div><img id="phImg" alt=""></div></div>
 <div id="watermark" aria-hidden="true"></div>
 <script>
 (function () {
@@ -1293,6 +1301,53 @@
     $('slipMsg').textContent = n0 ? '已先帶入叫貨數量' + (Object.keys(cur.b.prices || {}).length ? '和單價表的價格' : '') + '（淡黃色），請對照收據改不一樣的地方。' : '';
     renderSlip(); saveDraft();
   });
+  // ---------- 看照片：在驗收系統裡直接顯示（其他管理者不用 Google 帳號） ----------
+  var PH_RE = /^https:\/\/(drive|docs)\.google\.com\//, phList = [], phAt = 0, phCache = {};
+  function phShow(i) {
+    phAt = i; var u = phList[i];
+    $('phInfo').textContent = phList.length > 1 ? (i + 1) + '／' + phList.length : '';
+    $('phPrev').classList.toggle('hidden', phList.length < 2); $('phNext').classList.toggle('hidden', phList.length < 2);
+    $('phDrive').href = u; $('phImg').removeAttribute('src'); $('phImg').classList.remove('big'); $('phImg').style.display = 'none';
+    $('phMsg').textContent = '載入中…'; $('phMsg').style.display = '';
+    var p = phCache[u] || (phCache[u] = call('getPhoto', u, false));
+    p.then(function (d) { if (phList[phAt] !== u) return; $('phImg').src = d; $('phImg').style.display = ''; $('phMsg').style.display = 'none'; })
+      .catch(function (e) { delete phCache[u]; if (phList[phAt] === u) $('phMsg').textContent = '照片打不開：' + e.message; });
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a || !PH_RE.test(a.href) || a.id === 'phDrive' || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    // 同一區（同一張單、同一組照片）的照片可以上一張、下一張
+    var box = a.closest('.mthumbs, .thumbs, td, .hxcard, .mgroup') || a.parentNode;
+    phList = Array.prototype.filter.call(box.querySelectorAll('a[href]'), function (x) { return PH_RE.test(x.href); }).map(function (x) { return x.href; });
+    if (phList.indexOf(a.href) < 0) phList = [a.href];
+    $('phView').classList.remove('hidden'); document.body.style.overflow = 'hidden';
+    phShow(phList.indexOf(a.href));
+  }, true);
+  $('phClose').addEventListener('click', function () { $('phView').classList.add('hidden'); document.body.style.overflow = ''; });
+  $('phPrev').addEventListener('click', function () { phShow((phAt - 1 + phList.length) % phList.length); });
+  $('phNext').addEventListener('click', function () { phShow((phAt + 1) % phList.length); });
+  $('phImg').addEventListener('click', function () { this.classList.toggle('big'); });
+  document.addEventListener('keydown', function (e) {
+    if ($('phView').classList.contains('hidden')) return;
+    if (e.key === 'Escape') $('phClose').click(); else if (e.key === 'ArrowLeft') $('phPrev').click(); else if (e.key === 'ArrowRight') $('phNext').click();
+  });
+  // 縮圖：看得到的時候才一張一張讀（同時最多 2 張）
+  var thQ = [], thRun = 0;
+  function thumbPump() {
+    while (thRun < 2 && thQ.length) {
+      var img = thQ.shift(), u = img.getAttribute('data-thumb');
+      if (!document.body.contains(img)) continue;
+      thRun++;
+      call('getPhoto', u, true).then(function (d) { this.src = d; }.bind(img), function () { this.outerHTML = '<span>📄 開啟</span>'; }.bind(img))
+        .then(function () { thRun--; thumbPump(); });
+    }
+  }
+  var thObs = window.IntersectionObserver ? new IntersectionObserver(function (es) { es.forEach(function (en) { if (en.isIntersecting) { thObs.unobserve(en.target); thQ.push(en.target); } }); thumbPump(); }) : null;
+  new MutationObserver(function () {
+    Array.prototype.forEach.call(document.querySelectorAll('img[data-thumb]:not([data-tq])'), function (img) { img.setAttribute('data-tq', '1'); if (thObs) thObs.observe(img); else { thQ.push(img); thumbPump(); } });
+  }).observe(document.body, { childList: true, subtree: true });
+
   // ---------- 快速核對：一品一張的銷貨單（菜商），拿到哪張點哪一項 ----------
   var qkCur = null;   // 正在填的品名；'+extra' ＝ 叫貨單沒有的
   function qkOpen() {
@@ -1538,7 +1593,7 @@
   function photoThumb(u, label) {
     var id = (String(u).match(/\/d\/([\w-]+)/) || String(u).match(/[?&]id=([\w-]+)/) || [])[1];
     return '<a href="' + esc(u) + '" target="_blank" class="mthumb" title="' + esc(label) + '">' +
-      (id ? '<img src="https://drive.google.com/thumbnail?id=' + esc(id) + '&sz=w400" alt="' + esc(label) + '" loading="lazy" onerror="this.outerHTML=\'<span>📄 開啟</span>\'">' : '<span>📄 開啟</span>') +
+      (id ? '<img data-thumb="' + esc(u) + '" alt="' + esc(label) + '">' : '<span>📄 開啟</span>') +
       '<div class="small">' + esc(label) + '</div></a>';
   }
   function monPhotoCount(e) { return e.photos.length + e.itemPhotos.reduce(function (n, l) { return n + l.photos.length; }, 0); }
