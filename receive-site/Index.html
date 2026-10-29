@@ -328,15 +328,25 @@
   var rToken = '';
   try { rToken = localStorage.getItem('rcvToken') || ''; } catch (e) {}
   // 別人正在存（鎖定逾時）時，自動等 3 秒再試，最多 2 次；這時候伺服器還沒寫任何東西，重試不會重複
+  var READ_FN = /^(getWeek|getMonth|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders)$/;
   function call(fn) {
     var args = Array.prototype.slice.call(arguments, 1), tries = 0, busyTries = 0;
+    var send = function (resolve, reject) {
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+        var m = String(e && e.message || e).replace(/^(Error|Exception):\s*/, '');
+        if (/請重新登入/.test(m)) showLogin('登入已過期，請重新登入。');
+        reject(new Error(m));
+      }).api(rToken, fn, args);
+    };
     var once = function () {
       return new Promise(function (resolve, reject) {
-        google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
-          var m = String(e && e.message || e).replace(/^(Error|Exception):\s*/, '');
-          if (/請重新登入/.test(m)) showLogin('登入已過期，請重新登入。');
-          reject(new Error(m));
-        }).api(rToken, fn, args);
+        // 只讀資料的：Google 偶爾卡住好幾分鐘，超過 30 秒沒回就再送一次，誰先回來用誰
+        if (!READ_FN.test(fn)) { send(resolve, reject); return; }
+        var done = false, n = 1, fails = 0, tm;
+        var ok = function (v) { if (!done) { done = true; clearTimeout(tm); resolve(v); } };
+        var bad = function (e) { if (done) return; if (++fails >= n) { done = true; clearTimeout(tm); reject(e); } };
+        send(ok, bad);
+        tm = setTimeout(function () { if (!done) { n++; send(ok, bad); } }, 30000);
       }).catch(function (err) {
         if (/鎖定逾時|佔用鎖定|Lock timeout|正在儲存別的資料/i.test(err.message) && tries++ < 2) {
           return new Promise(function (r) { setTimeout(r, 3000); }).then(once);

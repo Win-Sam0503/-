@@ -1314,10 +1314,21 @@
     });
   } catch (e) {}
   // Google 暫時忙碌（RESOURCE_EXHAUSTED、讀取儲存空間時發生伺服器錯誤）：等一下自動再試，最多 2 次
+  // 只讀資料的功能：Google 偶爾會卡住好幾分鐘才回（速度紀錄看過 6 分鐘），超過 30 秒沒回就再送一次，誰先回來用誰
+  var READ_FN = /^(get|adminGet|adminList)/, HEDGE_MS = 30000;
+  function callRead(args) {
+    return new Promise(function (resolve, reject) {
+      var done = false, fails = 0, n = 1;
+      var ok = function (v) { if (!done) { done = true; clearTimeout(tm); resolve(v); } };
+      var bad = function (e) { if (done) return; if (++fails >= n) { done = true; clearTimeout(tm); reject(e); } };
+      call1.apply(null, args).then(ok, bad);
+      var tm = setTimeout(function () { if (done) return; n++; call1.apply(null, args).then(ok, bad); }, HEDGE_MS);
+    });
+  }
   function call(fn) {
     var args = arguments, tries = 0;
     var go = function () {
-      return call1.apply(null, args).catch(function (e) {
+      return (READ_FN.test(fn) ? callRead(args) : call1.apply(null, args)).catch(function (e) {
         if (/RESOURCE_EXHAUSTED|儲存空間時發生伺服器錯誤|INTERNAL/i.test(e.message) && tries++ < 1) return new Promise(function (r) { setTimeout(r, 2000); }).then(go);
         throw e;
       });
