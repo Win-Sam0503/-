@@ -133,7 +133,7 @@
   .rqpage .rqt .dgh { font-size: 9.5pt; height: 22px; white-space: nowrap; padding: 0; } .rqpage .rqt .dg { vertical-align: bottom; padding-bottom: 4px; }
   .rqpage .rqt td.ul { border-left: 0; border-right: 0; border-top: 0; } .rqpage .rqt td.ul2 { border-left: 0; border-right: 0; border-top: 0; border-bottom: 1px solid #000; }
   .rqpage .rqt td.lb { border-right: 0; border-top: 0; border-bottom: 0; text-align: left; padding-left: 6px; white-space: nowrap; }
-  .rqpage .rqt tr.h td { height: 22px; } .rqpage .rqt tr.half { height: 28px; } .rqpage .rqt tr.half td { height: auto; } .rqpage .rqt td.k { white-space: nowrap; font-size: 11.5pt; padding: 0 2px; }
+  .rqpage .rqt tr.h td { height: 22px; } .rqpage .rqt tr.half { height: 28px; } .rqpage .rqt tr.half td { height: auto; } .rqpage .rqt td.k { white-space: nowrap; font-size: 12pt; padding: 0 2px; line-height: 1.25; }
   .rqpage .rqpaste { text-align: center; margin: 6px 0 4px; letter-spacing: 1px; white-space: nowrap; overflow: hidden; }
   .rqpage .rqh3 { display: flex; align-items: baseline; margin-top: 6px; }
   .rqpage .rqh3 .dep { width: 33%; text-align: center; } .rqpage .rqh3 .t { font-size: 21pt; letter-spacing: 3px; text-decoration: underline; text-underline-offset: 4px; }
@@ -2333,7 +2333,7 @@
     var col = function (ws) { return '<colgroup>' + ws.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup>'; };
     // 簽章欄：左兩組（各：名稱＋空白）、會計室（名稱＋空白）、校長；用半格排出跟範本一樣的高低
     var sign = function (g1, g2, rows3a, rows3b, fund) {
-      return '<table class="rqt" style="margin-top:4px">' + col([9, 20, 9, 20, 7.5, 16.5, 18]) +
+      return '<table class="rqt" style="margin-top:4px">' + col([7, 22, 7, 22, 7.5, 16.5, 18]) +
         '<tr class="h">' + td(g1, 'colspan="2"') + (g2.head ? td(g2.title, 'rowspan="3"') + td('', 'rowspan="3"') : td(g2.title, 'colspan="2"')) + td('會　計　室', 'colspan="2"') + td('校　　長') + '</tr>' +
         '<tr class="half">' + td(rows3a[0], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + (g2.head ? '' : td(rows3b[0], 'rowspan="2" class="k"') + td('', 'rowspan="2"')) + td('審核', 'rowspan="3"') + td('', 'rowspan="3"') + td('', 'rowspan="6"') + '</tr>' +
         '<tr class="half"></tr>' +
@@ -2353,7 +2353,7 @@
           td('業務計劃：', 'class="lb"') + td(fit(st.code, 7.5), 'class="ul2"') + digits.map(function (x) { return td(x, 'rowspan="3" class="dg"'); }).join('') + td(e(st.desc), 'rowspan="3"') + '</tr>' +
         '<tr class="rqb">' + td('工作計劃：', 'class="lb"') + td(fit(st.plan, 7.5), 'class="ul2"') + '</tr>' +
         '<tr class="rqb">' + td('用途科別：', 'class="lb" style="border-bottom:1px solid #000"') + td(fit(st.use, 7.5), 'class="ul2"') + '</tr></table>' +
-      sign('經辦單位', { title: '驗收或<br>證明', head: true }, ['經手人', '組長', '主任'], ['', '財物登記', '保管']) +
+      sign('經辦單位', { title: '驗收<br>或<br>證明', head: true }, ['經手<br>人', '組長', '主任'], ['', '財物<br>登記', '保管']) +
       '<div class="rqpaste">－－－－－－憑－－－－－證－－－－－黏－－－－－貼－－－－－處－－－－－－</div>' +
       '<div class="rqh3"><span class="dep">' + e(rq.dept) + '　處(室)</span><span class="t">請 購(修)單</span></div>' +
       '<div class="rqline"><span style="width:14%">填單日期：</span><span style="width:8%">' + fd[0] + '</span><span style="width:5%">年</span><span style="width:6%">' + fd[1] + '</span><span style="width:5%">月</span><span style="width:6%">' + fd[2] + '</span><span style="width:5%">日</span>' +
@@ -2363,7 +2363,7 @@
         '<tr class="h">' + td('單　價') + td('總　價') + '</tr>' +
         rows.map(function (r, i) { return '<tr>' + td(e(r.name), 'class="l"') + td(e(r.spec)) + td(e(r.unit)) + td(e(r.qty)) + td(e(r.price), 'class="r"') + td(r.total === '' ? '' : money(r.total), 'class="r"') + td(i === 0 ? e(st.desc) : '') + '</tr>'; }).join('') +
         '<tr>' + td('合　　計') + td('', 'colspan="4"') + td(money(amt), 'class="r"') + td('') + '</tr></table>' +
-      sign('請 購 單 位', { title: '經 辦 單 位' }, ['請購人', '單位主管', '經費來源'], ['經手人', '組長', '主任'], fit(st.code, 5.5)) +
+      sign('請 購 單 位', { title: '經 辦 單 位' }, ['請購<br>人', '單位<br>主管', '經費<br>來源'], ['經手<br>人', '組長', '主任'], fit(st.code, 5.5)) +
       '</div>';
   }
   function fmtN(n) { return String(Math.round(Number(n) * 100) / 100); }
