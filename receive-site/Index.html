@@ -133,13 +133,13 @@
   .rqpage .rqt .dgh { font-size: 9.5pt; height: 22px; white-space: nowrap; padding: 0; } .rqpage .rqt .dg { vertical-align: bottom; padding-bottom: 4px; }
   .rqpage .rqt td.ul { border-left: 0; border-right: 0; border-top: 0; } .rqpage .rqt td.ul2 { border-left: 0; border-right: 0; border-top: 0; border-bottom: 1px solid #000; }
   .rqpage .rqt td.lb { border-right: 0; border-top: 0; border-bottom: 0; text-align: left; padding-left: 6px; white-space: nowrap; }
-  .rqpage .rqt tr.h td { height: 22px; } .rqpage .rqt tr.half { height: 19px; } .rqpage .rqt tr.half td { height: auto; } .rqpage .rqt td.k { white-space: nowrap; font-size: 12pt; }
+  .rqpage .rqt tr.h td { height: 22px; } .rqpage .rqt tr.half { height: 28px; } .rqpage .rqt tr.half td { height: auto; } .rqpage .rqt td.k { white-space: nowrap; font-size: 11.5pt; padding: 0 2px; }
   .rqpage .rqpaste { text-align: center; margin: 6px 0 4px; letter-spacing: 1px; white-space: nowrap; overflow: hidden; }
   .rqpage .rqh3 { display: flex; align-items: baseline; margin-top: 6px; }
   .rqpage .rqh3 .dep { width: 33%; text-align: center; } .rqpage .rqh3 .t { font-size: 21pt; letter-spacing: 3px; text-decoration: underline; text-underline-offset: 4px; }
-  .rqpage .rqi td { height: 35px; } .rqpage .rqb td { height: 32px; }
+  .rqpage .rqi td { height: 26px; } .rqpage .rqb td { height: 28px; }
   /* 印請購單時紙張邊界設 0（按列印時才加，見 rqPrint），瀏覽器就不會印頁首（日期、標題）和頁尾（網址）；邊界改由內距留 */
-  @media print { .rqpage { border: 0; margin: 0 auto; padding: 10mm 12mm; max-width: none; width: auto; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
+  @media print { .rqpage { border: 0; margin: 0 auto; padding: 8mm 12mm; max-width: none; width: auto; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #rLogin .panel { width: min(380px, 100%); }
   #rLogin input { width: 100%; font-size: 18px; padding: 10px; margin: 4px 0 10px; box-sizing: border-box; }
@@ -2320,7 +2320,7 @@
     var digits = ('000000000' + amt).slice(-9).split('');
     var rows = k === '食材' ? [{ name: st.name, spec: '', unit: '批', qty: '1', price: '', total: amt }]
       : d.kinds[k].items.filter(function (x) { return x.amount; }).map(function (x) { return { name: x.name, spec: '', unit: x.unit, qty: x.qty ? fmtN(x.qty) : '', price: x.qty ? fmtN(r2(x.amount / x.qty)) : '', total: x.amount }; });
-    while (rows.length < 6) rows.push({ name: '', spec: '', unit: '', qty: '', price: '', total: '' });
+    while (rows.length < 5) rows.push({ name: '', spec: '', unit: '', qty: '', price: '', total: '' });
     var e = function (v) { return esc(v === '' || v === undefined || v === null ? '' : String(v)); };
     // 自己填的字太長：字縮小、最多兩行，不讓格子撐高（cap＝一行放得下幾個中文字）
     var fit = function (v, cap) {
@@ -2333,7 +2333,7 @@
     var col = function (ws) { return '<colgroup>' + ws.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup>'; };
     // 簽章欄：左兩組（各：名稱＋空白）、會計室（名稱＋空白）、校長；用半格排出跟範本一樣的高低
     var sign = function (g1, g2, rows3a, rows3b, fund) {
-      return '<table class="rqt" style="margin-top:4px">' + col([11, 14, 11, 14, 9, 18, 23]) +
+      return '<table class="rqt" style="margin-top:4px">' + col([9, 20, 9, 20, 7.5, 16.5, 18]) +
         '<tr class="h">' + td(g1, 'colspan="2"') + (g2.head ? td(g2.title, 'rowspan="3"') + td('', 'rowspan="3"') : td(g2.title, 'colspan="2"')) + td('會　計　室', 'colspan="2"') + td('校　　長') + '</tr>' +
         '<tr class="half">' + td(rows3a[0], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + (g2.head ? '' : td(rows3b[0], 'rowspan="2" class="k"') + td('', 'rowspan="2"')) + td('審核', 'rowspan="3"') + td('', 'rowspan="3"') + td('', 'rowspan="6"') + '</tr>' +
         '<tr class="half"></tr>' +
