@@ -115,6 +115,7 @@
   .hxcpi input { width: 20px; height: 20px; } .hxcpi .amt { margin-left: auto; } .hxcpi.on { background: #eff8ff; } .hxcpi.used { color: var(--muted); }
   .hxsum { position: sticky; bottom: 0; background: #fff; border-top: 2px solid var(--line); padding: 8px 0; margin-top: 8px; }
   @media print { header, .hxtabs, .noprint { display: none !important; } }
+  @media print { body.pmon #vCheck > .panel, body.pmon #listMsg, body.pmon #doneMsg, body.pmon #cards > :not(.panel), body.pmon #cards > .panel > :not(#slMonth) { display: none !important; } body.pmon #cards { display: block; } }
   @media print { #vHx > .panel:first-child { display: none !important; } }
   /* 請購單＋黏貼憑證（A4） */
   .rqpage { background: #fff; color: #000; max-width: 190mm; margin: 12px auto; padding: 8mm; border: 1px solid #ccc; font-size: 13px; }
@@ -439,7 +440,7 @@
       $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）。選一張叫貨單開始；不在叫貨單裡的送貨按「＋ 新增銷貨單」。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
       if (listMode === 'slip') {
         if (!w.batches.length) msg('listMsg', 'info', '這週沒有叫貨單；不在叫貨單裡的送貨可以按「＋ 新增銷貨單」。');
-        $('cards').innerHTML = '<button type="button" class="card" id="slNew" style="border-style:dashed;text-align:center"><b>＋ 新增銷貨單</b><div class="muted small">不在叫貨單裡的送貨（臨時叫的、外面買的）</div></button>' +
+        $('cards').innerHTML = slipWeekSum(w) + '<button type="button" class="card" id="slNew" style="border-style:dashed;text-align:center"><b>＋ 新增銷貨單</b><div class="muted small">不在叫貨單裡的送貨（臨時叫的、外面買的）</div></button>' +
           w.batches.map(slipCard).join('') + (w.extras || []).map(extraCard).join('');
         return;
       }
@@ -459,6 +460,51 @@
     if (b) (listMode === 'slip' ? openSlip : openBatch)(week.batches[Number(b.getAttribute('data-b'))]);
     else if (x) openSlip(extraBatch(week.extras[Number(x.getAttribute('data-xs'))]));
     else if (e.target.closest('#slNew')) newSlipForm();
+  });
+  // 本週銷貨單合計（列表上方）
+  function slipWeekSum(w) {
+    var tot = 0, food = 0, gear = 0, by = {}, n = 0, done = 0;
+    var addSl = function (vendor, sl) {
+      if (!sl || !(sl.amount > 0)) return;
+      done++; tot += sl.amount; by[vendor] = (by[vendor] || 0) + sl.amount;
+      var g = (sl.rows || []).reduce(function (s0, r) { return s0 + (r.kind === '器材' ? Number(r.amount) || 0 : 0); }, 0);
+      gear += g; food += sl.amount - g;
+    };
+    w.batches.forEach(function (b) { n++; addSl(b.vendor, b.slip); });
+    (w.extras || []).forEach(function (x) { n++; addSl(x.vendor, x.slip); });
+    var ym = w.from.slice(0, 7), ym2 = w.to.slice(0, 7);
+    return '<div class="panel" style="grid-column:1/-1;margin:0"><div class="row" style="align-items:baseline"><b style="font-size:18px">本週銷貨單合計 $' + money(r2(tot)) + '</b>' +
+      (gear ? '<span class="small">🥬 食材 $' + money(r2(food)) + '　🔧 器材 $' + money(r2(gear)) + '</span>' : '') +
+      '<span class="small muted">已填 ' + done + '／' + n + ' 張</span><span style="flex:1"></span>' +
+      '<button type="button" class="btn ghost small" data-slmon="' + ym + '">📅 ' + Number(ym.slice(5)) + ' 月合計</button>' +
+      (ym2 !== ym ? '<button type="button" class="btn ghost small" data-slmon="' + ym2 + '">📅 ' + Number(ym2.slice(5)) + ' 月合計</button>' : '') + '</div>' +
+      (Object.keys(by).length ? '<div class="small muted" style="margin-top:4px">' + Object.keys(by).sort().map(function (v) { return esc(v) + ' $' + money(r2(by[v])); }).join('　') + '</div>' : '') +
+      '<div id="slMonth"></div></div>';
+  }
+  function slipMonthHtml(r) {
+    var mon = Number(r.ym.slice(5)), vs = r.vendors;
+    var html = '<div class="slmon"><div class="row" style="justify-content:space-between;margin-top:10px"><h3 style="margin:0">' + esc(r.ym.slice(0, 4)) + ' 年 ' + mon + ' 月　銷貨單金額合計</h3>' +
+      '<span class="noprint"><button type="button" class="btn ghost small" id="slMonPrint">🖨 列印</button> <button type="button" class="btn ghost small" id="slMonClose">收起來</button></span></div>' +
+      '<div class="muted small">照銷貨單上的日期算在哪一週；沒填日期的（只填合計）照那次送貨的第一天。</div>' +
+      '<div class="slipwrap"><table class="hxt"><tr><th>週</th>' + vs.map(function (v) { return '<th>' + esc(v) + '</th>'; }).join('') + '<th>🥬 食材</th><th>🔧 器材</th><th>合計</th></tr>' +
+      r.weeks.map(function (w) {
+        return '<tr><td>' + esc(md(w.from) + '～' + md(w.to)) + '</td>' + vs.map(function (v) { return '<td style="text-align:right">' + (w.byVendor[v] ? '$' + money(w.byVendor[v]) : '—') + '</td>'; }).join('') +
+          '<td style="text-align:right">$' + money(w.food) + '</td><td style="text-align:right">' + (w.gear ? '$' + money(w.gear) : '—') + '</td><td style="text-align:right"><b>$' + money(w.total) + '</b></td></tr>';
+      }).join('') +
+      '<tr style="background:#f2f4f7"><td><b>' + mon + ' 月總合計</b></td>' + vs.map(function (v) { return '<td style="text-align:right"><b>$' + money(r.byVendor[v] || 0) + '</b></td>'; }).join('') +
+      '<td style="text-align:right"><b>$' + money(r.food) + '</b></td><td style="text-align:right"><b>' + (r.gear ? '$' + money(r.gear) : '—') + '</b></td><td style="text-align:right;font-size:17px"><b>$' + money(r.total) + '</b></td></tr></table></div>' +
+      (r.missing.length ? '<div class="msg warn">還有 ' + r.missing.length + ' 張叫貨單沒填銷貨單金額，沒算進去：' + esc(r.missing.map(function (x) { return md(x.date) + ' ' + x.vendor; }).join('、')) + '</div>' : '') + '</div>';
+    return html;
+  }
+  $('cards').addEventListener('click', function (e) {
+    var t = e.target, b = t.closest && t.closest('[data-slmon]');
+    if (b) {
+      $('slMonth').innerHTML = '<div class="muted" style="margin-top:8px">讀取中…</div>';
+      call('slipMonth', b.getAttribute('data-slmon')).then(function (r) { $('slMonth').innerHTML = slipMonthHtml(r); }).catch(function (err) { $('slMonth').innerHTML = '<div class="msg error">' + esc(err.message) + '</div>'; });
+      return;
+    }
+    if (t.id === 'slMonClose') { $('slMonth').innerHTML = ''; return; }
+    if (t.id === 'slMonPrint') { document.body.classList.add('pmon'); window.print(); setTimeout(function () { document.body.classList.remove('pmon'); }, 500); }
   });
   // 臨時銷貨單（不在叫貨單裡）
   function extraBatch(x) { return { id: x.id, extra: true, vendor: x.vendor, date: x.date, group: '', lines: [], totals: {}, prices: {}, slip: x.slip }; }

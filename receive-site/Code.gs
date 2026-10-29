@@ -66,7 +66,7 @@ function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'T
 /** 網頁呼叫伺服器一律經過這裡：先檢查登入，再呼叫對應的功能（功能名稱後面有 _，網頁不能直接呼叫） */
 const API_ = {
   getWeek: function (a) { return getWeek_.apply(null, a); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
-  saveSlip: function (a) { return saveSlip_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
+  saveSlip: function (a) { return saveSlip_.apply(null, a); }, slipMonth: function (a) { return slipMonth_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
@@ -340,6 +340,47 @@ function saveSlip_(p) {
     lock.releaseLock();
   }
   return { id: id, amount: slip.length ? sum : total !== '' ? Number(total) : '', rows: slip.length, photos: photos.length };   // 只填合計：金額＝合計
+}
+
+/**
+ * 銷貨單月合計：ym＝'yyyy-MM'。每一行照「銷貨單日期」算在哪一週、哪個月；沒填日期的（只填合計、舊資料）照那張叫貨單第一天送貨的日期。
+ * 回傳 { ym, weeks: [{ from, to, total, food, gear, byVendor }], vendors, byVendor, food, gear, total, missing: [還沒填金額的叫貨單] }
+ */
+function slipMonth_(ym) {
+  const m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
+  if (!m) throw new Error('月份不正確。');
+  const start = new Date(Number(m[1]), Number(m[2]) - 1, 1), end = new Date(Number(m[1]), Number(m[2]), 0);
+  const ms = dateStr_(start), me = dateStr_(end), first = mondayOf_(start);
+  const rows = purchaseRows_(dateStr_(first), dateStr_(addDays_(end, 6))), recs = readSlipRecs_(), prices = readPrices_();
+  const weeks = {}, vendors = {}, missing = [];
+  for (let d = first; d <= end; d = addDays_(d, 7)) { const k = dateStr_(d); weeks[k] = { from: k, to: dateStr_(addDays_(d, 4)), total: 0, food: 0, gear: 0, byVendor: {} }; }   // 每一週都列（沒有也顯示 $0）
+  const add = function (d, vendor, kind, amt) {
+    if (!d || d < ms || d > me || !amt) return;
+    const wk = dateStr_(mondayOf_(parseDate_(d)));
+    const w = weeks[wk] = weeks[wk] || { from: wk, to: dateStr_(addDays_(parseDate_(wk), 4)), total: 0, food: 0, gear: 0, byVendor: {} };
+    w.total = round2_(w.total + amt); w[kind === '器材' ? 'gear' : 'food'] = round2_(w[kind === '器材' ? 'gear' : 'food'] + amt);
+    w.byVendor[vendor] = round2_((w.byVendor[vendor] || 0) + amt); vendors[vendor] = true;
+  };
+  const addSlip = function (id, vendor, firstDate, rec) {
+    const rs = slipsFor_(id);
+    if (rs.length) rs.forEach(function (r) { add(r.date || firstDate, vendor, r.kind, Number(r.amount) || 0); });
+    else if (rec && rec.amount) add(firstDate, vendor, '食材', rec.amount);   // 只填合計
+  };
+  for (let d = first; d <= end; d = addDays_(d, 7)) {
+    const f = dateStr_(d), wk = weekBatches_(rows, f, readChecks_(f), prices, recs);
+    wk.batches.forEach(function (b) {
+      const dates = b.list.map(function (r) { return r.date; }).sort(), d0 = dates[0];
+      if (!dates.some(function (x) { return x >= ms && x <= me; })) return;
+      if (b.slip && b.slip.amount > 0) addSlip(b.id, b.vendor, d0, b.slip);
+      else missing.push({ id: b.id, vendor: b.vendor, label: b.label, date: d0 });
+    });
+  }
+  extraSlips_(recs, ms, me).forEach(function (x) { addSlip(x.id, x.vendor, x.date, x.slip); });
+  const list = Object.keys(weeks).sort().map(function (k) { return weeks[k]; });
+  const byVendor = {};
+  list.forEach(function (w) { Object.keys(w.byVendor).forEach(function (v) { byVendor[v] = round2_((byVendor[v] || 0) + w.byVendor[v]); }); });
+  const sum = function (k) { return round2_(list.reduce(function (n, w) { return n + w[k]; }, 0)); };
+  return { ym: ym, weeks: list, vendors: Object.keys(vendors).sort(), byVendor: byVendor, food: sum('food'), gear: sum('gear'), total: sum('total'), missing: missing };
 }
 
 /** 刪掉一張臨時銷貨單（叫貨單上的不能刪，只能清空） */
