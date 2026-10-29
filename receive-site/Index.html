@@ -2268,14 +2268,14 @@
       var ks = ['食材', '器材'].filter(function (k) { return d.kinds[k] && d.kinds[k].amount; });
       if (!ks.length) { msg('hxMsg', 'warn', '這筆核銷沒有勾送貨、也沒有另外叫料，沒有東西可以印。'); return; }
       rq = { data: d, kinds: ks, fill: d.date, need: d.date, dept: '餐飲科', set: {} };
-      ks.forEach(function (k) { rq.set[k] = { no: '', name: (hxVendorKey(d.vendor) || '') + '材料一批', desc: RQ_FORM[k].desc }; });
+      ks.forEach(function (k) { rq.set[k] = { no: '', name: (hxVendorKey(d.vendor) || '') + '材料一批', desc: RQ_FORM[k].desc, code: '', plan: '', use: '' }; });
       hxPrintView();
     }).catch(function (e) { msg('hxMsg', 'error', e.message); });
   }
   function hxPrintView() {
     var d = rq.data, sum = rq.kinds.reduce(function (n, k) { return n + d.kinds[k].amount; }, 0);
     var ctl = '<div class="panel noprint"><div class="row" style="justify-content:space-between"><h2 style="margin:0">🖨 請購單＋黏貼憑證：' + esc(d.vendor) + ' ' + esc(d.no || '') + '</h2><button type="button" class="btn ghost small" id="rqBack">← 回核銷</button></div>' +
-      '<div class="muted small">食材套「21457 餐飲科食材費」、器材套「2145C 餐旅群科務費」，一類一張 A4。下面先填好再按列印。</div>' +
+      '<div class="muted small">食材、器材一類一張 A4。下面先填好再按列印：<b>業務計劃、工作計劃、用途科別</b>每次自己填（<b style="color:var(--bad)">*</b> 必填），點格子會跳出以前填過的。</div>' +
       (Math.abs(sum - d.amount) >= 1 ? '<div class="msg warn">銷貨單合計 $' + money(r2(sum)) + '，跟這筆核銷的發票合計 $' + money(d.amount) + ' 不一樣，請確認（例如有些送貨沒填銷貨單金額）。</div>' : '') +
       '<div class="row" style="margin-top:6px"><label class="small">填單日期 <input type="date" id="rqFill" value="' + esc(rq.fill) + '" style="width:auto"></label><label class="small">需用日期 <input type="date" id="rqNeed" value="' + esc(rq.need) + '" style="width:auto"></label>' +
       '<label class="small">處（室）<input id="rqDept" value="' + esc(rq.dept) + '" style="width:120px"></label></div>' +
@@ -2284,13 +2284,31 @@
         return '<div class="row" style="margin-top:6px"><b style="min-width:70px">' + (k === '食材' ? '🥬 食材' : '🔧 器材') + '</b><span class="small">$' + money(d.kinds[k].amount) + '</span>' +
           '<label class="small">憑證編號 第<input data-rq="' + k + '" data-f="no" value="' + esc(st.no) + '" placeholder="例如 1-29" style="width:90px">號</label>' +
           (k === '食材' ? '<label class="small">品名 <input data-rq="' + k + '" data-f="name" value="' + esc(st.name) + '" style="width:160px"></label>' : '<span class="small muted">品名逐項列（' + d.kinds[k].items.length + ' 項）</span>') +
-          '<label class="small">用途說明 <input data-rq="' + k + '" data-f="desc" value="' + esc(st.desc) + '" style="width:140px"></label></div>';
+          '<label class="small">用途說明 <input data-rq="' + k + '" data-f="desc" value="' + esc(st.desc) + '" style="width:140px"></label></div>' +
+          '<div class="row" style="margin:2px 0 0 70px">' + RQ_REQ.map(function (q) {
+            return '<label class="small">' + q[1] + ' <b style="color:var(--bad)">*</b> <input data-rq="' + k + '" data-f="' + q[0] + '" list="rqL' + q[0] + '" value="' + esc(st[q[0]]) + '" placeholder="必填" style="width:' + q[2] + 'px' + (st[q[0]].trim() ? '' : ';border-color:var(--bad)') + '"></label>';
+          }).join('') + '</div>';
       }).join('') +
+      RQ_REQ.map(function (q) { return '<datalist id="rqL' + q[0] + '">' + rqHist(q[0]).map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>'; }).join('') +
       '<div class="row" style="margin-top:8px"><button type="button" class="btn" id="rqPrint">🖨 列印</button></div></div>';
     $('hxBox').innerHTML = ctl + '<div id="rqPages">' + rq.kinds.map(rqPage).join('') + '</div>';
   }
+  // 黏貼憑證的業務計劃、工作計劃、用途科別：每次自己填（必填），打過的會出現在選單裡
+  var RQ_REQ = [['code', '業務計劃', 200], ['plan', '工作計劃', 140], ['use', '用途科別', 120]];
+  function rqHist(f) {
+    var h = []; try { h = JSON.parse(localStorage.getItem('rcvRqHist') || '{}')[f] || []; } catch (e) {}
+    ['食材', '器材'].forEach(function (k) { if (h.indexOf(RQ_FORM[k][f]) < 0) h.push(RQ_FORM[k][f]); });
+    return h;
+  }
+  function rqHistSave() {
+    try {
+      var all = JSON.parse(localStorage.getItem('rcvRqHist') || '{}');
+      RQ_REQ.forEach(function (q) { rq.kinds.forEach(function (k) { var v = rq.set[k][q[0]].trim(), a = (all[q[0]] || []).filter(function (x) { return x !== v; }); a.unshift(v); all[q[0]] = a.slice(0, 15); }); });
+      localStorage.setItem('rcvRqHist', JSON.stringify(all));
+    } catch (e) {}
+  }
   function rqPage(k) {
-    var d = rq.data, f = RQ_FORM[k], st = rq.set[k], amt = Math.round(d.kinds[k].amount), fd = rocParts(rq.fill), nd = rocParts(rq.need);
+    var d = rq.data, st = rq.set[k], amt = Math.round(d.kinds[k].amount), fd = rocParts(rq.fill), nd = rocParts(rq.need);
     var digits = ('000000000' + amt).slice(-9).split('');
     var rows = k === '食材' ? [{ name: st.name, spec: '', unit: '批', qty: '1', price: '', total: amt }]
       : d.kinds[k].items.filter(function (x) { return x.amount; }).map(function (x) { return { name: x.name, spec: '', unit: x.unit, qty: x.qty ? fmtN(x.qty) : '', price: x.qty ? fmtN(r2(x.amount / x.qty)) : '', total: x.amount }; });
@@ -2300,7 +2318,7 @@
       '<div class="rqline">' + fd[0] + ' 年 ' + fd[1] + ' 月 ' + fd[2] + ' 日（付款憑單、支出傳票）第　　　號　　憑證共　　張</div>' +
       '<table class="rqt"><tr><th rowspan="2" style="width:13%">憑證編號</th><th rowspan="2" style="width:30%">預　算　科　目</th><th colspan="9">金　　　額</th><th rowspan="2">用　途　說　明</th></tr>' +
       '<tr>' + ['億', '千萬', '百萬', '十萬', '萬', '千', '百', '十', '元'].map(function (x) { return '<th class="dg">' + x + '</th>'; }).join('') + '</tr>' +
-      '<tr style="height:90px"><td>第 ' + esc(st.no) + ' 號</td><td style="text-align:left;line-height:1.9">業務計劃：' + esc(f.code) + '<br>工作計劃：' + esc(f.plan) + '<br>用途科別：' + esc(f.use) + '</td>' +
+      '<tr style="height:90px"><td>第 ' + esc(st.no) + ' 號</td><td style="text-align:left;line-height:1.9">業務計劃：' + esc(st.code) + '<br>工作計劃：' + esc(st.plan) + '<br>用途科別：' + esc(st.use) + '</td>' +
       digits.map(function (x) { return '<td class="dg">' + x + '</td>'; }).join('') + '<td>' + esc(st.desc) + '</td></tr></table>' +
       '<table class="rqt rqsign"><tr><th>經辦單位</th><th>驗收或證明</th><th>會 計 室</th><th>校　　長</th></tr>' +
       '<tr><td>經手人</td><td>財物登記</td><td>審核</td><td rowspan="3"></td></tr><tr><td>組長</td><td>保管</td><td>主任</td></tr><tr><td>主任</td><td></td><td></td></tr></table>' +
@@ -2311,7 +2329,7 @@
       rows.map(function (r, i) { return '<tr>' + cell(r.name) + cell(r.spec) + cell(r.unit) + cell(r.qty) + cell(r.price === '' ? '' : r.price) + '<td style="text-align:right">' + (r.total === '' ? '' : money(r.total)) + '</td>' + (i === 0 ? '<td rowspan="' + rows.length + '">' + esc(st.desc) + '</td>' : '') + '</tr>'; }).join('') +
       '<tr><th>合　　計</th><td colspan="4"></td><td style="text-align:right"><b>' + money(amt) + '</b></td><td></td></tr></table>' +
       '<table class="rqt rqsign"><tr><th>請購單位</th><th>經辦單位</th><th>會 計 室</th><th>校　　長</th></tr>' +
-      '<tr><td>請購人</td><td>經手人</td><td>審核</td><td rowspan="3"></td></tr><tr><td>單位主管</td><td>組長</td><td>主任</td></tr><tr><td>經費來源 ' + esc(f.code) + '</td><td>主任</td><td></td></tr></table></div>';
+      '<tr><td>請購人</td><td>經手人</td><td>審核</td><td rowspan="3"></td></tr><tr><td>單位主管</td><td>組長</td><td>主任</td></tr><tr><td>經費來源 ' + esc(st.code) + '</td><td>主任</td><td></td></tr></table></div>';
   }
   function fmtN(n) { return String(Math.round(Number(n) * 100) / 100); }
   $('hxBox').addEventListener('click', function (e) {
@@ -2319,6 +2337,14 @@
     if (b) { hxPrintOpen(b.getAttribute('data-hxprint')); return; }
     if (t.id === 'rqBack') { rq = null; hxOpen('list'); return; }
     if (t.id === 'rqPrint') {
+      var miss = [];
+      rq.kinds.forEach(function (k) { RQ_REQ.forEach(function (q) { if (!rq.set[k][q[0]].trim()) miss.push({ k: k, f: q[0], label: k + '「' + q[1] + '」' }); }); });
+      if (miss.length) {
+        msg('hxMsg', 'error', '請先填：' + miss.map(function (m) { return m.label; }).join('、') + '（必填）');
+        var el = document.querySelector('[data-rq="' + miss[0].k + '"][data-f="' + miss[0].f + '"]'); if (el) el.focus();
+        window.scrollTo(0, 0); return;
+      }
+      msg('hxMsg', '', ''); rqHistSave();
       var ps = document.createElement('style'); ps.textContent = '@page { size: A4; margin: 0; }'; document.head.appendChild(ps);
       window.print();
       setTimeout(function () { ps.remove(); }, 1000);
@@ -2327,7 +2353,7 @@
   $('hxBox').addEventListener('input', function (e) {
     var t = e.target;
     if (!rq || !$('rqPages')) return;
-    if (t.hasAttribute('data-rq')) rq.set[t.getAttribute('data-rq')][t.getAttribute('data-f')] = t.value;
+    if (t.hasAttribute('data-rq')) { rq.set[t.getAttribute('data-rq')][t.getAttribute('data-f')] = t.value; if (RQ_REQ.some(function (q) { return q[0] === t.getAttribute('data-f'); })) t.style.borderColor = t.value.trim() ? '' : 'var(--bad)'; }
     else if (t.id === 'rqFill') rq.fill = t.value; else if (t.id === 'rqNeed') rq.need = t.value; else if (t.id === 'rqDept') rq.dept = t.value; else return;
     $('rqPages').innerHTML = rq.kinds.map(rqPage).join('');
   });
