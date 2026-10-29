@@ -118,20 +118,28 @@
   @media print { header, .hxtabs, .noprint { display: none !important; } }
   @media print { body.pmon #vCheck > .panel, body.pmon #listMsg, body.pmon #doneMsg, body.pmon #cards > :not(.panel), body.pmon #cards > .panel > :not(#slMonth) { display: none !important; } body.pmon #cards { display: block; } }
   @media print { #vHx > .panel:first-child { display: none !important; } }
-  /* 請購單＋黏貼憑證（A4） */
-  .rqpage { background: #fff; color: #000; max-width: 190mm; margin: 12px auto; padding: 8mm; border: 1px solid #ccc; font-size: 16px; }
-  .rqpage .rqh1 { text-align: center; font-size: 23px; font-weight: 700; }
-  .rqpage .rqtop { display: flex; justify-content: center; position: relative; margin-top: 2px; }
-  .rqpage .rqh2 { font-size: 27px; font-weight: 700; letter-spacing: 2px; }
-  .rqpage .rqpaid { position: absolute; right: 0; top: -14px; border: 1px solid #000; padding: 2px 8px; font-size: 13px; text-align: center; }
-  .rqpage .rqline { margin: 8px 0 6px; }
-  .rqpage table.rqt { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  .rqpage .rqt th, .rqpage .rqt td { border: 1px solid #000; padding: 4px 4px; text-align: center; font-size: 15px; height: 24px; }
-  .rqpage .rqt .dg { width: 4.2%; font-size: 15px; }
-  .rqpage .rqsign td { height: 32px; text-align: left; vertical-align: top; }
-  .rqpage .rqpaste { border: 1px dashed #000; text-align: center; padding: 30px 0 34px; margin-top: 6px; letter-spacing: 2px; font-size: 18px; }
+  /* 請購單＋黏貼憑證（A4，照學校 Excel 範本 21457／2145C 的版面） */
+  .rqpage { background: #fff; color: #000; width: 186mm; max-width: 100%; margin: 12px auto; padding: 8mm; border: 1px solid #ccc; font-size: 13pt; box-sizing: content-box; }
+  .rqpage .rqhead { position: relative; text-align: center; }
+  .rqpage .rqh1 { font-size: 21pt; text-decoration: underline; text-underline-offset: 4px; }
+  .rqpage .rqh2 { font-size: 25pt; letter-spacing: 6px; text-decoration: underline; text-underline-offset: 5px; }
+  .rqpage .rqpaid { position: absolute; right: 0; top: 4px; border: 1.5px solid #000; width: 42mm; text-align: left; font-size: 12pt; }
+  .rqpage .rqpaid div { padding: 1px 6px; } .rqpage .rqpaid div + div { text-align: right; } .rqpage .rqpaid div:last-child { border-top: 1px solid #000; height: 22px; }
+  .rqpage .rqline { margin: 8px 0 4px; display: flex; gap: 0; white-space: nowrap; }
+  .rqpage .rqline span { display: inline-block; text-align: center; }
+  .rqpage table.rqt { width: 100%; border-collapse: collapse; table-layout: fixed; border: 2px solid #000; }
+  .rqpage .rqt td { border: 1px solid #000; padding: 2px 3px; text-align: center; vertical-align: middle; height: 28px; overflow: hidden; }
+  .rqpage .rqt td.nb { border-top: 0; border-bottom: 0; } .rqpage .rqt td.l { text-align: left; } .rqpage .rqt td.r { text-align: right; padding-right: 6px; }
+  .rqpage .rqt .dgh { font-size: 9.5pt; height: 22px; white-space: nowrap; padding: 0; } .rqpage .rqt .dg { vertical-align: bottom; padding-bottom: 4px; }
+  .rqpage .rqt td.ul { border-left: 0; border-right: 0; border-top: 0; } .rqpage .rqt td.ul2 { border-left: 0; border-right: 0; border-top: 0; border-bottom: 1px solid #000; }
+  .rqpage .rqt td.lb { border-right: 0; border-top: 0; border-bottom: 0; text-align: left; padding-left: 6px; white-space: nowrap; }
+  .rqpage .rqt tr.h td { height: 22px; } .rqpage .rqt tr.half { height: 19px; } .rqpage .rqt tr.half td { height: auto; } .rqpage .rqt td.k { white-space: nowrap; font-size: 12pt; }
+  .rqpage .rqpaste { text-align: center; margin: 6px 0 4px; letter-spacing: 1px; white-space: nowrap; overflow: hidden; }
+  .rqpage .rqh3 { display: flex; align-items: baseline; margin-top: 6px; }
+  .rqpage .rqh3 .dep { width: 33%; text-align: center; } .rqpage .rqh3 .t { font-size: 21pt; letter-spacing: 3px; text-decoration: underline; text-underline-offset: 4px; }
+  .rqpage .rqi td { height: 35px; } .rqpage .rqb td { height: 32px; }
   /* 印請購單時紙張邊界設 0（按列印時才加，見 rqPrint），瀏覽器就不會印頁首（日期、標題）和頁尾（網址）；邊界改由內距留 */
-  @media print { .rqpage { border: 0; margin: 0 auto; padding: 10mm 12mm; max-width: none; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
+  @media print { .rqpage { border: 0; margin: 0 auto; padding: 10mm 12mm; max-width: none; width: auto; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #rLogin .panel { width: min(380px, 100%); }
   #rLogin input { width: 100%; font-size: 18px; padding: 10px; margin: 4px 0 10px; box-sizing: border-box; }
@@ -2313,23 +2321,50 @@
     var rows = k === '食材' ? [{ name: st.name, spec: '', unit: '批', qty: '1', price: '', total: amt }]
       : d.kinds[k].items.filter(function (x) { return x.amount; }).map(function (x) { return { name: x.name, spec: '', unit: x.unit, qty: x.qty ? fmtN(x.qty) : '', price: x.qty ? fmtN(r2(x.amount / x.qty)) : '', total: x.amount }; });
     while (rows.length < 6) rows.push({ name: '', spec: '', unit: '', qty: '', price: '', total: '' });
-    var cell = function (v) { return '<td>' + esc(v === '' || v === undefined ? '' : String(v)) + '</td>'; };
-    return '<div class="rqpage"><div class="rqh1">高雄市三信家商</div><div class="rqtop"><span class="rqh2">黏 貼 憑 證 用 紙</span><span class="rqpaid">零用金付訖<br>年　 月　 日</span></div>' +
-      '<div class="rqline">' + fd[0] + ' 年 ' + fd[1] + ' 月 ' + fd[2] + ' 日（付款憑單、支出傳票）第　　　號　　憑證共　　張</div>' +
-      '<table class="rqt"><tr><th rowspan="2" style="width:13%">憑證編號</th><th rowspan="2" style="width:30%">預　算　科　目</th><th colspan="9">金　　　額</th><th rowspan="2">用　途　說　明</th></tr>' +
-      '<tr>' + ['億', '千萬', '百萬', '十萬', '萬', '千', '百', '十', '元'].map(function (x) { return '<th class="dg">' + x + '</th>'; }).join('') + '</tr>' +
-      '<tr style="height:90px"><td>第 ' + esc(st.no) + ' 號</td><td style="text-align:left;line-height:1.9">業務計劃：' + esc(st.code) + '<br>工作計劃：' + esc(st.plan) + '<br>用途科別：' + esc(st.use) + '</td>' +
-      digits.map(function (x) { return '<td class="dg">' + x + '</td>'; }).join('') + '<td>' + esc(st.desc) + '</td></tr></table>' +
-      '<table class="rqt rqsign"><tr><th>經辦單位</th><th>驗收或證明</th><th>會 計 室</th><th>校　　長</th></tr>' +
-      '<tr><td>經手人</td><td>財物登記</td><td>審核</td><td rowspan="3"></td></tr><tr><td>組長</td><td>保管</td><td>主任</td></tr><tr><td>主任</td><td></td><td></td></tr></table>' +
-      '<div class="rqpaste">－－－－ 憑　證　黏　貼　處 －－－－<div class="small">（請經手人於憑證黏貼處背面加蓋騎縫章）</div></div>' +
-      '<div class="rqh2" style="text-align:center;margin-top:6px">' + esc(rq.dept) + ' 處（室）　請 購（修）單</div>' +
-      '<div class="rqline">填單日期：' + fd[0] + ' 年 ' + fd[1] + ' 月 ' + fd[2] + ' 日　　　需用日期：' + nd[0] + ' 年 ' + nd[1] + ' 月 ' + nd[2] + ' 日</div>' +
-      '<table class="rqt"><tr><th rowspan="2" style="width:26%">品　　名</th><th rowspan="2" style="width:16%">規　　格</th><th rowspan="2">單位</th><th rowspan="2">數量</th><th colspan="2">估（詢）價</th><th rowspan="2" style="width:16%">用 途 說 明</th></tr><tr><th>單　價</th><th>總　價</th></tr>' +
-      rows.map(function (r, i) { return '<tr>' + cell(r.name) + cell(r.spec) + cell(r.unit) + cell(r.qty) + cell(r.price === '' ? '' : r.price) + '<td style="text-align:right">' + (r.total === '' ? '' : money(r.total)) + '</td>' + (i === 0 ? '<td rowspan="' + rows.length + '">' + esc(st.desc) + '</td>' : '') + '</tr>'; }).join('') +
-      '<tr><th>合　　計</th><td colspan="4"></td><td style="text-align:right"><b>' + money(amt) + '</b></td><td></td></tr></table>' +
-      '<table class="rqt rqsign"><tr><th>請購單位</th><th>經辦單位</th><th>會 計 室</th><th>校　　長</th></tr>' +
-      '<tr><td>請購人</td><td>經手人</td><td>審核</td><td rowspan="3"></td></tr><tr><td>單位主管</td><td>組長</td><td>主任</td></tr><tr><td>經費來源 ' + esc(st.code) + '</td><td>主任</td><td></td></tr></table></div>';
+    var e = function (v) { return esc(v === '' || v === undefined || v === null ? '' : String(v)); };
+    // 自己填的字太長：字縮小、最多兩行，不讓格子撐高（cap＝一行放得下幾個中文字）
+    var fit = function (v, cap) {
+      var t = String(v || ''), u = 0;
+      for (var i = 0; i < t.length; i++) u += /[\x00-\xff]/.test(t[i]) ? 0.55 : 1;
+      if (u <= cap) return e(t);
+      return '<span style="font-size:' + Math.max(8, Math.min(12, Math.floor(13 * cap * 1.6 / u))) + 'pt;line-height:1.1;display:inline-block">' + e(t) + '</span>';
+    };
+    var td = function (v, at) { return '<td' + (at ? ' ' + at : '') + '>' + v + '</td>'; };
+    var col = function (ws) { return '<colgroup>' + ws.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup>'; };
+    // 簽章欄：左兩組（各：名稱＋空白）、會計室（名稱＋空白）、校長；用半格排出跟範本一樣的高低
+    var sign = function (g1, g2, rows3a, rows3b, fund) {
+      return '<table class="rqt" style="margin-top:4px">' + col([11, 14, 11, 14, 9, 18, 23]) +
+        '<tr class="h">' + td(g1, 'colspan="2"') + (g2.head ? td(g2.title, 'rowspan="3"') + td('', 'rowspan="3"') : td(g2.title, 'colspan="2"')) + td('會　計　室', 'colspan="2"') + td('校　　長') + '</tr>' +
+        '<tr class="half">' + td(rows3a[0], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + (g2.head ? '' : td(rows3b[0], 'rowspan="2" class="k"') + td('', 'rowspan="2"')) + td('審核', 'rowspan="3"') + td('', 'rowspan="3"') + td('', 'rowspan="6"') + '</tr>' +
+        '<tr class="half"></tr>' +
+        '<tr class="half">' + td(rows3a[1], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + td(rows3b[1], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + '</tr>' +
+        '<tr class="half">' + td('主任', 'rowspan="3"') + td('', 'rowspan="3"') + '</tr>' +
+        '<tr class="half">' + td(rows3a[2], 'rowspan="2" class="k"') + td(fund || '', 'rowspan="2"') + td(rows3b[2], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + '</tr>' +
+        '<tr class="half"></tr></table>';
+    };
+    return '<div class="rqpage">' +
+      '<div class="rqhead"><div class="rqh1">高雄市三信家商</div><div class="rqh2">黏 貼 憑 證 用 紙</div>' +
+        '<div class="rqpaid"><div>零用金付訖</div><div>年　 月　 日</div><div></div></div></div>' +
+      '<div class="rqline"><span style="width:20%">' + fd[0] + '年 ' + fd[1] + ' 月 ' + fd[2] + '</span><span style="width:36%;text-align:left">日(付款憑單、支出傳票)第</span><span style="width:10%"></span><span style="width:6%">號</span><span style="width:6%"></span><span style="width:10%">憑證共</span><span style="width:6%"></span><span style="width:6%">張</span></div>' +
+      '<table class="rqt">' + col([3.5, 5.5, 3.5, 12.5, 18].concat([4, 4, 4, 4, 4, 4, 4, 4, 4]).concat([21])) +
+        '<tr>' + td('憑證編號', 'colspan="3" rowspan="2"') + td('預　算　科　目', 'colspan="2" rowspan="2"') + td('金　　　額', 'colspan="9" class="dgh"') + td('用　途　說　明', 'rowspan="2"') + '</tr>' +
+        '<tr>' + ['億', '千萬', '百萬', '十萬', '萬', '千', '百', '十', '元'].map(function (x) { return td(x, 'class="dgh"'); }).join('') + '</tr>' +
+        '<tr class="rqb">' + td('第', 'rowspan="3" class="nb" style="border-right:0"') + td(e(st.no), 'rowspan="3" style="border-left:0;border-right:0;font-size:11pt"') + td('號', 'rowspan="3" style="border-left:0"') +
+          td('業務計劃：', 'class="lb"') + td(fit(st.code, 7.5), 'class="ul2"') + digits.map(function (x) { return td(x, 'rowspan="3" class="dg"'); }).join('') + td(e(st.desc), 'rowspan="3"') + '</tr>' +
+        '<tr class="rqb">' + td('工作計劃：', 'class="lb"') + td(fit(st.plan, 7.5), 'class="ul2"') + '</tr>' +
+        '<tr class="rqb">' + td('用途科別：', 'class="lb" style="border-bottom:1px solid #000"') + td(fit(st.use, 7.5), 'class="ul2"') + '</tr></table>' +
+      sign('經辦單位', { title: '驗收或<br>證明', head: true }, ['經手人', '組長', '主任'], ['', '財物登記', '保管']) +
+      '<div class="rqpaste">－－－－－－憑－－－－－證－－－－－黏－－－－－貼－－－－－處－－－－－－</div>' +
+      '<div class="rqh3"><span class="dep">' + e(rq.dept) + '　處(室)</span><span class="t">請 購(修)單</span></div>' +
+      '<div class="rqline"><span style="width:14%">填單日期：</span><span style="width:8%">' + fd[0] + '</span><span style="width:5%">年</span><span style="width:6%">' + fd[1] + '</span><span style="width:5%">月</span><span style="width:6%">' + fd[2] + '</span><span style="width:5%">日</span>' +
+        '<span style="width:14%">需用日期：</span><span style="width:8%">' + nd[0] + '</span><span style="width:5%">年</span><span style="width:6%">' + nd[1] + '</span><span style="width:5%">月</span><span style="width:6%">' + nd[2] + '</span><span style="width:5%">日</span></div>' +
+      '<table class="rqt rqi">' + col([24, 20, 7, 7, 10, 12, 20]) +
+        '<tr class="h">' + td('品　　名', 'rowspan="2"') + td('規　　格', 'rowspan="2"') + td('單位', 'rowspan="2"') + td('數量', 'rowspan="2"') + td('估(詢)價', 'colspan="2"') + td('用　途　說　明', 'rowspan="2"') + '</tr>' +
+        '<tr class="h">' + td('單　價') + td('總　價') + '</tr>' +
+        rows.map(function (r, i) { return '<tr>' + td(e(r.name), 'class="l"') + td(e(r.spec)) + td(e(r.unit)) + td(e(r.qty)) + td(e(r.price), 'class="r"') + td(r.total === '' ? '' : money(r.total), 'class="r"') + td(i === 0 ? e(st.desc) : '') + '</tr>'; }).join('') +
+        '<tr>' + td('合　　計') + td('', 'colspan="4"') + td(money(amt), 'class="r"') + td('') + '</tr></table>' +
+      sign('請 購 單 位', { title: '經 辦 單 位' }, ['請購人', '單位主管', '經費來源'], ['經手人', '組長', '主任'], fit(st.code, 5.5)) +
+      '</div>';
   }
   function fmtN(n) { return String(Math.round(Number(n) * 100) / 100); }
   $('hxBox').addEventListener('click', function (e) {
