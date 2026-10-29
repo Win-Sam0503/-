@@ -15,7 +15,7 @@ const SITE_TITLE = '三信家商餐飲科 進貨驗收';
 const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單照片放在雲端硬碟這個資料夾（每週一個子資料夾）
 const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表', drafts: '驗收暫存' };
 const DRAFT_HEADERS = ['驗收編號', '暫存時間', '內容'];
-const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人'];
+const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人', '沒有銷貨單'];   // 沒有銷貨單：颱風假、停課整張沒送時填原因
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號', '第幾張', '銷貨單日期', '類型'];   // 類型：食材／器材（每張銷貨單選一類）   // 第幾張：照紙本一張一張打的
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
@@ -141,14 +141,50 @@ function weekBatches_(rows, f, checked, prices, recs) {
     const id = checkId_(f, vendor, group);
     const b = { id: id, vendor: vendor, group: group, label: vendor + (group ? '（送貨組別 ' + group + '，星期' + group.split('').join('、') + '）' : ''),
       perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null,
-      totals: nameTotals_(list), prices: prices[vendor] || {}, list: list };
+      prices: prices[vendor] || {}, list: list };
+    // 驗收標成「停送」的（颱風假、停課）：整張停送就不用銷貨單；只停幾天的，填銷貨單時不算那幾項
+    const stop = stoppedLines_(b);
+    b.stopKeys = stop.keys; b.stopAll = stop.all; b.stopNote = stop.note;
+    b.totals = nameTotals_(stop.n ? list.filter(function (r) { return !stop.isStopped(r); }) : list);
     // 銷貨單（照片＋金額）：「銷貨單」分頁存的優先；舊資料是跟驗收一起存的
     const rec = recs && recs[id], c = b.check;
-    b.slip = rec ? { rows: (c && c.slip ? c.slip.rows : null) || slipsFor_(id), total: rec.total, amount: rec.amount, photos: rec.photos, note: rec.note, time: rec.time, by: rec.by }
+    b.slip = rec ? { rows: (c && c.slip ? c.slip.rows : null) || slipsFor_(id), total: rec.total, amount: rec.amount, photos: rec.photos, note: rec.note, time: rec.time, by: rec.by, noSlip: rec.noSlip }
       : c && ((c.slip && c.slip.rows.length) || c.photos.length) ? { rows: c.slip ? c.slip.rows : [], total: c.slip ? c.slip.total : '', amount: c.amount, photos: c.photos, note: '', time: c.time, by: '', legacy: true } : null;
     return b;
   });
   return { from: f, to: t, batches: batches, drafts: Object.keys(drafts).filter(function (v) { return !batches.some(function (b) { return b.vendor === v; }); }) };
+}
+
+/**
+ * 驗收時標成「停送」的品項：對回叫貨單的行（同班同樣食材照順序一行對一行，跟畫面一樣）。
+ * 回傳 { keys: { 行的 key: 原因 }, n, all: 整張都停送, note: 原因, isStopped(叫貨紀錄的一行) }
+ */
+function stoppedLines_(b) {
+  const keys = {}, c = b.check, used = {};
+  if (c) c.lines.forEach(function (l) {
+    const x = b.lines.filter(function (y) { return y.cls === l.cls && y.name === l.name && !used[y.key]; })[0];
+    if (!x) return;
+    used[x.key] = true;
+    if (l.status === '停送') keys[x.key] = l.note || '停送';
+  });
+  const ks = Object.keys(keys), n = ks.length;
+  const sites = {};
+  Object.keys(SITE_VENDORS).forEach(function (v) { sites[v] = SITE_VENDORS[v].site; });
+  const seen = {};   // 照班級點的：key 的編法跟 batchLines_ 一樣（完全一樣的第 2 筆加 #2）
+  const isStopped = function (r) {
+    if (!n) return false;
+    if (b.perClass) {
+      if (r.kind === '合計' || !(r.qty > 0)) return false;
+      const cls = r.kind === '補庫存' ? '補庫存' : r.className || '（沒填班級）';
+      const base = r.date + '|' + cls + '|' + r.teacher + '|' + r.name + '|' + r.unit;
+      const i = seen[base] = (seen[base] || 0) + 1;
+      return keys[i > 1 ? base + '#' + i : base] !== undefined;
+    }
+    // 點總量的：那一樣整週停送
+    const site = sites[r.vendor] || '';
+    return b.lines.some(function (x) { return keys[x.key] !== undefined && x.name === r.name && (!x.cls || x.cls === site); });
+  };
+  return { keys: keys, n: n, all: !!(n && n === b.lines.length), note: n ? keys[ks[0]] : '', isStopped: isStopped };
 }
 
 /** 每樣食材這張叫貨單一共叫多少（同一樣有好幾種單位就不算）：{ 食材名稱: { qty, unit } }，給銷貨單金額「手動填」先帶數量 */
@@ -293,7 +329,7 @@ function readSlipRecs_() {
     const id = String(r['驗收編號']).trim();
     if (id) out[id] = { id: id, date: purchaseDate_(r['送貨日期（起）']), vendor: String(r['廠商'] || '').trim(), group: String(r['送貨組別'] || '').trim(),
       photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), amount: Number(r['銷貨單金額']) || 0,
-      total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']), note: String(r['備註'] || ''), time: fmtDateTime_(r['更新時間']), by: String(r['更新人'] || '') };
+      total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']), note: String(r['備註'] || ''), time: fmtDateTime_(r['更新時間']), by: String(r['更新人'] || ''), noSlip: String(r['沒有銷貨單'] || '').trim() };
   });
   return out;
 }
@@ -316,7 +352,9 @@ function saveSlip_(p) {
       code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice, sheet: Number(x.sheet) || '', date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', kind: x.kind === '器材' ? '器材' : '食材' };
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const sum = Math.round(slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0) * 100) / 100;
-  const total = p.slip ? num_(p.slip.total) : '';
+  const noSlip = clean_(p.noSlip, 50);   // 這次沒有銷貨單（颱風假、停課）：不填金額
+  if (noSlip) slip.length = 0;
+  const total = p.slip && !noSlip ? num_(p.slip.total) : '';
   ensureSheet_(SLIP_REC, SLIP_REC_HEADERS);
   ensureSheet_(SHEET.slip, SLIP_HEADERS);
   const lock = waitLock_();
@@ -325,7 +363,7 @@ function saveSlip_(p) {
     const old = rt.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (old.length) deleteRows_(rt.sheet, old.map(function (r) { return r._row; }));
     appendRows_(SLIP_REC, [{ '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '送貨組別': group, '銷貨單照片': photos.join('\n'),
-      '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '' }]);
+      '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '', '沒有銷貨單': noSlip }]);
     const st = readTable_(SHEET.slip, ['驗收編號']);
     const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
@@ -339,7 +377,7 @@ function saveSlip_(p) {
   } finally {
     lock.releaseLock();
   }
-  return { id: id, amount: slip.length ? sum : total !== '' ? Number(total) : '', rows: slip.length, photos: photos.length };   // 只填合計：金額＝合計
+  return { id: id, amount: slip.length ? sum : total !== '' ? Number(total) : '', rows: slip.length, photos: photos.length, noSlip: noSlip };   // 只填合計：金額＝合計
 }
 
 /**
@@ -352,7 +390,7 @@ function slipMonth_(ym) {
   const start = new Date(Number(m[1]), Number(m[2]) - 1, 1), end = new Date(Number(m[1]), Number(m[2]), 0);
   const ms = dateStr_(start), me = dateStr_(end), first = mondayOf_(start);
   const rows = purchaseRows_(dateStr_(first), dateStr_(addDays_(end, 6))), recs = readSlipRecs_(), prices = readPrices_();
-  const weeks = {}, vendors = {}, missing = [];
+  const weeks = {}, vendors = {}, missing = [], stopped = [];
   for (let d = first; d <= end; d = addDays_(d, 7)) { const k = dateStr_(d); weeks[k] = { from: k, to: dateStr_(addDays_(d, 4)), total: 0, food: 0, gear: 0, byVendor: {} }; }   // 每一週都列（沒有也顯示 $0）
   const add = function (d, vendor, kind, amt) {
     if (!d || d < ms || d > me || !amt) return;
@@ -372,6 +410,7 @@ function slipMonth_(ym) {
       const dates = b.list.map(function (r) { return r.date; }).sort(), d0 = dates[0];
       if (!dates.some(function (x) { return x >= ms && x <= me; })) return;
       if (b.slip && b.slip.amount > 0) addSlip(b.id, b.vendor, d0, b.slip);
+      else if ((b.slip && b.slip.noSlip) || b.stopAll) stopped.push({ id: b.id, vendor: b.vendor, label: b.label, date: d0, note: (b.slip && b.slip.noSlip) || b.stopNote });
       else missing.push({ id: b.id, vendor: b.vendor, label: b.label, date: d0 });
     });
   }
@@ -380,7 +419,7 @@ function slipMonth_(ym) {
   const byVendor = {};
   list.forEach(function (w) { Object.keys(w.byVendor).forEach(function (v) { byVendor[v] = round2_((byVendor[v] || 0) + w.byVendor[v]); }); });
   const sum = function (k) { return round2_(list.reduce(function (n, w) { return n + w[k]; }, 0)); };
-  return { ym: ym, weeks: list, vendors: Object.keys(vendors).sort(), byVendor: byVendor, food: sum('food'), gear: sum('gear'), total: sum('total'), missing: missing };
+  return { ym: ym, weeks: list, vendors: Object.keys(vendors).sort(), byVendor: byVendor, food: sum('food'), gear: sum('gear'), total: sum('total'), missing: missing, stopped: stopped };
 }
 
 /** 刪掉一張臨時銷貨單（叫貨單上的不能刪，只能清空） */
@@ -851,7 +890,11 @@ function getMonth_(vendor, ym) {
         .map(function (l) { return { name: (l.cls ? l.cls + ' ' : '') + l.name, status: l.status, note: l.note, photos: l.photos }; }) : [];
       const lineDate = {};
       b.lines.forEach(function (x) { lineDate[x.cls + '|' + x.name] = x.date || dates[0]; });
-      if (b.slip && whole && b.slip.amount > 0) {
+      const noSlip = !(b.slip && b.slip.amount > 0) && ((b.slip && b.slip.noSlip) || (b.stopAll && b.stopNote));
+      if (noSlip) {
+        // 颱風假、停課整張沒送：沒有銷貨單、不算錢
+        e.stopped = noSlip; e.fromSlip = true;
+      } else if (b.slip && whole && b.slip.amount > 0) {
         // 填了銷貨單金額：照填的（只填合計的沒有品項，列一行合計）
         b.slip.rows.forEach(function (x) {
           e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0, kind: x.kind || '食材' });
@@ -1229,7 +1272,7 @@ function hxCandidates_(vendor, from, to, exceptId) {
   for (let m = new Date(f.getFullYear(), f.getMonth(), 1); m <= t; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
     const ym = Utilities.formatDate(m, tz_(), 'yyyy-MM');
     getMonth_(vendor, ym).entries.forEach(function (e) {
-      if (e.date < dateStr_(f) || e.date > dateStr_(t)) return;
+      if (e.date < dateStr_(f) || e.date > dateStr_(t) || e.stopped) return;   // 停送的沒有錢，不用核銷
       const byCls = {};
       const byKind = {};
       e.items.forEach(function (x) { const k = x.cls || ''; byCls[k] = round2_((byCls[k] || 0) + (Number(x.amount) || 0)); const kd = x.kind || '食材'; byKind[kd] = round2_((byKind[kd] || 0) + (Number(x.amount) || 0)); });

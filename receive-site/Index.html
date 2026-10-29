@@ -238,9 +238,10 @@
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <div><b id="slTitle" style="font-size:20px"></b><div id="slSub" class="muted small"></div></div>
-        <button type="button" class="btn ghost small" id="slBack">← 回列表</button>
+        <span><button type="button" class="btn ghost small" id="slNoSlip" title="颱風假、停課：廠商整張沒送，沒有銷貨單">⛔ 這次沒有銷貨單</button>
+        <button type="button" class="btn ghost small" id="slBack">← 回列表</button></span>
       </div>
-      <div id="slDraftMsg"></div>
+      <div id="slDraftMsg"></div><div id="slStopMsg"></div>
         <div class="row">
           <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
           <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
@@ -463,19 +464,19 @@
   });
   // 本週銷貨單合計（列表上方）
   function slipWeekSum(w) {
-    var tot = 0, food = 0, gear = 0, by = {}, n = 0, done = 0;
+    var tot = 0, food = 0, gear = 0, by = {}, n = 0, done = 0, stopN = 0;
     var addSl = function (vendor, sl) {
       if (!sl || !(sl.amount > 0)) return;
       done++; tot += sl.amount; by[vendor] = (by[vendor] || 0) + sl.amount;
       var g = (sl.rows || []).reduce(function (s0, r) { return s0 + (r.kind === '器材' ? Number(r.amount) || 0 : 0); }, 0);
       gear += g; food += sl.amount - g;
     };
-    w.batches.forEach(function (b) { n++; addSl(b.vendor, b.slip); });
+    w.batches.forEach(function (b) { n++; if (slipStopped(b)) { stopN++; done++; } else addSl(b.vendor, b.slip); });
     (w.extras || []).forEach(function (x) { n++; addSl(x.vendor, x.slip); });
     var ym = w.from.slice(0, 7), ym2 = w.to.slice(0, 7);
     return '<div class="panel" style="grid-column:1/-1;margin:0"><div class="row" style="align-items:baseline"><b style="font-size:18px">本週銷貨單合計 $' + money(r2(tot)) + '</b>' +
       (gear ? '<span class="small">🥬 食材 $' + money(r2(food)) + '　🔧 器材 $' + money(r2(gear)) + '</span>' : '') +
-      '<span class="small muted">已填 ' + done + '／' + n + ' 張</span><span style="flex:1"></span>' +
+      '<span class="small muted">已填 ' + done + '／' + n + ' 張' + (stopN ? '（停送 ' + stopN + ' 張）' : '') + '</span><span style="flex:1"></span>' +
       '<button type="button" class="btn ghost small" data-slmon="' + ym + '">📅 ' + Number(ym.slice(5)) + ' 月合計</button>' +
       (ym2 !== ym ? '<button type="button" class="btn ghost small" data-slmon="' + ym2 + '">📅 ' + Number(ym2.slice(5)) + ' 月合計</button>' : '') + '</div>' +
       (Object.keys(by).length ? '<div class="small muted" style="margin-top:4px">' + Object.keys(by).sort().map(function (v) { return esc(v) + ' $' + money(r2(by[v])); }).join('　') + '</div>' : '') +
@@ -493,6 +494,7 @@
       }).join('') +
       '<tr style="background:#f2f4f7"><td><b>' + mon + ' 月總合計</b></td>' + vs.map(function (v) { return '<td style="text-align:right"><b>$' + money(r.byVendor[v] || 0) + '</b></td>'; }).join('') +
       '<td style="text-align:right"><b>$' + money(r.food) + '</b></td><td style="text-align:right"><b>' + (r.gear ? '$' + money(r.gear) : '—') + '</b></td><td style="text-align:right;font-size:17px"><b>$' + money(r.total) + '</b></td></tr></table></div>' +
+      (r.stopped && r.stopped.length ? '<div class="msg info">⛔ 停送、沒有銷貨單（不算錢）：' + esc(r.stopped.map(function (x) { return md(x.date) + ' ' + x.vendor + '（' + x.note + '）'; }).join('、')) + '</div>' : '') +
       (r.missing.length ? '<div class="msg warn">還有 ' + r.missing.length + ' 張叫貨單沒填銷貨單金額，沒算進去：' + esc(r.missing.map(function (x) { return md(x.date) + ' ' + x.vendor; }).join('、')) + '</div>' : '') + '</div>';
     return html;
   }
@@ -535,10 +537,13 @@
     openSlip({ id: '', extra: true, vendor: v, date: d, group: '', lines: [], totals: {}, prices: {}, slip: null });
   });
   $('cards').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing && (e.target.id === 'slNewV' || e.target.id === 'slNewD')) { e.preventDefault(); $('slNewGo').click(); } });
+  // 這張叫貨單沒有銷貨單的原因（銷貨單頁按「這次沒有銷貨單」，或驗收標「整張停送」）；有填金額就不算
+  function slipStopped(b) { var sl = b.slip; if (sl && sl.amount > 0) return ''; return sl && sl.noSlip || (b.stopAll ? b.stopNote || '停送' : ''); }
   function slipCard(b, i) {
     var sl = b.slip, d = readSlipDraft(b), c = b.check;
-    var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
-    return '<button type="button" class="card' + (sl && sl.amount ? ' done' : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
+    var stop = slipStopped(b);
+    var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
+    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
       (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
       ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span></div></button>';
@@ -569,12 +574,46 @@
     $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
     $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
+    $('slNoSlip').classList.toggle('hidden', !!b.extra || !!(sl && sl.noSlip));
+    slipStopBanner();
     $('slipManual').classList.toggle('hidden', !!b.extra); $('slipQuick').classList.toggle('hidden', !!b.extra);   // 這兩個是對叫貨單品項用的
     $('slipQ').value = '';
     $('slipMsg').textContent = '存起來的單價會進「單價表」，之後算成本用。';
     renderThumbs(); renderSlip();
     show('vSlipDo');
   }
+  // 颱風假、停課：這次沒有銷貨單
+  function slipStopBanner() {
+    var b = cur.b, sl = b.slip, nStop = Object.keys(b.stopKeys || {}).length, h = '';
+    if (sl && sl.noSlip) h = '<div class="msg info">⛔ 已標成<b>這次沒有銷貨單</b>（' + esc(sl.noSlip) + '），不算錢、核銷不會列出來。 <button type="button" class="btn ghost small" id="slNoSlipUndo">改回要填銷貨單</button></div>';
+    else if (b.stopAll && !(sl && sl.amount > 0)) h = '<div class="msg info">⛔ 驗收已經標成<b>整張停送</b>（' + esc(b.stopNote || '停送') + '），不用填銷貨單，不算錢。真的有送貨的話，照常拍照、填金額就好。</div>';
+    else if (nStop) h = '<div class="msg info">⛔ 驗收標成停送的 ' + nStop + ' 項（' + esc(b.stopNote || '停送') + '）不列出、不算進叫貨量。</div>';
+    $('slStopMsg').innerHTML = h;
+  }
+  function saveNoSlip(why) {
+    var b = cur.b;
+    return call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: false, id: b.id || '', date: '', photos: cur.photos, note: $('slNote').value, slip: why ? null : slipToSave(), noSlip: why });
+  }
+  $('slNoSlip').addEventListener('click', function () {
+    var b = cur.b, btn = this;
+    if (uploading(b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再按。'); return; }
+    if (slipHasData() && !window.confirm('這張已經有填金額，標成「這次沒有銷貨單」會清掉填的金額。確定？')) return;
+    var r = window.prompt('這次沒有銷貨單（廠商整張沒送，不算錢）。原因：', b.stopNote || '颱風假');
+    if (r === null) return;
+    btn.disabled = true;
+    saveNoSlip(r.trim() || '停送').then(function () {
+      try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
+      msg('doneMsg', 'ok', b.vendor + ' 已標成這次沒有銷貨單（' + (r.trim() || '停送') + '），不算錢。'); show('vCheck'); loadWeek();
+    }).catch(function (e) { msg('slMsg', 'error', e.message); }).then(function () { btn.disabled = false; });
+  });
+  $('slStopMsg').addEventListener('click', function (e) {
+    if (e.target.id !== 'slNoSlipUndo') return;
+    var btn = e.target; btn.disabled = true;
+    saveNoSlip('').then(function () {
+      cur.b.slip.noSlip = ''; slipStopBanner(); $('slNoSlip').classList.remove('hidden');
+      msg('slMsg', 'ok', '已改回要填銷貨單，可以拍照、填金額了。');
+    }).catch(function (e2) { msg('slMsg', 'error', e2.message); btn.disabled = false; });
+  });
   $('slDraftMsg').addEventListener('click', function (e) {
     if (e.target.id !== 'slDraftDrop') return;
     try { localStorage.removeItem(slipDraftKey(cur.b)); } catch (x) {}
@@ -969,9 +1008,11 @@
   // ---------------- 銷貨單金額（第 2 階段） ----------------
   // cur.slip = { ocr, text, total, rows: { 食材名稱: { slipName, qty, unit, price, amount, sure, partial } }, extras: [{ slipName, qty, unit, price, amount, map }] }
   // extras 的 map：''＝不算、'+'＝另外算（叫貨單沒有，例如運費）
+  // 驗收標成「停送」的行（颱風假、停課）不列、不算
+  function slipLines() { var sk = cur.b.stopKeys || {}; return cur.b.lines.filter(function (x) { return sk[x.key] === undefined; }); }
   function slipNames() {
     var out = [];
-    cur.b.lines.forEach(function (x) { if (out.indexOf(x.name) < 0) out.push(x.name); });
+    slipLines().forEach(function (x) { if (out.indexOf(x.name) < 0) out.push(x.name); });
     return out;
   }
   function slipFromSaved(sv) {
@@ -1058,7 +1099,7 @@
       return;
     }
     var expect = {};
-    cur.b.lines.forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
+    slipLines().forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
     var html = '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th><th></th></tr>';
     slipNames().forEach(function (n) {
       var r = sl.rows[n] || {}, has = r.qty !== undefined && (r.qty !== '' || r.amount !== '');
@@ -1208,7 +1249,7 @@
       var el = document.querySelector('[data-psub="' + i + '"]'); if (el) el.textContent = '$' + money(r2(sub));
     });
     var names = slipNames(), expect = {};
-    cur.b.lines.forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
+    slipLines().forEach(function (x) { (expect[x.name] = expect[x.name] || []).push(x.expect); });
     var miss = names.filter(function (n) { return !by[n]; });
     var html = order.length || miss.length ? '<details style="margin-top:8px"' + (order.length ? ' open' : '') + '><summary style="cursor:pointer"><b>品項合計</b>（同一個品項好幾行會加在一起，跟叫貨量對照）</summary><div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>單上</th><th>金額</th></tr>' +
       order.map(function (n) { var b0 = by[n]; return '<tr><td><b>' + esc(n) + '</b>' + (names.indexOf(n) < 0 && names.length ? ' <span class="badge none">叫貨單沒有</span>' : '') + '</td><td class="small">' + esc((expect[n] || []).join('＋') || '—') + '</td><td class="small">' + esc(b0.q.join('＋') || '—') + (b0.lines > 1 ? '（' + b0.lines + ' 行）' : '') + '</td><td>$' + money(r2(b0.amt)) + '</td></tr>'; }).join('') +
@@ -1410,7 +1451,7 @@
     var n = slipNames().filter(function (x) { return cur.slip.rows[x] && (cur.slip.rows[x].ok || cur.slip.rows[x].merged); }).length;
     $('slipMsg').textContent = n === slipNames().length ? '快速核對：全部 ' + n + ' 項都核對好了（綠色）。' : '快速核對：' + n + '／' + slipNames().length + ' 項已核對（綠色），其他還是預先帶入的金額（淡黃色），請確認。';
   }
-  function qkExpect(n) { return cur.b.lines.filter(function (x) { return x.name === n; }).map(function (x) { return x.expect; }); }
+  function qkExpect(n) { return slipLines().filter(function (x) { return x.name === n; }).map(function (x) { return x.expect; }); }
   function qkRender() {
     var sl = cur.slip, q = $('qkQ').value.trim().toLowerCase(), names = slipNames().slice().sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
     var hit = function (n) { var r = sl.rows[n] || {}; return !q || (n + ' ' + (r.slipName || '')).toLowerCase().indexOf(q) >= 0; };
@@ -1662,7 +1703,7 @@
     r.entries.forEach(function (e, i) {
       sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked && !e.fromSlip) unchecked++; noPrice += e.noPrice.length;
       html += '<tr><td>' + esc(mdw(e.date)) + '</td><td>' + esc(e.label) + ' ' +
-        (e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
+        (e.stopped ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(e.stopped) + '）</span>' : e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
         '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {
           return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">' + (e.fromSlip ? '—' : '沒有單價') + '</span>') +
             '</td><td>' + (x.amount === null ? '—' : '$' + money(x.amount)) + '</td></tr>';
