@@ -319,7 +319,7 @@
   try { rToken = localStorage.getItem('rcvToken') || ''; } catch (e) {}
   // 別人正在存（鎖定逾時）時，自動等 3 秒再試，最多 2 次；這時候伺服器還沒寫任何東西，重試不會重複
   function call(fn) {
-    var args = Array.prototype.slice.call(arguments, 1), tries = 0;
+    var args = Array.prototype.slice.call(arguments, 1), tries = 0, busyTries = 0;
     var once = function () {
       return new Promise(function (resolve, reject) {
         google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
@@ -332,8 +332,8 @@
           return new Promise(function (r) { setTimeout(r, 3000); }).then(once);
         }
         // Google 暫時忙碌（RESOURCE_EXHAUSTED、讀取儲存空間時發生伺服器錯誤、INTERNAL）：等一下自動再試
-        if (/RESOURCE_EXHAUSTED|儲存空間|INTERNAL|伺服器錯誤|server error/i.test(err.message) && tries++ < 2) {
-          return new Promise(function (r) { setTimeout(r, 2500 * tries); }).then(once);
+        if (/RESOURCE_EXHAUSTED|儲存空間|INTERNAL|伺服器錯誤|server error/i.test(err.message) && busyTries++ < 1) {
+          return new Promise(function (r) { setTimeout(r, 2000); }).then(once);
         }
         throw err;
       });

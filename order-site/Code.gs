@@ -5736,7 +5736,8 @@ function retry_(fn) {
       lastErr = e;
       const m = String(e && e.message || e);
       if (!/Service|服務|無法正常運作|timed out|逾時|Internal error|內部錯誤|try again|稍後再試|RESOURCE_EXHAUSTED|儲存空間|storage/i.test(m)) throw e;
-      Utilities.sleep((/RESOURCE_EXHAUSTED|儲存空間|storage/i.test(m) ? 2000 : 800) * (i + 1));
+      if (/RESOURCE_EXHAUSTED|儲存空間|storage/i.test(m) && i >= 1) break;   // Google 忙碌：只再試一次，不要卡很久
+      Utilities.sleep(800 * (i + 1));
     }
   }
   throw new Error('Google 試算表暫時沒有回應，請稍等一下再試一次。（' + (lastErr && lastErr.message) + '）');

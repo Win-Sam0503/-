@@ -1318,7 +1318,7 @@
     var args = arguments, tries = 0;
     var go = function () {
       return call1.apply(null, args).catch(function (e) {
-        if (/RESOURCE_EXHAUSTED|儲存空間時發生伺服器錯誤|INTERNAL/i.test(e.message) && tries++ < 2) return new Promise(function (r) { setTimeout(r, 2500 * tries); }).then(go);
+        if (/RESOURCE_EXHAUSTED|儲存空間時發生伺服器錯誤|INTERNAL/i.test(e.message) && tries++ < 1) return new Promise(function (r) { setTimeout(r, 2000); }).then(go);
         throw e;
       });
     };
