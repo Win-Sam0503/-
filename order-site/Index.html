@@ -4284,12 +4284,25 @@
           sim.map(function (it) {
             return '<button type="button" class="btn secondary small" data-act="map" data-mapid="' + esc(it.id) + '">對應到「' + esc(it.name) + '」<span class="muted small">（' + esc(({ 'E烘焙乾貨': '只跟旺來興', 'E中餐乾貨': '只跟銘哲', 'E乾貨': '兩家都叫' })[it.vendor] || it.vendor) + '）</span></button>';
           }).join('') + '</div><div class="small muted" style="margin-top:4px">都不是才按下面的「核准並加入食材總表」。</div></div>' : '';
+        // 點開看每位老師要多少
+        var uses = p.uses || [], tot = {};
+        uses.forEach(function (u) { var q = Number(u.qty); if (u.qty !== '' && !isNaN(q)) tot[u.unit] = (tot[u.unit] || 0) + q; });
+        var totTxt = Object.keys(tot).map(function (k) { return (Math.round(tot[k] * 100) / 100) + (k || ''); }).join('＋');
+        var useHtml = uses.length ? '<details class="pend-uses" style="margin:6px 0;border:1px solid var(--line,#ddd);border-radius:8px;padding:6px 10px">' +
+          '<summary style="cursor:pointer;font-weight:600">📋 老師需要的數量（' + uses.length + ' 筆' + (totTxt ? '，合計 ' + esc(totTxt) : '') + '）</summary>' +
+          '<div style="overflow-x:auto"><table class="small" style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr style="text-align:left">' +
+          '<th>上課日期</th><th>班級</th><th>老師</th><th>實作項目</th><th style="text-align:right">數量</th><th>備註</th></tr></thead><tbody>' +
+          uses.map(function (u) {
+            return '<tr style="border-top:1px solid var(--line,#eee)"><td>' + esc(u.date) + (u.session ? ' ' + esc(u.session) : '') + '</td><td>' + esc(u.className) + '</td><td>' + esc(u.teacher) +
+              '</td><td>' + esc(u.project) + (u.groups ? '<span class="muted">（' + esc(u.groups) + ' 組）</span>' : '') + '</td><td style="text-align:right;white-space:nowrap"><b>' + esc(u.qty) + '</b> ' + esc(u.unit) +
+              '</td><td>' + esc(u.note) + '</td></tr>';
+          }).join('') + '</tbody></table></div></details>' : '';
         return head + '<div class="pending-card" data-row="' + p.row + '" data-name="' + esc(p.name) + '">' +
           '<div class="head" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>' + esc(p.name) + '</b>' +
           '<span class="muted small">' + esc(p.teacher) + (p.time ? '・' + esc(p.time) : '') + '・' +
             (p.orders > 1 ? '<b style="color:var(--brand)">' + p.orders + ' 張訂單</b>' : '訂單') + ' ' + esc(p.orderNo) +
             (p.lines ? '・訂單裡 ' + p.lines + ' 筆' : '') + '</span></div>' +
-          (p.orders > 1 ? '<div class="msg info" style="margin:6px 0">審核一次，這 ' + p.orders + ' 張訂單裡的「' + esc(p.name) + '」會一起更新。</div>' : '') + simHtml +
+          (p.orders > 1 ? '<div class="msg info" style="margin:6px 0">審核一次，這 ' + p.orders + ' 張訂單裡的「' + esc(p.name) + '」會一起更新。</div>' : '') + useHtml + simHtml +
           '<div class="grid2">' +
             '<div><label>正式名稱</label><input type="text" data-f="name" maxlength="40" value="' + esc(p.name) + '"></div>' +
             '<div><label>廠商' + (dry ? '（乾貨：請確認跟誰叫）' : '') + '</label><select data-f="vendor"' + (dry ? ' style="border-color:var(--warn);border-width:2px"' : '') + '>' + vendorOpts.map(function (v) {

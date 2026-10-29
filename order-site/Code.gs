@@ -2130,7 +2130,7 @@ function adminGetPending(token) {
   auth_(token, true);
   const groups = {}, list = [];
   const g = function (name) {
-    if (!groups[name]) { groups[name] = { name: name, rows: [], teachers: [], orderNos: [], depts: [], lines: 0, time: '', vendor: '', unit: '' }; list.push(groups[name]); }
+    if (!groups[name]) { groups[name] = { name: name, rows: [], teachers: [], orderNos: [], depts: [], uses: [], lines: 0, time: '', vendor: '', unit: '' }; list.push(groups[name]); }
     return groups[name];
   };
   const add = function (arr, v) { if (v && arr.indexOf(v) < 0) arr.push(v); };
@@ -2155,11 +2155,19 @@ function adminGetPending(token) {
     add(x.depts, String(r['科別'] || '').trim());
     add(x.teachers, String(r['代訂對象老師'] || r['操作老師'] || '').trim());
     if (!x.vendor) { x.vendor = String(r['廠商'] || ''); x.unit = String(r['單位'] || ''); }
+    // 每位老師要多少（審核時點開看）
+    x.uses.push({
+      orderNo: String(r['訂單編號']).trim(), teacher: String(r['代訂對象老師'] || r['操作老師'] || '').trim(),
+      date: dateStr_(toDate_(r['使用日期'])), session: String(r['上課時間'] || '').trim(), className: String(r['上課班級'] || '').trim(),
+      project: String(r['實作項目'] || '').trim(), groups: String(r['組數'] || '').trim(),
+      qty: String(r['數量'] === undefined ? '' : r['數量']).trim(), unit: String(r['單位'] || '').trim(), note: String(r['備註'] || '').trim(),
+    });
   });
   return list.map(function (x) {
+    x.uses.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     return {
       row: x.rows[0] || 0, name: x.name, time: x.time, teacher: x.teachers.join('、'), vendor: x.vendor, unit: x.unit,
-      orderNo: x.orderNos.join('、'), orders: x.orderNos.length, lines: x.lines, records: x.rows.length, orphan: !x.rows.length, depts: x.depts,
+      orderNo: x.orderNos.join('、'), orders: x.orderNos.length, lines: x.lines, records: x.rows.length, orphan: !x.rows.length, depts: x.depts, uses: x.uses,
     };
   }).sort(function (a, b) { return a.orphan === b.orphan ? 0 : a.orphan ? 1 : -1; });
 }
