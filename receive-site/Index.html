@@ -119,17 +119,17 @@
   @media print { body.pmon #vCheck > .panel, body.pmon #listMsg, body.pmon #doneMsg, body.pmon #cards > :not(.panel), body.pmon #cards > .panel > :not(#slMonth) { display: none !important; } body.pmon #cards { display: block; } }
   @media print { #vHx > .panel:first-child { display: none !important; } }
   /* 請購單＋黏貼憑證（A4） */
-  .rqpage { background: #fff; color: #000; max-width: 190mm; margin: 12px auto; padding: 8mm; border: 1px solid #ccc; font-size: 13px; }
-  .rqpage .rqh1 { text-align: center; font-size: 18px; font-weight: 700; }
+  .rqpage { background: #fff; color: #000; max-width: 190mm; margin: 12px auto; padding: 8mm; border: 1px solid #ccc; font-size: 16px; }
+  .rqpage .rqh1 { text-align: center; font-size: 23px; font-weight: 700; }
   .rqpage .rqtop { display: flex; justify-content: center; position: relative; margin-top: 2px; }
-  .rqpage .rqh2 { font-size: 20px; font-weight: 700; letter-spacing: 2px; }
-  .rqpage .rqpaid { position: absolute; right: 0; top: -14px; border: 1px solid #000; padding: 2px 8px; font-size: 11px; text-align: center; }
-  .rqpage .rqline { margin: 6px 0 4px; }
+  .rqpage .rqh2 { font-size: 27px; font-weight: 700; letter-spacing: 2px; }
+  .rqpage .rqpaid { position: absolute; right: 0; top: -14px; border: 1px solid #000; padding: 2px 8px; font-size: 13px; text-align: center; }
+  .rqpage .rqline { margin: 8px 0 6px; }
   .rqpage table.rqt { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  .rqpage .rqt th, .rqpage .rqt td { border: 1px solid #000; padding: 4px 3px; text-align: center; font-size: 12px; height: 22px; }
-  .rqpage .rqt .dg { width: 4.2%; font-size: 12px; }
-  .rqpage .rqsign td { height: 30px; text-align: left; vertical-align: top; }
-  .rqpage .rqpaste { border: 1px dashed #000; text-align: center; padding: 30px 0 34px; margin-top: 6px; letter-spacing: 2px; }
+  .rqpage .rqt th, .rqpage .rqt td { border: 1px solid #000; padding: 4px 4px; text-align: center; font-size: 15px; height: 24px; }
+  .rqpage .rqt .dg { width: 4.2%; font-size: 15px; }
+  .rqpage .rqsign td { height: 32px; text-align: left; vertical-align: top; }
+  .rqpage .rqpaste { border: 1px dashed #000; text-align: center; padding: 30px 0 34px; margin-top: 6px; letter-spacing: 2px; font-size: 18px; }
   /* 印請購單時紙張邊界設 0（按列印時才加，見 rqPrint），瀏覽器就不會印頁首（日期、標題）和頁尾（網址）；邊界改由內距留 */
   @media print { .rqpage { border: 0; margin: 0 auto; padding: 10mm 12mm; max-width: none; page-break-after: always; break-after: page; } .rqpage:last-child { page-break-after: auto; } #hxMsg { display: none; } body { background: #fff !important; } }
   #rLogin { position: fixed; inset: 0; z-index: 60; background: var(--bg, #f5f6f8); display: flex; align-items: center; justify-content: center; padding: 16px; }
