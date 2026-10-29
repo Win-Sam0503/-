@@ -1276,7 +1276,7 @@ function hxCandidates_(vendor, from, to, exceptId) {
       const byCls = {};
       const byKind = {};
       e.items.forEach(function (x) { const k = x.cls || ''; byCls[k] = round2_((byCls[k] || 0) + (Number(x.amount) || 0)); const kd = x.kind || '食材'; byKind[kd] = round2_((byKind[kd] || 0) + (Number(x.amount) || 0)); });
-      out.push({ key: e.id + '@' + ym, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated,
+      out.push({ key: e.id + '@' + ym, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated, fromSlip: !!e.fromSlip,
         noPrice: e.noPrice.length, byCls: byCls, byKind: byKind, items: e.items, usedBy: used[e.id + '@' + ym] || '' });
     });
   }

@@ -34,7 +34,8 @@
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
   .card { background: #fff; border: 2px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; text-align: left; font: inherit; color: inherit; }
   .card b { font-size: 19px; }
-  .card.done { border-color: #47cd89; background: #f6fef9; } .card.issue { border-color: #f97066; background: #fff6f5; }
+  .card.done { border-color: #47cd89; background: #f6fef9; }
+  .card.picked { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand) inset; } .card .pk { float: right; font-size: 22px; line-height: 1; } .card.issue { border-color: #f97066; background: #fff6f5; }
   .badge { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 700; }
   .badge.ok { background: var(--okbg); color: var(--ok); } .badge.bad { background: var(--badbg); color: var(--bad); } .badge.none { background: #f2f4f7; color: var(--muted); }
   .grp { margin: 16px 0 6px; font-weight: 700; color: var(--brand); border-bottom: 2px solid var(--brand); padding-bottom: 4px; }
@@ -451,7 +452,7 @@
       $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）。選一張叫貨單開始；不在叫貨單裡的送貨按「＋ 新增銷貨單」。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
       if (listMode === 'slip') {
         if (!w.batches.length) msg('listMsg', 'info', '這週沒有叫貨單；不在叫貨單裡的送貨可以按「＋ 新增銷貨單」。');
-        $('cards').innerHTML = slipWeekSum(w) + '<button type="button" class="card" id="slNew" style="border-style:dashed;text-align:center"><b>＋ 新增銷貨單</b><div class="muted small">不在叫貨單裡的送貨（臨時叫的、外面買的）</div></button>' +
+        $('cards').innerHTML = slipWeekSum(w) + slipPickBar() + '<button type="button" class="card' + (slPick ? ' hidden' : '') + '" id="slNew" style="border-style:dashed;text-align:center"><b>＋ 新增銷貨單</b><div class="muted small">不在叫貨單裡的送貨（臨時叫的、外面買的）</div></button>' +
           w.batches.map(slipCard).join('') + (w.extras || []).map(extraCard).join('');
         return;
       }
@@ -468,6 +469,7 @@
   }
   $('cards').addEventListener('click', function (e) {
     var b = e.target.closest('[data-b]'), x = e.target.closest('[data-xs]');
+    if (slPick && listMode === 'slip' && (b || x)) { slipPickToggle(b ? week.batches[Number(b.getAttribute('data-b'))] : extraBatch(week.extras[Number(x.getAttribute('data-xs'))])); return; }
     if (b) (listMode === 'slip' ? openSlip : openBatch)(week.batches[Number(b.getAttribute('data-b'))]);
     else if (x) openSlip(extraBatch(week.extras[Number(x.getAttribute('data-xs'))]));
     else if (e.target.closest('#slNew')) newSlipForm();
@@ -487,11 +489,47 @@
     return '<div class="panel" style="grid-column:1/-1;margin:0"><div class="row" style="align-items:baseline"><b style="font-size:18px">本週銷貨單合計 $' + money(r2(tot)) + '</b>' +
       (gear ? '<span class="small">🥬 食材 $' + money(r2(food)) + '　🔧 器材 $' + money(r2(gear)) + '</span>' : '') +
       '<span class="small muted">已填 ' + done + '／' + n + ' 張' + (stopN ? '（停送 ' + stopN + ' 張）' : '') + '</span><span style="flex:1"></span>' +
+      '<button type="button" class="btn ghost small" id="slPickOn">☑ 選銷貨單拿去核銷</button>' +
       '<button type="button" class="btn ghost small" data-slmon="' + ym + '">📅 ' + Number(ym.slice(5)) + ' 月合計</button>' +
       (ym2 !== ym ? '<button type="button" class="btn ghost small" data-slmon="' + ym2 + '">📅 ' + Number(ym2.slice(5)) + ' 月合計</button>' : '') + '</div>' +
       (Object.keys(by).length ? '<div class="small muted" style="margin-top:4px">' + Object.keys(by).sort().map(function (v) { return esc(v) + ' $' + money(r2(by[v])); }).join('　') + '</div>' : '') +
       '<div id="slMonth"></div></div>';
   }
+  // ☑ 選銷貨單拿去核銷：勾同一家廠商的幾張銷貨單（可以跨週），按「→ 拿去核銷」開好新增核銷
+  var slPick = null;   // { vendor, ids: { id: { amount, from, to } } }
+  function slipPicked(b) { return !!(slPick && b.id && slPick.ids[b.id]); }
+  function slipPickMark(b) { return slPick && b.slip && b.slip.amount > 0 ? '<span class="pk">' + (slipPicked(b) ? '☑' : '☐') + '</span>' : ''; }
+  function slipPickSum() { var n = 0, a = 0; Object.keys(slPick.ids).forEach(function (k) { n++; a += slPick.ids[k].amount; }); return { n: n, amount: r2(a) }; }
+  function slipPickBar() {
+    if (!slPick) return '';
+    var s = slipPickSum();
+    return '<div class="panel" id="slPickBar" style="grid-column:1/-1;margin:0;border:2px solid var(--brand)"><div class="row" style="align-items:center"><b>☑ 選銷貨單拿去核銷</b>' +
+      '<span>' + (s.n ? esc(slPick.vendor) + '：已選 <b>' + s.n + '</b> 張，合計 <b>$' + money(s.amount) + '</b>' : '點有填金額的銷貨單勾起來（同一家廠商，可以換週再勾）') + '</span><span style="flex:1"></span>' +
+      '<button type="button" class="btn" id="slPickGo"' + (s.n ? '' : ' disabled') + '>→ 拿去核銷</button><button type="button" class="btn ghost small" id="slPickOff">取消</button></div><div id="slPickMsg"></div></div>';
+  }
+  function slipPickToggle(b) {
+    var sl = b.slip;
+    if (!(sl && sl.amount > 0) || !b.id) { msg('slPickMsg', 'warn', b.vendor + ' 這張還沒填銷貨單金額，先填好才能拿去核銷。'); return; }
+    if (slPick.ids[b.id]) delete slPick.ids[b.id];
+    else {
+      if (slPick.vendor && slPick.vendor !== b.vendor && Object.keys(slPick.ids).length) { msg('slPickMsg', 'warn', '一筆核銷只能一家廠商：已經選了 ' + slPick.vendor + '，要換廠商請先取消。'); return; }
+      slPick.vendor = b.vendor;
+      slPick.ids[b.id] = { amount: sl.amount, from: b.extra ? b.date : week.from, to: b.extra ? b.date : week.to };
+    }
+    loadWeek();
+  }
+  $('cards').addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.id === 'slPickOn') { slPick = { vendor: '', ids: {} }; loadWeek(); return; }
+    if (t.id === 'slPickOff') { slPick = null; loadWeek(); return; }
+    if (t.id === 'slPickGo' && slPick) {
+      var ids = Object.keys(slPick.ids), from = '', to = '';
+      ids.forEach(function (k) { var x = slPick.ids[k]; if (!from || x.from < from) from = x.from; if (!to || x.to > to) to = x.to; });
+      hxF = { id: '', vendor: slPick.vendor, mode: 'pick', from: from, to: to, checks: [], note: '', allocs: [], lines: [], extras: [], preIds: ids };
+      slPick = null;
+      show('vHx'); hxOpen('edit');
+    }
+  });
   function slipMonthHtml(r) {
     var mon = Number(r.ym.slice(5)), vs = r.vendors;
     var html = '<div class="slmon"><div class="row" style="justify-content:space-between;margin-top:10px"><h3 style="margin:0">' + esc(r.ym.slice(0, 4)) + ' 年 ' + mon + ' 月　銷貨單金額合計</h3>' +
@@ -522,7 +560,8 @@
   function extraBatch(x) { return { id: x.id, extra: true, vendor: x.vendor, date: x.date, group: '', lines: [], totals: {}, prices: {}, slip: x.slip }; }
   function extraCard(x, i) {
     var sl = x.slip;
-    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + '" data-xs="' + i + '"><b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' +
+    var xb = extraBatch(x);
+    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + (slipPicked(xb) ? ' picked' : '') + '" data-xs="' + i + '">' + slipPickMark(xb) + '<b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' +
       '<div class="muted">' + esc(mdw(x.date)) + ' 送貨・不在叫貨單裡</div><div style="margin-top:6px">' + (sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : '<span class="badge none">還沒填金額</span>') +
       ' <span class="muted small">' + (sl.photos.length ? '照片 ' + sl.photos.length + ' 張' : '') + '</span></div></button>';
   }
@@ -553,7 +592,7 @@
     var sl = b.slip, d = readSlipDraft(b), c = b.check;
     var stop = slipStopped(b);
     var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
-    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
+    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' +
       (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
       ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span></div></button>';
@@ -2119,6 +2158,25 @@
     var box = document.querySelector('[data-hxcp="' + CSS.escape(cat) + '"] .hxcpq'); if (box) box.value = q;
     if (q) hxCodePick(cat);
   });
+  // 從銷貨單拉：新增核銷時，有填銷貨單的送貨自動勾（從銷貨單頁選過來的：勾選的那幾張），發票金額先帶合計
+  function hxAutoPick() {
+    var pre = hxF.preIds, n = 0;
+    delete hxF.preIds;
+    if (hxF.id || hxF.mode === 'range' || (!pre && hxF.checks.length)) { hxAutoAmt(); return; }
+    hxF.cands.forEach(function (c) {
+      if (c.usedBy || hxF.checks.indexOf(c.key) >= 0) return;
+      if (pre ? pre.indexOf(c.id) >= 0 : c.fromSlip && c.amount > 0) { hxF.checks.push(c.key); n++; }
+    });
+    if (hxF.lines.length === 1 && numv(hxF.lines[0].amount) === null) hxF.autoAmt = true;
+    hxAutoAmt();
+    if (n) msg('hxMsg', 'ok', '已從銷貨單自動勾 ' + n + ' 次送貨' + (hxF.autoAmt ? '，發票金額先帶銷貨單合計（跟發票不一樣直接改）' : '') + '。');
+  }
+  function hxAutoAmt() {
+    if (!hxF.autoAmt || hxF.lines.length !== 1) return;
+    var sum = r2(hxPicked().reduce(function (a, c) { return a + c.amount; }, 0));
+    hxF.lines[0].amount = sum ? String(sum) : '';
+    var el = document.querySelector('[data-hl="amount"][data-i="0"]'); if (el) el.value = hxF.lines[0].amount;
+  }
   function hxPicked() {
     if (!hxF.cands) return [];
     return hxF.cands.filter(function (c) { return hxF.mode === 'range' ? !c.usedBy : hxF.checks.indexOf(c.key) >= 0; });
@@ -2519,6 +2577,7 @@
       t.disabled = true; t.textContent = '讀取中…';
       call('hxCandidates', hxF.vendor, hxF.from, hxF.to, hxF.id || '').then(function (list) {
         hxF.cands = list; msg('hxMsg', '', '');
+        hxAutoPick();
         hxRenderCands(); hxSumUp();
         // 補庫存先帶「餐飲科課費」（那一格還空著才帶）
         hxReadParts();
@@ -2600,11 +2659,11 @@
   });
   $('hxBox').addEventListener('change', function (e) {
     var t = e.target;
-    if (t.name === 'hxMode') { hxF.mode = t.value; hxRenderCands(); hxSumUp(); return; }
+    if (t.name === 'hxMode') { hxF.mode = t.value; hxAutoAmt(); hxRenderCands(); hxSumUp(); return; }
     if (t.hasAttribute('data-hxc')) {
       var k = t.getAttribute('data-hxc'), i = hxF.checks.indexOf(k);
       if (t.checked && i < 0) hxF.checks.push(k); else if (!t.checked && i >= 0) hxF.checks.splice(i, 1);
-      hxRenderCands(); hxSumUp(); return;
+      hxAutoAmt(); hxRenderCands(); hxSumUp(); return;
     }
     if (t.hasAttribute('data-hb')) { (hxF.exBulk = hxF.exBulk || {})[t.getAttribute('data-hb')] = t.value; return; }
     if (t.hasAttribute('data-heck')) { var ex = hxF.extras[Number(t.getAttribute('data-heck'))]; ex.ck = t.checked; t.closest('.hxrow').classList.toggle('ck', t.checked); hxExCount(); return; }
@@ -2628,7 +2687,7 @@
   });
   $('hxBox').addEventListener('input', function (e) {
     var t = e.target;
-    if (t.hasAttribute('data-hl')) { hxF.lines[Number(t.getAttribute('data-i'))][t.getAttribute('data-hl')] = t.value; if (t.getAttribute('data-hl') === 'amount') hxSumUp(); return; }
+    if (t.hasAttribute('data-hl')) { hxF.lines[Number(t.getAttribute('data-i'))][t.getAttribute('data-hl')] = t.value; if (t.getAttribute('data-hl') === 'amount') { hxF.autoAmt = false; hxSumUp(); } return; }
     if (t.hasAttribute('data-hb')) { (hxF.exBulk = hxF.exBulk || {})[t.getAttribute('data-hb')] = t.value; return; }
     if (t.hasAttribute('data-he')) {
       hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value;
