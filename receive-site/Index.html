@@ -1536,6 +1536,12 @@
     }
   }
   var thObs = window.IntersectionObserver ? new IntersectionObserver(function (es) { es.forEach(function (en) { if (en.isIntersecting) { thObs.unobserve(en.target); thQ.push(en.target); } }); thumbPump(); }) : null;
+  // 電腦（滑鼠）上不要 inputmode：Windows 的 Chrome 會照 inputmode 把注音切成英數，跳到品名又要再切回來。手機、平板照樣跳數字鍵盤
+  if (!(window.matchMedia && matchMedia('(pointer: coarse)').matches)) {
+    var noIme = function (root) { Array.prototype.forEach.call((root.querySelectorAll ? root : document).querySelectorAll('[inputmode]'), function (el) { el.removeAttribute('inputmode'); }); if (root.removeAttribute && root.hasAttribute && root.hasAttribute('inputmode')) root.removeAttribute('inputmode'); };
+    noIme(document);
+    new MutationObserver(function (ms) { ms.forEach(function (m) { Array.prototype.forEach.call(m.addedNodes, function (n) { if (n.nodeType === 1) noIme(n); }); }); }).observe(document.body, { childList: true, subtree: true });
+  }
   new MutationObserver(function () {
     Array.prototype.forEach.call(document.querySelectorAll('img[data-thumb]:not([data-tq])'), function (img) { img.setAttribute('data-tq', '1'); if (thObs) thObs.observe(img); else { thQ.push(img); thumbPump(); } });
   }).observe(document.body, { childList: true, subtree: true });
