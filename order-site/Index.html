@@ -470,6 +470,8 @@
     font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
   .lbl { box-sizing: border-box; padding: 2.5mm 3.5mm; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 0.6mm; min-width: 0; }
   .lblpage.lines .lbl { outline: 0.2mm dashed #999; outline-offset: -0.1mm; }
+  .lbl.el { padding-left: calc(3.5mm + var(--safe, 0mm)); } .lbl.er { padding-right: calc(3.5mm + var(--safe, 0mm)); }
+  .lbl.et { padding-top: calc(2.5mm + var(--safe, 0mm)); } .lbl.eb { padding-bottom: calc(2.5mm + var(--safe, 0mm)); }
   .lbl .l1 { display: flex; align-items: baseline; gap: 2mm; white-space: nowrap; }
   .lbl .cls { font-size: calc(var(--lf) * 1.55); font-weight: 900; letter-spacing: 0.5px; }
   .lbl .dep { font-size: calc(var(--lf) * 1.05); font-weight: 700; border: 0.5mm solid #000; padding: 0 1.2mm; line-height: 1.2; }
@@ -5663,7 +5665,7 @@
   function labelPrefs() {
     var p = {};
     try { p = JSON.parse(localStorage.getItem('ckOrder.labels') || '{}') || {}; } catch (e) {}
-    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item',
+    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item', safe: p.safe === undefined || isNaN(Number(p.safe)) ? 4 : Math.max(0, Math.min(10, Number(p.safe))),
       vendors: Array.isArray(p.vendors) ? p.vendors : [] };
   }
   // 貼標選廠商：選的廠商這次有東西才算（都沒有＝全部印）
@@ -5739,14 +5741,19 @@
     for (var p = 0; p < cells.length; p += per) {
       var page = cells.slice(p, p + per);
       while (page.length < per) page.push('<div class="lbl"></div>');
-      html += '<div class="lblpage' + (pf.lines ? ' lines' : '') + '" style="' + style + '">' + page.join('') + '</div>';
+      // 靠紙張四邊的格子字往內縮（印表機邊邊印不到），貼紙格子位置不變
+      page = page.map(function (h, i) {
+        var c = i % L.c, r = Math.floor(i / L.c), e = (c === 0 ? ' el' : '') + (c === L.c - 1 ? ' er' : '') + (r === 0 ? ' et' : '') + (r === L.r - 1 ? ' eb' : '');
+        return e ? h.replace(/^<div class="lbl([^"]*)"/, '<div class="lbl$1' + e + '"') : h;
+      });
+      html += '<div class="lblpage' + (pf.lines ? ' lines' : '') + '" style="' + style + ';--safe:' + pf.safe + 'mm">' + page.join('') + '</div>';
     }
     return html;
   }
   function labelBar() {
     var pf = labelPrefs(), per = LABEL_LAYOUTS[pf.layout].c * LABEL_LAYOUTS[pf.layout].r;
     var html0 = lastSheet && lastSheet.fn === labelSheets ? labelSheets.apply(null, lastSheet.args) : '';
-    var n = (html0.match(/<div class="lbl( multi)?"><div/g) || []).length;   // 有內容的標籤（不算跳過、空白格）
+    var n = (html0.match(/<div class="lbl( multi)?[^"]*"><div/g) || []).length;   // 有內容的標籤（不算跳過、空白格）
     var vs = lastSheet && lastSheet.fn === labelSheets ? labelVendorsOf.apply(null, lastSheet.args) : [], pick = vs.length ? labelPick.apply(null, lastSheet.args) : [];
     return '<div class="noprint panel" style="padding:10px 14px;margin-bottom:10px">' +
       (vs.length > 1 ? '<div class="status-chips" style="margin:0 0 6px;align-items:center"><span class="muted small">廠商（可以選好幾家）：</span>' +
@@ -5760,6 +5767,7 @@
       '<div class="small" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
       '<label class="check" style="margin:0"><input type="checkbox" data-lblines' + (pf.lines ? ' checked' : '') + '> 印虛線框（用一般 A4 紙剪的話打勾）</label>' +
       '<label style="margin:0">前面跳過 <input type="number" min="0" max="' + (per - 1) + '" value="' + (pf.skip % per) + '" data-lblskip style="width:64px;display:inline-block"> 格（上次用剩的標籤紙）</label>' +
+      '<label style="margin:0" title="印表機紙張邊邊大約 3～5 mm 印不到，靠邊的標籤字往內縮">邊邊內縮 <input type="number" min="0" max="10" step="0.5" value="' + pf.safe + '" data-lblsafe style="width:64px;display:inline-block"> mm（字被裁到就加大）</label>' +
       '<span class="muted">共 ' + n + ' 張標籤、' + Math.ceil((n + pf.skip % per) / per) + ' 頁</span></div>' +
       '<div class="muted small" style="margin-top:4px">列印時「邊界」選「無」、「縮放」選「100%／實際大小」，標籤才會對準。先用一般紙印一張疊在標籤紙上對對看。</div></div>';
   }
@@ -5780,6 +5788,7 @@
   });
   $('vendorSheets').addEventListener('change', function (e) {
     if (e.target.matches('[data-lblines]')) { setLabelPrefs({ lines: e.target.checked }); redrawLabels(); }
+    if (e.target.matches('[data-lblsafe]')) { setLabelPrefs({ safe: Math.max(0, Math.min(10, Number(e.target.value) || 0)) }); redrawLabels(); }
     if (e.target.matches('[data-lblskip]')) { setLabelPrefs({ skip: Math.max(0, Math.floor(Number(e.target.value) || 0)) }); redrawLabels(); }
   });
   $('vendorSheets').addEventListener('click', function (e) {
