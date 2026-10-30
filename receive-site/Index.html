@@ -575,7 +575,7 @@
   function extraCard(x, i) {
     var sl = x.slip;
     var xb = extraBatch(x);
-    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + (slipPicked(xb) ? ' picked' : '') + '" data-xs="' + i + '">' + slipPickMark(xb) + '<b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' +
+    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + (slipPicked(xb) ? ' picked' : '') + '" data-xs="' + i + '">' + slipPickMark(xb) + '<b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' + codeTag(sl) +
       '<div class="muted">' + esc(mdw(x.date)) + ' 送貨・不在叫貨單裡</div><div style="margin-top:6px">' + (sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : '<span class="badge none">還沒填金額</span>') +
       ' <span class="muted small">' + (sl.photos.length ? '照片 ' + sl.photos.length + ' 張' : '') + '</span>' +
       invBadge(sl) + '</div></button>';
@@ -603,15 +603,17 @@
   $('cards').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing && (e.target.id === 'slNewV' || e.target.id === 'slNewD')) { e.preventDefault(); $('slNewGo').click(); } });
   // 這張叫貨單沒有銷貨單的原因（銷貨單頁按「這次沒有銷貨單」，或驗收標「整張停送」）；有填金額就不算
   function slipStopped(b) { var sl = b.slip; if (sl && sl.amount > 0) return ''; return sl && sl.noSlip || (b.stopAll ? b.stopNote || '停送' : ''); }
+  // 經費編號放在廠商名稱旁邊，方便核對
+  function codeTag(sl) { return sl && sl.code ? ' <span class="badge" style="background:#e0eaff;color:#1849a9;font-size:15px;vertical-align:3px">📌 ' + esc(sl.code) + '</span>' : ''; }
   function invBadge(sl) {
     var v = sl && sl.invs || [];
-    return (sl && sl.code ? '<div class="small" style="margin-top:4px">📌 ' + esc(sl.code) + '</div>' : '') + (v.length ? '<div class="small" style="margin-top:4px">🧾 ' + v.map(function (x) { return esc(x.no || '（沒填號碼）') + (x.date ? ' ' + esc(md(x.date)) : '') + (v.length > 1 && x.amount !== '' ? ' $' + money(x.amount) : ''); }).join('、') + '</div>' : '');
+    return (v.length ? '<div class="small" style="margin-top:4px">🧾 ' + v.map(function (x) { return esc(x.no || '（沒填號碼）') + (x.date ? ' ' + esc(md(x.date)) : '') + (v.length > 1 && x.amount !== '' ? ' $' + money(x.amount) : ''); }).join('、') + '</div>' : '');
   }
   function slipCard(b, i) {
     var sl = b.slip, d = readSlipDraft(b), c = b.check;
     var stop = slipStopped(b);
     var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
-    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' +
+    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + codeTag(sl) +
       (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
       ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span>' +
