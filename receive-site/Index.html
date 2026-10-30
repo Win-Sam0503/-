@@ -2475,6 +2475,14 @@
       '</div></div>';
   }
   // 一類一定印在同一頁：內容比 A4 可印高度（297－上下內距 16 mm）高就整張等比例縮小（器材項目多的時候）
+  // 不管按「🖨 列印」還是 Ctrl+P：印請購單時紙張邊界都設 0，瀏覽器才不會在最上面印日期時間、標題，最下面印網址
+  var rqPageCss = null;
+  window.addEventListener('beforeprint', function () {
+    if (!$('rqPages') || rqPageCss) return;
+    rqFit();
+    rqPageCss = document.createElement('style'); rqPageCss.textContent = '@page { size: A4; margin: 0; }'; document.head.appendChild(rqPageCss);
+  });
+  window.addEventListener('afterprint', function () { if (rqPageCss) { rqPageCss.remove(); rqPageCss = null; } });
   function rqFit() {
     var max = (297 - 16 - 10) * 96 / 25.4;   // 留 1 公分餘裕，各台印表機算法不同
     Array.prototype.forEach.call(document.querySelectorAll('#rqPages .rqin'), function (el) {
