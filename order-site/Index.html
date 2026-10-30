@@ -2885,6 +2885,7 @@
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
         (opts.admin && o.dup && o.dup.length ? '<span class="badge bad noprint" title="同一位老師、同一天、同一時段、同一班還有：' + esc(o.dup.join('、')) + '">⚠ 可能重複（跟 ' + esc(o.dup.join('、')) + '）</span> ' : '') +
         (opts.admin && o.qtyWarn && o.status !== '已取消' ? '<span class="badge warn noprint" title="跟這項食材以前的訂單比，數量或單位不太一樣，請確認是不是打錯">⚠ 數量要確認 ' + o.qtyWarn + ' 項</span> ' : '') +
+        (opts.admin && fewItems(o) ? '<span class="badge warn noprint" title="這張訂單的食材只有 ' + fewItems(o) + ' 項（' + FEW_ITEMS + ' 項以下），請確認老師是不是漏訂">⚠ 食材數量過少請確認（' + fewItems(o) + ' 項）</span> ' : '') +
         (edits.length ? '<span class="badge edited">已修改 ' + edits.length + ' 次</span> ' : '') + (opts.admin ? printBadge(o) : '') + statusBadge(o.status) + (opts.admin && o.deleted ? ' <span class="badge bad" title="' + esc(o.deleted.by + ' ' + o.deleted.time) + '">老師已刪除</span>' : '') + '</span></div>' +
       '<div class="info">' + esc(info) + '<br>' + esc(who) + '・' + esc(o.orderNo) + '・送出 ' + esc(o.submitted) +
         (opts.admin && o.reviewer ? '・審核：' + esc(o.reviewer) : '') + '</div>' +
@@ -3120,6 +3121,8 @@
   SPECIAL[DUPS] = { label: '⚠ 可能重複', test: function (o) { return !!(o.dup && o.dup.length); } };
   var ODDQTY = '__oddqty';
   SPECIAL[ODDQTY] = { label: '⚠ 數量要確認', test: function (o) { return o.status !== '已取消' && !!o.qtyWarn; } };
+  var FEWITEMS = '__few';
+  SPECIAL[FEWITEMS] = { label: '⚠ 食材數量過少', test: function (o) { return !!fewItems(o); } };
   var RETURNS = '__return';
   SPECIAL[RETURNS] = { label: '🔁 還料單', test: function (o) { return String(o.project || '').indexOf(RETURN_TAG) === 0; } };
   function stLabel(st) { return SPECIAL[st] ? SPECIAL[st].label : st; }
@@ -4461,6 +4464,13 @@
   // 列印請料單
   // ------------------------------------------------------------------
   var TOOL = '器具';
+  // 食材只有 5 項以下的訂單：只在管理者這邊提醒（器具、已取消的品項不算；還料單、取消的訂單不提醒）
+  var FEW_ITEMS = 5;
+  function fewItems(o) {
+    if (!o || o.status === '已取消' || String(o.project || '').indexOf(RETURN_TAG) === 0) return 0;
+    var n = (o.items || []).filter(function (it) { return it.id !== TOOL && it.status !== '已取消'; }).length;
+    return n > 0 && n <= FEW_ITEMS ? n : 0;
+  }
   var lastSubmitted = null;
   var printing = [], printBack = 'viewMine', printScroll = 0;
   function formatOf(o) { return o.dept === '烘焙' ? 'bake' : o.dept === '中餐' || o.dept === '日料' ? 'chinese' : 'teacher'; }
