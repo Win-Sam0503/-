@@ -1399,17 +1399,17 @@
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     r[f] = t.value;
     if (f === 'name') {   // 選了叫貨單／單價表的品項：自動帶單位、上次單價
-      var n = t.value.trim(), lp = (cur.b.prices || {})[n], tt = (cur.b.totals || {})[n];
+      var n = t.value.trim(), lp = (cur.b.prices || {})[n], tt = (cur.b.totals || {})[n], veg = /菜商/.test(cur.b.vendor || '');   // 菜商大部分照斤算
       // 這次已經打過同一樣：跟那一行的單位、單價一樣
       var same = null;
       cur.slip.papers.forEach(function (pp) { pp.rows.forEach(function (y) { if (y !== r && String(y.name || '').trim() === n && String(y.price || '').trim()) same = y; }); });
       if (same) { if (!String(r.unit || '').trim()) { r.unit = same.unit; sib('unit').value = r.unit; } if (!String(r.price || '').trim()) { r.price = same.price; r.pu = same.pu; sib('price').value = r.price; sib('pu').value = r.pu || '斤'; } }
       else if (lp || tt) {
-        if (!String(r.unit || '').trim()) { r.unit = lp ? lp.unit : { '兩': '斤', 'g': '公斤' }[tt.unit] || tt.unit; sib('unit').value = r.unit; }
+        if (!String(r.unit || '').trim()) { r.unit = lp ? lp.unit : veg ? '斤' : { '兩': '斤', 'g': '公斤' }[tt.unit] || tt.unit; sib('unit').value = r.unit; }
         if (!String(r.price || '').trim() && lp) { r.price = String(lp.price); sib('price').value = r.price; }
-      } else if (itemUnit(n) && !String(r.unit || '').trim()) { r.unit = itemUnit(n); sib('unit').value = r.unit; }   // 食材總表的單位
+      } else if ((veg || itemUnit(n)) && n && !String(r.unit || '').trim()) { r.unit = veg ? '斤' : itemUnit(n); sib('unit').value = r.unit; }   // 菜商先帶斤；其他照食材總表的單位
     }
-    if (f === 'qty' && !String(r.unit || '').trim() && /[斤兩]/.test(r.qty)) { r.unit = '斤'; sib('unit').value = '斤'; }
+    if (f === 'qty' && !String(r.unit || '').trim() && (/[斤兩]/.test(r.qty) || (/菜商/.test(cur.b.vendor || '') && String(r.qty).trim()))) { r.unit = '斤'; sib('unit').value = '斤'; }
     sib('pu').style.display = jinRow(r) ? '' : 'none';
     slipCalc(r, f === 'name' ? 'price' : f, sib);
     paperTotals(); saveDraft();
