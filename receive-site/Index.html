@@ -1355,7 +1355,7 @@
             '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"') + '</td><td><button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
         }).join('') + '</table></div><button type="button" class="btn ghost small" data-padd="' + i + '">＋ 加一行</button></div>';
     }).join('');
-    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">Enter：品名 → 數量 → 單價 → 金額 → 下一行（最後一行自動加一行）</span></div>' +
+    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">Enter：品名 → 數量 → 單位 → 單價 → 金額 → 下一行（最後一行自動加一行）</span></div>' +
       '<div id="paperSum"></div>' +
       '<div class="row" style="margin-top:8px"><span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">全部銷貨單合計（選填，用來檢查）</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div><div id="slipHint"></div>';
     $('slipBox').innerHTML = html;
@@ -1427,14 +1427,13 @@
     if (t.id === 'paperFromTotal') { paperMode(); renderSlip(); saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pk')) { sl.papers[Number(t.getAttribute('data-pk'))].kind = t.getAttribute('data-k'); renderPapers(); saveDraft(); return; }
   });
-  // Enter：品名 → 數量 → 單價 → 金額 → 下一行品名（這一張最後一行就自動加一行）
+  // Enter：品名 → 數量 → 單位 → 單價 → 金額 → 下一行品名（這一張最後一行就自動加一行）
   $('slipBox').addEventListener('keydown', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
     if (e.key !== 'Enter' || e.isComposing || !f || f === 'pu') return;
     e.preventDefault();
-    var i = Number(t.getAttribute('data-pi')), j = Number(t.getAttribute('data-pj')), order = ['name', 'qty', 'price', 'amount'], k = order.indexOf(f);
+    var i = Number(t.getAttribute('data-pi')), j = Number(t.getAttribute('data-pj')), order = ['name', 'qty', 'unit', 'price', 'amount'], k = order.indexOf(f);   // 照欄位順序：品名 → 數量 → 單位 → 單價 → 金額
     var go = function (jj, ff) { var x = $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="' + jj + '"][data-pf="' + ff + '"]'); if (x) { x.focus(); try { x.select(); } catch (z) {} } return x; };
-    if (f === 'unit') { go(j, 'price'); return; }
     if (f === 'name' && nameAmtOn()) { go(j, 'amount'); return; }   // 只打品名＋金額
     if (k < order.length - 1) { go(j, order[k + 1]); return; }
     if (!go(j + 1, 'name')) {
@@ -1716,9 +1715,9 @@
     var t = e.target, f = t.getAttribute && t.getAttribute('data-f');
     if (e.key !== 'Enter' || e.isComposing || !f) return;
     e.preventDefault();
-    var order = ['qty', 'price', 'amount'], tr = t.closest('tr');
+    var order = ['qty', 'unit', 'price', 'amount'], tr = t.closest('tr');
     var nextIn = function (row, from) { for (var i = from; i < order.length; i++) { var x = row.querySelector('input[data-f="' + order[i] + '"]'); if (x) return x; } return null; };
-    var nx = f === 'unit' ? nextIn(tr, 1) : nextIn(tr, order.indexOf(f) + 1);
+    var nx = nextIn(tr, order.indexOf(f) + 1);
     for (var r = tr.nextElementSibling; !nx && r; r = r.nextElementSibling) if (r.style.display !== 'none') nx = nextIn(r, 0);
     if (!nx) nx = $('slipTotal');
     if (nx) { nx.focus(); try { nx.select(); } catch (x) {} }
