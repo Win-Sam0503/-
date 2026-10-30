@@ -15,7 +15,7 @@ const SITE_TITLE = '三信家商餐飲科 進貨驗收';
 const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單照片放在雲端硬碟這個資料夾（每週一個子資料夾）
 const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表', drafts: '驗收暫存' };
 const DRAFT_HEADERS = ['驗收編號', '暫存時間', '內容'];
-const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人', '沒有銷貨單', '發票號碼', '發票日期', '發票金額'];   // 一張銷貨單可以有好幾張發票：一行一張   // 沒有銷貨單：颱風假、停課整張沒送時填原因
+const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人', '沒有銷貨單', '發票號碼', '發票日期', '發票金額', '經費編號'];   // 一張銷貨單可以有好幾張發票：一行一張   // 沒有銷貨單：颱風假、停課整張沒送時填原因
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號', '第幾張', '銷貨單日期', '類型'];   // 類型：食材／器材（每張銷貨單選一類）   // 第幾張：照紙本一張一張打的
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
@@ -65,7 +65,7 @@ function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'T
 
 /** 網頁呼叫伺服器一律經過這裡：先檢查登入，再呼叫對應的功能（功能名稱後面有 _，網頁不能直接呼叫） */
 const API_ = {
-  getWeek: function (a) { return getWeek_.apply(null, a); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
+  getWeek: function (a) { return getWeek_.apply(null, a); }, fundCodes: function () { return fundCodes_(); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
   saveSlip: function (a) { return saveSlip_.apply(null, a); }, slipMonth: function (a) { return slipMonth_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
@@ -148,7 +148,7 @@ function weekBatches_(rows, f, checked, prices, recs) {
     b.totals = nameTotals_(stop.n ? list.filter(function (r) { return !stop.isStopped(r); }) : list);
     // 銷貨單（照片＋金額）：「銷貨單」分頁存的優先；舊資料是跟驗收一起存的
     const rec = recs && recs[id], c = b.check;
-    b.slip = rec ? { rows: (c && c.slip ? c.slip.rows : null) || slipsFor_(id), total: rec.total, amount: rec.amount, photos: rec.photos, note: rec.note, time: rec.time, by: rec.by, noSlip: rec.noSlip, invs: rec.invs }
+    b.slip = rec ? { rows: (c && c.slip ? c.slip.rows : null) || slipsFor_(id), total: rec.total, amount: rec.amount, photos: rec.photos, note: rec.note, time: rec.time, by: rec.by, noSlip: rec.noSlip, invs: rec.invs, code: rec.code }
       : c && ((c.slip && c.slip.rows.length) || c.photos.length) ? { rows: c.slip ? c.slip.rows : [], total: c.slip ? c.slip.total : '', amount: c.amount, photos: c.photos, note: '', time: c.time, by: '', legacy: true } : null;
     return b;
   });
@@ -321,6 +321,23 @@ function checkId_(from, vendor, group) { return 'R' + from.replace(/-/g, '') + '
 // 存驗收結果
 // ---------------------------------------------------------------------
 
+/** 經費編號清單（只有編號、課名、金額、類別），給銷貨單選 */
+let FUND_CODES_ = null;
+function fundCodes_() {
+  if (FUND_CODES_) return FUND_CODES_;
+  FUND_CODES_ = !ss_().getSheetByName('經費編號') ? [] : readTable_('經費編號', ['編號']).rows.filter(function (r) { return String(r['編號']).trim(); }).map(function (r) {
+    return { code: String(r['編號']).trim().toUpperCase(), name: String(r['實習課程名稱'] || r['名稱'] || '').trim(), amount: Number(r['金額']) || 0, cat: hxCat_(r['類別']), group: String(r['組別'] || '').trim() };
+  });
+  return FUND_CODES_;
+}
+/** 以前寫在銷貨單備註裡的經費編號（例如「C30051 餅乾製作實務」）：備註裡有經費編號表上的編號就拿來用 */
+function codeInNote_(note) {
+  const m = String(note || '').toUpperCase().match(/[A-Z]\d{5}/g);
+  if (!m) return '';
+  const all = fundCodes_().map(function (c) { return c.code; });
+  return m.filter(function (c) { return all.indexOf(c) >= 0; })[0] || '';
+}
+
 /** 銷貨單紀錄的發票（號碼、日期、金額各一欄，好幾張用換行分開）→ [{ no, date, amount }] */
 function slipInvs_(r) {
   const sp = function (v) { return v instanceof Date ? [dateStr_(v)] : String(v == null ? '' : v).replace(/^'/, '').split(/\n/).map(function (x) { return x.replace(/^'/, '').trim(); }); };
@@ -341,7 +358,7 @@ function readSlipRecs_() {
     if (id) out[id] = { id: id, date: purchaseDate_(r['送貨日期（起）']), vendor: String(r['廠商'] || '').trim(), group: String(r['送貨組別'] || '').trim(),
       photos: String(r['銷貨單照片'] || '').split(/\n+/).filter(Boolean), amount: Number(r['銷貨單金額']) || 0,
       total: r['銷貨單合計'] === '' || r['銷貨單合計'] === undefined ? '' : String(r['銷貨單合計']), note: String(r['備註'] || ''), time: fmtDateTime_(r['更新時間']), by: String(r['更新人'] || ''), noSlip: String(r['沒有銷貨單'] || '').trim(),
-      invs: slipInvs_(r) };
+      invs: slipInvs_(r), code: String(r['經費編號'] || '').trim() || codeInNote_(r['備註']) };
   });
   return out;
 }
@@ -382,7 +399,8 @@ function saveSlip_(p) {
     appendRows_(SLIP_REC, [{ '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '送貨組別': group, '銷貨單照片': photos.join('\n'),
       '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '', '沒有銷貨單': noSlip,
       '發票號碼': invs.length ? "'" + invs.map(function (x) { return x.no; }).join('\n') : '', '發票日期': invs.length ? "'" + invs.map(function (x) { return x.date; }).join('\n') : '',
-      '發票金額': invs.some(function (x) { return x.amount !== ''; }) ? "'" + invs.map(function (x) { return x.amount; }).join('\n') : '' }]);
+      '發票金額': invs.some(function (x) { return x.amount !== ''; }) ? "'" + invs.map(function (x) { return x.amount; }).join('\n') : '',
+      '經費編號': clean_(p.code, 20).toUpperCase() }]);
     const st = readTable_(SHEET.slip, ['驗收編號']);
     const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));
@@ -461,7 +479,7 @@ function deleteSlip_(id) {
 /** 臨時銷貨單（S 開頭），送貨日期在 f～t：[{ id, vendor, date, slip }] */
 function extraSlips_(recs, f, t, vendor) {
   return Object.keys(recs).filter(function (id) { const r = recs[id]; return /^S\d{8}-/.test(id) && r.date >= f && r.date <= t && (!vendor || r.vendor === vendor); })
-    .map(function (id) { const r = recs[id]; return { id: id, vendor: r.vendor, date: r.date, slip: { rows: slipsFor_(id), total: r.total, amount: r.amount, photos: r.photos, note: r.note, time: r.time, by: r.by, invs: r.invs } }; })
+    .map(function (id) { const r = recs[id]; return { id: id, vendor: r.vendor, date: r.date, slip: { rows: slipsFor_(id), total: r.total, amount: r.amount, photos: r.photos, note: r.note, time: r.time, by: r.by, invs: r.invs, code: r.code } }; })
     .sort(function (a, b) { return a.date.localeCompare(b.date) || a.vendor.localeCompare(b.vendor, 'zh-Hant'); });
 }
 
@@ -903,7 +921,7 @@ function getMonth_(vendor, ym) {
       // 點總量的（乾貨、蛋）一週只送一次：照第一天算在哪個月
       if (!b.perClass && dates[0] < ms) return;
       const e = { id: b.id, label: b.label, date: inMonth.map(function (r) { return r.date; }).sort()[0], checked: !!b.check, items: [], amount: 0, estimated: false, noPrice: [],
-        invs: b.slip ? b.slip.invs || [] : [] };
+        invs: b.slip ? b.slip.invs || [] : [], code: b.slip ? b.slip.code || '' : '' };
       // 照片明細：「銷貨單」分頁拍的照片、驗收時有問題品項的照片
       e.photos = b.slip ? (b.slip.photos || []) : [];
       e.itemPhotos = b.check ? (b.check.lines || []).filter(function (l) { return l.photos && l.photos.length; })
@@ -943,7 +961,7 @@ function getMonth_(vendor, ym) {
   // 臨時銷貨單（不在叫貨單裡的送貨）：照填的金額
   extraSlips_(recs, ms, me, vendor).forEach(function (x) {
     out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, fromSlip: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
-      invs: x.slip.invs || [],
+      invs: x.slip.invs || [], code: x.slip.code || '',
       photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材' }; }) });
   });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
@@ -1300,7 +1318,7 @@ function hxCandidates_(vendor, from, to, exceptId) {
       const byCls = {};
       const byKind = {};
       e.items.forEach(function (x) { const k = x.cls || ''; byCls[k] = round2_((byCls[k] || 0) + (Number(x.amount) || 0)); const kd = x.kind || '食材'; byKind[kd] = round2_((byKind[kd] || 0) + (Number(x.amount) || 0)); });
-      out.push({ key: e.id + '@' + ym, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated, fromSlip: !!e.fromSlip, invs: e.invs || [],
+      out.push({ key: e.id + '@' + ym, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated, fromSlip: !!e.fromSlip, invs: e.invs || [], code: e.code || '',
         noPrice: e.noPrice.length, byCls: byCls, byKind: byKind, items: e.items, usedBy: used[e.id + '@' + ym] || '' });
     });
   }
