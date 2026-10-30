@@ -2646,10 +2646,10 @@
         hxF.cands = list; msg('hxMsg', '', '');
         hxAutoPick();
         hxRenderCands(); hxSumUp();
-        // 補庫存先帶「餐飲科課費」（那一格還空著才帶）
+        // 補庫存先帶「餐飲科科費」（那一格還空著才帶）
         hxReadParts();
-        if (hxF._stock && !(hxF.parts['餐飲科課費'] || []).some(function (v) { return String(v).trim(); }) && hx.cats.some(function (c) { return c.name === '餐飲科課費'; })) {
-          hxF.parts['餐飲科課費'] = [String(hxF._stock)]; hxRenderCats(); hxSumUp();
+        if (hxF._stock && !(hxF.parts['餐飲科科費'] || []).some(function (v) { return String(v).trim(); }) && hx.cats.some(function (c) { return c.name === '餐飲科科費'; })) {
+          hxF.parts['餐飲科科費'] = [String(hxF._stock)]; hxRenderCats(); hxSumUp();
         }
       }).catch(function (err) { msg('hxMsg', 'error', err.message); })
         .then(function () { t.disabled = false; t.textContent = '列出送貨'; });
