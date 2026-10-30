@@ -163,6 +163,10 @@
   .order .head b { font-size: 16px; }
   #autoMsg .msg { white-space: pre-line; }
   .lesson-table td { vertical-align: middle; }
+  .ordbtns { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; width: 100%; }
+  .ordbtns + .ordbtns { margin-top: 6px; }
+  .ordbtns .ob-name { font-size: 13px; color: var(--muted); max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px; }
+  .ordbtns .btn { white-space: nowrap; } .ordbtns .ob-gap { visibility: hidden; }
   details.lweek > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   details.lweek > summary::-webkit-details-marker { display: none; }
   details.lweek > summary h2 { margin: 0; } details.lweek > summary .lw-arrow { color: var(--muted); transition: transform .15s; }
@@ -178,6 +182,7 @@
     .lesson-table td.lt-status { grid-row: 1; grid-column: 2; text-align: right; }
     .lesson-table td.lt-course, .lesson-table td.lt-act { grid-column: 1 / -1; }
     .lesson-table td.lt-act .actions { justify-content: flex-start !important; }
+    .lesson-table td.lt-act .ordbtns { justify-content: flex-start; flex-wrap: wrap; } .ordbtns .ob-name { flex-basis: 100%; max-width: none; }
   }
   .file-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   .file-btn { cursor: pointer; margin: 0; }
@@ -7830,9 +7835,13 @@
                 '<button type="button" class="btn secondary small" data-lact="orderlast" title="帶入上次同一堂課的材料和實作項目">⚡ 照上次訂</button><button type="button" class="btn ghost small" data-lact="skip">不用訂貨</button>'
               : x.status === 'skipped' ? '<button type="button" class="btn ghost small" data-lact="unskip">改回要訂貨</button>'
               : (x.orders || []).map(function (o) {
-                return '<button type="button" class="btn ghost small" data-lact="vieworder" data-no="' + esc(o.orderNo) + '">📋 料單' + (many ? '：' + esc(o.project || '') : '') + '</button>' +
-                  '<button type="button" class="btn secondary small" data-lact="editorder" data-no="' + esc(o.orderNo) + '">✏️ 修改' + (many ? '：' + esc(o.project || '') : '') + '</button>' +
-                  (o.status === '已取消' || o.status === '已到貨' || (!data.isAdmin && o.status !== '待處理') ? '' : '<button type="button" class="btn danger small" data-lact="cancelorder" data-no="' + esc(o.orderNo) + '" data-proj="' + esc(o.project || '') + '" data-st="' + esc(o.status || '') + '">✖ 取消訂單' + (many ? '：' + esc(o.project || '') : '') + '</button>');
+                // 一張訂單一行：料單／修改／取消（好幾張時前面標實作項目），不跳行
+                var can = !(o.status === '已取消' || o.status === '已到貨' || (!data.isAdmin && o.status !== '待處理'));
+                return '<div class="ordbtns">' + (many ? '<span class="ob-name" title="' + esc(o.project || '') + '">' + esc(o.project || '（沒填）') + '</span>' : '') +
+                  '<button type="button" class="btn ghost small" data-lact="vieworder" data-no="' + esc(o.orderNo) + '">📋 料單</button>' +
+                  '<button type="button" class="btn secondary small" data-lact="editorder" data-no="' + esc(o.orderNo) + '">✏️ 修改</button>' +
+                  (can ? '<button type="button" class="btn danger small" data-lact="cancelorder" data-no="' + esc(o.orderNo) + '" data-proj="' + esc(o.project || '') + '" data-st="' + esc(o.status || '') + '">✖ 取消訂單</button>'
+                    : '<span class="btn small ob-gap" aria-hidden="true">✖ 取消訂單</span>') + '</div>';
               }).join('');
             return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-source="' + esc(x.source || '') + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
