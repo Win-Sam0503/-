@@ -163,6 +163,13 @@
   .order .head b { font-size: 16px; }
   #autoMsg .msg { white-space: pre-line; }
   .lesson-table td { vertical-align: middle; }
+  details.lweek > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  details.lweek > summary::-webkit-details-marker { display: none; }
+  details.lweek > summary h2 { margin: 0; } details.lweek > summary .lw-arrow { color: var(--muted); transition: transform .15s; }
+  details.lweek[open] > summary .lw-arrow { transform: rotate(90deg); } details.lweek[open] > summary { margin-bottom: 8px; }
+  .unm { border: 1px solid #f5c26b; background: #fffaf0; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .unm-row { padding: 8px 0; border-top: 1px dashed #f0d9a8; } .unm-row:first-of-type { border-top: 0; }
+  .unm-row select { width: auto; max-width: 100%; }
   @media (max-width: 640px) {
     .lesson-table, .lesson-table tbody { display: block; }
     .lesson-table tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -7764,6 +7771,25 @@
         .catch(function (e) { msg('lessonsMsg', 'error', e.message); setBusy(unbind, false); });
     });
   }
+  // ---- 我的課：週可以收合；對不到課表的訂單 ----
+  var lessonOpen = {};   // 使用者自己開／收的週（重新整理後保持）
+  function unmKey(u) { return 'ckOrder.unmOk:' + u.orderNo + '|' + u.date + '|' + u.session + '|' + u.className; }
+  function unmList(r) {
+    return (r.unmatched || []).filter(function (u) { try { return !localStorage.getItem(unmKey(u)); } catch (e) { return true; } });
+  }
+  function unmHtml(um) {
+    if (!um.length) return '';
+    return '<div class="unm"><b>⚠ 這週有 ' + um.length + ' 張訂單對不到你的課</b><div class="muted small">可能是日期、時段或班級填錯。選它其實是哪一堂課，按「對應」；真的沒錯就按「這張沒錯」。</div>' +
+      um.map(function (u) {
+        var why = u.reason === 'time' ? '這天這個時段課表上沒有你的課' : '班級跟課表不一樣';
+        return '<div class="unm-row" data-uno="' + esc(u.orderNo) + '"><div><b>' + esc(shortDate(u.date) + ' ' + u.session) + '</b>　' + esc(u.className || '（沒填班級）') + '「' + esc(u.project || '') + '」 ' + statusBadge(u.status) +
+          '<div class="small" style="color:var(--bad)">' + esc(why) + '</div></div>' +
+          (u.cands.length ? '<div class="actions" style="margin:4px 0 0;justify-content:flex-start"><select data-ucand>' + u.cands.map(function (c, i) {
+            return '<option value="' + i + '">' + esc(shortDate(c.date) + ' ' + c.session + '　' + c.course + (c.className ? '　' + c.className : '') + (c.room ? '・' + c.room : '')) + '</option>';
+          }).join('') + '</select><button type="button" class="btn small" data-uact="fix">對應到這堂課</button><button type="button" class="btn ghost small" data-uact="ok">這張沒錯</button></div>'
+            : '<div class="actions" style="margin:4px 0 0;justify-content:flex-start"><span class="muted small">這週課表上沒有你的課，請聯絡管理者。</span><button type="button" class="btn ghost small" data-uact="ok">這張沒錯</button></div>') + '</div>';
+      }).join('') + '</div>';
+  }
   function renderLessons(r, note) {
     lessonsCache = r;
     setLessonCount(r.nextWeek.todo);
@@ -7774,22 +7800,30 @@
     if (viewingOther()) head = '正在查看「' + lessonAs + '」老師的課。' + head;
     msg('lessonsMsg', nw.todo ? 'info' : 'ok', (note ? note + '　' : '') + head);
     renderLessonLine(r.line);
-    if (!r.lessons.length) {
+    if (!r.lessons.length && !unmList(r).length) {
       $('lessonsList').innerHTML = '<div class="panel muted">接下來 30 天沒有找到你的課。如果有夜間部或其他課，請在下面「我自己新增的課」加上去。</div>';
     } else {
-      var byWeek = {}, weeks = [];
+      var byWeek = {}, weeks = [], unmBy = {};
       r.lessons.forEach(function (x) {
         var d = parseDate(x.date), mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
         var k = isoDate(mon);
         if (!byWeek[k]) { byWeek[k] = []; weeks.push(k); }
         byWeek[k].push(x);
       });
+      // 對不到課表的訂單（日期／時段填錯、班級不一樣）：放在那一週
+      unmList(r).forEach(function (u) { if (!byWeek[u.week]) { byWeek[u.week] = []; weeks.push(u.week); } (unmBy[u.week] = unmBy[u.week] || []).push(u); });
+      weeks.sort();
       var hols = r.holidays || [];
       $('lessonsList').innerHTML = (hols.length ? '<div class="msg warn holiday-note">📅 <b>放假提醒</b>：' + esc(holidayText(hols)) + '。這幾天學校放假，課不用訂貨，也不會提醒你。</div>' : '') + weeks.map(function (k) {
-        var list = byWeek[k], todo = list.filter(function (x) { return x.status === 'todo'; }).length;
+        var list = byWeek[k], todo = list.filter(function (x) { return x.status === 'todo'; }).length, um = unmBy[k] || [];
         var fri = parseDate(k); fri = isoDate(new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 4));
-        return '<div class="panel"><h2>' + esc(shortDate(k) + '～' + shortDate(fri)) + ' <span class="muted small" style="font-weight:normal">' + (todo ? '還有 ' + todo + ' 堂未訂貨' : '都處理好了') + '</span></h2>' +
-          '<div class="tablewrap"><table class="lesson-table"><tbody>' + list.map(function (x) {
+        var open = lessonOpen[k] !== undefined ? lessonOpen[k] : !!(todo || um.length);   // 都處理好的週先收起來
+        return '<details class="panel lweek" data-wk="' + k + '"' + (open ? ' open' : '') + '><summary><span class="lw-arrow">▶</span><h2>' + esc(shortDate(k) + '～' + shortDate(fri)) + '</h2>' +
+          (todo ? '<span class="badge" style="background:#fef0c7;color:#93370d">還有 ' + todo + ' 堂未訂貨</span>' : list.length ? '<span class="badge" style="background:#dcfae6;color:#067647">✓ 都處理好了</span>' : '') +
+          (um.length ? '<span class="badge" style="background:#fee4e2;color:#b42318">⚠ ' + um.length + ' 張訂單對不到課</span>' : '') +
+          '<span class="muted small" style="margin-left:auto">' + list.length + ' 堂課</span></summary>' +
+          unmHtml(um) +
+          (list.length ? '<div class="tablewrap"><table class="lesson-table"><tbody>' + list.map(function (x) {
             var many = (x.orders || []).length > 1;
             var btns = x.status === 'todo'
               ? '<label class="check lpick"><input type="checkbox" data-lpick> 勾選</label><button type="button" class="btn small" data-lact="order">去訂貨</button>' +
@@ -7806,7 +7840,7 @@
                 (x.orders || []).map(function (o) { return '<div class="small" style="margin-top:2px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b> ' + statusBadge(o.status) + '</div>'; }).join('') + '</td>' +
               '<td class="lt-status">' + LESSON_STATUS[x.status] + (x.holiday ? '<div class="small" style="color:var(--muted)">' + esc(x.holiday) + '</div>' : '') + '</td>' +
               '<td class="lt-act"><div class="actions" style="margin:0;justify-content:flex-end">' + btns + '</div></td></tr>';
-          }).join('') + '</tbody></table></div></div>';
+          }).join('') + '</tbody></table></div>' : '') + '</details>';
       }).join('');
     }
     if (r.schoolRows) renderSchoolRows(r);
@@ -8449,6 +8483,36 @@
     $('lpickGo').textContent = n < 2 ? '再勾一堂才能一起訂' : '一起訂貨（同一份材料，' + n + ' 堂）';
   }
   $('lessonsList').addEventListener('change', function (e) { if (e.target.matches('[data-lpick]')) syncPickBar(); });
+  // 記住使用者自己開／收的週（只記點標題的，畫面一開始預設的不算）
+  $('lessonsList').addEventListener('click', function (e) {
+    var sm = e.target.closest('details.lweek > summary');
+    if (sm) lessonOpen[sm.parentNode.getAttribute('data-wk')] = !sm.parentNode.open;
+  });
+  $('lessonsList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-uact]');
+    if (!b) return;
+    var row = b.closest('[data-uno]'), u = (lessonsCache.unmatched || []).filter(function (x) { return x.orderNo === row.getAttribute('data-uno'); })[0];
+    if (!u) return;
+    if (b.getAttribute('data-uact') === 'ok') {
+      try { localStorage.setItem(unmKey(u), '1'); } catch (x) {}
+      renderLessons(lessonsCache, '已標成「這張沒錯」（這台裝置不再提醒）。');
+      return;
+    }
+    var c = u.cands[Number(row.querySelector('[data-ucand]').value)], ch = [];
+    if (c.date !== u.date) ch.push('上課日期：' + shortDate(u.date) + ' → ' + shortDate(c.date));
+    if (c.session !== u.session) ch.push('時段：' + u.session + ' → ' + c.session);
+    if (c.className && c.className !== u.className) ch.push('班級：' + (u.className || '（沒填）') + ' → ' + c.className);
+    if (c.room && c.room !== u.room) ch.push('教室：' + (u.room || '（沒填）') + ' → ' + c.room);
+    if (!ch.length) { msg('lessonsMsg', 'info', '這堂課跟訂單的日期、時段、班級都一樣，不用改。'); return; }
+    ask('', '修正訂單', { noText: '先不要', html: '<div class="info-check"><h3>要把訂單改成這堂課嗎？</h3><div style="margin-bottom:6px"><b>' + esc(u.project || '') + '</b>（' + esc(u.orderNo) + '）</div>' +
+      '<ul style="margin:4px 0 8px 18px;padding:0">' + ch.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' +
+      '<div class="muted small">只改上課資訊，食材和數量不變；管理者會在修改紀錄看到。</div></div>' }).then(function (ok) {
+      if (!ok) return;
+      setBusy(b, true, '修正中…');
+      call('fixOrderLesson', token, u.orderNo, c, lessonAs).then(function () { return loadLessons('已修正：' + ch.join('、') + '。'); })
+        .catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+    });
+  });
   $('lpickClear').addEventListener('click', function () { lessonPicks().forEach(function (c) { c.checked = false; }); syncPickBar(); });
   $('lpickGo').addEventListener('click', function () {
     var xs = lessonPicks().map(function (c) { return lessonOfRow(c.closest('tr')); }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.session < b.session ? -1 : 1); });

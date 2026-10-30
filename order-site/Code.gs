@@ -4644,9 +4644,9 @@ function sessionOf_(classTime) {
 }
 
 /** 每堂課加上 status：ordered（同老師、同一天、同時段有訂單）／skipped（按了不用訂貨）／todo */
-function lessonsWithStatus_(from, to, teacher) {
+function lessonsWithStatus_(from, to, teacher, st0) {
   const lessons = lessonsBetween_(from, to, teacher);
-  const st = lessonStatusMaps_(from, to), have = st.have, skip = st.skip, manual = st.manual;
+  const st = st0 || lessonStatusMaps_(from, to), have = st.have, skip = st.skip, manual = st.manual;
   // 同一位老師同一天同時段有兩堂課時，只要一張訂單（也只算一次）
   const seen = {};
   return lessons.filter(function (x) {
@@ -4683,7 +4683,9 @@ function getMyLessons(token, as) {
   const to = addDays_(today_(), MAX_DAYS_AHEAD);
   const firstWeekEnd = addDays_(from, 4);
   const deadline = addDays_(from, -7 + (lockRule_().wd - 1));
-  const lessons = lessonsWithStatus_(from, to, account).sort(function (a, b) {
+  const wk0 = addDays_(today_(), -((today_().getDay() + 6) % 7));   // 這週一：未對應的訂單從這週開始找（鎖單的這週也算）
+  const st = lessonStatusMaps_(wk0 < from ? wk0 : from, to);
+  const lessons = lessonsWithStatus_(from, to, account, st).sort(function (a, b) {
     return a.date === b.date ? SESSIONS.indexOf(a.session) - SESSIONS.indexOf(b.session) : (a.date < b.date ? -1 : 1);
   });
   const todoNext = lessons.filter(function (x) { return x.status === 'todo' && parseDate_(x.date) <= firstWeekEnd; }).length;
@@ -4697,7 +4699,98 @@ function getMyLessons(token, as) {
     schoolRows: isAdmin_(auth_(token)) ? scheduleRowsOf_(account) : null,
     guojiRows: isAdmin_(auth_(token)) ? guojiRowsOf_(account) : null,
     line: { enabled: !!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN'), bound: !!lineUserOf_(account) },
+    unmatched: unmatchedOrders_(account, wk0 < from ? wk0 : from, to, st),
   };
+}
+
+/** 班級對不對得上：「213/214」和「213」算對得上（拆開來有一樣的） */
+function sameClass_(a, b) {
+  const sp = function (v) { return String(v || '').split(/[\/、,，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean); };
+  const x = sp(a), y = sp(b);
+  if (!x.length || !y.length) return true;   // 沒填班級的不算錯
+  return x.some(function (v) { return y.indexOf(v) >= 0; });
+}
+
+/**
+ * 老師的訂單對不到課表（我的課「未對應」）：reason 'time'＝那天那個時段沒有這位老師的課；'class'＝時間對得到但班級不一樣。
+ * cands：同一週這位老師的課，給老師選「其實是哪一堂」。
+ */
+function unmatchedOrders_(teacher, from, to, st) {
+  const les = lessonsBetween_(from, to, teacher);
+  const weekOf = function (ds) { const d = parseDate_(ds); return dateStr_(addDays_(d, -((d.getDay() + 6) % 7))); };
+  const out = [];
+  st.list.forEach(function (o) {
+    if (o.teacher !== teacher || o.status === '已取消') return;
+    const same = les.filter(function (x) { return x.date === o.date && x.session === o.session; });
+    const reason = !same.length ? 'time' : same.some(function (x) { return sameClass_(x.className, o.className); }) ? '' : 'class';
+    if (!reason) return;
+    const wk = weekOf(o.date);
+    // 時間對不到、但管理者已經在總課表把那週的課手動標成「已叫料」：管理者處理過了，不再列
+    if (reason === 'time' && les.some(function (x) { return weekOf(x.date) === wk && st.manual[teacher + '|' + x.date + '|' + x.session]; })) return;
+    const seen = {};
+    out.push({ orderNo: o.orderNo, date: o.date, session: o.session, classTime: o.classTime, className: o.className, room: o.room, project: o.project, status: o.status,
+      reason: reason, week: wk, locked: isLocked_(parseDate_(o.date)),
+      cands: les.filter(function (x) {
+        const k = x.date + '|' + x.session + '|' + x.className;
+        if (weekOf(x.date) !== wk || seen[k]) return false;
+        return (seen[k] = true);
+      }).map(function (x) { return { date: x.date, session: x.session, course: x.course, className: x.className, room: x.room }; })
+        .sort(function (a, b) { return a.date === b.date ? SESSIONS.indexOf(a.session) - SESSIONS.indexOf(b.session) : (a.date < b.date ? -1 : 1); }) });
+  });
+  return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+}
+
+/**
+ * 老師把訂單對到正確的課：只改上課資訊（日期、星期、時段、班級、教室），食材數量不動；鎖單後也可以（管理者看得到修改紀錄）。
+ * 改日期只能在同一週，而且訂單還沒叫貨（已叫貨的改日期會對不上叫貨單，請管理者處理）。
+ */
+function fixOrderLesson(token, orderNo, lesson, as) {
+  const account = lessonAccount_(token, as);
+  orderNo = clean_(orderNo, 30);
+  lesson = lesson || {};
+  const d = parseDate_(lesson.date), session = String(lesson.session || '').trim();
+  if (!orderNo || !d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
+  // 只能選自己課表上的課
+  const mon = addDays_(d, -((d.getDay() + 6) % 7));
+  const L = lessonsBetween_(d, d, account).filter(function (x) { return x.session === session && String(x.className || '') === String(lesson.className || '') && String(x.room || '') === String(lesson.room || ''); })[0];
+  if (!L) throw new Error('課表上找不到這堂課，請重新整理。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  let before, changes = [];
+  try {
+    const t = readTable_(SHEET.orders, ['訂單編號', '狀態']);
+    const rows = t.rows.filter(function (r) { return String(r['訂單編號']).trim() === orderNo; });
+    if (!rows.length) throw new Error('找不到訂單 ' + orderNo + '。');
+    const r0 = rows[0];
+    if (String(r0['操作老師'] || '').trim() !== account && String(r0['代訂對象老師'] || '').trim() !== account && !isAdmin_(auth_(token))) throw new Error('只能修改自己的訂單。');
+    const active = rows.filter(function (r) { return String(r['狀態']).trim() !== '已取消'; });
+    if (!active.length) throw new Error('這張訂單已取消。');
+    before = groupOrders_(rows, null)[0];
+    const od = toDate_(r0['使用日期']);
+    const set = {};
+    if (!od || dateStr_(od) !== dateStr_(d)) {
+      if (!od || dateStr_(addDays_(od, -((od.getDay() + 6) % 7))) !== dateStr_(mon)) throw new Error('只能對到同一週的課；要換到別週請聯絡管理者。');
+      if (active.some(function (r) { return String(r['狀態']).trim() !== '待處理' && String(r['狀態']).trim() !== '已審核'; })) throw new Error('這張訂單已經叫貨，改日期會對不上叫貨單，請聯絡管理者。');
+      set['使用日期'] = d; set['星期'] = '星期' + WEEKDAY[d.getDay()];
+    }
+    if (sessionOf_(r0['上課時間']) !== session) set['上課時間'] = session;
+    if (String(r0['上課班級'] || '').trim() !== String(L.className || '').trim() && L.className) set['上課班級'] = clean_(L.className, 30);
+    if (String(r0['上課教室'] || '').trim() !== String(L.room || '').trim() && L.room) set['上課教室'] = clean_(L.room, 20);
+    if (!Object.keys(set).length) return { ok: true, changed: false };
+    const vg = set['使用日期'] ? readVendorGroups_() : null;
+    rows.forEach(function (r) {
+      Object.keys(set).forEach(function (k) { if (t.cols[k] !== undefined) setCell_(t, r._row, k, set[k]); });
+      if (set['使用日期'] && t.cols['送貨組別'] !== undefined && String(r['食材ID']).trim() !== TOOL_ID) {
+        setCell_(t, r._row, '送貨組別', deliveryGroup_(groupVendor_(String(r['廠商'] || '').trim()), d.getDay(), vg));
+      }
+      if (set['使用日期'] && t.cols['使用日期'] !== undefined) t.sheet.getRange(r._row, t.cols['使用日期']).setNumberFormat('yyyy-mm-dd');
+    });
+    SpreadsheetApp.flush();
+    try { changes = diffOrders_(before, orderOf_(orderNo)); logOrderEdit_(orderNo, account, changes, '老師在我的課對應課表'); } catch (e) { console.error(e.message); }
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, changed: true, changes: changes };
 }
 
 /** 標記／取消「不用訂貨」：date = yyyy-mm-dd，session = 上午／下午／晚上 */
@@ -5055,7 +5148,8 @@ function lessonStatusMaps_(from, to) {
   const list = [];
   groupOrders_(rows, null).forEach(function (o) {
     if (o.status === '已取消' || isReturn_(o.project)) return;
-    list.push({ teacher: o.onBehalfOf || o.teacher, date: o.useDate, session: sessionOf_(o.classTime), project: o.project, className: o.className, orderNo: o.orderNo });
+    list.push({ teacher: o.onBehalfOf || o.teacher, date: o.useDate, session: sessionOf_(o.classTime), project: o.project, className: o.className, orderNo: o.orderNo,
+      classTime: o.classTime, room: o.room, status: o.status });
     const k = (o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime);
     (have[k] = have[k] || []).push({ orderNo: o.orderNo, project: o.project, status: o.status, className: o.className });
   });
