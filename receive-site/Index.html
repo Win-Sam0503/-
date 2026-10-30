@@ -1076,7 +1076,7 @@
   function slipFromSaved(sv) {
     var sl = { ocr: false, text: '', total: sv.total || '', rows: {}, extras: [] };
     sv.rows.forEach(function (r) {
-      var v = { slipName: r.slipName, qty: isJin(r.unit) && numv(r.qty) !== null ? jinText(r.qty) : r.qty, unit: r.unit, price: r.price, amount: r.amount, sure: true, code: r.code || '' };
+      var v = { slipName: r.slipName, qty: isJin(r.unit) && numv(r.qty) !== null ? jinShow(r.qty) : r.qty, unit: r.unit, price: r.price, amount: r.amount, sure: true, code: r.code || '' };
       if (r.name) sl.rows[r.name] = v; else { v.map = '+'; sl.extras.push(v); }
     });
     if (!sv.rows.length && String(sv.total || '') !== '') sl.totalOnly = true;   // 上次只填合計
@@ -1084,7 +1084,7 @@
     if (sv.rows.length) {
       var pp = [];
       sv.rows.forEach(function (r) {
-        var k = Math.max(0, (Number(r.sheet) || 1) - 1), q = isJin(r.unit) && numv(r.qty) !== null ? jinText(r.qty) : r.qty;
+        var k = Math.max(0, (Number(r.sheet) || 1) - 1), q = isJin(r.unit) && numv(r.qty) !== null ? jinShow(r.qty) : r.qty;
         pp[k] = pp[k] || { date: r.date || '', kind: r.kind || '食材', rows: [] };
         if (!pp[k].date && r.date) pp[k].date = r.date;
         pp[k].rows.push({ name: r.name || r.slipName || '', qty: q, unit: r.unit, price: r.price, amount: r.amount });
@@ -1096,7 +1096,7 @@
   function money(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
   function numv(v) { var s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, ''); return s === '' || isNaN(Number(s)) ? null : Number(s); }
   function r2(n) { return Math.round(n * 100) / 100; }
-  // ---- 斤兩：數量可以打「1斤3兩」「1斤半」「3兩」；單位是斤時「1.3」＝1斤3兩（小數點後面是幾兩，跟菜商寫法一樣）----
+  // ---- 斤兩：數量可以打「1斤3兩」「1斤半」「3兩」；打小數就是小數（1.6 斤 × 200 ＝ 320）----
   function isJin(u) { return /^(台?斤|兩)$/.test(String(u || '').trim()); }
   function jinRow(o) { return isJin(o.unit) || /[斤兩半]/.test(String(o.qty || '')); }
   // 回傳幾斤（小數），看不懂回傳 null
@@ -1107,10 +1107,11 @@
     if ((m = s.match(/^(\d+(?:\.\d+)?)兩$/))) return Number(m[1]) / 16;
     if (isNaN(Number(s))) return null;
     if (String(unit).trim() === '兩') return Number(s) / 16;
-    if (/^台?斤$/.test(String(unit).trim()) && (m = s.match(/^(\d+)\.(\d{1,2})$/)) && Number(m[2]) <= 15) return Number(m[1]) + Number(m[2]) / 16;   // 1.3＝1斤3兩、1.12＝1斤12兩
     return Number(s);
   }
   // 幾斤 → 「1斤3兩」「8兩」「2」（給畫面看，打回來也看得懂）
+  // 存起來的斤數打開時：小數一位以內照原樣（1.6），其他（1.1875）是斤兩換算的，顯示「1斤3兩」
+  function jinShow(q) { var n = numv(q); return n !== null && Math.abs(n * 10 - Math.round(n * 10)) < 1e-6 ? String(n) : jinText(n); }
   function jinText(j) {
     j = Number(j); if (isNaN(j)) return '';
     var jin = Math.floor(j + 1e-9), liang = Math.round((j - jin) * 16 * 100) / 100;
