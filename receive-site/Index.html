@@ -2453,7 +2453,7 @@
     return '<div class="rqpage"><div class="rqin">' +
       '<div class="rqhead"><div class="rqh1">高雄市三信家商</div><div class="rqh2">黏 貼 憑 證 用 紙</div>' +
         '<div class="rqpaid"><div>零用金付訖</div><div>年　 月　 日</div><div></div></div></div>' +
-      '<div class="rqline"><span style="width:20%">' + fd[0] + '年 ' + fd[1] + ' 月 ' + fd[2] + '</span><span style="width:36%;text-align:left">日(付款憑單、支出傳票)第</span><span style="width:10%"></span><span style="width:6%">號</span><span style="width:6%"></span><span style="width:10%">憑證共</span><span style="width:6%"></span><span style="width:6%">張</span></div>' +
+      '<div class="rqline"><span style="width:24%;white-space:pre">' + fd[0] + '年　　 月　　 </span><span style="width:32%;text-align:left">日(付款憑單、支出傳票)第</span><span style="width:10%"></span><span style="width:6%">號</span><span style="width:6%"></span><span style="width:10%">憑證共</span><span style="width:6%"></span><span style="width:6%">張</span></div>' +
       '<table class="rqt">' + col([3.5, 5.5, 3.5, 12.5, 18].concat([4, 4, 4, 4, 4, 4, 4, 4, 4]).concat([21])) +
         '<tr>' + td('憑證編號', 'colspan="3" rowspan="2"') + td('預　算　科　目', 'colspan="2" rowspan="2"') + td('金　　　額', 'colspan="9" class="dgh"') + td('用　途　說　明', 'rowspan="2"') + '</tr>' +
         '<tr>' + ['億', '千萬', '百萬', '十萬', '萬', '千', '百', '十', '元'].map(function (x) { return td(x, 'class="dgh"'); }).join('') + '</tr>' +
