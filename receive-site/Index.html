@@ -271,6 +271,10 @@
           <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
           <div id="slipBox"></div>
         </div>
+        <div class="row" style="margin-top:10px;align-items:center"><b>🧾 發票</b>
+          <label class="small">發票號碼 <input id="slInvNo" maxlength="30" placeholder="例如 AB12345678" autocomplete="off" style="width:150px;text-transform:uppercase"></label>
+          <label class="small">發票日期 <input id="slInvDate" type="date" style="width:auto"></label>
+          <span class="muted small">選填，核銷時自動帶入發票欄</span></div>
         <textarea id="slNote" rows="2" style="width:100%;margin-top:8px" placeholder="銷貨單備註（選填），例如：運費另計、少一張單"></textarea>
       <div id="slMsg"></div>
       <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost small hidden" id="slDel">🗑 刪除這張</button><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
@@ -572,7 +576,8 @@
     var xb = extraBatch(x);
     return '<button type="button" class="card' + (sl.amount ? ' done' : '') + (slipPicked(xb) ? ' picked' : '') + '" data-xs="' + i + '">' + slipPickMark(xb) + '<b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' +
       '<div class="muted">' + esc(mdw(x.date)) + ' 送貨・不在叫貨單裡</div><div style="margin-top:6px">' + (sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : '<span class="badge none">還沒填金額</span>') +
-      ' <span class="muted small">' + (sl.photos.length ? '照片 ' + sl.photos.length + ' 張' : '') + '</span></div></button>';
+      ' <span class="muted small">' + (sl.photos.length ? '照片 ' + sl.photos.length + ' 張' : '') + '</span>' +
+      (sl.invNo ? '<div class="small" style="margin-top:4px">🧾 ' + esc(sl.invNo) + (sl.invDate ? '　' + esc(md(sl.invDate)) : '') + '</div>' : '') + '</div></button>';
   }
   function newSlipForm() {
     var vs = {};
@@ -604,17 +609,18 @@
     return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' +
       (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
-      ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span></div></button>';
+      ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span>' +
+      (sl && sl.invNo ? '<div class="small" style="margin-top:4px">🧾 ' + esc(sl.invNo) + (sl.invDate ? '　' + esc(md(sl.invDate)) : '') + '</div>' : '') + '</div></button>';
   }
 
   // ---------------- 💰 銷貨單：照片＋金額（跟驗收點貨分開） ----------------
   function slipDraftKey(b) { return 'rcvSlip:' + (b.id || 'new-' + b.vendor + '-' + b.date); }
-  function readSlipDraft(b) { try { var d = JSON.parse(localStorage.getItem(slipDraftKey(b)) || 'null'); return d && (d.photos || d.slip || d.note) ? d : null; } catch (e) { return null; } }
+  function readSlipDraft(b) { try { var d = JSON.parse(localStorage.getItem(slipDraftKey(b)) || 'null'); return d && (d.photos || d.slip || d.note || d.invNo || d.invDate) ? d : null; } catch (e) { return null; } }
   function saveSlipDraft() {
     try {
-      if (!cur.photos.length && !cur.slip && !$('slNote').value) { localStorage.removeItem(slipDraftKey(cur.b)); return; }
+      if (!cur.photos.length && !cur.slip && !$('slNote').value && !$('slInvNo').value && !$('slInvDate').value) { localStorage.removeItem(slipDraftKey(cur.b)); return; }
       var t = new Date();
-      localStorage.setItem(slipDraftKey(cur.b), JSON.stringify({ photos: cur.photos, slip: cur.slip, note: $('slNote').value,
+      localStorage.setItem(slipDraftKey(cur.b), JSON.stringify({ photos: cur.photos, slip: cur.slip, note: $('slNote').value, invNo: $('slInvNo').value, invDate: $('slInvDate').value,
         at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
     } catch (e) {}
   }
@@ -628,6 +634,8 @@
       $('slDraftMsg').innerHTML = '<div class="msg info">已恢復這台 ' + esc(d.at) + ' 還沒存的內容，按「💾 儲存銷貨單」才會存。 <button type="button" class="btn ghost small" id="slDraftDrop">清掉、用已存的</button></div>';
     } else $('slDraftMsg').innerHTML = '';
     $('slNote').value = d ? d.note || '' : sl ? sl.note || '' : '';
+    $('slInvNo').value = d && d.invNo !== undefined ? d.invNo : sl ? sl.invNo || '' : '';
+    $('slInvDate').value = d && d.invDate !== undefined ? d.invDate : sl ? sl.invDate || '' : '';
     if (!cur.slip) paperMode();   // 預設：照紙本一張一張打
     $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
     $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
@@ -650,7 +658,7 @@
   }
   function saveNoSlip(why) {
     var b = cur.b;
-    return call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: false, id: b.id || '', date: '', photos: cur.photos, note: $('slNote').value, slip: why ? null : slipToSave(), noSlip: why });
+    return call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: false, id: b.id || '', date: '', photos: cur.photos, note: $('slNote').value, slip: why ? null : slipToSave(), noSlip: why, invNo: $('slInvNo').value.trim(), invDate: $('slInvDate').value });
   }
   $('slNoSlip').addEventListener('click', function () {
     var b = cur.b, btn = this;
@@ -678,6 +686,7 @@
     openSlip(cur.b);
   });
   $('slNote').addEventListener('input', saveDraft);
+  $('slInvNo').addEventListener('input', saveDraft); $('slInvDate').addEventListener('change', saveDraft);
   $('slDel').addEventListener('click', function () {
     var b = cur.b, btn = this;
     if (!b.extra || !b.id || !window.confirm('刪除這張臨時銷貨單（' + b.vendor + ' ' + mdw(b.date) + '）？照片會留在雲端硬碟。')) return;
@@ -695,7 +704,7 @@
     if (uploading(cur.b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再存。'); return; }
     var b = cur.b, btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave() }).then(function (r) {
+    call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave(), invNo: $('slInvNo').value.trim(), invDate: $('slInvDate').value }).then(function (r) {
       try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
       if (b.extra) b.id = r.id;
       msg('doneMsg', 'ok', b.vendor + ' 銷貨單已儲存：' + (r.amount !== '' ? '金額 $' + money(r.amount) + '（' + r.rows + ' 行）' : '還沒填金額') + '，照片 ' + r.photos + ' 張。');
@@ -2177,11 +2186,26 @@
       if (c.usedBy || hxF.checks.indexOf(c.key) >= 0) return;
       if (pre ? pre.indexOf(c.id) >= 0 : c.fromSlip && c.amount > 0) { hxF.checks.push(c.key); n++; }
     });
-    if (hxF.lines.length === 1 && numv(hxF.lines[0].amount) === null) hxF.autoAmt = true;
+    if (hxF.lines.length === 1 && numv(hxF.lines[0].amount) === null && !String(hxF.lines[0].no || '').trim()) hxF.autoAmt = true;
     hxAutoAmt();
-    if (n) msg('hxMsg', 'ok', '已從銷貨單自動勾 ' + n + ' 次送貨' + (hxF.autoAmt ? '，發票金額先帶銷貨單合計（跟發票不一樣直接改）' : '') + '。');
+    var nInv = hxF.lines.filter(function (l) { return l.no; }).length;
+    if (n) msg('hxMsg', 'ok', '已從銷貨單自動勾 ' + n + ' 次送貨' + (hxF.autoAmt ? nInv ? '，帶入 ' + nInv + ' 張發票（號碼、日期、金額照銷貨單；跟發票不一樣直接改）' : '，發票金額先帶銷貨單合計（跟發票不一樣直接改）' : '') + '。');
   }
+  // 勾的送貨有在銷貨單填發票：照發票號碼一張一行帶進「發票」（同一個號碼加在一起；沒填發票的另外一行）
   function hxAutoAmt() {
+    var pk = hxPicked();
+    if (hxF.autoAmt && pk.some(function (c) { return c.invNo; })) {
+      var by = {}, order = [];
+      pk.forEach(function (c) {
+        var k = c.invNo || '';
+        if (!by[k]) { by[k] = { no: c.invNo || '', date: c.invDate || '', amount: 0, photos: [], note: '' }; order.push(k); }
+        by[k].amount = r2(by[k].amount + c.amount); if (!by[k].date && c.invDate) by[k].date = c.invDate;
+      });
+      order.sort(function (a, b) { return a === '' ? 1 : b === '' ? -1 : 0; });
+      hxF.lines = order.map(function (k) { var l = by[k]; if (!l.date) l.date = iso(new Date()); l.amount = l.amount ? String(l.amount) : ''; return l; });
+      if ($('hxLines')) hxRenderLines();
+      return;
+    }
     if (!hxF.autoAmt || hxF.lines.length !== 1) return;
     var sum = r2(hxPicked().reduce(function (a, c) { return a + c.amount; }, 0));
     hxF.lines[0].amount = sum ? String(sum) : '';
@@ -2684,7 +2708,7 @@
       hxRenderExtras(); hxSumUp(); msg('hxMsg', 'ok', '整批設定已套用到 ' + hxF.extras.length + ' 項（空白的格子不會蓋掉）。'); return;
     }
     if ((b = t.closest('[data-hedel]'))) { hxF.extras.splice(Number(b.getAttribute('data-hedel')), 1); hxRenderExtras(); hxSumUp(); return; }
-    if (t.id === 'hxLineAdd') { hxF.lines.push({ no: '', date: iso(new Date()), amount: '', photos: [] }); hxRenderLines(); hxSumUp(); var ins = document.querySelectorAll('[data-hl="no"]'); ins[ins.length - 1].focus(); return; }
+    if (t.id === 'hxLineAdd') { hxF.autoAmt = false; hxF.lines.push({ no: '', date: iso(new Date()), amount: '', photos: [] }); hxRenderLines(); hxSumUp(); var ins = document.querySelectorAll('[data-hl="no"]'); ins[ins.length - 1].focus(); return; }
     if ((b = t.closest('[data-hldel]'))) {
       var li = Number(b.getAttribute('data-hldel')), ln = hxF.lines[li];
       if ((ln.no || ln.amount || ln.photos.length) && !window.confirm('拿掉第 ' + (li + 1) + ' 張發票？')) return;
@@ -2754,7 +2778,7 @@
   });
   $('hxBox').addEventListener('input', function (e) {
     var t = e.target;
-    if (t.hasAttribute('data-hl')) { hxF.lines[Number(t.getAttribute('data-i'))][t.getAttribute('data-hl')] = t.value; if (t.getAttribute('data-hl') === 'amount') { hxF.autoAmt = false; hxSumUp(); } return; }
+    if (t.hasAttribute('data-hl')) { hxF.lines[Number(t.getAttribute('data-i'))][t.getAttribute('data-hl')] = t.value; hxF.autoAmt = false; if (t.getAttribute('data-hl') === 'amount') hxSumUp(); return; }   // 自己改過發票就不再自動帶
     if (t.hasAttribute('data-hb')) { (hxF.exBulk = hxF.exBulk || {})[t.getAttribute('data-hb')] = t.value; return; }
     if (t.hasAttribute('data-he')) {
       hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value;
