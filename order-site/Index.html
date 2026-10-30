@@ -5665,7 +5665,7 @@
   function labelPrefs() {
     var p = {};
     try { p = JSON.parse(localStorage.getItem('ckOrder.labels') || '{}') || {}; } catch (e) {}
-    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item', safe: p.safe === undefined || isNaN(Number(p.safe)) ? 4 : Math.max(0, Math.min(10, Number(p.safe))),
+    return { layout: LABEL_LAYOUTS[p.layout] ? p.layout : '24', lines: p.lines !== false, skip: Math.max(0, Number(p.skip) || 0), mode: p.mode === 'class' ? 'class' : 'item', safe: p.safe === undefined || isNaN(Number(p.safe)) ? 5 : Math.max(0, Math.min(10, Number(p.safe))),
       vendors: Array.isArray(p.vendors) ? p.vendors : [] };
   }
   // 貼標選廠商：選的廠商這次有東西才算（都沒有＝全部印）
