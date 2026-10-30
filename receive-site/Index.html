@@ -2407,6 +2407,7 @@
       RQ_REQ.map(function (q) { return '<datalist id="rqL' + q[0] + '">' + rqHist(q[0]).map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>'; }).join('') +
       '<div class="row" style="margin-top:8px"><button type="button" class="btn" id="rqPrint">🖨 列印</button></div></div>';
     $('hxBox').innerHTML = ctl + '<div id="rqPages">' + rq.kinds.map(rqPage).join('') + '</div>';
+    rqFit();
   }
   // 黏貼憑證的業務計劃、工作計劃、用途科別：每次自己填（必填），打過的會出現在選單裡
   var RQ_REQ = [['code', '業務計劃', 200], ['plan', '工作計劃', 140], ['use', '用途科別', 120]];
@@ -2449,7 +2450,7 @@
         '<tr class="half">' + td(rows3a[2], 'rowspan="2" class="k"') + td(fund || '', 'rowspan="2"') + td(rows3b[2], 'rowspan="2" class="k"') + td('', 'rowspan="2"') + '</tr>' +
         '<tr class="half"></tr></table>';
     };
-    return '<div class="rqpage">' +
+    return '<div class="rqpage"><div class="rqin">' +
       '<div class="rqhead"><div class="rqh1">高雄市三信家商</div><div class="rqh2">黏 貼 憑 證 用 紙</div>' +
         '<div class="rqpaid"><div>零用金付訖</div><div>年　 月　 日</div><div></div></div></div>' +
       '<div class="rqline"><span style="width:20%">' + fd[0] + '年 ' + fd[1] + ' 月 ' + fd[2] + '</span><span style="width:36%;text-align:left">日(付款憑單、支出傳票)第</span><span style="width:10%"></span><span style="width:6%">號</span><span style="width:6%"></span><span style="width:10%">憑證共</span><span style="width:6%"></span><span style="width:6%">張</span></div>' +
@@ -2471,7 +2472,15 @@
         rows.map(function (r, i) { return '<tr>' + td(e(r.name), 'class="l"') + td(e(r.spec)) + td(e(r.unit)) + td(e(r.qty)) + td(e(r.price), 'class="r"') + td(r.total === '' ? '' : money(r.total), 'class="r"') + td(i === 0 ? e(st.desc) : '') + '</tr>'; }).join('') +
         '<tr>' + td('合　　計') + td('', 'colspan="4"') + td(money(amt), 'class="r"') + td('') + '</tr></table>' +
       sign('請 購 單 位', { title: '經 辦 單 位' }, ['請購<br>人', '單位<br>主管', '經費<br>來源'], ['經手<br>人', '組長', '主任'], fit(st.code, 5.5)) +
-      '</div>';
+      '</div></div>';
+  }
+  // 一類一定印在同一頁：內容比 A4 可印高度（297－上下內距 16 mm）高就整張等比例縮小（器材項目多的時候）
+  function rqFit() {
+    var max = (297 - 16 - 10) * 96 / 25.4;   // 留 1 公分餘裕，各台印表機算法不同
+    Array.prototype.forEach.call(document.querySelectorAll('#rqPages .rqin'), function (el) {
+      el.style.zoom = ''; var h = el.offsetHeight;
+      if (h > max) el.style.zoom = (Math.floor(max / h * 1000) / 1000).toString();
+    });
   }
   function fmtN(n) { return String(Math.round(Number(n) * 100) / 100); }
   $('hxBox').addEventListener('click', function (e) {
@@ -2486,7 +2495,7 @@
         var el = document.querySelector('[data-rq="' + miss[0].k + '"][data-f="' + miss[0].f + '"]'); if (el) el.focus();
         window.scrollTo(0, 0); return;
       }
-      msg('hxMsg', '', ''); rqHistSave();
+      msg('hxMsg', '', ''); rqHistSave(); rqFit();
       var ps = document.createElement('style'); ps.textContent = '@page { size: A4; margin: 0; }'; document.head.appendChild(ps);
       window.print();
       setTimeout(function () { ps.remove(); }, 1000);
@@ -2498,6 +2507,7 @@
     if (t.hasAttribute('data-rq')) { rq.set[t.getAttribute('data-rq')][t.getAttribute('data-f')] = t.value; if (t.getAttribute('data-f') === 'no' || RQ_REQ.some(function (q) { return q[0] === t.getAttribute('data-f'); })) t.style.borderColor = t.value.trim() ? '' : 'var(--bad)'; }
     else if (t.id === 'rqFill') rq.fill = t.value; else if (t.id === 'rqNeed') rq.need = t.value; else if (t.id === 'rqDept') rq.dept = t.value; else return;
     $('rqPages').innerHTML = rq.kinds.map(rqPage).join('');
+    rqFit();
   });
   // ⑥ 經費編號：每個編號的金額、已用、剩餘、用在哪幾張發票
   var hxCodeF = { q: '', st: '' };

@@ -4464,10 +4464,10 @@
   // 列印請料單
   // ------------------------------------------------------------------
   var TOOL = '器具';
-  // 食材只有 5 項以下的訂單：只在管理者這邊提醒（器具、已取消的品項不算；還料單、取消的訂單不提醒）
+  // 食材只有 5 項以下的訂單：只在管理者這邊提醒（器具、已取消的品項不算；還料單、取消的訂單、飲調不提醒）
   var FEW_ITEMS = 5;
   function fewItems(o) {
-    if (!o || o.status === '已取消' || String(o.project || '').indexOf(RETURN_TAG) === 0) return 0;
+    if (!o || o.status === '已取消' || String(o.project || '').indexOf(RETURN_TAG) === 0 || /飲調/.test(o.dept || '')) return 0;   // 飲調常常只訂幾樣水果，不提醒
     var n = (o.items || []).filter(function (it) { return it.id !== TOOL && it.status !== '已取消'; }).length;
     return n > 0 && n <= FEW_ITEMS ? n : 0;
   }
