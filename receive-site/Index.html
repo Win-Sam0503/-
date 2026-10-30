@@ -2392,7 +2392,7 @@
     var ctl = '<div class="panel noprint"><div class="row" style="justify-content:space-between"><h2 style="margin:0">🖨 請購單＋黏貼憑證：' + esc(d.vendor) + ' ' + esc(d.no || '') + '</h2><button type="button" class="btn ghost small" id="rqBack">← 回核銷</button></div>' +
       '<div class="muted small">食材、器材一類一張 A4。下面先填好再按列印：<b>憑證編號、業務計劃、工作計劃、用途科別</b>每次自己填（<b style="color:var(--bad)">*</b> 必填），點格子會跳出以前填過的。</div>' +
       (Math.abs(sum - d.amount) >= 1 ? '<div class="msg warn">銷貨單合計 $' + money(r2(sum)) + '，跟這筆核銷的發票合計 $' + money(d.amount) + ' 不一樣，請確認（例如有些送貨沒填銷貨單金額）。</div>' : '') +
-      '<div class="row" style="margin-top:6px"><label class="small">填單日期（只印年，月日手寫） <input type="date" id="rqFill" value="' + esc(rq.fill) + '" style="width:auto"></label><label class="small">需用日期 <input type="date" id="rqNeed" value="' + esc(rq.need) + '" style="width:auto"></label>' +
+      '<div class="row" style="margin-top:6px"><label class="small">填單日期（只印年，月日手寫） <input type="date" id="rqFill" value="' + esc(rq.fill) + '" style="width:auto"></label><label class="small">需用日期（只印年，月日手寫） <input type="date" id="rqNeed" value="' + esc(rq.need) + '" style="width:auto"></label>' +
       '<label class="small">處（室）<input id="rqDept" value="' + esc(rq.dept) + '" style="width:120px"></label></div>' +
       rq.kinds.map(function (k) {
         var st = rq.set[k];
@@ -2465,7 +2465,7 @@
       '<div class="rqpaste">－－－－－－憑－－－－－證－－－－－黏－－－－－貼－－－－－處－－－－－－</div>' +
       '<div class="rqh3"><span class="dep">' + e(rq.dept) + '　處(室)</span><span class="t">請 購(修)單</span></div>' +
       '<div class="rqline"><span style="width:14%">填單日期：</span><span style="width:8%">' + fd[0] + '</span><span style="width:5%">年</span><span style="width:6%"></span><span style="width:5%">月</span><span style="width:6%"></span><span style="width:5%">日</span>' +
-        '<span style="width:14%">需用日期：</span><span style="width:8%">' + nd[0] + '</span><span style="width:5%">年</span><span style="width:6%">' + nd[1] + '</span><span style="width:5%">月</span><span style="width:6%">' + nd[2] + '</span><span style="width:5%">日</span></div>' +
+        '<span style="width:14%">需用日期：</span><span style="width:8%">' + nd[0] + '</span><span style="width:5%">年</span><span style="width:6%"></span><span style="width:5%">月</span><span style="width:6%"></span><span style="width:5%">日</span></div>' +
       '<table class="rqt rqi">' + col([24, 20, 7, 7, 10, 12, 20]) +
         '<tr class="h">' + td('品　　名', 'rowspan="2"') + td('規　　格', 'rowspan="2"') + td('單位', 'rowspan="2"') + td('數量', 'rowspan="2"') + td('估(詢)價', 'colspan="2"') + td('用　途　說　明', 'rowspan="2"') + '</tr>' +
         '<tr class="h">' + td('單　價') + td('總　價') + '</tr>' +
