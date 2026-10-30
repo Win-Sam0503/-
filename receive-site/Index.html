@@ -2284,14 +2284,14 @@
   function hxPrintView() {
     var d = rq.data, sum = rq.kinds.reduce(function (n, k) { return n + d.kinds[k].amount; }, 0);
     var ctl = '<div class="panel noprint"><div class="row" style="justify-content:space-between"><h2 style="margin:0">🖨 請購單＋黏貼憑證：' + esc(d.vendor) + ' ' + esc(d.no || '') + '</h2><button type="button" class="btn ghost small" id="rqBack">← 回核銷</button></div>' +
-      '<div class="muted small">食材、器材一類一張 A4。下面先填好再按列印：<b>業務計劃、工作計劃、用途科別</b>每次自己填（<b style="color:var(--bad)">*</b> 必填），點格子會跳出以前填過的。</div>' +
+      '<div class="muted small">食材、器材一類一張 A4。下面先填好再按列印：<b>憑證編號、業務計劃、工作計劃、用途科別</b>每次自己填（<b style="color:var(--bad)">*</b> 必填），點格子會跳出以前填過的。</div>' +
       (Math.abs(sum - d.amount) >= 1 ? '<div class="msg warn">銷貨單合計 $' + money(r2(sum)) + '，跟這筆核銷的發票合計 $' + money(d.amount) + ' 不一樣，請確認（例如有些送貨沒填銷貨單金額）。</div>' : '') +
-      '<div class="row" style="margin-top:6px"><label class="small">填單日期 <input type="date" id="rqFill" value="' + esc(rq.fill) + '" style="width:auto"></label><label class="small">需用日期 <input type="date" id="rqNeed" value="' + esc(rq.need) + '" style="width:auto"></label>' +
+      '<div class="row" style="margin-top:6px"><label class="small">填單日期（只印年，月日手寫） <input type="date" id="rqFill" value="' + esc(rq.fill) + '" style="width:auto"></label><label class="small">需用日期 <input type="date" id="rqNeed" value="' + esc(rq.need) + '" style="width:auto"></label>' +
       '<label class="small">處（室）<input id="rqDept" value="' + esc(rq.dept) + '" style="width:120px"></label></div>' +
       rq.kinds.map(function (k) {
         var st = rq.set[k];
         return '<div class="row" style="margin-top:6px"><b style="min-width:70px">' + (k === '食材' ? '🥬 食材' : '🔧 器材') + '</b><span class="small">$' + money(d.kinds[k].amount) + '</span>' +
-          '<label class="small">憑證編號 第<input data-rq="' + k + '" data-f="no" value="' + esc(st.no) + '" placeholder="例如 1-29" style="width:90px">號</label>' +
+          '<label class="small">憑證編號 <b style="color:var(--bad)">*</b> 第<input data-rq="' + k + '" data-f="no" value="' + esc(st.no) + '" placeholder="必填，例如 1-29" style="width:110px' + (st.no.trim() ? '' : ';border-color:var(--bad)') + '">號</label>' +
           (k === '食材' ? '<label class="small">品名 <input data-rq="' + k + '" data-f="name" value="' + esc(st.name) + '" style="width:160px"></label>' : '<span class="small muted">品名逐項列（' + d.kinds[k].items.length + ' 項）</span>') +
           '<label class="small">用途說明 <input data-rq="' + k + '" data-f="desc" value="' + esc(st.desc) + '" style="width:140px"></label></div>' +
           '<div class="row" style="margin:2px 0 0 70px">' + RQ_REQ.map(function (q) {
@@ -2357,7 +2357,7 @@
       sign('經辦單位', { title: '驗收<br>或<br>證明', head: true }, ['經手<br>人', '組長', '主任'], ['', '財物<br>登記', '保管']) +
       '<div class="rqpaste">－－－－－－憑－－－－－證－－－－－黏－－－－－貼－－－－－處－－－－－－</div>' +
       '<div class="rqh3"><span class="dep">' + e(rq.dept) + '　處(室)</span><span class="t">請 購(修)單</span></div>' +
-      '<div class="rqline"><span style="width:14%">填單日期：</span><span style="width:8%">' + fd[0] + '</span><span style="width:5%">年</span><span style="width:6%">' + fd[1] + '</span><span style="width:5%">月</span><span style="width:6%">' + fd[2] + '</span><span style="width:5%">日</span>' +
+      '<div class="rqline"><span style="width:14%">填單日期：</span><span style="width:8%">' + fd[0] + '</span><span style="width:5%">年</span><span style="width:6%"></span><span style="width:5%">月</span><span style="width:6%"></span><span style="width:5%">日</span>' +
         '<span style="width:14%">需用日期：</span><span style="width:8%">' + nd[0] + '</span><span style="width:5%">年</span><span style="width:6%">' + nd[1] + '</span><span style="width:5%">月</span><span style="width:6%">' + nd[2] + '</span><span style="width:5%">日</span></div>' +
       '<table class="rqt rqi">' + col([24, 20, 7, 7, 10, 12, 20]) +
         '<tr class="h">' + td('品　　名', 'rowspan="2"') + td('規　　格', 'rowspan="2"') + td('單位', 'rowspan="2"') + td('數量', 'rowspan="2"') + td('估(詢)價', 'colspan="2"') + td('用　途　說　明', 'rowspan="2"') + '</tr>' +
@@ -2374,7 +2374,7 @@
     if (t.id === 'rqBack') { rq = null; hxOpen('list'); return; }
     if (t.id === 'rqPrint') {
       var miss = [];
-      rq.kinds.forEach(function (k) { RQ_REQ.forEach(function (q) { if (!rq.set[k][q[0]].trim()) miss.push({ k: k, f: q[0], label: k + '「' + q[1] + '」' }); }); });
+      rq.kinds.forEach(function (k) { if (!rq.set[k].no.trim()) miss.push({ k: k, f: 'no', label: k + '「憑證編號」' }); RQ_REQ.forEach(function (q) { if (!rq.set[k][q[0]].trim()) miss.push({ k: k, f: q[0], label: k + '「' + q[1] + '」' }); }); });
       if (miss.length) {
         msg('hxMsg', 'error', '請先填：' + miss.map(function (m) { return m.label; }).join('、') + '（必填）');
         var el = document.querySelector('[data-rq="' + miss[0].k + '"][data-f="' + miss[0].f + '"]'); if (el) el.focus();
@@ -2389,7 +2389,7 @@
   $('hxBox').addEventListener('input', function (e) {
     var t = e.target;
     if (!rq || !$('rqPages')) return;
-    if (t.hasAttribute('data-rq')) { rq.set[t.getAttribute('data-rq')][t.getAttribute('data-f')] = t.value; if (RQ_REQ.some(function (q) { return q[0] === t.getAttribute('data-f'); })) t.style.borderColor = t.value.trim() ? '' : 'var(--bad)'; }
+    if (t.hasAttribute('data-rq')) { rq.set[t.getAttribute('data-rq')][t.getAttribute('data-f')] = t.value; if (t.getAttribute('data-f') === 'no' || RQ_REQ.some(function (q) { return q[0] === t.getAttribute('data-f'); })) t.style.borderColor = t.value.trim() ? '' : 'var(--bad)'; }
     else if (t.id === 'rqFill') rq.fill = t.value; else if (t.id === 'rqNeed') rq.need = t.value; else if (t.id === 'rqDept') rq.dept = t.value; else return;
     $('rqPages').innerHTML = rq.kinds.map(rqPage).join('');
   });
