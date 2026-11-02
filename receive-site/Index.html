@@ -277,8 +277,9 @@
           <input id="slCode" list="slCodeList" maxlength="20" placeholder="打編號或課名，例如 C30051、餅乾" autocomplete="off" style="width:220px;text-transform:uppercase"><datalist id="slCodeList"></datalist>
           <span id="slCodeInfo" class="small muted">選填，一張銷貨單一個編號；核銷時會提醒</span></div>
         <textarea id="slNote" rows="2" style="width:100%;margin-top:8px" placeholder="銷貨單備註（選填），例如：運費另計、少一張單"></textarea>
+      <div id="slMoveBox" class="hidden panel" style="margin:8px 0;border:2px solid var(--brand)"></div>
       <div id="slMsg"></div>
-      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost small hidden" id="slDel">🗑 刪除這張</button><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
+      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost small hidden" id="slMove" title="填錯週、填錯張：整份搬到別的叫貨單">📦 搬到別週／別張</button><button type="button" class="btn ghost small hidden" id="slDel">🗑 刪除這張</button><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
     </div>
   </section>
 
@@ -650,6 +651,8 @@
     $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
     $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
+    $('slMove').classList.toggle('hidden', !(b.id && sl && (sl.amount || sl.rows.length || sl.photos.length || (sl.invs || []).length)));
+    $('slMoveBox').classList.add('hidden');
     $('slNoSlip').classList.toggle('hidden', !!b.extra || !!(sl && sl.noSlip));
     slipStopBanner();
     $('slipManual').classList.toggle('hidden', !!b.extra); $('slipQuick').classList.toggle('hidden', !!b.extra);   // 這兩個是對叫貨單品項用的
@@ -748,6 +751,51 @@
     cur.invs.splice(Number(b.getAttribute('data-invdel')), 1); renderInvs(); saveDraft();
   });
   $('slInvAdd').addEventListener('click', function () { cur.invs.push({ no: '', date: cur.invs.length ? cur.invs[0].date : '', amount: '' }); renderInvs(); var ins = document.querySelectorAll('[data-inv="no"]'); ins[ins.length - 1].focus(); saveDraft(); });
+  // 📦 搬到別週／別張：選日期 → 列出那週的叫貨單 → 選一張（或變成臨時銷貨單）
+  var mvWeek = null;
+  $('slMove').addEventListener('click', function () {
+    var box = $('slMoveBox');
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    box.innerHTML = '<b>📦 把這份銷貨單（' + esc(cur.b.vendor) + '）搬到：</b><div class="row" style="margin-top:6px"><label class="small">送貨日期 <input type="date" id="mvDate" style="width:auto"></label><span class="muted small">選那批貨真正送來的日期，下面會列出那一週的叫貨單</span></div><div id="mvList" style="margin-top:6px"></div>';
+    $('mvDate').focus();
+  });
+  $('slMoveBox').addEventListener('change', function (e) {
+    if (e.target.id !== 'mvDate' || !e.target.value) return;
+    var d = e.target.value, p = d.split('-'), mon = iso(mondayOf(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))));
+    $('mvList').innerHTML = '<span class="muted">讀取中…</span>';
+    call('getWeek', mon).then(function (w) {
+      mvWeek = w;
+      var same = w.batches.filter(function (b) { return b.vendor === cur.b.vendor; }), other = w.batches.filter(function (b) { return b.vendor !== cur.b.vendor; });
+      var opt = function (b) {
+        var i = w.batches.indexOf(b), has = b.slip && (b.slip.amount || b.slip.photos.length), me = b.id === cur.b.id;
+        return '<label class="hxcand"><input type="radio" name="mvTo" value="' + i + '"' + (has || me ? ' disabled' : '') + '><span><b>' + esc(b.vendor) + '</b> ' + esc(b.group ? '送貨組別 ' + b.group : '整週合併') +
+          (me ? ' <span class="badge none">就是這張</span>' : has ? ' <span class="badge none">已經有銷貨單 $' + money(b.slip.amount || 0) + '</span>' : ' <span class="badge ok">空的，可以搬</span>') + '</span></label>';
+      };
+      $('mvList').innerHTML = '<div class="small muted">' + esc(mdw(w.from) + '～' + mdw(w.to)) + ' 的叫貨單：</div>' + (same.length ? same.map(opt).join('') : '<div class="muted small">這週沒有 ' + esc(cur.b.vendor) + ' 的叫貨單。</div>') +
+        (other.length ? '<details class="small"><summary style="cursor:pointer">其他廠商</summary>' + other.map(opt).join('') + '</details>' : '') +
+        '<label class="hxcand"><input type="radio" name="mvTo" value="extra"><span>變成 <b>臨時銷貨單</b>（' + esc(mdw(d)) + '，不在叫貨單裡）</span></label>' +
+        '<div class="row" style="margin-top:6px"><button type="button" class="btn" id="mvGo">📦 搬過去</button><button type="button" class="btn ghost small" id="mvCancel">取消</button>' +
+        '<span class="muted small">照片、品項、發票、經費編號、備註一起搬；每張銷貨單上的日期不在那週的，改成 ' + esc(mdw(d)) + '。</span></div>';
+    }).catch(function (err) { $('mvList').innerHTML = '<div class="msg error">' + esc(err.message) + '</div>'; });
+  });
+  $('slMoveBox').addEventListener('click', function (e) {
+    if (e.target.id === 'mvCancel') { $('slMoveBox').classList.add('hidden'); return; }
+    if (e.target.id !== 'mvGo') return;
+    var r = document.querySelector('input[name="mvTo"]:checked');
+    if (!r) { msg('slMsg', 'error', '請選要搬到哪一張。'); return; }
+    var d = $('mvDate').value, t = r.value === 'extra' ? { extra: true, vendor: cur.b.vendor, date: d } : (function (b) { return { from: mvWeek.from, vendor: b.vendor, group: b.group, date: d }; })(mvWeek.batches[Number(r.value)]);
+    var label = r.value === 'extra' ? '臨時銷貨單（' + mdw(d) + '）' : t.vendor + (t.group ? ' 送貨組別 ' + t.group : '') + '（' + mdw(mvWeek.from) + ' 那週）';
+    if (uploading(cur.b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再搬。'); return; }
+    if (readSlipDraft(cur.b) && !window.confirm('這台還有沒存的修改，搬過去的是「已經存的」內容，沒存的會不見。確定要搬？')) return;
+    if (!window.confirm('把這份銷貨單搬到「' + label + '」？\n原本這張會變成空的。')) return;
+    var btn = e.target; btn.disabled = true; btn.textContent = '搬移中…';
+    call('moveSlip', cur.b.id, t).then(function (res) {
+      try { localStorage.removeItem(slipDraftKey(cur.b)); } catch (x) {}
+      msg('doneMsg', 'ok', '已把 ' + cur.b.vendor + ' 的銷貨單搬到「' + label + '」' + (res.fixed ? '，' + res.fixed + ' 行的銷貨單日期改成 ' + mdw(d) : '') + '。');
+      show('vCheck'); $('weekDate').value = mvWeek.from; loadWeek();
+    }).catch(function (err) { msg('slMsg', 'error', err.message); btn.disabled = false; btn.textContent = '📦 搬過去'; });
+  });
   $('slDel').addEventListener('click', function () {
     var b = cur.b, btn = this;
     if (!b.extra || !b.id || !window.confirm('刪除這張臨時銷貨單（' + b.vendor + ' ' + mdw(b.date) + '）？照片會留在雲端硬碟。')) return;

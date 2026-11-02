@@ -65,7 +65,7 @@ function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'T
 
 /** 網頁呼叫伺服器一律經過這裡：先檢查登入，再呼叫對應的功能（功能名稱後面有 _，網頁不能直接呼叫） */
 const API_ = {
-  getWeek: function (a) { return getWeek_.apply(null, a); }, fundCodes: function () { return fundCodes_(); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
+  getWeek: function (a) { return getWeek_.apply(null, a); }, moveSlip: function (a) { return moveSlip_.apply(null, a); }, fundCodes: function () { return fundCodes_(); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
   saveSlip: function (a) { return saveSlip_.apply(null, a); }, slipMonth: function (a) { return slipMonth_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
@@ -457,6 +457,58 @@ function slipMonth_(ym) {
   list.forEach(function (w) { Object.keys(w.byVendor).forEach(function (v) { byVendor[v] = round2_((byVendor[v] || 0) + w.byVendor[v]); }); });
   const sum = function (k) { return round2_(list.reduce(function (n, w) { return n + w[k]; }, 0)); };
   return { ym: ym, weeks: list, vendors: Object.keys(vendors).sort(), byVendor: byVendor, food: sum('food'), gear: sum('gear'), total: sum('total'), missing: missing, stopped: stopped };
+}
+
+/**
+ * 銷貨單填錯週（例如 11/2 的單填到 11/9 那張叫貨單）：整份搬到另一張叫貨單或變成臨時銷貨單。
+ * t = { from（那週星期一）, vendor, group }，或 { extra: true, vendor, date }。照片、品項、發票、經費編號、備註一起搬。
+ * 銷貨單上每一張的日期不在新的那週的，改成 t.date（沒給就用那週第一天）。已經拿去核銷的不能搬。
+ */
+function moveSlip_(fromId, t) {
+  fromId = clean_(fromId, 60); t = t || {};
+  const recs = readSlipRecs_(), rec = recs[fromId];
+  if (!rec) throw new Error('這張還沒存過銷貨單，不用搬。');
+  const used = hxReadInvoices_().filter(function (inv) { return inv.checks.some(function (c) { return String(c).split('@')[0] === fromId; }); })[0];
+  if (used) throw new Error('這張已經拿去核銷了（發票 ' + (used.no || used.id) + '），請先到核銷把它取消勾選再搬。');
+  let toId, from, vendor, group, d0, d1;
+  if (t.extra) {
+    vendor = clean_(t.vendor || rec.vendor, 30); from = parseDate_(t.date) ? dateStr_(parseDate_(t.date)) : '';
+    if (!from) throw new Error('請選日期。');
+    toId = 'S' + from.replace(/-/g, '') + '-' + vendor + '-' + Utilities.formatDate(new Date(), tz_(), 'HHmmss'); group = ''; d0 = d1 = from;
+  } else {
+    from = parseDate_(t.from) ? dateStr_(mondayOf_(parseDate_(t.from))) : ''; vendor = clean_(t.vendor, 30); group = clean_(t.group, 10);
+    if (!from || !vendor) throw new Error('請選要搬到哪一張叫貨單。');
+    toId = checkId_(from, vendor, group); d0 = from; d1 = dateStr_(addDays_(parseDate_(from), 4));
+  }
+  if (toId === fromId) throw new Error('就是同一張，不用搬。');
+  const to = recs[toId];
+  if (to && (to.amount || to.photos.length || slipsFor_(toId).length || to.invs.length)) throw new Error('要搬過去的那張已經有銷貨單了（$' + to.amount + '），請先清掉那張再搬。');
+  const newDate = parseDate_(t.date) ? dateStr_(parseDate_(t.date)) : d0;
+  const lock = waitLock_();
+  let fixed = 0;
+  try {
+    const rt = readTable_(SLIP_REC, ['驗收編號']);
+    const mine = rt.rows.filter(function (r) { return String(r['驗收編號']).trim() === fromId; });
+    const empty = rt.rows.filter(function (r) { return String(r['驗收編號']).trim() === toId; }).map(function (r) { return r._row; });
+    mine.forEach(function (r) {
+      setCell_(rt, r._row, '驗收編號', toId); setCell_(rt, r._row, '送貨日期（起）', from); setCell_(rt, r._row, '廠商', vendor); setCell_(rt, r._row, '送貨組別', group);
+      setCell_(rt, r._row, '更新時間', new Date()); setCell_(rt, r._row, '更新人', CURRENT_USER_ || '');
+      if (rt.cols['備註'] !== undefined) setCell_(rt, r._row, '備註', (String(r['備註'] || '') + '（從 ' + fromId + ' 搬過來）').slice(0, 200));
+    });
+    if (ss_().getSheetByName(SHEET.slip)) {
+      const st = readTable_(SHEET.slip, ['驗收編號']);
+      st.rows.filter(function (r) { return String(r['驗收編號']).trim() === fromId; }).forEach(function (r) {
+        setCell_(st, r._row, '驗收編號', toId); setCell_(st, r._row, '送貨日期（起）', from); setCell_(st, r._row, '廠商', vendor);
+        const sd = r['銷貨單日期'] instanceof Date ? dateStr_(r['銷貨單日期']) : String(r['銷貨單日期'] || '').replace(/^'/, '');
+        if (st.cols['銷貨單日期'] !== undefined && (!sd || sd < d0 || sd > d1)) { setCell_(st, r._row, '銷貨單日期', "'" + newDate); fixed++; }
+      });
+    }
+    if (empty.length) deleteRows_(rt.sheet, empty);   // 那張原本只有空白紀錄（例如按過「這次沒有銷貨單」又改回）
+    SLIPS_MEMO_ = null;
+  } finally {
+    lock.releaseLock();
+  }
+  return { id: toId, from: from, vendor: vendor, group: group, fixed: fixed };
 }
 
 /** 刪掉一張臨時銷貨單（叫貨單上的不能刪，只能清空） */
