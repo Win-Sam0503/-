@@ -1050,11 +1050,20 @@
   // 銷貨單照片：在平板上先縮小（長邊 2000），再上傳到雲端硬碟
   var upQ = [];   // 正在上傳的：{ b: 哪一張叫貨單, src: 平板上的預覽, st: 'wait'|'up'|'bad' }
   function renderThumbs() {
-    $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a>'; }).join('　') +
+    $('thumbs').innerHTML = cur.photos.map(function (u, i) { return '<span style="white-space:nowrap"><a href="' + esc(u) + '" target="_blank" class="small">📄 照片 ' + (i + 1) + '</a><button type="button" class="clr" data-phdel="' + i + '" title="刪掉這張照片（傳錯了）" style="margin-left:2px">✕</button></span>'; }).join('　') +
       upQ.filter(function (q) { return q.b === cur.b; }).map(function (q) {
         return '<span class="up' + (q.st === 'bad' ? ' bad' : '') + '"><img src="' + q.src + '" alt=""><span>' + (q.st === 'bad' ? '失敗' : q.st === 'up' ? '上傳中…' : '排隊中') + '</span></span>';
       }).join('');
   }
+  // 照片傳錯：✕ 從這張銷貨單拿掉（按「💾 儲存銷貨單」才會存；雲端硬碟裡的檔案留著不刪）
+  $('thumbs').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-phdel]');
+    if (!b) return;
+    var i = Number(b.getAttribute('data-phdel'));
+    if (!window.confirm('刪掉「照片 ' + (i + 1) + '」？\n刪掉後按「💾 儲存銷貨單」才會存起來。')) return;
+    cur.photos.splice(i, 1); renderThumbs(); saveDraft();
+    if (cur.mode === 'slip') msg('slMsg', 'info', '已拿掉照片，記得按「💾 儲存銷貨單」。');
+  });
   function uploading(b) { return upQ.some(function (q) { return q.b === b && q.st !== 'bad'; }); }
   // 照片先在平板上縮小再上傳：長邊 1600、品質 0.75（約 200～400KB，字還看得清楚；原本 2000／0.82 約 1MB，網路慢會一直轉圈）
   // noRot：品項問題照、發票照不套用「銷貨單轉向」
