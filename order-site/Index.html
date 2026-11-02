@@ -6600,9 +6600,9 @@
     $('aSiteInfo').innerHTML = st.siteUrlSaved
       ? '<span style="color:var(--ok)">✓ 已指定網址</span>' + (st.autoUrl && st.autoUrl !== st.webhookUrl ? '<span class="muted">（系統自動判斷的是另一個舊網址，已改用你指定的）</span>' : '')
       : '<span style="color:var(--bad)">尚未指定，目前用系統自動判斷的網址；部署很多個時可能是舊的，建議貼上正確網址後儲存。</span>';
-    if (st.webhookUrl) $('aSiteInfo').innerHTML += '<br>訂貨網：<a href="' + esc(st.webhookUrl) + '" target="_blank" rel="noopener">' + esc(st.webhookUrl) + '</a> <button type="button" class="btn ghost small" data-copyurl="' + esc(st.webhookUrl) + '">複製</button>';
+    if (st.webhookUrl) $('aSiteInfo').innerHTML += '<br>訂貨網：<a href="' + esc(st.webhookUrl) + '" target="_blank" rel="noopener">' + esc(st.webhookUrl) + '</a> <button type="button" class="btn ghost small" data-copyurl="' + esc(st.webhookUrl) + '">複製</button> <button type="button" class="btn ghost small" data-qrurl="' + esc(st.webhookUrl) + '" data-qrtitle="三信家商餐飲科 訂貨系統">📱 QR code</button>';
     $('aRcvInfo').innerHTML = '<b>📦 驗收核銷系統網址</b>（給其他管理者老師，用自己訂貨系統的帳號密碼登入）<br>' + (st.receiveUrl
-      ? '<a href="' + esc(st.receiveUrl) + '" target="_blank" rel="noopener">' + esc(st.receiveUrl) + '</a> <button type="button" class="btn ghost small" data-copyurl="' + esc(st.receiveUrl) + '">複製</button>'
+      ? '<a href="' + esc(st.receiveUrl) + '" target="_blank" rel="noopener">' + esc(st.receiveUrl) + '</a> <button type="button" class="btn ghost small" data-copyurl="' + esc(st.receiveUrl) + '">複製</button> <button type="button" class="btn ghost small" data-qrurl="' + esc(st.receiveUrl) + '" data-qrtitle="三信家商餐飲科 驗收核銷系統">📱 QR code</button>'
       : '<span class="muted">系統還沒記錄到（之前是手動部署的）。請用內建「管理者」帳號到「⟳ 更新程式」最下面按一次「更新進貨驗收」，之後這裡就會顯示。</span>');
   }
   function renderAdmins(r) {
@@ -6838,6 +6838,38 @@
   });
   $('aEmailTest').addEventListener('click', function () {
     autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
+  });
+  // 網址旁的「📱 QR code」：做一張有標題的 QR code 圖片，可以下載、列印、傳 LINE
+  var qrLib = null;
+  function loadQrLib() {
+    return qrLib || (qrLib = new Promise(function (ok, bad) {
+      var sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+      sc.onload = function () { ok(window.qrcode); }; sc.onerror = function () { qrLib = null; bad(new Error('QR code 元件載入失敗，請檢查網路再試一次。')); };
+      document.head.appendChild(sc);
+    }));
+  }
+  function qrCard(url, title) {
+    var q = window.qrcode(0, 'M'); q.addData(url); q.make();
+    var n = q.getModuleCount(), cell = Math.max(8, Math.floor(640 / (n + 4))), size = cell * (n + 4), W = Math.max(size + 120, 900), H = size + 330;
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.strokeStyle = '#8a2b1a'; g.lineWidth = 6; g.strokeRect(8, 8, W - 16, H - 16);
+    g.fillStyle = '#8a2b1a'; g.font = 'bold 60px "Noto Sans TC","Microsoft JhengHei",sans-serif'; g.textAlign = 'center'; g.fillText(title, W / 2, 105);
+    var x0 = Math.round((W - size) / 2) + cell * 2, y0 = 140 + cell * 2; g.fillStyle = '#000';
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (q.isDark(r, c)) g.fillRect(x0 + c * cell, y0 + r * cell, cell, cell);
+    g.fillStyle = '#333'; g.font = '32px "Noto Sans TC","Microsoft JhengHei",sans-serif'; g.fillText('手機掃描開啟・用自己的帳號密碼登入', W / 2, 140 + size + 70);
+    return cv.toDataURL('image/png');
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-qrurl]');
+    if (!b) return;
+    var url = b.getAttribute('data-qrurl'), title = b.getAttribute('data-qrtitle');
+    loadQrLib().then(function () {
+      var img = qrCard(url, title);
+      ask('', '關閉', { okOnly: true, html: '<div class="info-check"><h3>📱 ' + esc(title) + '</h3><img src="' + img + '" alt="QR code" style="width:100%;max-width:420px;display:block;margin:6px auto;border:1px solid var(--line)">' +
+        '<div style="text-align:center;margin:6px 0"><a class="btn small" href="' + img + '" download="' + esc(title) + ' QR code.png">⬇ 下載圖片</a></div>' +
+        '<div class="muted small">可以下載後列印、傳到 LINE 群組；下載不了的話，在圖片上按右鍵「另存圖片」或長按儲存。</div></div>' });
+    }).catch(function (err) { notice(err.message); });
   });
   // 網址旁的「複製」
   document.addEventListener('click', function (e) {
