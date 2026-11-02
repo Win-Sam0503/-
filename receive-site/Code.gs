@@ -89,6 +89,16 @@ function api(token, fn, args) {
   return API_[fn](args || []);
 }
 
+/**
+ * 授權跳不出來、或出現「你沒有呼叫 ○○ 的權限」時：在 Apps Script 編輯器選這個函式按「執行」。
+ * 有任何一項權限沒勾到（例如「連線至外部服務」），會跳出授權視窗補勾；全部都有就直接執行完畢。
+ */
+function authorizeAll() {
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+  UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true });
+  return '全部權限都有了';
+}
+
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle(SITE_TITLE)
