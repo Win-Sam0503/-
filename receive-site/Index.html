@@ -1497,6 +1497,9 @@
       // 這次已經打過同一樣：跟那一行的單位、單價一樣
       var same = null;
       cur.slip.papers.forEach(function (pp) { pp.rows.forEach(function (y) { if (y !== r && String(y.name || '').trim() === n && String(y.price || '').trim()) same = y; }); });
+      // 這家廠商上次銷貨單打這一樣用的單位（換裝置也記得，存在試算表）
+      var lu = (((week && week.lastUnits) || {})[cur.b.vendor] || {})[n];
+      if (lu && !same && !String(r.unit || '').trim()) { r.unit = lu; sib('unit').value = lu; }
       if (same) { if (!String(r.unit || '').trim()) { r.unit = same.unit; sib('unit').value = r.unit; } if (!String(r.price || '').trim()) { r.price = same.price; r.pu = same.pu; sib('price').value = r.price; sib('pu').value = r.pu || '斤'; } }
       else if (lp || tt) {
         if (!String(r.unit || '').trim()) { r.unit = lp ? lp.unit : veg ? '斤' : { '兩': '斤', 'g': '公斤' }[tt.unit] || tt.unit; sib('unit').value = r.unit; }

@@ -119,8 +119,20 @@ function getWeek_(monday) {
   const recs = readSlipRecs_();
   const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_(), recs);
   out.extras = extraSlips_(recs, f, t);
+  out.lastUnits = lastUnits_();
   const drafts = readDrafts_();
   out.batches.forEach(function (b) { delete b.list; b.draft = drafts[b.id] || null; });
+  return out;
+}
+
+/** 銷貨單上次打的單位：{ 廠商: { 品名: 單位 } }（照試算表順序，後面的蓋前面的＝最新的），打品名時自動帶 */
+function lastUnits_() {
+  const out = {};
+  if (!ss_().getSheetByName(SHEET.slip)) return out;
+  readTable_(SHEET.slip, ['廠商', '食材名稱', '單位']).rows.forEach(function (r) {
+    const v = String(r['廠商'] || '').trim(), n = String(r['食材名稱'] || r['銷貨單品名'] || '').trim(), u = String(r['單位'] || '').trim();
+    if (v && n && u) (out[v] = out[v] || {})[n] = u;
+  });
   return out;
 }
 
