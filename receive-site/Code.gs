@@ -80,6 +80,7 @@ const API_ = {
   hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
   hxItems: function () { return hxItems_(); }, hxPrintData: function (a) { return hxPrintData_.apply(null, a); }, hxOrders: function (a) { return hxOrders_.apply(null, a); },
   hxDeleteBudget: function (a) { return hxDeleteBudget_.apply(null, a); },
+  hxSaveCode: function (a) { return hxSaveCode_.apply(null, a); }, hxDeleteCode: function (a) { return hxDeleteCode_.apply(null, a); },
 };
 function api(token, fn, args) {
   const account = CacheService.getScriptCache().get('rsess:' + String(token || ''));
@@ -1586,6 +1587,62 @@ function hxCodes_(invoices) {
   });
   list.forEach(function (c) { c.left = round2_(c.amount - c.used); });
   return list;
+}
+
+/**
+ * 新增／修改一個分支（經費編號）：8 大類每一類底下都可以分支，例如實習實作 → 歐式點心 C30039。
+ * c = { code（沒填自動編，例如 B001）, old（修改時原本的編號）, cat, name, amount, group, vendors, month, note }
+ */
+const FUND_HEADERS = ['編號', '實習課程名稱', '金額', '廠商', '開發票月份', '類別', '組別', '備註'];
+function hxSaveCode_(c) {
+  c = c || {};
+  const cat = hxCat_(clean_(c.cat, 30)), name = clean_(c.name, 40), amount = Number(c.amount);
+  if (!cat) throw new Error('請選大類。');
+  if (!name) throw new Error('請填分支名稱（例如：歐式點心）。');
+  if (!(amount >= 0) || amount > 9999999) throw new Error('金額不正確。');
+  const lock = waitLock_();
+  try {
+    const sh = ensureSheet_('經費編號', FUND_HEADERS);
+    const t = readTable_('經費編號', ['編號']);
+    const all = t.rows.map(function (r) { return String(r['編號']).trim().toUpperCase(); });
+    const old = clean_(c.old, 20).toUpperCase();
+    let code = clean_(c.code, 20).toUpperCase();
+    if (!code) {   // 沒有學校編號的分支：自動編 B001、B002…
+      let n = 1; while (all.indexOf('B' + ('00' + n).slice(-3)) >= 0) n++;
+      code = 'B' + ('00' + n).slice(-3);
+    }
+    if (code !== old && all.indexOf(code) >= 0) throw new Error('編號「' + code + '」已經有了。');
+    const row = { '編號': code, '實習課程名稱': name, '金額': amount, '廠商': clean_(c.vendors, 60), '開發票月份': clean_(c.month, 30), '類別': cat, '組別': clean_(c.group, 20), '備註': clean_(c.note, 100) };
+    const r = old ? t.rows.filter(function (x) { return String(x['編號']).trim().toUpperCase() === old; })[0] : null;
+    if (old && !r) throw new Error('找不到編號「' + old + '」，請重新整理。');
+    if (r) {
+      if (code !== old && hxCodeUsed_(old)) throw new Error('「' + old + '」已經用在核銷了，編號不能改（其他欄位可以改）。');
+      Object.keys(row).forEach(function (k) { if (t.cols[k] !== undefined) setCell_(t, r._row, k, row[k]); });
+    } else {
+      appendRows_('經費編號', [row]);
+    }
+    FUND_CODES_ = null;
+  } finally {
+    lock.releaseLock();
+  }
+  return hxCodes_();
+}
+function hxCodeUsed_(code) {
+  return hxReadInvoices_().some(function (inv) { return inv.allocs.some(function (a) { return (a.codes || []).some(function (x) { return String(x.code).toUpperCase() === code; }); }); });
+}
+function hxDeleteCode_(code) {
+  code = clean_(code, 20).toUpperCase();
+  if (hxCodeUsed_(code)) throw new Error('「' + code + '」已經用在核銷了，不能刪（先到發票把這筆拿掉）。');
+  const lock = waitLock_();
+  try {
+    const t = readTable_('經費編號', ['編號']);
+    const rows = t.rows.filter(function (r) { return String(r['編號']).trim().toUpperCase() === code; }).map(function (r) { return r._row; });
+    if (rows.length) deleteRows_(t.sheet, rows);
+    FUND_CODES_ = null;
+  } finally {
+    lock.releaseLock();
+  }
+  return hxCodes_();
 }
 
 // ---------------------------------------------------------------------
