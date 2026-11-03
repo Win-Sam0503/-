@@ -3548,17 +3548,19 @@
       var who = o.onBehalfOf || o.teacher;
       ask('', '退單', { noText: '取消', html: '<div class="info-check"><h3>退單給 ' + esc(who) + ' 老師</h3>' +
         '<div class="muted small" style="margin-bottom:8px">' + esc(shortDate(o.useDate) + ' ' + o.className + '「' + o.project + '」') + '：整張訂單會取消，請老師用「再訂一次」修改後重新送出。勾「LINE 通知老師」會把原因傳給老師。</div>' +
-        reasonHtml(RETURN_REASONS, '退單原因（必填）') +
+        reasonHtml(RETURN_REASONS, '退單原因（必填）').replace('<option value="">（不寫原因）</option>', '<option value="">（請選擇）</option>') +
         '<label class="check" style="margin-top:6px;text-align:left"><input type="checkbox" id="retNotify" checked> LINE 通知老師（' + esc(who) + '）</label></div>' }).then(function (ok) {
         if (!ok) return;
         var notifyT = !$('retNotify') || $('retNotify').checked;
         var reason = readReason($('askText'));
-        if (!reason) { msg('sumMsg', 'error', '請選擇或填寫退單原因。'); return; }
+        // 沒選原因：用跳出視窗提醒（訊息在頁面最上面，捲到下面時看不到，會以為按了沒反應），按「知道了」再開一次退單視窗
+        if (!reason) { notice('請選擇或填寫「退單原因」，老師才知道要改什麼。').then(function () { b.click(); }); return; }
         setBusy(b, true, '退單中…');
         call('adminReturnOrder', token, o.orderNo, reason, notifyT).then(function (r) {
+          notice('訂單 ' + o.orderNo + ' 已退單給 ' + who + ' 老師（原因：' + reason + '）。' + (r && r.notify ? r.notify : ''));
           msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已退單給 ' + who + ' 老師（原因：' + reason + '）。' + (r && r.notify ? r.notify : ''));
           loadSummaryKeepMsg();
-        }).catch(function (err) { msg('sumMsg', 'error', err.message); setBusy(b, false); });
+        }).catch(function (err) { notice('退單失敗：' + err.message); msg('sumMsg', 'error', err.message); setBusy(b, false); });
       });
     }
     else if (act === 'edit-cancel') renderSummary();
