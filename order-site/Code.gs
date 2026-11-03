@@ -472,7 +472,7 @@ function getBootstrap(token) {
 }
 
 // ---- 班級人數：管理者設定，老師在我的課、訂貨頁、料單看得到（不能改） ----
-const CLASS_SIZE_SHEET = '班級人數', CLASS_SIZE_HEADERS = ['班級', '人數', '備註', '更新時間', '更新人'];
+const CLASS_SIZE_SHEET = '班級人數', CLASS_SIZE_HEADERS = ['班級', '人數', '備註', '更新時間', '更新人', '隱藏'];   // 隱藏：管理者刪掉的班級（課表上有也不再列出來）
 
 /** { 班級: 人數 } */
 function readClassSizes_() {
@@ -488,9 +488,10 @@ function readClassSizes_() {
 /** 管理者：班級人數清單＋課表、國技排班、最近訂單裡出現過、還沒設定的班級 */
 function adminGetClassSizes(token) {
   auth_(token, true);
-  const sizes = {}, notes = {};
+  const sizes = {}, notes = {}, hidden = {};
   if (ss_().getSheetByName(CLASS_SIZE_SHEET)) readTable_(CLASS_SIZE_SHEET, ['班級', '人數']).rows.forEach(function (r) {
     const c = String(r['班級']).trim(); if (!c) return;
+    if (isTrue_(r['隱藏'])) { hidden[c] = true; return; }
     sizes[c] = Number(r['人數']) || ''; notes[c] = String(r['備註'] || '');
   });
   const seen = {};
@@ -500,14 +501,16 @@ function adminGetClassSizes(token) {
   const from = addDays_(today_(), -60);
   readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.forEach(function (r) { const d = toDate_(r['使用日期']); if (d && d >= from) add(r['上課班級']); });
   Object.keys(sizes).forEach(function (c) { seen[c] = true; });
+  Object.keys(hidden).forEach(function (c) { delete seen[c]; });
   return Object.keys(seen).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant', { numeric: true }); })
     .map(function (c) { return { className: c, size: sizes[c] === undefined ? '' : sizes[c], note: notes[c] || '' }; });
 }
 
-/** 管理者：存班級人數。list = [{ className, size, note }]，人數空白＝刪掉這班 */
-function adminSaveClassSizes(token, list) {
+/** 管理者：存班級人數。list = [{ className, size, note }]，人數空白＝不存；deleted = [班級]：刪掉（課表上有也不再列出來） */
+function adminSaveClassSizes(token, list, deleted) {
   const admin = auth_(token, true);
   const rows = [], seen = {};
+  (deleted || []).forEach(function (c) { c = clean_(c, 20); if (c && !seen[c]) { seen[c] = true; rows.push({ '班級': c, '人數': '', '備註': '', '更新時間': new Date(), '更新人': admin, '隱藏': true }); } });
   (list || []).forEach(function (x) {
     const c = clean_(x.className, 20), raw = String(x.size == null ? '' : x.size).trim();
     if (!c || seen[c]) return;
@@ -521,6 +524,7 @@ function adminSaveClassSizes(token, list) {
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(CLASS_SIZE_SHEET, CLASS_SIZE_HEADERS);
+    ensureHeaders_(sh, CLASS_SIZE_HEADERS);
     const old = readTable_(CLASS_SIZE_SHEET, ['班級']).rows.map(function (r) { return r._row; });
     if (old.length) deleteRows_(sh, old);
     if (rows.length) appendRows_(CLASS_SIZE_SHEET, rows, { '班級': '@', '更新時間': 'yyyy/mm/dd hh:mm' });
@@ -529,7 +533,7 @@ function adminSaveClassSizes(token, list) {
   } finally {
     lock.releaseLock();
   }
-  return { saved: rows.length };
+  return { saved: rows.filter(function (r) { return !r['隱藏']; }).length, deleted: rows.filter(function (r) { return r['隱藏']; }).length };
 }
 
 // ---- 教學影片：放在雲端硬碟「訂貨系統教學影片」資料夾；檔名開頭「管理者」只有管理者看得到 ----

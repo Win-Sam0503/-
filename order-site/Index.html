@@ -1058,8 +1058,9 @@
       <details class="panel noprint" id="csPanel">
         <summary style="cursor:pointer"><h2 style="display:inline">👥 班級人數</h2> <span class="muted small">老師在「我的課」、訂貨頁、料單看得到（不能改）</span></summary>
         <div class="muted small" style="margin:6px 0">每個班級填一次人數；合班（例如 213/214）會自動加總。下面列出課表、國技排班和最近 2 個月訂單出現過的班級，人數空白的不會存。</div>
+        <div class="row" style="margin-bottom:8px"><input id="csNew" maxlength="20" placeholder="新增班級，例如 夜202" style="width:200px"><button type="button" class="btn secondary small" id="csAdd">＋ 新增班級</button></div>
         <div id="csMsg"></div><div id="csList"></div>
-        <div class="row" style="margin-top:8px"><input id="csNew" maxlength="20" placeholder="新增班級，例如 夜202" style="width:200px"><button type="button" class="btn ghost small" id="csAdd">＋ 加一班</button><span style="flex:1"></span><button type="button" class="btn" id="csSave">💾 儲存人數</button></div>
+        <div class="row" style="margin-top:8px"><span style="flex:1"></span><button type="button" class="btn" id="csSave">💾 儲存人數</button></div>
       </details>
       <div class="panel noprint" id="autoPanel">
         <h2>自動化 <button type="button" class="btn ghost small" id="aReload">重新整理</button></h2>
@@ -6861,11 +6862,12 @@
     autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
   });
   // 👥 班級人數（系統設定）
-  var csRows = null;
+  var csRows = null, csDel = [];
   function csRender() {
-    $('csList').innerHTML = csRows.length ? '<div class="tablewrap"><table><tr><th>班級</th><th>人數</th><th>備註</th></tr>' + csRows.map(function (r, i) {
+    $('csList').innerHTML = csRows.length ? '<div class="tablewrap"><table><tr><th>班級</th><th>人數</th><th>備註</th><th></th></tr>' + csRows.map(function (r, i) {
       return '<tr><td><b>' + esc(r.className) + '</b></td><td><input data-cs="size" data-i="' + i + '" value="' + esc(r.size) + '" placeholder="未設定" style="width:90px" inputmode="numeric"> 人</td>' +
-        '<td><input data-cs="note" data-i="' + i + '" value="' + esc(r.note) + '" maxlength="50" placeholder="選填" style="width:100%"></td></tr>';
+        '<td><input data-cs="note" data-i="' + i + '" value="' + esc(r.note) + '" maxlength="50" placeholder="選填" style="width:100%"></td>' +
+        '<td><button type="button" class="btn ghost small" data-csdel="' + i + '" title="刪掉這班（畢業、打錯的班級）" style="color:var(--bad)">🗑 刪除</button></td></tr>';
     }).join('') + '</table></div>' : '<div class="muted">還沒有班級。</div>';
   }
   $('csPanel').addEventListener('toggle', function () {
@@ -6873,19 +6875,26 @@
     msg('csMsg', 'info', '讀取中…');
     call('adminGetClassSizes', token).then(function (r) { csRows = r; msg('csMsg', '', ''); csRender(); }).catch(function (e) { msg('csMsg', 'error', e.message); });
   });
+  $('csList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-csdel]'); if (!b) return;
+    var r = csRows[Number(b.getAttribute('data-csdel'))];
+    if (!window.confirm('刪除「' + r.className + '」？\n課表上有這班也不會再列出來；按「💾 儲存人數」才會存。')) return;
+    csRows.splice(csRows.indexOf(r), 1); if (csDel.indexOf(r.className) < 0) csDel.push(r.className); csRender();
+    msg('csMsg', 'info', '已刪除「' + r.className + '」，記得按「💾 儲存人數」。');
+  });
   $('csList').addEventListener('input', function (e) { var t = e.target; if (t.hasAttribute('data-cs')) csRows[Number(t.getAttribute('data-i'))][t.getAttribute('data-cs')] = t.value; });
   $('csAdd').addEventListener('click', function () {
     var c = $('csNew').value.trim(); if (!c || !csRows) return;
     if (csRows.some(function (r) { return r.className === c; })) { msg('csMsg', 'warn', '已經有「' + c + '」了。'); return; }
-    csRows.push({ className: c, size: '', note: '' }); $('csNew').value = ''; csRender();
+    csRows.push({ className: c, size: '', note: '' }); csDel = csDel.filter(function (x) { return x !== c; }); $('csNew').value = ''; csRender();
     var ins = document.querySelectorAll('[data-cs="size"]'); ins[ins.length - 1].focus();
   });
   $('csSave').addEventListener('click', function () {
     if (!csRows) return;
     var btn = this; setBusy(btn, true, '儲存中…');
-    call('adminSaveClassSizes', token, csRows).then(function (r) {
+    call('adminSaveClassSizes', token, csRows, csDel).then(function (r) {
       data.classSizes = {}; csRows.forEach(function (x) { var n = Number(x.size); if (n > 0) data.classSizes[x.className] = n; });
-      msg('csMsg', 'ok', '已儲存 ' + r.saved + ' 個班級的人數。老師重新整理後就看得到。');
+      msg('csMsg', 'ok', '已儲存 ' + r.saved + ' 個班級的人數' + (r.deleted ? '，刪除 ' + r.deleted + ' 班' : '') + '。老師重新整理後就看得到。');
     }).catch(function (e) { msg('csMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
   });
   // 網址旁的「📱 QR code」：做一張有標題的 QR code 圖片，可以下載、列印、傳 LINE
