@@ -4236,7 +4236,15 @@ function importFile(token, file) {
   if (!kind) throw new Error('不支援這種檔案。請上傳 Excel（.xlsx）、Word（.docx）、照片或 PDF。');
   const bytes = Utilities.base64Decode(String(file.data));
   if (bytes.length > IMPORT_MAX_MB * 1024 * 1024) throw new Error('檔案太大（上限 ' + IMPORT_MAX_MB + ' MB）。');
-  const blob = Utilities.newBlob(bytes, file.mimeType || 'application/octet-stream', name);
+  // 瀏覽器沒給檔案類型（或給 octet-stream）時照副檔名補；Drive 轉檔看類型，類型錯會回「Invalid Value」
+  const EXT_MIME = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xls: 'application/vnd.ms-excel', xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12', csv: 'text/csv', ods: 'application/vnd.oasis.opendocument.spreadsheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc: 'application/msword', odt: 'application/vnd.oasis.opendocument.text', rtf: 'application/rtf', txt: 'text/plain',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp', pdf: 'application/pdf', heic: 'image/heic', heif: 'image/heif' };
+  const ext = (name.match(/\.(\w+)$/) || [])[1] ? name.match(/\.(\w+)$/)[1].toLowerCase() : '';
+  let mime = String(file.mimeType || '').trim();
+  if (!mime || mime === 'application/octet-stream') mime = EXT_MIME[ext] || 'application/octet-stream';
+  if (/heic|heif/i.test(mime)) throw new Error('這張照片是 iPhone 的 HEIC 格式，Google 沒辦法辨識文字。請改用截圖，或在 iPhone「設定 → 相機 → 格式」選「最相容」再拍一次。');
+  const blob = Utilities.newBlob(bytes, mime, name);
   const target = kind === 'sheet' ? MimeType.GOOGLE_SHEETS : MimeType.GOOGLE_DOCS;
   const id = convertFile_(blob, name, target, kind === 'ocr');
   try {
@@ -4251,8 +4259,16 @@ function convertFile_(blob, name, targetMime, ocr) {
   return retry_(function () {
     if (typeof Drive === 'undefined') return convertViaRest_(blob, name, targetMime, ocr);   // 沒開「Drive API」服務：直接呼叫 Drive 網路 API
     if (Drive.Files.create) {   // Drive API v3
-      const f = Drive.Files.create({ name: '[匯入暫存] ' + name, mimeType: targetMime }, blob, ocr ? { ocrLanguage: 'zh-TW' } : {});
-      return f.id;
+      try {
+        const f = Drive.Files.create({ name: '[匯入暫存] ' + name, mimeType: targetMime }, blob, ocr ? { ocrLanguage: 'zh-TW' } : {});
+        return f.id;
+      } catch (e) {
+        if (!/Invalid Value|invalid/i.test(e.message)) throw e;
+        // 「Invalid Value」：有些版本的進階服務不吃 ocrLanguage、或這種檔案不能用這個方式轉 → 改用網路 API 再試一次
+        try { return convertViaRest_(blob, name, targetMime, ocr); } catch (e2) {
+          throw new Error('Google 沒辦法讀這個檔案（' + (blob.getContentType() || '未知類型') + '）。請改存成 .xlsx／.docx，或用截圖、JPG 照片再試。（' + e2.message + '）');
+        }
+      }
     }
     const f = Drive.Files.insert({ title: '[匯入暫存] ' + name, mimeType: targetMime }, blob,   // Drive API v2
       ocr ? { ocr: true, ocrLanguage: 'zh-TW', convert: true } : { convert: true });

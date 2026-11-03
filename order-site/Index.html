@@ -7192,7 +7192,7 @@
   // ---- 照片、PDF、.doc：上傳到伺服器轉檔 ----
   function readFileForUpload(file) {
     return new Promise(function (resolve, reject) {
-      var isImg = /^image\/(jpeg|png|gif|bmp|webp)$/.test(file.type);
+      var isImg = /^image\//.test(file.type) || /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(file.name);   // iPhone 的 HEIC 也先轉成 JPG（瀏覽器看得懂的話），伺服器才辨識得了
       var fr = new FileReader();
       fr.onerror = function () { reject(new Error('讀取檔案失敗。')); };
       fr.onload = function () {
