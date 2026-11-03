@@ -2608,7 +2608,7 @@
           '<td style="text-align:right">$' + money(c.amount) + '</td><td style="text-align:right">' + (c.used ? '$' + money(c.used) : '—') + '</td>' +
           '<td style="text-align:right">' + (c.left < 0 ? '<b style="color:var(--bad)">超過 $' + money(-c.left) + '</b>' : '$' + money(c.left)) + '</td>' +
           '<td class="small">' + (c.uses.length ? c.uses.map(function (x) { return esc(x.vendor + ' ' + (x.no || '') + ' ' + x.date.slice(5).replace('-', '/') + ' $' + money(x.amount)) + (x.status === '已核銷' ? ' ✓' : ''); }).join('<br>') : '<span class="muted">還沒用</span>') + '</td>' +
-          '<td class="noprint" style="white-space:nowrap"><button type="button" class="btn ghost small" data-cedit="' + esc(c.code) + '" title="修改">✏️</button>' + (c.uses.length ? '' : '<button type="button" class="btn ghost small" data-cdel="' + esc(c.code) + '" title="刪除" style="color:var(--bad)">🗑</button>') + '</td></tr>';
+          '<td class="noprint" style="white-space:nowrap"><button type="button" class="btn ghost small" data-cedit="' + esc(c.code) + '" title="修改">✏️</button>' + (c.uses.length ? '' : '<button type="button" class="btn ghost small" data-codedel="' + esc(c.code) + '" title="刪除" style="color:var(--bad)">🗑</button>') + '</td></tr>';
       }).join('');
       // 分支（課程）小計：同一個名稱好幾個編號加在一起
       var br = {}, bo = [];
@@ -2639,8 +2639,8 @@
     if (t.id === 'hxCnew') { hxCodeForm(null); return; }
     if (t.id === 'hxCcancel') { $('hxCform').innerHTML = ''; return; }
     if ((b = t.closest('[data-cedit]'))) { var c0 = (hx.codes || []).filter(function (x) { return x.code === b.getAttribute('data-cedit'); })[0]; if (c0) { hxCodeForm(c0); $('hxCform').scrollIntoView({ block: 'center' }); } return; }
-    if ((b = t.closest('[data-cdel]'))) {
-      var code = b.getAttribute('data-cdel');
+    if ((b = t.closest('[data-codedel]'))) {
+      var code = b.getAttribute('data-codedel');
       if (!window.confirm('刪除分支「' + code + '」？')) return;
       call('hxDeleteCode', code).then(function (list) { hx.codes = list; hxCodesRender(); msg('hxMsg', 'ok', '已刪除 ' + code + '。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); });
       return;
@@ -2826,12 +2826,14 @@
   }
   // ④ 類別與經手人
   function hxCatsView() {
-    $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">類別與經手人</h2><div class="muted small">每一類固定一位經手人。改名字不會改到已經存的發票（舊發票照原本的名字）。</div>' +
-      '<table class="hxt" id="hxCt"><tr><th>類別</th><th>經手人</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler); }).join('') + '</table>' +
-      '<div class="row" style="margin-top:8px"><button type="button" class="btn ghost small" id="hxCadd">＋ 加一個類別</button><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>';
+    $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">類別與經手人</h2><div class="muted small">可以自己加第 9、10、11…類：按「＋ 新增大類」打名字和經手人，再按「💾 儲存」。新的大類會出現在新增核銷的「拆到各類別」、預算、統計，也可以在「經費編號・分支」幫它加分支。改名字不會改到已經存的發票（舊發票照原本的名字）。</div>' +
+      '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>經手人</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler); }).join('') + '</table>' +
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>';
+    hxCatNum();
   }
+  function hxCatNum() { Array.prototype.forEach.call(document.querySelectorAll('#hxCt [data-cnum]'), function (x, i) { x.textContent = '第 ' + (i + 1) + ' 類'; }); }
   function hxCatRow(n, h) {
-    return '<tr><td><input data-cn value="' + esc(n) + '" style="width:220px"></td><td><input data-ch value="' + esc(h) + '" style="width:140px"></td>' +
+    return '<tr><td data-cnum class="small muted" style="white-space:nowrap"></td><td><input data-cn value="' + esc(n) + '" style="width:220px"></td><td><input data-ch value="' + esc(h) + '" style="width:140px"></td>' +
       '<td><button type="button" class="btn ghost small" data-cup>↑</button><button type="button" class="btn ghost small" data-cdel>刪除</button></td></tr>';
   }
   document.querySelector('.hxtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-hx]'); if (b) hxOpen(b.getAttribute('data-hx')); });
@@ -2933,9 +2935,9 @@
     }
     if (t.id === 'hxSprint') { window.print(); return; }
     if (t.id === 'hxScsv') { hxCsv(); return; }
-    if (t.id === 'hxCadd') { $('hxCt').insertAdjacentHTML('beforeend', hxCatRow('', '')); return; }
-    if (t.hasAttribute('data-cdel')) { t.closest('tr').remove(); return; }
-    if (t.hasAttribute('data-cup')) { var tr = t.closest('tr'), pv = tr.previousElementSibling; if (pv && pv.querySelector('[data-cn]')) tr.parentNode.insertBefore(tr, pv); return; }
+    if (t.id === 'hxCadd') { $('hxCt').insertAdjacentHTML('beforeend', hxCatRow('', '')); hxCatNum(); var ns = document.querySelectorAll('#hxCt [data-cn]'); ns[ns.length - 1].focus(); msg('hxMsg', 'info', '打好名字後記得按「💾 儲存」。'); return; }
+    if (t.hasAttribute('data-cdel')) { var nm = (t.closest('tr').querySelector('[data-cn]') || {}).value; if (nm && !window.confirm('刪除大類「' + nm + '」？\n已經存的發票不受影響；按「💾 儲存」才會存。')) return; t.closest('tr').remove(); hxCatNum(); return; }
+    if (t.hasAttribute('data-cup')) { var tr = t.closest('tr'), pv = tr.previousElementSibling; if (pv && pv.querySelector('[data-cn]')) tr.parentNode.insertBefore(tr, pv); hxCatNum(); return; }
     if (t.id === 'hxCsave') {
       var list = Array.prototype.map.call(document.querySelectorAll('#hxCt tr'), function (tr) { var n = tr.querySelector('[data-cn]'); return n ? { name: n.value.trim(), handler: tr.querySelector('[data-ch]').value.trim() } : null; }).filter(Boolean);
       t.disabled = true;
