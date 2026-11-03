@@ -1224,7 +1224,37 @@ function getMyOrders(token, days) {
   const shown = list.filter(function (o) { return !hidden[o.orderNo]; });
   const places = placesFor_(shown.map(function (o) { return o.orderNo; }));
   shown.forEach(function (o) { o.place = places[o.orderNo] || null; });
+  try { attachSlipPrices_(shown); } catch (e) { console.error('attachSlipPrices_ ' + e.message); }
   return shown;
+}
+
+/**
+ * 料單成本：每個品項帶上「那一週、那家廠商銷貨單上的單價」it.sp = { u: 單位, p: 單價 }（驗收網站填的「銷貨單明細」）。
+ * 那週沒填的不帶，畫面再用單價表最新的估。
+ */
+function attachSlipPrices_(list) {
+  if (!list.length || !ss_().getSheetByName('銷貨單明細')) return;
+  const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
+  const weeks = {};
+  list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
+  const map = {};
+  readTable_('銷貨單明細', ['送貨日期（起）', '廠商', '食材名稱', '單價']).rows.forEach(function (r) {
+    const name = String(r['食材名稱'] || '').trim(), p = Number(r['單價']);
+    if (!name || !(p > 0)) return;
+    const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
+    const wk = mon(sd || d0);
+    if (!weeks[wk]) return;
+    map[wk + '|' + String(r['廠商']).trim() + '|' + name] = { u: String(r['單位'] || '').trim(), p: p };
+  });
+  // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
+  const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : [v]; };
+  list.forEach(function (o) {
+    const wk = mon(parseDate_(o.useDate));
+    (o.items || []).forEach(function (it) {
+      const vs = alias(String(it.vendor || '').trim());
+      for (let i = 0; i < vs.length; i++) { const x = map[wk + '|' + vs[i] + '|' + it.name]; if (x) { it.sp = x; break; } }
+    });
+  });
 }
 
 /**
@@ -1504,6 +1534,7 @@ function adminGetOrders(token, from, to, lite) {
   const edits = orderEditsFor_(nos), printed = printedFor_(nos), flags = flagsFor_(nos), places = placesFor_(nos), hidden = hiddenOrders_();
   list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; o.place = places[o.orderNo] || null; o.deleted = hidden[o.orderNo] || null; });
   try { matchLessons_(list, start, end); } catch (e) { console.error('matchLessons_ ' + e.message); }
+  try { attachSlipPrices_(list); } catch (e) { console.error('attachSlipPrices_ ' + e.message); }
   return list;
 }
 

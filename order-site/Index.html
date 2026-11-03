@@ -1537,6 +1537,16 @@
       catch (e) { notice('存檔失敗：' + e.message); }
     }).catch(function (e) { setBusy(btn, false); notice(e.message || String(e)); });
   }
+  // 只印某一塊（例如成本統計）
+  function printSection(el) {
+    var w = window.open('', '_blank');
+    if (!w) { notice('新視窗被瀏覽器擋住了，請允許「彈出式視窗」後再試一次。'); return; }
+    var styles = Array.prototype.map.call(document.querySelectorAll('style, link[rel="stylesheet"]'), function (x) { return x.outerHTML; }).join('');
+    var html = el.outerHTML.replace(/^<details/, '<details open');
+    w.document.open();
+    w.document.write('<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>列印</title>' + styles + '<style>.noprint{display:none!important}body{background:#fff;margin:0;padding:8px}</style></head><body><main>' + html + '</main><script>setTimeout(function(){window.print();},600);<\/script></body></html>');
+    w.document.close();
+  }
   function printInWindow() {
     var sec = document.querySelector('main > section:not(.hidden)');
     if (!sec) return;
@@ -2478,6 +2488,34 @@
     return n === null ? null : Math.round(n * x.p);
   }
   function money0(n) { return Math.round(n).toLocaleString('en-US'); }
+  // 料單成本：優先用那一週、那家廠商銷貨單上的單價（it.sp，驗收網站填的），沒有才用單價表最新的估
+  function convFor(name, u) { var x = ((data.prices || {})[name] || []).filter(function (y) { return y.u === u && y.c; })[0]; return x ? x.c : null; }
+  function itemCost(it) {
+    if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return null;
+    var q = toNum(it.qty);
+    if (!(q > 0)) return null;
+    if (it.sp) {
+      var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPrice(q, it.unit, x);
+      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true };
+    }
+    var e = estCost(it), px = priceOf(it);
+    return e === null ? null : { amt: e, p: px.p, u: px.u, real: false };
+  }
+  function orderCost(o) {
+    var r = { sum: 0, real: 0, est: 0, none: 0 };
+    if (o.status === '已取消') return r;
+    (o.items || []).forEach(function (it) {
+      if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
+      var c = itemCost(it);
+      if (!c) r.none++; else { r.sum += c.amt; if (c.real) r.real++; else r.est++; }
+    });
+    return r;
+  }
+  function costLine(o) {
+    var r = orderCost(o);
+    if (!r.real && !r.est) return '';
+    return '<div class="small" style="margin-top:6px;color:#475467">💰 料單成本 <b>$' + money0(r.sum) + '</b>' + (r.est || r.none ? '<span class="muted">（銷貨單 ' + r.real + ' 項' + (r.est ? '・用上次單價估 ' + r.est + ' 項' : '') + (r.none ? '・' + r.none + ' 項沒有單價' : '') + '）</span>' : '<span class="muted">（照銷貨單）</span>') + '</div>';
+  }
   function priceText(c) {
     if (c.vendor === data.selfVendor) return '';
     var x = priceOf(c);
@@ -2863,7 +2901,7 @@
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
         (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
         '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + (jinOf(it.qty, it.unit, it.vendor, it.name) ? '<div class="muted" style="font-size:13px">≈ ' + esc(jinOf(it.qty, it.unit, it.vendor, it.name)) + '</div>' : '') + (qw ? '<div class="noprint" style="color:var(--warn);font-size:13px;font-weight:600;white-space:normal">⚠ ' + esc(it.qtyWarn) + '</div>' : '') + '</td>' +
-        '<td class="muted small">' + esc(it.vendor) + '</td>' +
+        '<td class="muted small">' + esc(it.vendor) + (function (c) { return c ? '<div style="color:#475467">' + (c.real ? '' : '約') + '$' + money0(c.amt) + '</div>' : ''; })(itemCost(it)) + '</td>' +
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
     }).join('');
     var toolLine = tools.length ? '<div class="small" style="margin-top:6px"><b>使用器具：</b>' + esc(tools.map(function (t) {
@@ -2915,7 +2953,7 @@
           (o.place.photo ? ' <a href="' + esc(o.place.photo) + '" target="_blank" rel="noopener" class="small">看照片</a>' : '') + '</div>' : '') +
         (opts.admin && o.flag ? '<div class="msg error noprint" style="margin:6px 0">⚠ 異常：' + esc(o.flag.note) + '<span class="muted small">（' + esc(o.flag.by + ' ' + o.flag.time) + '）</span></div>' : '') +
         (opts.admin ? lessonMatchHtml(o) : '') +
-      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + toolLine + editLog + notes +
+      (rows ? '<div class="tablewrap"><table><tbody>' + rows + '</tbody></table></div>' : '') + costLine(o) + toolLine + editLog + notes +
       (buttons ? '<div class="actions">' + buttons + '</div>' : '') + '</div>';
   }
 
@@ -3189,6 +3227,42 @@
     return count;
   }
   var sumTotalsOpen = false;   // 廠商合計預設收起來
+  // 💰 成本統計（訂單彙整目前列出來的訂單）：依老師／班級／實作項目／週加總料單成本
+  var costBy = 'teacher', costOpen = false;
+  function costStatsHtml(list) {
+    var key = {
+      teacher: function (o) { return o.onBehalfOf || o.teacher; },
+      class: function (o) { return o.className || '（沒填班級）'; },
+      project: function (o) { return o.project || '（沒填實作項目）'; },
+      week: function (o) { var d = parseDate(o.useDate), m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)); return isoDate(m); },
+      dept: function (o) { return o.dept || '（沒填科別）'; },
+    }[costBy];
+    var g = {}, order = [], tot = { n: 0, real: 0, est: 0, sum: 0, none: 0 };
+    list.forEach(function (o) {
+      if (o.status === '已取消') return;
+      var k = key(o), c = orderCost(o), realAmt = 0;
+      (o.items || []).forEach(function (it) { var x = itemCost(it); if (x && x.real) realAmt += x.amt; });
+      if (!g[k]) { g[k] = { n: 0, real: 0, sum: 0, none: 0 }; order.push(k); }
+      g[k].n++; g[k].real += realAmt; g[k].sum += c.sum; g[k].none += c.none;
+      tot.n++; tot.real += realAmt; tot.sum += c.sum; tot.none += c.none;
+    });
+    order.sort(function (a, b) { return costBy === 'week' ? (a < b ? -1 : 1) : g[b].sum - g[a].sum; });
+    var lab = function (k) { return costBy === 'week' ? shortDate(k) + ' 那週' : k; };
+    var opt = function (v, t) { return '<button type="button" data-costby="' + v + '" class="' + (costBy === v ? 'on' : '') + '">' + t + '</button>'; };
+    return '<details class="panel" id="costStats"' + (costOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>💰 成本統計</b>　<span class="small muted">這 ' + tot.n + ' 張料單合計 <b>$' + money0(tot.sum) + '</b>（照銷貨單 $' + money0(tot.real) + '，其他用上次單價估）</span></summary>' +
+      '<div class="status-chips noprint" style="margin:8px 0">' + opt('teacher', '依老師') + opt('class', '依班級') + opt('project', '依實作項目') + opt('dept', '依科別') + opt('week', '依週') +
+      '<button type="button" id="costPrint" class="btn ghost small">🖨 列印</button></div>' +
+      '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">照銷貨單</th><th style="text-align:right">合計（含估算）</th></tr>' +
+      order.map(function (k) { var x = g[k]; return '<tr><td>' + esc(lab(k)) + '</td><td class="num">' + x.n + ' 張</td><td class="num">$' + money0(x.real) + '</td><td class="num"><b>$' + money0(x.sum) + '</b>' + (x.none ? '<div class="muted small">' + x.none + ' 項沒有單價</div>' : '') + '</td></tr>'; }).join('') +
+      '<tr style="background:#f2f4f7"><td><b>合計</b></td><td class="num">' + tot.n + ' 張</td><td class="num">$' + money0(tot.real) + '</td><td class="num"><b>$' + money0(tot.sum) + '</b></td></tr></table></div>' +
+      '<div class="muted small" style="margin-top:4px">料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）；那週還沒填的品項用最近一次的單價估。「有貨」、自備、器具不算。範圍是上面篩選後列出來的訂單。</div></details>';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-costby]');
+    if (b) { costBy = b.getAttribute('data-costby'); costOpen = true; renderSummary(); var el = $('costStats'); if (el) el.scrollIntoView({ block: 'nearest' }); return; }
+    if (e.target.id === 'costPrint') { var d = $('costStats'); if (d) printSection(d); }
+  });
+  document.addEventListener('toggle', function (e) { if (e.target.id === 'costStats') costOpen = e.target.open; }, true);
   function renderSummary() {
     markDups(sumCache);
     var hideCancel = $('sHideCancel').checked;
@@ -3305,7 +3379,7 @@
     var pickBar = waits.length ? '<div class="pick-bar noprint"><label><input type="checkbox" id="pickAll"' + (sumWaitNos.length ? '' : ' disabled') + '> 全選待處理（' + sumWaitNos.length + ' 張' + (nOdd ? '，不含數量要確認或可能重複的 ' + nOdd + ' 張' : '') + '）</label>' +
       '<button type="button" class="btn approve small" id="pickGo" disabled>✓ 審核勾選的</button><span class="muted small">也可以直接按每張的「✓ 審核」</span></div>' : '';
     $('sumOrders').innerHTML = '<div class="panel" style="padding:12px 16px"><h2 style="margin:0">' + (who ? esc(who) + ' 老師的' : '各張') + (st ? '「' + esc(stLabel(st)) + '」' : '') + '訂單（' + list.length + ' 張）</h2>' + chips +
-      '<div class="sum-bar">' + pmenu + sortBar + '</div>' + pickBar + warnUnp + '</div>' +
+      '<div class="sum-bar">' + pmenu + sortBar + '</div>' + pickBar + warnUnp + '</div>' + costStatsHtml(list) +
       sortOrders(list, sby).map(function (o) { return orderCard(o, { admin: true }); }).join('');
     pickSync();
   }
@@ -4638,7 +4712,8 @@
       }
       html += '</tr>';
     }
-    html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td></td><td colspan="4">倉庫負責老師：</td></tr></table></div>';
+    var oc1 = orderCost(o);
+    html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td class="r">' + (oc1.real || oc1.est ? '$' + money0(oc1.sum) : '') + '</td><td colspan="4">倉庫負責老師：</td></tr></table></div>';
     return html;
   }
 
@@ -4672,11 +4747,13 @@
       html += '<tr>';
       if (groupAt[i]) html += '<td rowspan="' + groupAt[i].n + '" class="vtext">' + esc(groupAt[i].v) + '</td>';
       else if (i >= foods.length) html += cell('');
-      html += cell(it ? esc(it.name) : '', 'c') + cell(it ? perGroup(o, it) : '', 'c') + cell('') + cell(it ? esc(it.unit) : '', 'c') +
-        cell(it ? esc(fmtQty(it.qty)) : '', 'c') + cell('') + cell(note ? '<span class="note">' + esc(note) + '</span>' : '') +
+      var ct = it ? itemCost(it) : null;
+      html += cell(it ? esc(it.name) : '', 'c') + cell(it ? perGroup(o, it) : '', 'c') + cell(ct ? '$' + esc(fmtQty(ct.p)) + '/' + esc(ct.u) : '', 'c') + cell(it ? esc(it.unit) : '', 'c') +
+        cell(it ? esc(fmtQty(it.qty)) : '', 'c') + cell(ct ? (ct.real ? '' : '約') + '$' + money0(ct.amt) : '', 'r') + cell(note ? '<span class="note">' + esc(note) + '</span>' : '') +
         cell(t ? nameText(t) : '') + cell(t ? esc(fmtQty(t.qty)) : '', 'c') + '</tr>';
     }
-    html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table></div>';
+    var oc = orderCost(o);
+    html += '<tr class="hdr"><td colspan="2">總價</td><td></td><td></td><td></td><td></td><td class="r">' + (oc.real || oc.est ? '$' + money0(oc.sum) : '') + '</td><td></td><td></td><td></td></tr></table></div>';
     return html;
   }
 
@@ -4710,7 +4787,7 @@
     var html = '<div class="sheet teacher"><h1>三信家商餐飲科教師料單</h1>' +
       '<div class="meta"><div>教師姓名：' + esc(teacherOf(o)) + '</div><div>上課班級：' + esc(o.className) + (classSizeText(o.className) ? '（' + esc(classSizeText(o.className)) + '）' : '') + '</div><div>實習項目：' + esc(o.project) + '</div>' +
       '<div>上課日期：' + dp.m + '/' + dp.d + '（' + dp.w + '）</div><div>上課時間(上午/下午)：' + esc(o.classTime) + '</div><div>上課專業教室：' + esc(o.room) + '</div>' +
-      '<div>分組：' + (o.groups ? esc(o.groups) + ' 組' : '') + '</div></div>' +
+      '<div>分組：' + (o.groups ? esc(o.groups) + ' 組' : '') + '</div>' + (function (oc) { return oc.real || oc.est ? '<div>料單成本：$' + money0(oc.sum) + (oc.est || oc.none ? '（部分估算）' : '') + '</div>' : ''; })(orderCost(o)) + '</div>' +
       '<div class="boxes">' +
         box(BOX_NAMES.A, bySection(by.A || []), R1) +
         '<div class="stack">' + box(BOX_NAMES.C, bySection(by.C || []), Rc) + box(BOX_NAMES.D, bySection(by.D || []), Rd) + '</div>' +
