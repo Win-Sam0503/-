@@ -3232,7 +3232,24 @@
   }
   var sumTotalsOpen = false;   // 廠商合計預設收起來
   // 💰 成本統計（訂單彙整目前列出來的訂單）：依老師／班級／實作項目／週加總料單成本
-  var costBy = 'teacher', costOpen = false;
+  var costBy = 'teacher', costOpen = false, costOpenRows = {};
+  // 細項：這一組的每張料單（日期、班級、實作項目、老師），點開看每個品項的數量、單價、金額、單價來源
+  function costDetail(list) {
+    list = list.slice().sort(function (a, b) { return a.o.useDate < b.o.useDate ? -1 : a.o.useDate > b.o.useDate ? 1 : 0; });
+    return list.map(function (e) {
+      var o = e.o, items = (o.items || []).filter(function (it) { return it.id !== TOOL && it.status !== '已取消'; });
+      var rows = items.map(function (it) {
+        var c = itemCost(it), skip = it.noOrder || it.vendor === data.selfVendor;
+        return '<tr><td>' + esc(it.name) + '</td><td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td><td class="muted small">' + esc(it.vendor) + '</td>' +
+          '<td class="num">' + (c ? '$' + esc(fmtQty(Math.round(c.p * 100) / 100)) + '／' + esc(c.u) : '') + '</td>' +
+          '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有單價</span>') + '</td>' +
+          '<td class="small">' + (skip || !c ? '' : c.real ? '<span style="color:var(--ok)">銷貨單</span>' : '<span class="muted">上次單價估</span>') + '</td></tr>';
+      }).join('');
+      return '<details style="margin:4px 0"><summary style="cursor:pointer">' + esc(shortDate(o.useDate)) + '　' + esc(o.className || '') + '「' + esc(o.project || '（沒填實作項目）') + '」　' + esc(o.onBehalfOf || o.teacher) +
+        '　<b>$' + money0(e.c.sum) + '</b>' + (e.c.est || e.c.none ? '<span class="muted small">（' + (e.c.est ? '估 ' + e.c.est + ' 項' : '') + (e.c.est && e.c.none ? '・' : '') + (e.c.none ? e.c.none + ' 項沒有單價' : '') + '）</span>' : '') + '</summary>' +
+        '<div class="tablewrap"><table class="small"><tr><th>品項</th><th style="text-align:right">數量</th><th>廠商</th><th style="text-align:right">單價</th><th style="text-align:right">金額</th><th>單價來源</th></tr>' + rows + '</table></div></details>';
+    }).join('');
+  }
   function costStatsHtml(list) {
     var key = {
       teacher: function (o) { return o.onBehalfOf || o.teacher; },
@@ -3246,7 +3263,8 @@
       if (o.status === '已取消') return;
       var k = key(o), c = orderCost(o), realAmt = 0;
       (o.items || []).forEach(function (it) { var x = itemCost(it); if (x && x.real) realAmt += x.amt; });
-      if (!g[k]) { g[k] = { n: 0, real: 0, sum: 0, none: 0 }; order.push(k); }
+      if (!g[k]) { g[k] = { n: 0, real: 0, sum: 0, none: 0, orders: [] }; order.push(k); }
+      g[k].orders.push({ o: o, c: c });
       g[k].n++; g[k].real += realAmt; g[k].sum += c.sum; g[k].none += c.none;
       tot.n++; tot.real += realAmt; tot.sum += c.sum; tot.none += c.none;
     });
@@ -3257,11 +3275,17 @@
       '<div class="status-chips noprint" style="margin:8px 0">' + opt('teacher', '依老師') + opt('class', '依班級') + opt('project', '依實作項目') + opt('dept', '依科別') + opt('week', '依週') +
       '<button type="button" id="costPrint" class="btn ghost small">🖨 列印</button></div>' +
       '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">照銷貨單</th><th style="text-align:right">合計（含估算）</th></tr>' +
-      order.map(function (k) { var x = g[k]; return '<tr><td>' + esc(lab(k)) + '</td><td class="num">' + x.n + ' 張</td><td class="num">$' + money0(x.real) + '</td><td class="num"><b>$' + money0(x.sum) + '</b>' + (x.none ? '<div class="muted small">' + x.none + ' 項沒有單價</div>' : '') + '</td></tr>'; }).join('') +
+      order.map(function (k) {
+        var x = g[k], open = costOpenRows[costBy + '|' + k];
+        return '<tr class="cost-g" data-costrow="' + esc(k) + '" style="cursor:pointer"><td><span class="lw-arrow" style="display:inline-block;transition:transform .15s' + (open ? ';transform:rotate(90deg)' : '') + '">▶</span> ' + esc(lab(k)) + '</td><td class="num">' + x.n + ' 張</td><td class="num">$' + money0(x.real) + '</td><td class="num"><b>$' + money0(x.sum) + '</b>' + (x.none ? '<div class="muted small">' + x.none + ' 項沒有單價</div>' : '') + '</td></tr>' +
+          (open ? '<tr><td colspan="4" style="background:#fafbfc;padding:6px 10px">' + costDetail(x.orders) + '</td></tr>' : '');
+      }).join('') +
       '<tr style="background:#f2f4f7"><td><b>合計</b></td><td class="num">' + tot.n + ' 張</td><td class="num">$' + money0(tot.real) + '</td><td class="num"><b>$' + money0(tot.sum) + '</b></td></tr></table></div>' +
-      '<div class="muted small" style="margin-top:4px">料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）；那週還沒填的品項用最近一次的單價估。「有貨」、自備、器具不算。範圍是上面篩選後列出來的訂單。</div></details>';
+      '<div class="muted small" style="margin-top:4px">點每一列看細項（每張料單、每個品項的數量、單價、金額）。料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）；那週還沒填的品項用最近一次的單價估。「有貨」、自備、器具不算。範圍是上面篩選後列出來的訂單。</div></details>';
   }
   document.addEventListener('click', function (e) {
+    var cr = e.target.closest && e.target.closest('[data-costrow]');
+    if (cr) { var ck = costBy + '|' + cr.getAttribute('data-costrow'); costOpenRows[ck] = !costOpenRows[ck]; costOpen = true; renderSummary(); var el0 = document.querySelector('[data-costrow="' + CSS.escape(cr.getAttribute('data-costrow')) + '"]'); if (el0) el0.scrollIntoView({ block: 'nearest' }); return; }
     var b = e.target.closest && e.target.closest('[data-costby]');
     if (b) { costBy = b.getAttribute('data-costby'); costOpen = true; renderSummary(); var el = $('costStats'); if (el) el.scrollIntoView({ block: 'nearest' }); return; }
     if (e.target.id === 'costPrint') { var d = $('costStats'); if (d) printSection(d); }
