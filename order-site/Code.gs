@@ -4254,36 +4254,41 @@ function importFile(token, file) {
   }
 }
 
-/** 用 Drive API 把檔案轉成 Google 格式（照片／PDF 會做文字辨識），回傳新檔案 ID。 */
+/**
+ * 用 Drive API 把檔案轉成 Google 格式（照片／PDF 會做文字辨識），回傳新檔案 ID。
+ * 文字辨識的語言提示：先試 zh-TW，Google 回「Invalid Value」再試 zh，最後不給語言（Google 自己判斷）。
+ */
 function convertFile_(blob, name, targetMime, ocr) {
-  return retry_(function () {
-    if (typeof Drive === 'undefined') return convertViaRest_(blob, name, targetMime, ocr);   // 沒開「Drive API」服務：直接呼叫 Drive 網路 API
-    if (Drive.Files.create) {   // Drive API v3
-      try {
-        const f = Drive.Files.create({ name: '[匯入暫存] ' + name, mimeType: targetMime }, blob, ocr ? { ocrLanguage: 'zh-TW' } : {});
-        return f.id;
-      } catch (e) {
-        if (!/Invalid Value|invalid/i.test(e.message)) throw e;
-        // 「Invalid Value」：有些版本的進階服務不吃 ocrLanguage、或這種檔案不能用這個方式轉 → 改用網路 API 再試一次
-        try { return convertViaRest_(blob, name, targetMime, ocr); } catch (e2) {
-          throw new Error('Google 沒辦法讀這個檔案（' + (blob.getContentType() || '未知類型') + '）。請改存成 .xlsx／.docx，或用截圖、JPG 照片再試。（' + e2.message + '）');
+  const langs = ocr ? ['zh-TW', 'zh', ''] : [''];
+  let last = null;
+  for (let i = 0; i < langs.length; i++) {
+    try {
+      return retry_(function () {
+        if (typeof Drive === 'undefined') return convertViaRest_(blob, name, targetMime, ocr, langs[i]);   // 沒開「Drive API」服務：直接呼叫 Drive 網路 API
+        if (Drive.Files.create) {   // Drive API v3
+          const f = Drive.Files.create({ name: '[匯入暫存] ' + name, mimeType: targetMime }, blob, langs[i] ? { ocrLanguage: langs[i] } : {});
+          return f.id;
         }
-      }
+        const f = Drive.Files.insert({ title: '[匯入暫存] ' + name, mimeType: targetMime }, blob,   // Drive API v2
+          ocr ? (langs[i] ? { ocr: true, ocrLanguage: langs[i], convert: true } : { ocr: true, convert: true }) : { convert: true });
+        return f.id;
+      });
+    } catch (e) {
+      last = e;
+      if (!/Invalid Value|invalid/i.test(e.message)) throw e;
     }
-    const f = Drive.Files.insert({ title: '[匯入暫存] ' + name, mimeType: targetMime }, blob,   // Drive API v2
-      ocr ? { ocr: true, ocrLanguage: 'zh-TW', convert: true } : { convert: true });
-    return f.id;
-  });
+  }
+  throw new Error('Google 沒辦法讀這個檔案（' + (blob.getContentType() || '未知類型') + '）。請改存成 .xlsx／.docx，或用截圖、JPG 照片再試。（' + (last ? last.message : '') + '）');
 }
 
 /** 不用進階服務，直接用 Drive API v3 上傳並轉檔（權限跟 DriveApp 一樣） */
-function convertViaRest_(blob, name, targetMime, ocr) {
+function convertViaRest_(blob, name, targetMime, ocr, lang) {
   const boundary = 'import' + Date.now();
   const meta = JSON.stringify({ name: '[匯入暫存] ' + name, mimeType: targetMime });
   const head = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
     '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.getContentType() || 'application/octet-stream') + '\r\n\r\n').getBytes();
   const tail = Utilities.newBlob('\r\n--' + boundary + '--').getBytes();
-  const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id' + (ocr ? '&ocrLanguage=zh-TW' : ''), {
+  const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id' + (ocr && lang ? '&ocrLanguage=' + encodeURIComponent(lang) : ''), {
     method: 'post',
     contentType: 'multipart/related; boundary=' + boundary,
     payload: head.concat(blob.getBytes(), tail),

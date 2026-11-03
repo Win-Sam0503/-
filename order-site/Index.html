@@ -7088,6 +7088,81 @@
   var imp = null;
   var SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   var sheetJsLoading = null;
+  // PDF：用 pdf.js 在瀏覽器直接讀文字（從 Excel／Word 轉出來的 PDF 都有文字，不用 Google 辨識）；掃描的 PDF 讀不到字才交給伺服器辨識
+  var PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', pdfJsLoading = null;
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (!pdfJsLoading) pdfJsLoading = new Promise(function (resolve, reject) {
+      var sc = document.createElement('script'); sc.src = PDFJS_URL;
+      sc.onload = function () {
+        if (!window.pdfjsLib) { reject(new Error('PDFJS')); return; }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_URL.replace('pdf.min.js', 'pdf.worker.min.js');
+        resolve(window.pdfjsLib);
+      };
+      sc.onerror = function () { pdfJsLoading = null; reject(new Error('PDFJS')); };
+      document.head.appendChild(sc);
+    });
+    return pdfJsLoading;
+  }
+  function readPdfLocal(file) {
+    return Promise.all([loadPdfJs(), readAs(file, 'readAsArrayBuffer')]).then(function (r) {
+      return r[0].getDocument({ data: new Uint8Array(r[1]) }).promise;
+    }).then(function (pdf) {
+      var pages = [];
+      for (var i = 1; i <= Math.min(pdf.numPages, 10); i++) pages.push(pdf.getPage(i).then(function (pg) { return pg.getTextContent(); }));
+      return Promise.all(pages);
+    }).then(function (contents) {
+      // 版面常常是好幾個框左右並排（菜類｜蛋類｜乾貨類），數量又寫在單位下面一行：
+      // 先把每一行照「字跟字中間的大空隙」切成一段一段，同一欄（起點 x 差不多）的段落上到下排在一起，
+      // 只有數字（2、0.5、1/3）的一行接到上一行後面
+      var lines = [];
+      contents.forEach(function (tc) {
+        var rows = [];
+        tc.items.forEach(function (it) {
+          var str = String(it.str || ''); if (!str.trim()) return;
+          var x = it.transform[4], y = it.transform[5], w = it.width || 0;
+          var row = rows.filter(function (rw) { return Math.abs(rw.y - y) < 4; })[0];
+          if (!row) { row = { y: y, items: [] }; rows.push(row); }
+          row.items.push({ x: x, w: w, s: str });
+        });
+        var segs = [];
+        rows.forEach(function (rw) {
+          rw.items.sort(function (a, b) { return a.x - b.x; });
+          var cur = null;
+          rw.items.forEach(function (it) {
+            var num = /^[\d.\/]+$/.test(it.s.trim());   // 數量離品名比較遠（品名長的時候）也算同一段
+            if (!cur || it.x - cur.end > (num ? 60 : 30)) { cur = { x: it.x, y: rw.y, end: it.x + it.w, s: it.s }; segs.push(cur); }
+            else { cur.s += (it.x - cur.end > 2 ? ' ' : '') + it.s; cur.end = it.x + it.w; }
+          });
+        });
+        // 欄：段落起點 x 分群（相差 60 以內同一欄）
+        var cols = [];
+        segs.slice().sort(function (a, b) { return a.x - b.x; }).forEach(function (sg) {
+          var c = cols.filter(function (c0) { return sg.x - c0.x0 < 60; })[0] || cols[cols.length - 1];
+          if (!c || sg.x - c.x0 >= 60) { c = { x0: sg.x, segs: [] }; cols.push(c); }
+          c.segs.push(sg);
+        });
+        // 標題那種橫跨整頁的長段落（比一欄寬很多）先輸出
+        cols.forEach(function (c) {
+          var out = [];
+          c.segs.sort(function (a, b) { return b.y - a.y; }).forEach(function (sg) {
+            var t = sg.s.trim();
+            var prev = out.length ? out[out.length - 1] : '', m;
+            if (prev && /^[\d.\/]+$/.test(t) && !/[\d.\/]$/.test(prev) && !/數量|編號/.test(prev)) {   // 數量在下一行（單位在上一行最後）：接成「洋蔥 2 顆」
+              out[out.length - 1] = (m = prev.match(/^(.*\S)\s+([^\s\d]{1,3})$/)) ? m[1] + ' ' + t + ' ' + m[2] : prev + ' ' + t;
+            }
+            else out.push(t);
+          });
+          lines = lines.concat(out);
+        });
+      });
+      var text = lines.join('\n');
+      if (text.replace(/\s/g, '').length < 15) throw new Error('PDF 沒有文字（可能是掃描的）');
+      // 有 tab 的行當表格（每格一欄），給跟 Word 表格一樣的解析
+      var rows = lines.filter(function (l) { return l.indexOf('\t') >= 0; }).map(function (l) { return l.split('\t').map(function (c) { return c.trim(); }); });
+      return { kind: 'ocr', tables: [], text: lines.slice(0, 600).join('\n') };
+    });
+  }
   function loadSheetJs() {
     if (window.XLSX) return Promise.resolve(window.XLSX);
     if (!sheetJsLoading) sheetJsLoading = new Promise(function (resolve, reject) {
@@ -7225,7 +7300,7 @@
     this.value = '';
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) { msg('impMsg', 'error', '檔案太大，請小於 20 MB。'); return; }
-    var local = /\.(xlsx|xlsm|xls|csv|ods)$/i.test(file.name) ? readExcelLocal : /\.docx$/i.test(file.name) ? readDocxLocal : null;
+    var local = /\.(xlsx|xlsm|xls|csv|ods)$/i.test(file.name) ? readExcelLocal : /\.docx$/i.test(file.name) ? readDocxLocal : /\.pdf$/i.test(file.name) || file.type === 'application/pdf' ? readPdfLocal : null;
     msg('impMsg', 'info', '讀取中…' + (local ? '' : '照片要做文字辨識，大約 10～30 秒。'));
     $('impReview').innerHTML = '';
     // 瀏覽器讀不了（例如程式庫載入失敗）就改由伺服器轉檔
