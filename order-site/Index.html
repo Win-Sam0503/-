@@ -774,7 +774,7 @@
             <select id="fAmpm" aria-label="上午、下午或夜間"><option value="">請選擇</option><option>上午</option><option>下午</option><option value="晚上">夜間</option></select>
             <input type="hidden" id="fTime"></div>
           <div><label for="fRoom">上課教室</label><input id="fRoom" type="text" maxlength="30"></div>
-          <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"></div>
+          <div><label for="fClass">上課班級 <span class="req">*</span></label><input id="fClass" type="text" maxlength="30" placeholder="例：408"><div id="fClassSize" class="small muted" style="margin-top:2px"></div></div>
           <div><label for="fGroups">組數</label><input id="fGroups" type="text" class="num-input" data-int="1" autocomplete="off" maxlength="4" placeholder="例：6"></div>
           <div id="forBox" class="hidden"><label for="fFor">代訂對象老師 <a href="#" id="forHide" class="small" style="font-weight:normal">（不代訂）</a></label><select id="fFor"></select></div>
           <div id="forLink" style="align-self:end;padding-bottom:10px"><a href="#" id="forShow" class="small">幫別的老師代訂？</a></div>
@@ -1055,6 +1055,12 @@
 
     <!-- 管理者：系統設定（自動化、管理者帳號、網址、LINE、更新程式） -->
     <section id="viewSettings" class="hidden">
+      <details class="panel noprint" id="csPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">👥 班級人數</h2> <span class="muted small">老師在「我的課」、訂貨頁、料單看得到（不能改）</span></summary>
+        <div class="muted small" style="margin:6px 0">每個班級填一次人數；合班（例如 213/214）會自動加總。下面列出課表、國技排班和最近 2 個月訂單出現過的班級，人數空白的不會存。</div>
+        <div id="csMsg"></div><div id="csList"></div>
+        <div class="row" style="margin-top:8px"><input id="csNew" maxlength="20" placeholder="新增班級，例如 夜202" style="width:200px"><button type="button" class="btn ghost small" id="csAdd">＋ 加一班</button><span style="flex:1"></span><button type="button" class="btn" id="csSave">💾 儲存人數</button></div>
+      </details>
       <div class="panel noprint" id="autoPanel">
         <h2>自動化 <button type="button" class="btn ghost small" id="aReload">重新整理</button></h2>
         <div id="autoMsg"></div>
@@ -1874,6 +1880,20 @@
     var gn = normNum(draft.info.groups);
     if (gn) draft.info.groups = gn;
   }
+  // 班級人數（管理者在系統設定填，老師只能看）：「213/214」合班自動加總
+  function classSize(cls) {
+    var map = (data && data.classSizes) || {}, parts = String(cls || '').split(/[\/、,，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!parts.length) return null;
+    var n = 0, known = [], miss = [];
+    parts.forEach(function (c) { if (map[c]) { n += map[c]; known.push(c + '：' + map[c]); } else miss.push(c); });
+    return known.length ? { n: n, partial: miss.length > 0, detail: parts.length > 1 ? known.join('、') + (miss.length ? '、' + miss.join('、') + '：未設定' : '') : '' } : null;
+  }
+  function classSizeText(cls) { var z = classSize(cls); return z ? z.n + ' 人' + (z.partial ? '（部分班級未設定）' : '') : ''; }
+  function updateClassHint() {
+    var z = classSize($('fClass').value);
+    $('fClassSize').textContent = z ? '👥 ' + z.n + ' 人' + (z.detail ? '（' + z.detail + '）' : '') : '';
+  }
+  $('fClass').addEventListener('input', updateClassHint);
   function writeInfo() {
     Object.keys(INFO_FIELDS).forEach(function (k) { $(INFO_FIELDS[k]).value = draft.info[k] || ''; });
     if (draft.info.useDate && (draft.info.useDate < data.minDate || draft.info.useDate > data.maxDate)) $('fDate').value = '';
@@ -1887,6 +1907,7 @@
     $('fReturnWhy').value = rm ? rm[2] || '' : '';
     syncReturn();
     syncForBox();
+    updateClassHint();
   }
   // 上課時間只選時段（上午／下午／夜間，夜間存成「晚上」）
   var TIME_RE = /^(上午|下午|晚上)(?: (?:1[0-2]|[1-9]):[0-5][05])?$/;
@@ -4595,7 +4616,7 @@
       '<col style="width:6%"><col style="width:20%"><col style="width:10%"><col style="width:10%"></colgroup>' +
       '<tr><td colspan="9" class="title">' + esc(o.dept || '') + '實習專用請料單</td></tr>' +
       '<tr class="hdr"><td colspan="9">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + time + '</td></tr>' +
-      '<tr class="hdr"><td colspan="5">上課班級：' + esc(o.className) + '　共' + groupsText(o) + '組</td><td colspan="4" class="c">實習項目</td></tr>' +
+      '<tr class="hdr"><td colspan="5">上課班級：' + esc(o.className) + (classSizeText(o.className) ? '（' + esc(classSizeText(o.className)) + '）' : '') + '　共' + groupsText(o) + '組</td><td colspan="4" class="c">實習項目</td></tr>' +
       '<tr class="hdr"><td colspan="5">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="3" class="c wrap">' + esc(o.project) + '</td></tr>' +
       '<tr class="hdr"><td colspan="5">指導老師：' + esc(teacherOf(o)) + '</td><td class="c">2</td><td colspan="3"></td></tr>' +
       '<tr class="sec"><td colspan="5">共同材料採購明細</td><td colspan="4">特殊器具申請明細</td></tr>' +
@@ -4628,7 +4649,7 @@
       '<col style="width:10%"><col style="width:8%"><col style="width:12%"><col style="width:17%"><col style="width:8%"></colgroup>' +
       '<tr><td colspan="10" class="title wrap">' + esc(o.dept || '') + esc(o.project || '') + '實習專用請料單</td></tr>' +
       '<tr class="hdr"><td colspan="10">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + esc(o.classTime) + '</td></tr>' +
-      '<tr class="hdr"><td colspan="7">上課班級：' + esc(o.className) + '　共' + groupsText(o) + '組</td><td colspan="3" class="c">實習項目</td></tr>' +
+      '<tr class="hdr"><td colspan="7">上課班級：' + esc(o.className) + (classSizeText(o.className) ? '（' + esc(classSizeText(o.className)) + '）' : '') + '　共' + groupsText(o) + '組</td><td colspan="3" class="c">實習項目</td></tr>' +
       '<tr class="hdr"><td colspan="7">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="2" class="c wrap">' + esc(o.project) + '</td></tr>' +
       '<tr class="hdr"><td colspan="7">指導老師：' + esc(teacherOf(o)) + '　老師</td><td class="c">2</td><td colspan="2"></td></tr>' +
       '<tr class="sec"><td colspan="8">共同材料採購明細</td><td colspan="2">器具明細</td></tr>' +
@@ -4684,7 +4705,7 @@
     }
     var dp = dateParts(o);
     var html = '<div class="sheet teacher"><h1>三信家商餐飲科教師料單</h1>' +
-      '<div class="meta"><div>教師姓名：' + esc(teacherOf(o)) + '</div><div>上課班級：' + esc(o.className) + '</div><div>實習項目：' + esc(o.project) + '</div>' +
+      '<div class="meta"><div>教師姓名：' + esc(teacherOf(o)) + '</div><div>上課班級：' + esc(o.className) + (classSizeText(o.className) ? '（' + esc(classSizeText(o.className)) + '）' : '') + '</div><div>實習項目：' + esc(o.project) + '</div>' +
       '<div>上課日期：' + dp.m + '/' + dp.d + '（' + dp.w + '）</div><div>上課時間(上午/下午)：' + esc(o.classTime) + '</div><div>上課專業教室：' + esc(o.room) + '</div>' +
       '<div>分組：' + (o.groups ? esc(o.groups) + ' 組' : '') + '</div></div>' +
       '<div class="boxes">' +
@@ -6839,6 +6860,34 @@
   $('aEmailTest').addEventListener('click', function () {
     autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
   });
+  // 👥 班級人數（系統設定）
+  var csRows = null;
+  function csRender() {
+    $('csList').innerHTML = csRows.length ? '<div class="tablewrap"><table><tr><th>班級</th><th>人數</th><th>備註</th></tr>' + csRows.map(function (r, i) {
+      return '<tr><td><b>' + esc(r.className) + '</b></td><td><input data-cs="size" data-i="' + i + '" value="' + esc(r.size) + '" placeholder="未設定" style="width:90px" inputmode="numeric"> 人</td>' +
+        '<td><input data-cs="note" data-i="' + i + '" value="' + esc(r.note) + '" maxlength="50" placeholder="選填" style="width:100%"></td></tr>';
+    }).join('') + '</table></div>' : '<div class="muted">還沒有班級。</div>';
+  }
+  $('csPanel').addEventListener('toggle', function () {
+    if (!this.open || csRows) return;
+    msg('csMsg', 'info', '讀取中…');
+    call('adminGetClassSizes', token).then(function (r) { csRows = r; msg('csMsg', '', ''); csRender(); }).catch(function (e) { msg('csMsg', 'error', e.message); });
+  });
+  $('csList').addEventListener('input', function (e) { var t = e.target; if (t.hasAttribute('data-cs')) csRows[Number(t.getAttribute('data-i'))][t.getAttribute('data-cs')] = t.value; });
+  $('csAdd').addEventListener('click', function () {
+    var c = $('csNew').value.trim(); if (!c || !csRows) return;
+    if (csRows.some(function (r) { return r.className === c; })) { msg('csMsg', 'warn', '已經有「' + c + '」了。'); return; }
+    csRows.push({ className: c, size: '', note: '' }); $('csNew').value = ''; csRender();
+    var ins = document.querySelectorAll('[data-cs="size"]'); ins[ins.length - 1].focus();
+  });
+  $('csSave').addEventListener('click', function () {
+    if (!csRows) return;
+    var btn = this; setBusy(btn, true, '儲存中…');
+    call('adminSaveClassSizes', token, csRows).then(function (r) {
+      data.classSizes = {}; csRows.forEach(function (x) { var n = Number(x.size); if (n > 0) data.classSizes[x.className] = n; });
+      msg('csMsg', 'ok', '已儲存 ' + r.saved + ' 個班級的人數。老師重新整理後就看得到。');
+    }).catch(function (e) { msg('csMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  });
   // 網址旁的「📱 QR code」：做一張有標題的 QR code 圖片，可以下載、列印、傳 LINE
   var qrLib = null;
   function loadQrLib() {
@@ -7899,7 +7948,7 @@
               }).join('');
             return '<tr data-date="' + esc(x.date) + '" data-session="' + esc(x.session) + '" data-course="' + esc(x.course) + '" data-source="' + esc(x.source || '') + '" data-class="' + esc(x.className) + '" data-room="' + esc(x.room) + '">' +
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
-              '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div>' +
+              '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, classSizeText(x.className) ? '👥 ' + classSizeText(x.className) : '', x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div>' +
                 (x.orders || []).map(function (o) { return '<div class="small" style="margin-top:2px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b> ' + statusBadge(o.status) + '</div>'; }).join('') + '</td>' +
               '<td class="lt-status">' + LESSON_STATUS[x.status] + (x.holiday ? '<div class="small" style="color:var(--muted)">' + esc(x.holiday) + '</div>' : '') + '</td>' +
               '<td class="lt-act"><div class="actions" style="margin:0;justify-content:flex-end">' + btns + '</div></td></tr>';

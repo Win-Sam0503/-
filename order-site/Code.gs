@@ -374,7 +374,7 @@ function crewAccounts_() {
 // 打開網站時要讀的、不常變的資料（老師名單、單位、科別替換、廠商聯絡、放假日）：暫存 5 分鐘，
 // 網站上改到這幾張分頁時自動清掉（appendRows_／setCell_／deleteRows_）；直接在試算表改的，最慢 5 分鐘後生效
 const BOOT_CACHE_KEY = 'boot:static:v1';
-const BOOT_SHEETS = ['帳號設定', '單位', '科別替換', '廠商聯絡', '放假日'];
+const BOOT_SHEETS = ['帳號設定', '單位', '科別替換', '廠商聯絡', '放假日', '班級人數'];
 function bootStatic_() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get(BOOT_CACHE_KEY);
@@ -391,6 +391,7 @@ function bootStatic_() {
     vendorContacts: readVendorContacts_(),
     holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
     prices: orderPrices_(),
+    classSizes: readClassSizes_(),
   };
   try { const j = JSON.stringify(st); if (j.length < 90000) cache.put(BOOT_CACHE_KEY, j, 300); } catch (e) {}
   return st;
@@ -466,7 +467,69 @@ function getBootstrap(token) {
     holidays: st.holidays,
     prices: st.prices || {},
     placeEnabled: placeEnabled_(),
+    classSizes: st.classSizes || {},
   };
+}
+
+// ---- 班級人數：管理者設定，老師在我的課、訂貨頁、料單看得到（不能改） ----
+const CLASS_SIZE_SHEET = '班級人數', CLASS_SIZE_HEADERS = ['班級', '人數', '備註', '更新時間', '更新人'];
+
+/** { 班級: 人數 } */
+function readClassSizes_() {
+  const out = {};
+  if (!ss_().getSheetByName(CLASS_SIZE_SHEET)) return out;
+  readTable_(CLASS_SIZE_SHEET, ['班級', '人數']).rows.forEach(function (r) {
+    const c = String(r['班級']).trim(), n = Number(r['人數']);
+    if (c && n > 0) out[c] = n;
+  });
+  return out;
+}
+
+/** 管理者：班級人數清單＋課表、國技排班、最近訂單裡出現過、還沒設定的班級 */
+function adminGetClassSizes(token) {
+  auth_(token, true);
+  const sizes = {}, notes = {};
+  if (ss_().getSheetByName(CLASS_SIZE_SHEET)) readTable_(CLASS_SIZE_SHEET, ['班級', '人數']).rows.forEach(function (r) {
+    const c = String(r['班級']).trim(); if (!c) return;
+    sizes[c] = Number(r['人數']) || ''; notes[c] = String(r['備註'] || '');
+  });
+  const seen = {};
+  const add = function (v) { String(v || '').split(/[\/、,，\s]+/).forEach(function (c) { c = c.trim(); if (c && c.length <= 12) seen[c] = true; }); };
+  readSchedule_().forEach(function (x) { add(x.className); });
+  readGuoji_().forEach(function (g) { add(g.className); });
+  const from = addDays_(today_(), -60);
+  readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.forEach(function (r) { const d = toDate_(r['使用日期']); if (d && d >= from) add(r['上課班級']); });
+  Object.keys(sizes).forEach(function (c) { seen[c] = true; });
+  return Object.keys(seen).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant', { numeric: true }); })
+    .map(function (c) { return { className: c, size: sizes[c] === undefined ? '' : sizes[c], note: notes[c] || '' }; });
+}
+
+/** 管理者：存班級人數。list = [{ className, size, note }]，人數空白＝刪掉這班 */
+function adminSaveClassSizes(token, list) {
+  const admin = auth_(token, true);
+  const rows = [], seen = {};
+  (list || []).forEach(function (x) {
+    const c = clean_(x.className, 20), raw = String(x.size == null ? '' : x.size).trim();
+    if (!c || seen[c]) return;
+    if (raw === '') return;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 200) throw new Error('「' + c + '」的人數要是 1～200 的整數。');
+    seen[c] = true;
+    rows.push({ '班級': c, '人數': n, '備註': clean_(x.note, 50), '更新時間': new Date(), '更新人': admin });
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(CLASS_SIZE_SHEET, CLASS_SIZE_HEADERS);
+    const old = readTable_(CLASS_SIZE_SHEET, ['班級']).rows.map(function (r) { return r._row; });
+    if (old.length) deleteRows_(sh, old);
+    if (rows.length) appendRows_(CLASS_SIZE_SHEET, rows, { '班級': '@', '更新時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+    bootDirty_(CLASS_SIZE_SHEET);
+  } finally {
+    lock.releaseLock();
+  }
+  return { saved: rows.length };
 }
 
 // ---- 教學影片：放在雲端硬碟「訂貨系統教學影片」資料夾；檔名開頭「管理者」只有管理者看得到 ----
