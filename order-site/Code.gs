@@ -472,53 +472,63 @@ function getBootstrap(token) {
 }
 
 // ---- 班級人數：管理者設定，老師在我的課、訂貨頁、料單看得到（不能改） ----
-const CLASS_SIZE_SHEET = '班級人數', CLASS_SIZE_HEADERS = ['班級', '人數', '備註', '更新時間', '更新人', '隱藏'];   // 隱藏：管理者刪掉的班級（課表上有也不再列出來）
+const CLASS_SIZE_SHEET = '班級人數', CLASS_SIZE_HEADERS = ['班級', '人數', '備註', '更新時間', '更新人', '隱藏', '課程'];   // 隱藏：管理者刪掉的班級；課程：選修課同一班不同課程人數不同（空白＝整班）
 
-/** { 班級: 人數 } */
+function classSizeKey_(cls, course) { return String(cls || '').replace(/\s+/g, '') + '|' + String(course || '').trim(); }
+
+/** { 班級: 人數 }；選修課另外放在 courseSizes：{ 「314/316|創意饅頭製作」: 36 } */
 function readClassSizes_() {
-  const out = {};
-  if (!ss_().getSheetByName(CLASS_SIZE_SHEET)) return out;
-  readTable_(CLASS_SIZE_SHEET, ['班級', '人數']).rows.forEach(function (r) {
-    const c = String(r['班級']).trim(), n = Number(r['人數']);
-    if (c && n > 0) out[c] = n;
+  const out = {}, course = {};
+  if (ss_().getSheetByName(CLASS_SIZE_SHEET)) readTable_(CLASS_SIZE_SHEET, ['班級', '人數']).rows.forEach(function (r) {
+    const c = String(r['班級']).trim(), n = Number(r['人數']), co = String(r['課程'] || '').trim();
+    if (!c || !(n > 0)) return;
+    if (co) course[classSizeKey_(c, co)] = n; else out[c] = n;
   });
+  out.__course = course;
   return out;
 }
 
-/** 管理者：班級人數清單＋課表、國技排班、最近訂單裡出現過、還沒設定的班級 */
+/**
+ * 管理者：班級人數清單＋課表、國技排班、最近訂單裡出現過、還沒設定的班級。
+ * 課表上同一個班有好幾門課（選修，例如 314/316 有創意饅頭製作、巧克力製作…）：每門課各列一行。
+ */
 function adminGetClassSizes(token) {
   auth_(token, true);
-  const sizes = {}, notes = {}, hidden = {};
+  const rows = {}, hidden = {};
+  const put = function (c, co, size, note) { const k = classSizeKey_(c, co); if (!rows[k]) rows[k] = { className: c, course: co || '', size: '', note: '' }; if (size !== undefined) { rows[k].size = size; rows[k].note = note || ''; } };
   if (ss_().getSheetByName(CLASS_SIZE_SHEET)) readTable_(CLASS_SIZE_SHEET, ['班級', '人數']).rows.forEach(function (r) {
-    const c = String(r['班級']).trim(); if (!c) return;
-    if (isTrue_(r['隱藏'])) { hidden[c] = true; return; }
-    sizes[c] = Number(r['人數']) || ''; notes[c] = String(r['備註'] || '');
+    const c = String(r['班級']).trim(), co = String(r['課程'] || '').trim(); if (!c) return;
+    if (isTrue_(r['隱藏'])) { hidden[classSizeKey_(c, co)] = true; return; }
+    put(c, co, Number(r['人數']) || '', String(r['備註'] || ''));
   });
-  const seen = {};
-  const add = function (v) { String(v || '').split(/[\/、,，\s]+/).forEach(function (c) { c = c.trim(); if (c && c.length <= 12) seen[c] = true; }); };
-  readSchedule_().forEach(function (x) { add(x.className); });
+  const add = function (v) { String(v || '').split(/[\/、,，\s]+/).forEach(function (c) { c = c.trim(); if (c && c.length <= 12) put(c, ''); }); };
+  const sched = readSchedule_(), byCls = {};
+  sched.forEach(function (x) { add(x.className); const c = String(x.className || '').trim(); if (c && x.course) (byCls[c] = byCls[c] || {})[x.course] = true; });
+  Object.keys(byCls).forEach(function (c) { const cs = Object.keys(byCls[c]); if (cs.length > 1) cs.forEach(function (co) { put(c, co); }); });   // 選修：同一班好幾門課
   readGuoji_().forEach(function (g) { add(g.className); });
   const from = addDays_(today_(), -60);
   readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.forEach(function (r) { const d = toDate_(r['使用日期']); if (d && d >= from) add(r['上課班級']); });
-  Object.keys(sizes).forEach(function (c) { seen[c] = true; });
-  Object.keys(hidden).forEach(function (c) { delete seen[c]; });
-  return Object.keys(seen).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant', { numeric: true }); })
-    .map(function (c) { return { className: c, size: sizes[c] === undefined ? '' : sizes[c], note: notes[c] || '' }; });
+  Object.keys(hidden).forEach(function (k) { delete rows[k]; });
+  return Object.keys(rows).map(function (k) { return rows[k]; });
 }
 
-/** 管理者：存班級人數。list = [{ className, size, note }]，人數空白＝不存；deleted = [班級]：刪掉（課表上有也不再列出來） */
+/** 管理者：存班級人數。list = [{ className, course, size, note }]，人數空白＝不存；deleted = [{ className, course }]：刪掉（課表上有也不再列出來） */
 function adminSaveClassSizes(token, list, deleted) {
   const admin = auth_(token, true);
   const rows = [], seen = {};
-  (deleted || []).forEach(function (c) { c = clean_(c, 20); if (c && !seen[c]) { seen[c] = true; rows.push({ '班級': c, '人數': '', '備註': '', '更新時間': new Date(), '更新人': admin, '隱藏': true }); } });
+  (deleted || []).forEach(function (x) {
+    if (typeof x === 'string') x = { className: x, course: '' };
+    const c = clean_(x.className, 20), co = clean_(x.course, 40), k = classSizeKey_(c, co);
+    if (c && !seen[k]) { seen[k] = true; rows.push({ '班級': c, '課程': co, '人數': '', '備註': '', '更新時間': new Date(), '更新人': admin, '隱藏': true }); }
+  });
   (list || []).forEach(function (x) {
-    const c = clean_(x.className, 20), raw = String(x.size == null ? '' : x.size).trim();
-    if (!c || seen[c]) return;
+    const c = clean_(x.className, 20), co = clean_(x.course, 40), k = classSizeKey_(c, co), raw = String(x.size == null ? '' : x.size).trim();
+    if (!c || seen[k]) return;
     if (raw === '') return;
     const n = Number(raw);
-    if (!Number.isInteger(n) || n < 1 || n > 200) throw new Error('「' + c + '」的人數要是 1～200 的整數。');
-    seen[c] = true;
-    rows.push({ '班級': c, '人數': n, '備註': clean_(x.note, 50), '更新時間': new Date(), '更新人': admin });
+    if (!Number.isInteger(n) || n < 1 || n > 200) throw new Error('「' + c + (co ? ' ' + co : '') + '」的人數要是 1～200 的整數。');
+    seen[k] = true;
+    rows.push({ '班級': c, '課程': co, '人數': n, '備註': clean_(x.note, 50), '更新時間': new Date(), '更新人': admin });
   });
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -534,6 +544,17 @@ function adminSaveClassSizes(token, list, deleted) {
     lock.releaseLock();
   }
   return { saved: rows.filter(function (r) { return !r['隱藏']; }).length, deleted: rows.filter(function (r) { return r['隱藏']; }).length };
+}
+
+/** 訂單是哪一門課（對課表：同老師、同一天、同時段），料單的選修人數用 */
+function attachCourse_(list, teacher) {
+  if (!list.length) return;
+  const ds = list.map(function (o) { return o.useDate; }).filter(Boolean).sort();
+  const from = parseDate_(ds[0]), to = parseDate_(ds[ds.length - 1]);
+  if (!from || !to) return;
+  const les = lessonsBetween_(from, to, teacher || null), by = {};
+  les.forEach(function (x) { const k = x.teacher + '|' + x.date + '|' + x.session; if (!by[k]) by[k] = x.course; });
+  list.forEach(function (o) { if (!o.course) o.course = by[(o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime)] || ''; });
 }
 
 // ---- 教學影片：放在雲端硬碟「訂貨系統教學影片」資料夾；檔名開頭「管理者」只有管理者看得到 ----
@@ -1225,6 +1246,7 @@ function getMyOrders(token, days) {
   const places = placesFor_(shown.map(function (o) { return o.orderNo; }));
   shown.forEach(function (o) { o.place = places[o.orderNo] || null; });
   try { attachSlipPrices_(shown); } catch (e) { console.error('attachSlipPrices_ ' + e.message); }
+  try { attachCourse_(shown, account); } catch (e) { console.error('attachCourse_ ' + e.message); }
   return shown;
 }
 
@@ -1544,6 +1566,7 @@ function adminGetOrders(token, from, to, lite) {
   list.forEach(function (o) { o.edits = edits[o.orderNo] || []; o.printed = printed[o.orderNo] || null; o.flag = flags.orders[o.orderNo] || null; o.itemFlags = flags.items[o.orderNo] || {}; o.place = places[o.orderNo] || null; o.deleted = hidden[o.orderNo] || null; });
   try { matchLessons_(list, start, end); } catch (e) { console.error('matchLessons_ ' + e.message); }
   try { attachSlipPrices_(list); } catch (e) { console.error('attachSlipPrices_ ' + e.message); }
+  try { attachCourse_(list, null); } catch (e) { console.error('attachCourse_ ' + e.message); }
   return list;
 }
 
