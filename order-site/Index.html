@@ -6863,7 +6863,13 @@
   });
   // 👥 班級人數（系統設定）
   var csRows = null, csDel = [];
+  // 照班級排序：數字班級（208、213…）由小到大在前，其他（夜202、國技班11、校隊）在後
+  function csSort() {
+    var key = function (c) { var m = String(c).match(/^\d+$/); return m ? [0, Number(c), ''] : [1, 0, String(c)]; };
+    csRows.sort(function (a, b) { var x = key(a.className), y = key(b.className); return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2], 'zh-Hant', { numeric: true }); });
+  }
   function csRender() {
+    csSort();
     $('csList').innerHTML = csRows.length ? '<div class="tablewrap"><table><tr><th>班級</th><th>人數</th><th>備註</th><th></th></tr>' + csRows.map(function (r, i) {
       return '<tr><td><b>' + esc(r.className) + '</b></td><td><input data-cs="size" data-i="' + i + '" value="' + esc(r.size) + '" placeholder="未設定" style="width:90px" inputmode="numeric"> 人</td>' +
         '<td><input data-cs="note" data-i="' + i + '" value="' + esc(r.note) + '" maxlength="50" placeholder="選填" style="width:100%"></td>' +
@@ -6886,8 +6892,9 @@
   $('csAdd').addEventListener('click', function () {
     var c = $('csNew').value.trim(); if (!c || !csRows) return;
     if (csRows.some(function (r) { return r.className === c; })) { msg('csMsg', 'warn', '已經有「' + c + '」了。'); return; }
-    csRows.push({ className: c, size: '', note: '' }); csDel = csDel.filter(function (x) { return x !== c; }); $('csNew').value = ''; csRender();
-    var ins = document.querySelectorAll('[data-cs="size"]'); ins[ins.length - 1].focus();
+    var row = { className: c, size: '', note: '' };
+    csRows.push(row); csDel = csDel.filter(function (x) { return x !== c; }); $('csNew').value = ''; csRender();
+    var inp = document.querySelector('[data-cs="size"][data-i="' + csRows.indexOf(row) + '"]'); if (inp) { inp.focus(); inp.scrollIntoView({ block: 'center' }); }   // 排序後新的那班不一定在最後
   });
   $('csSave').addEventListener('click', function () {
     if (!csRows) return;
