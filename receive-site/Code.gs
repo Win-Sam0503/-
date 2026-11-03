@@ -80,6 +80,7 @@ const API_ = {
   hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
   hxItems: function () { return hxItems_(); }, hxPrintData: function (a) { return hxPrintData_.apply(null, a); }, hxOrders: function (a) { return hxOrders_.apply(null, a); },
   hxDeleteBudget: function (a) { return hxDeleteBudget_.apply(null, a); },
+  addItemAlias: function (a) { return addItemAlias_.apply(null, a); },
   hxSaveCode: function (a) { return hxSaveCode_.apply(null, a); }, hxDeleteCode: function (a) { return hxDeleteCode_.apply(null, a); },
 };
 function api(token, fn, args) {
@@ -1530,6 +1531,35 @@ function hxItems_() {
   });
   try { cache.put('hxItems2', JSON.stringify(out), 3600); } catch (e) {}
   return out;
+}
+
+/**
+ * 銷貨單上廠商的叫法（例如「大骨高湯罐」）加成食材總表某一樣（高湯罐）的別名：
+ * 訂貨網算老師料單成本時，就對得到這張銷貨單的單價；老師打這個叫法也找得到。
+ */
+function addItemAlias_(itemName, alias) {
+  itemName = clean_(itemName, 40); alias = clean_(alias, 40);
+  if (!itemName || !alias) throw new Error('資料不完整。');
+  if (itemName === alias) return { ok: true, items: hxItems_() };
+  const lock = waitLock_();
+  try {
+    const t = readTable_(SHEET.items, ['食材名稱']);
+    if (t.cols['別名'] === undefined) throw new Error('食材總表沒有「別名」欄，請先在訂貨網加一個別名（審核食材 → 別名）建立這一欄。');
+    const key = function (v) { return String(v || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); };
+    if (t.rows.some(function (r) { return key(r['食材名稱']) === key(alias); })) throw new Error('「' + alias + '」本身就是食材總表的另一樣，不能當別名。');
+    const r = t.rows.filter(function (x) { return String(x['食材名稱']).trim() === itemName; })[0];
+    if (!r) throw new Error('食材總表找不到「' + itemName + '」。');
+    const list = String(r['別名'] || '').split(/[,，、]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (list.indexOf(alias) < 0) list.push(alias);
+    const v = list.join(',');
+    if (v.length > 200) throw new Error('「' + itemName + '」的別名太多了。');
+    t.sheet.getRange(r._row, t.cols['別名']).setNumberFormat('@').setValue(v);
+    tableMemoClear_();
+    CacheService.getScriptCache().remove('hxItems2');
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, items: hxItems_() };
 }
 
 /**

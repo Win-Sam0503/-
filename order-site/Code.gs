@@ -1237,9 +1237,18 @@ function attachSlipPrices_(list) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   const weeks = {};
   list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
+  // 銷貨單上的品名（廠商的叫法，例如「大骨高湯罐」）用食材總表的別名換成正式名稱（高湯罐），才對得到老師的訂單
+  const official = {}, itemRows = readTable_(SHEET.items, ['食材名稱']).rows;
+  itemRows.forEach(function (r) { const n = String(r['食材名稱'] || '').trim(); if (n) official[learnKey_(n)] = n; });   // 正式名稱優先
+  itemRows.forEach(function (r) {
+    const n = String(r['食材名稱'] || '').trim(); if (!n) return;
+    String(r['別名'] || '').split(/[,，、]+/).forEach(function (a) { const k = learnKey_(a); if (k && !official[k]) official[k] = n; });
+  });
+  const toName = function (v) { const k = learnKey_(v); return k ? official[k] || '' : ''; };
   const map = {};
   readTable_('銷貨單明細', ['送貨日期（起）', '廠商', '食材名稱', '單價']).rows.forEach(function (r) {
-    const name = String(r['食材名稱'] || '').trim(), p = Number(r['單價']);
+    const raw = String(r['食材名稱'] || '').trim(), p = Number(r['單價']);
+    const name = toName(raw) || toName(r['銷貨單品名']) || raw;
     if (!name || !(p > 0)) return;
     const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
     const wk = mon(sd || d0);

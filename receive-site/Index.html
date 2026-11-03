@@ -1392,11 +1392,47 @@
     list.forEach(function (r) { opt(r[0], [r[1], r[2]].filter(Boolean).join('・')); });
     return html;
   }
+  // 品名不在食材總表（廠商的叫法，例如「大骨高湯罐」）：老師料單的成本對不到 → 一鍵對應成某一樣的別名
+  function itemKnown(n) {
+    n = String(n || '').trim();
+    if (!n || !hxItemList) return true;
+    var k = function (v) { return String(v || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }, kn = k(n);
+    return hxItemList.some(function (r) { return k(r[0]) === kn || String(r[1] || '').split(/[,，、]+/).some(function (a) { return k(a) === kn; }); });
+  }
+  function pmapHtml(i, j, n) {
+    return '<div class="small" data-pmap="' + i + '-' + j + '" style="color:var(--warn);margin-top:2px' + (itemKnown(n) ? ';display:none' : '') + '">⚠ 食材總表沒有這個名稱，老師料單成本對不到 <button type="button" class="btn ghost small" data-pmapgo="' + i + '-' + j + '" style="padding:1px 6px">🔗 對應到…</button></div>';
+  }
+  function pmapRefresh() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-pmap]'), function (el) {
+      var ij = el.getAttribute('data-pmap').split('-'), inp = document.querySelector('[data-pi="' + ij[0] + '"][data-pj="' + ij[1] + '"][data-pf="name"]');
+      if (inp && !el.querySelector('input')) el.style.display = itemKnown(inp.value) ? 'none' : '';
+    });
+  }
+  $('slipBox').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-pmapgo]'), ok = e.target.closest('[data-pmapok]'), no = e.target.closest('[data-pmapno]');
+    if (b) {
+      var box = b.parentNode;
+      box.innerHTML = '是哪一樣食材？ <input data-pmapin list="itemList" placeholder="打名稱選，例如 高湯罐" style="width:160px;display:inline-block"> <button type="button" class="btn small" data-pmapok="' + b.getAttribute('data-pmapgo') + '" style="padding:2px 8px">對應</button> <button type="button" class="btn ghost small" data-pmapno style="padding:2px 8px">取消</button>';
+      box.querySelector('[data-pmapin]').focus(); return;
+    }
+    if (no) { var bx = no.parentNode, ij0 = bx.getAttribute('data-pmap').split('-'); bx.outerHTML = pmapHtml(ij0[0], ij0[1], ''); pmapRefresh(); return; }
+    if (ok) {
+      var bx2 = ok.parentNode, ij = ok.getAttribute('data-pmapok').split('-'), alias = document.querySelector('[data-pi="' + ij[0] + '"][data-pj="' + ij[1] + '"][data-pf="name"]').value.trim();
+      var target = bx2.querySelector('[data-pmapin]').value.trim();
+      if (!target || !hxItemList.some(function (r) { return r[0] === target; })) { bx2.querySelector('[data-pmapin]').focus(); bx2.querySelector('[data-pmapin]').placeholder = '請從清單選食材總表的名稱'; bx2.querySelector('[data-pmapin]').value = ''; return; }
+      ok.disabled = true;
+      call('addItemAlias', target, alias).then(function (r) {
+        hxItemList = r.items; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts();
+        bx2.innerHTML = '<span style="color:var(--ok)">✓ 「' + esc(alias) + '」已設成「' + esc(target) + '」的別名，老師料單會用這個單價</span>';
+        setTimeout(pmapRefresh, 2500);
+      }).catch(function (err) { bx2.insertAdjacentHTML('beforeend', '<div style="color:var(--bad)">' + esc(err.message) + '</div>'); ok.disabled = false; });
+    }
+  });
   function itemUnit(n) { var r = (hxItemList || []).filter(function (x) { return x[0] === n; })[0]; return r && r[3] || ''; }
   function renderPapers() {
     var sl = cur.slip;
     $('slipQWrap').classList.add('hidden');
-    if (!hxItemList) call('hxItems').then(function (r) { hxItemList = r; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts(); }).catch(function () {});
+    if (!hxItemList) call('hxItems').then(function (r) { hxItemList = r; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts(); pmapRefresh(); }).catch(function () {});
     var html = '<datalist id="itemList">' + itemOpts() + '</datalist>' +
       '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     html += sl.papers.map(function (pp, i) {
@@ -1406,7 +1442,7 @@
         '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>數量</th><th>單位</th><th>單價</th><th>金額</th><th></th></tr>' +
         pp.rows.map(function (r, j) {
           var a = function (f, ph, extra) { return '<input data-pi="' + i + '" data-pj="' + j + '" data-pf="' + f + '" value="' + esc(r[f] === undefined || r[f] === null ? '' : String(r[f])) + '" placeholder="' + ph + '"' + (extra || '') + '>'; };
-          return '<tr><td>' + a('name', '品名', ' list="itemList" autocomplete="off" style="min-width:140px"') + '</td><td class="w2">' + a('qty', '數量', ' inputmode="decimal"') + '</td>' +
+          return '<tr><td>' + a('name', '品名', ' list="itemList" autocomplete="off" style="min-width:140px"') + pmapHtml(i, j, r.name) + '</td><td class="w2">' + a('qty', '數量', ' inputmode="decimal"') + '</td>' +
             '<td class="w1">' + a('unit', '單位', ' list="unitList" autocomplete="off"') + '</td>' +
             '<td class="w2">' + a('price', '單價', ' inputmode="decimal"') + '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="pu" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (jinRow(r) ? '' : ';display:none') + '"><option value="斤">元／斤</option><option value="兩"' + (r.pu === '兩' ? ' selected' : '') + '>元／兩</option></select></td>' +
             '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"') + '</td><td><button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
@@ -1455,6 +1491,7 @@
     if (!f || f === 'pu') return;
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     r[f] = t.value;
+    if (f === 'name') { var pm = tr.querySelector('[data-pmap]'); if (pm && !pm.querySelector('input')) pm.style.display = itemKnown(t.value) ? 'none' : ''; }
     if (f === 'name') {   // 選了叫貨單／單價表的品項：自動帶單位、上次單價
       var n = t.value.trim(), lp = (cur.b.prices || {})[n], tt = (cur.b.totals || {})[n], veg = /菜商/.test(cur.b.vendor || '');   // 菜商大部分照斤算
       // 這次已經打過同一樣：跟那一行的單位、單價一樣
