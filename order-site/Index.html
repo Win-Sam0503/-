@@ -1062,6 +1062,12 @@
         <div id="csMsg"></div><div id="csList"></div>
         <div class="row" style="margin-top:8px"><span style="flex:1"></span><button type="button" class="btn" id="csSave">💾 儲存人數</button></div>
       </details>
+      <details class="panel noprint" id="ucPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">📏 單位換算（算料單成本用）</h2> <span class="muted small">老師訂「把、條、顆」，菜商銷貨單是「台斤」時填</span></summary>
+        <div class="muted small" style="margin:6px 0">重量單位（g、公斤、斤、台斤、兩）會自動換算，不用填。老師用「把、條、顆、包…」訂、銷貨單用斤算的，填一次「1 把 ＝ 幾斤」，以後所有料單都照這個算成本。成本統計裡「⚠ 沒有成本的食材」也可以直接填。</div>
+        <div class="row"><input id="ucName" list="ucItems" placeholder="食材，例如 青蔥" style="width:160px"><span>1</span><input id="ucU" placeholder="單位，例如 把" style="width:90px"><span>＝</span><input id="ucQ" inputmode="decimal" placeholder="0.3" style="width:80px"><input id="ucU2" value="斤" style="width:70px"><button type="button" class="btn secondary small" id="ucAdd">＋ 存</button></div>
+        <datalist id="ucItems"></datalist><div id="ucMsg"></div><div id="ucList" style="margin-top:8px"></div>
+      </details>
       <div class="panel noprint" id="autoPanel">
         <h2>自動化 <button type="button" class="btn ghost small" id="aReload">重新整理</button></h2>
         <div id="autoMsg"></div>
@@ -4018,7 +4024,7 @@
     }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
   });
   // 大T（大匙）、小T（小匙）換成克：1 大T＝15 g、1 小T＝5 g（要改數字改這裡，Code.gs 的 GRAMS_ 和進貨驗收的 GRAMS 也要一起改）
-  var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 15, 't': 5 };
+  var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 15, 't': 5, '台斤': 600, '公克': 1, '克': 1, 'kg': 1000, 'KG': 1000, 'Kg': 1000 };   // 菜商銷貨單常寫「台斤」
   // 食材排序（「名稱|單位」）：訂單彙整、① 扣貨單、② 訂貨單、③ 叫貨單都用同一種順序（中文筆畫），找起來位置一樣
   function byItemKey(a, b) { return String(a).localeCompare(String(b), 'zh-Hant'); }
   // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
@@ -7016,6 +7022,34 @@
   });
   $('aEmailTest').addEventListener('click', function () {
     autoCall(this, 'adminTestEmail', function (n) { return '測試信：' + (n && n.email ? n.email : '') + '（沒收到請看垃圾郵件匣）'; });
+  });
+  // 📏 單位換算（系統設定）
+  function ucRender() {
+    var m = data.unitConv || {}, rows = [];
+    Object.keys(m).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); }).forEach(function (n) { m[n].forEach(function (c) { rows.push({ n: n, c: c }); }); });
+    $('ucList').innerHTML = rows.length ? '<div class="tablewrap"><table><tr><th>食材</th><th>換算</th><th></th></tr>' + rows.map(function (r) {
+      return '<tr><td><b>' + esc(r.n) + '</b></td><td>1 ' + esc(r.c.u) + ' ＝ ' + esc(fmtQty(r.c.q)) + ' ' + esc(r.c.u2) + '</td><td><button type="button" class="btn ghost small" data-ucdel="' + esc(r.n) + '|' + esc(r.c.u) + '|' + esc(r.c.u2) + '" style="color:var(--bad)">🗑 刪除</button></td></tr>';
+    }).join('') + '</table></div>' : '<div class="muted small">還沒有換算。</div>';
+  }
+  $('ucPanel').addEventListener('toggle', function () {
+    if (!this.open) return;
+    $('ucItems').innerHTML = data.items.map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('');
+    ucRender();
+  });
+  function ucSave(n, u, q, u2, done) {
+    call('adminSaveUnitConv', token, n, u, q, u2).then(function (r) { data.unitConv = r; ucRender(); if (done) done(); })
+      .catch(function (e) { msg('ucMsg', 'error', e.message); });
+  }
+  $('ucAdd').addEventListener('click', function () {
+    var n = $('ucName').value.trim(), u = $('ucU').value.trim(), q = $('ucQ').value.trim(), u2 = $('ucU2').value.trim() || '斤';
+    if (!n || !u || !q) { msg('ucMsg', 'error', '請填食材、單位和數字。'); return; }
+    ucSave(n, u, q, u2, function () { msg('ucMsg', 'ok', '已存：' + n + ' 1 ' + u + ' ＝ ' + q + ' ' + u2 + '。'); $('ucName').value = ''; $('ucU').value = ''; $('ucQ').value = ''; $('ucName').focus(); });
+  });
+  $('ucList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ucdel]'); if (!b) return;
+    var p = b.getAttribute('data-ucdel').split('|');
+    if (!window.confirm('刪除「' + p[0] + ' 1 ' + p[1] + '」的換算？')) return;
+    ucSave(p[0], p[1], '', p[2], function () { msg('ucMsg', 'ok', '已刪除。'); });
   });
   // 👥 班級人數（系統設定）
   var csRows = null, csDel = [];
