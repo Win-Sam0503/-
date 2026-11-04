@@ -2472,9 +2472,17 @@
     if (!list || !list.length) return null;
     var v = dispVendor(c.vendor), mine = list.filter(function (x) { return x.v === v; });
     var pool = mine.length ? mine : list;
-    return pool.filter(function (x) { return qtyInPrice(1, c.unit, x) !== null; })[0] || pool[0];
+    return pool.filter(function (x) { return qtyInPriceN(1, c.unit, x, c.name) !== null; })[0] || pool[0];
   }
   // q 個 unit 換成單價的單位：同單位、重量互換、或用換算（1 K＝190 顆、1 袋＝22000 g）
+  // 再試管理者設的單位換算（1 把 ＝ 0.3 斤）：先把老師的單位換掉，再換成單價的單位
+  function qtyInPriceN(q, unit, x, name) {
+    var n = qtyInPrice(q, unit, x);
+    if (n !== null || !name) return n;
+    var cv = ((data.unitConv || {})[name] || []).filter(function (c) { return c.u === unit; });
+    for (var i = 0; i < cv.length; i++) { var m = qtyInPrice(q * cv[i].q, cv[i].u2, x); if (m !== null) return m; }
+    return null;
+  }
   function qtyInPrice(q, unit, x) {
     if (!unit) return null;
     if (unit === x.u) return q;
@@ -2488,7 +2496,7 @@
   function estCost(c) {
     var x = priceOf(c), q = toNum(c.qty);
     if (!x || !(q > 0)) return null;
-    var n = qtyInPrice(q, c.unit, x);
+    var n = qtyInPriceN(q, c.unit, x, c.name);
     return n === null ? null : Math.round(n * x.p);
   }
   function money0(n) { return Math.round(n).toLocaleString('en-US'); }
@@ -2499,11 +2507,17 @@
     var q = toNum(it.qty);
     if (!(q > 0)) return null;
     if (it.sp) {
-      var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPrice(q, it.unit, x);
+      var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name);
       if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true };
     }
     var e = estCost(it), px = priceOf(it);
     return e === null ? null : { amt: e, p: px.p, u: px.u, real: false };
+  }
+  // 沒有成本的原因：給成本細項顯示，順便給「單位換不過去」一個換算輸入
+  function costWhy(it) {
+    var x = it.sp ? { u: it.sp.u, p: it.sp.p } : priceOf(it);
+    if (!x) return { text: '銷貨單、單價表都沒有「' + it.name + '」：那週銷貨單要有這一樣；廠商叫法不一樣的，在銷貨單按「🔗 對應到…」' };
+    return { text: '單位換不過去：訂 ' + fmtQty(it.qty) + ' ' + (it.unit || '') + '，單價是 $' + fmtQty(x.p) + '／' + x.u, conv: { name: it.name, u: it.unit, u2: x.u } };
   }
   function orderCost(o) {
     var r = { sum: 0, real: 0, est: 0, none: 0 };
@@ -3233,6 +3247,26 @@
   var sumTotalsOpen = false;   // 廠商合計預設收起來
   // 💰 成本統計（訂單彙整目前列出來的訂單）：依老師／班級／實作項目／週加總料單成本
   var costBy = 'teacher', costOpen = false, costOpenRows = {};
+  // 沒有成本的品項（同名同單位合在一起），一次看原因、一次填換算
+  function missingCostHtml(list) {
+    var m = {}, keys = [];
+    list.forEach(function (o) {
+      if (o.status === '已取消') return;
+      (o.items || []).forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消' || itemCost(it)) return;
+        var k = it.name + '|' + (it.unit || '');
+        if (!m[k]) { m[k] = { it: it, n: 0 }; keys.push(k); }
+        m[k].n++;
+      });
+    });
+    if (!keys.length) return '';
+    return '<details style="margin:6px 0 8px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ ' + keys.length + ' 樣食材沒有成本</b>（點開看原因、填換算）</summary><div class="tablewrap"><table class="small"><tr><th>食材</th><th>訂的單位</th><th>次數</th><th>原因／處理</th></tr>' +
+      keys.map(function (k) {
+        var x = m[k], w = costWhy(x.it);
+        return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(x.it.vendor || '') + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td style="white-space:normal">' + esc(w.text) +
+          (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" inputmode="decimal" style="width:70px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
+      }).join('') + '</table></div></details>';
+  }
   // 細項：這一組的每張料單（日期、班級、實作項目、老師），點開看每個品項的數量、單價、金額、單價來源
   function costDetail(list) {
     list = list.slice().sort(function (a, b) { return a.o.useDate < b.o.useDate ? -1 : a.o.useDate > b.o.useDate ? 1 : 0; });
@@ -3242,7 +3276,9 @@
         var c = itemCost(it), skip = it.noOrder || it.vendor === data.selfVendor;
         return '<tr><td>' + esc(it.name) + '</td><td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td><td class="muted small">' + esc(it.vendor) + '</td>' +
           '<td class="num">' + (c ? '$' + esc(fmtQty(Math.round(c.p * 100) / 100)) + '／' + esc(c.u) : '') + '</td>' +
-          '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有單價</span>') + '</td>' +
+          '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
+            return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" inputmode="decimal" style="width:70px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
+          })(costWhy(it))) + '</td>' +
           '<td class="small">' + (skip || !c ? '' : c.real ? '<span style="color:var(--ok)">銷貨單</span>' : '<span class="muted">上次單價估</span>') + '</td></tr>';
       }).join('');
       return '<details style="margin:4px 0"><summary style="cursor:pointer">' + esc(shortDate(o.useDate)) + '　' + esc(o.className || '') + '「' + esc(o.project || '（沒填實作項目）') + '」　' + esc(o.onBehalfOf || o.teacher) +
@@ -3274,6 +3310,7 @@
     return '<details class="panel" id="costStats"' + (costOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>💰 成本統計</b>　<span class="small muted">這 ' + tot.n + ' 張料單合計 <b>$' + money0(tot.sum) + '</b>（照銷貨單 $' + money0(tot.real) + '，其他用上次單價估）</span></summary>' +
       '<div class="status-chips noprint" style="margin:8px 0">' + opt('teacher', '依老師') + opt('class', '依班級') + opt('project', '依實作項目') + opt('dept', '依科別') + opt('week', '依週') +
       '<button type="button" id="costPrint" class="btn ghost small">🖨 列印</button></div>' +
+      missingCostHtml(list) +
       '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">照銷貨單</th><th style="text-align:right">合計（含估算）</th></tr>' +
       order.map(function (k) {
         var x = g[k], open = costOpenRows[costBy + '|' + k];
@@ -3291,6 +3328,18 @@
     if (e.target.id === 'costPrint') { var d = $('costStats'); if (d) printSection(d); }
   });
   document.addEventListener('toggle', function (e) { if (e.target.id === 'costStats') costOpen = e.target.open; }, true);
+  // 單位換算：在成本細項直接填「1 把 ＝ 0.3 斤」
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-ucsave]');
+    if (!b) return;
+    var inp = b.parentNode.querySelector('[data-uc-name]'), v = inp.value.trim();
+    if (!v) { inp.focus(); return; }
+    setBusy(b, true, '…');
+    call('adminSaveUnitConv', token, inp.getAttribute('data-uc-name'), inp.getAttribute('data-uc-u'), v, inp.getAttribute('data-uc-u2')).then(function (r) {
+      data.unitConv = r; costOpen = true; renderSummary();
+      msg('sumMsg', 'ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + v + ' ' + inp.getAttribute('data-uc-u2') + '。以後這一樣都會用這個換算算成本。');
+    }).catch(function (err) { notice(err.message); setBusy(b, false); });
+  });
   function renderSummary() {
     markDups(sumCache);
     var hideCancel = $('sHideCancel').checked;

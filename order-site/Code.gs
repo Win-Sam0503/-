@@ -374,7 +374,7 @@ function crewAccounts_() {
 // 打開網站時要讀的、不常變的資料（老師名單、單位、科別替換、廠商聯絡、放假日）：暫存 5 分鐘，
 // 網站上改到這幾張分頁時自動清掉（appendRows_／setCell_／deleteRows_）；直接在試算表改的，最慢 5 分鐘後生效
 const BOOT_CACHE_KEY = 'boot:static:v1';
-const BOOT_SHEETS = ['帳號設定', '單位', '科別替換', '廠商聯絡', '放假日', '班級人數'];
+const BOOT_SHEETS = ['帳號設定', '單位', '科別替換', '廠商聯絡', '放假日', '班級人數', '單位換算'];
 function bootStatic_() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get(BOOT_CACHE_KEY);
@@ -392,6 +392,7 @@ function bootStatic_() {
     holidays: holidaysBetween_(addDays_(today_(), -7), addDays_(today_(), MAX_DAYS_AHEAD + 30)),
     prices: orderPrices_(),
     classSizes: readClassSizes_(),
+    unitConv: readUnitConv_(),
   };
   try { const j = JSON.stringify(st); if (j.length < 90000) cache.put(BOOT_CACHE_KEY, j, 300); } catch (e) {}
   return st;
@@ -468,7 +469,43 @@ function getBootstrap(token) {
     prices: st.prices || {},
     placeEnabled: placeEnabled_(),
     classSizes: st.classSizes || {},
+    unitConv: st.unitConv || {},
   };
+}
+
+// ---- 單位換算（算料單成本用）：老師訂「把、支、包」，銷貨單是「斤」時，管理者填 1 把 ＝ 幾斤 ----
+const UNIT_CONV_SHEET = '單位換算', UNIT_CONV_HEADERS = ['食材名稱', '單位', '等於', '換算單位', '更新時間', '更新人'];
+/** { 食材名稱: [{ u: '把', q: 0.3, u2: '斤' }] }（1 u ＝ q u2） */
+function readUnitConv_() {
+  const out = {};
+  if (!ss_().getSheetByName(UNIT_CONV_SHEET)) return out;
+  readTable_(UNIT_CONV_SHEET, ['食材名稱', '單位', '等於', '換算單位']).rows.forEach(function (r) {
+    const n = String(r['食材名稱']).trim(), u = String(r['單位']).trim(), q = Number(r['等於']), u2 = String(r['換算單位']).trim();
+    if (n && u && u2 && q > 0) (out[n] = out[n] || []).push({ u: u, q: q, u2: u2 });
+  });
+  return out;
+}
+/** 管理者：存一筆換算（q 空白＝刪掉）。回傳全部換算 */
+function adminSaveUnitConv(token, name, unit, q, unit2) {
+  const admin = auth_(token, true);
+  name = clean_(name, 40); unit = clean_(unit, 10); unit2 = clean_(unit2, 10);
+  if (!name || !unit || !unit2) throw new Error('資料不完整。');
+  const raw = String(q == null ? '' : q).trim(), n = Number(raw);
+  if (raw !== '' && !(n > 0 && n < 100000)) throw new Error('請填大於 0 的數字。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(UNIT_CONV_SHEET, UNIT_CONV_HEADERS);
+    const t = readTable_(UNIT_CONV_SHEET, ['食材名稱', '單位']);
+    const old = t.rows.filter(function (r) { return String(r['食材名稱']).trim() === name && String(r['單位']).trim() === unit && String(r['換算單位'] || '').trim() === unit2; }).map(function (r) { return r._row; });
+    if (old.length) deleteRows_(sh, old);
+    if (raw !== '') appendRows_(UNIT_CONV_SHEET, [{ '食材名稱': name, '單位': unit, '等於': n, '換算單位': unit2, '更新時間': new Date(), '更新人': admin }], { '更新時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+    bootDirty_(UNIT_CONV_SHEET);
+  } finally {
+    lock.releaseLock();
+  }
+  return readUnitConv_();
 }
 
 // ---- 班級人數：管理者設定，老師在我的課、訂貨頁、料單看得到（不能改） ----
