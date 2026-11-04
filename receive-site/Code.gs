@@ -73,6 +73,7 @@ const API_ = {
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
   whoAmI: function () { return CURRENT_USER_; },
   hxGet: function (a) { return hxGet_.apply(null, a); }, hxCandidates: function (a) { return hxCandidates_.apply(null, a); },
+  hxRenameVendor: function (a) { return hxRenameVendor_.apply(null, a); },
   hxSaveInvoice: function (a) { return hxSaveInvoice_.apply(null, a); }, hxDeleteInvoice: function (a) { return hxDeleteInvoice_.apply(null, a); },
   hxSetDone: function (a) { return hxSetDone_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
@@ -1276,7 +1277,7 @@ function fmtQty_(n) { return String(Math.round(Number(n) * 100) / 100); }
 
 const HX_INVOICE_HEADERS = ['發票編號', '廠商', '發票號碼', '發票日期', '發票金額', '涵蓋方式', '起', '迄', '驗收編號', '系統金額', '發票照片', '備註', '建立時間', '建立人'];
 const HX_ALLOC_HEADERS = ['發票編號', '類別', '金額', '經手人', '狀態', '核銷日期', '核銷人', '明細', '經費編號'];   // 經費編號：「C30033=18400、C30034=9200」   // 明細：這一類填的好幾筆，例如「150+80+20」
-const HX_LINE_HEADERS = ['發票編號', '發票號碼', '發票日期', '金額', '照片', '備註'];
+const HX_LINE_HEADERS = ['發票編號', '發票號碼', '發票日期', '金額', '照片', '備註', '付款方式', '付款對象'];   // 付款方式：匯款／現金／回科辦現金／老師先墊／廠商月結
 // 另外叫料：不在叫貨單裡的（臨時電話加叫、系統外的商店、活動用、老師先買後報帳），一項一列，金額算進那一類
 const HX_EXTRA_HEADERS = ['發票編號', '日期', '品名', '金額', '類別', '購買人', '備註'];   // 一筆核銷可以有好幾張發票（「發票編號」是這筆核銷的編號）
 const HX_CAT_HEADERS = ['類別', '經手人', '排序'];
@@ -1342,7 +1343,12 @@ function hxReadInvoices_() {
     const inv = by[String(r['發票編號']).trim()];
     if (!inv) return;
     inv.lines.push({ no: String(r['發票號碼'] || '').replace(/^'/, ''), date: r['發票日期'] instanceof Date ? dateStr_(r['發票日期']) : String(r['發票日期'] || '').replace(/^'/, ''),
-      amount: Number(r['金額']) || 0, photos: String(r['照片'] || '').split(/\n+/).filter(Boolean), note: String(r['備註'] || '') });
+      amount: Number(r['金額']) || 0, photos: String(r['照片'] || '').split(/\n+/).filter(Boolean), note: String(r['備註'] || ''),
+      pay: String(r['付款方式'] || '').trim(), payee: String(r['付款對象'] || '').trim() });
+    // 以前寫在備註的「匯款給鎧澤老師」「回科辦-現金」：讀成付款方式／對象
+    const L = inv.lines[inv.lines.length - 1], m = L.note.match(/^匯款給\s*(.+)$/);
+    if (!L.pay && m) { L.pay = '匯款'; L.payee = L.payee || m[1].trim(); L.guess = true; }
+    else if (!L.pay && /^回科辦/.test(L.note)) { L.pay = '回科辦現金'; L.payee = L.payee || '科辦'; L.guess = true; }
   });
   if (ss_().getSheetByName('核銷另外叫料')) readTable_('核銷另外叫料', ['發票編號']).rows.forEach(function (r) {
     const inv = by[String(r['發票編號']).trim()];
@@ -1408,7 +1414,7 @@ function hxCandidates_(vendor, from, to, exceptId) {
 function hxSaveInvoice_(p) {
   const vendor = clean_(p.vendor, 30);
   if (!vendor) throw new Error('請填廠商（不在系統裡的商店也可以直接打名字）。');
-  const lines = (p.lines || []).map(function (l) { return { no: clean_(l.no, 30), date: parseDate_(l.date) ? dateStr_(parseDate_(l.date)) : '', amount: round2_(Number(l.amount) || 0), photos: (l.photos || []).slice(0, 20), note: clean_(l.note, 100) }; })
+  const lines = (p.lines || []).map(function (l) { return { no: clean_(l.no, 30), date: parseDate_(l.date) ? dateStr_(parseDate_(l.date)) : '', amount: round2_(Number(l.amount) || 0), photos: (l.photos || []).slice(0, 20), note: clean_(l.note, 100), pay: clean_(l.pay, 20), payee: clean_(l.payee, 40) }; })
     .filter(function (l) { return l.no || l.amount || l.photos.length; });
   if (!lines.length) throw new Error('請至少填一張發票。');
   lines.forEach(function (l, i) {
@@ -1478,7 +1484,7 @@ function hxSaveInvoice_(p) {
       return { '發票編號': id, '日期': x.date ? "'" + x.date : '', '品名': x.name, '金額': x.amount, '類別': x.cat, '購買人': x.buyer, '備註': x.note };
     }));
     appendRows_('核銷發票明細', lines.map(function (l) {
-      return { '發票編號': id, '發票號碼': "'" + l.no, '發票日期': "'" + l.date, '金額': l.amount, '照片': l.photos.join('\n'), '備註': l.note };
+      return { '發票編號': id, '發票號碼': "'" + l.no, '發票日期': "'" + l.date, '金額': l.amount, '照片': l.photos.join('\n'), '備註': l.note, '付款方式': l.pay, '付款對象': l.payee };
     }));
     return { id: id };
   } finally {
@@ -1778,6 +1784,21 @@ function hxDeleteInvoice_(id) {
     lock.releaseLock();
   }
   return true;
+}
+
+/** 核銷的廠商名稱統一：把「旺來興」都改成「E烘焙乾貨」之類（只改核銷發票，不動銷貨單）。回傳改了幾筆 */
+function hxRenameVendor_(from, to) {
+  from = clean_(from, 30); to = clean_(to, 30);
+  if (!from || !to || from === to) throw new Error('請選要改的名稱和改成的名稱。');
+  const lock = waitLock_();
+  let n = 0;
+  try {
+    const t = readTable_('核銷發票', ['發票編號', '廠商']);
+    t.rows.forEach(function (r) { if (String(r['廠商']).trim() === from) { setCell_(t, r._row, '廠商', to); n++; } });
+  } finally {
+    lock.releaseLock();
+  }
+  return { n: n };
 }
 
 /** 某張發票的某一類：經手人確認「已核銷」（done=false 改回待核銷） */
