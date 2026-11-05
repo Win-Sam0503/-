@@ -1297,6 +1297,12 @@ function attachSlipPrices_(list) {
   const weeks = {};
   list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
   const map = slipPriceMap_(weeks), cmap = readCostMap_();
+  const byVend = {}, byName = {};   // 那週各廠商銷貨單上有哪些品名、同一個品名在哪幾家
+  Object.keys(map).forEach(function (k) {
+    const a = k.split('|'), wv = a[0] + '|' + a[1], wn = a[0] + '|' + a.slice(2).join('|');
+    (byVend[wv] = byVend[wv] || []).push(a.slice(2).join('|'));
+    (byName[wn] = byName[wn] || []).push(a[1]);
+  });
   // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
   const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : [v]; };
   list.forEach(function (o) {
@@ -1311,8 +1317,38 @@ function attachSlipPrices_(list) {
         const y = sub && map[wk + '|' + vs[i] + '|' + sub];
         if (y) { it.sp = { u: y.u, p: y.p, via: sub }; break; }
       }
+      if (it.sp) return;
+      // 自動對應（設定的對應都沒有才用）：叫「蔥」、銷貨單是「青蔥」這類，名稱相近又只有一樣對得上的才算，畫面會標「自動」方便核對
+      for (let i = 0; i < vs.length; i++) {
+        const nm = guessSlipName_(it.name, byVend[wk + '|' + vs[i]] || []);
+        if (nm) { const z = map[wk + '|' + vs[i] + '|' + nm]; it.sp = { u: z.u, p: z.p, via: '自動：' + nm }; return; }
+      }
+      // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有同名的食材，就用那一家的單價
+      const others = (byName[wk + '|' + it.name] || []).filter(function (v) { return vs.indexOf(v) < 0; });
+      if (others.length === 1) { const w = map[wk + '|' + others[0] + '|' + it.name]; it.sp = { u: w.u, p: w.p, via: '自動：' + others[0] }; }
     });
   });
+}
+
+/** 常見的同義叫法（老師叫的 → 銷貨單上可能的名稱），自動對應時優先用 */
+const COST_SYN = {
+  '蔥': ['青蔥'], '青蔥': ['蔥'], '薑': ['老薑', '嫩薑', '生薑'], '老薑': ['薑'], '嫩薑': ['薑'], '蒜': ['蒜頭', '蒜仁'], '蒜頭': ['蒜仁', '蒜'], '蒜仁': ['蒜頭', '蒜'],
+  '辣椒': ['紅辣椒'], '香菜': ['芫荽'], '芫荽': ['香菜'], '高麗菜': ['甘藍'], '甘藍': ['高麗菜'], '地瓜': ['番薯'], '番薯': ['地瓜'],
+  '馬鈴薯': ['洋芋'], '洋芋': ['馬鈴薯'], '番茄': ['蕃茄', '牛番茄'], '蕃茄': ['番茄'], '玉米粒': ['玉米'], '雞蛋': ['蛋'], '蛋': ['雞蛋']
+};
+/** 自動對應：在同一週、同一家廠商銷貨單的品名裡，找跟老師叫的名稱最像、而且只有一個的；找不到回傳 '' */
+function guessSlipName_(name, cands) {
+  if (!cands.length) return '';
+  const core = function (t) { return learnKey_(String(t || '').replace(/[(（\[【][^)）\]】]*[)）\]】]/g, '')); };
+  const o = core(name);
+  if (!o) return '';
+  const syn = (COST_SYN[o] || []);
+  for (let i = 0; i < syn.length; i++) { const hit = cands.filter(function (c) { return core(c) === syn[i]; }); if (hit.length) return hit[0]; }
+  const same = cands.filter(function (c) { return core(c) === o; });   // 只差括號、空白（無鹽奶油(安佳) ↔ 無鹽奶油）
+  if (same.length === 1) return same[0];
+  if (same.length) return '';
+  const near = cands.filter(function (c) { const k = core(c); return k && (k.indexOf(o) >= 0 || o.indexOf(k) >= 0) && Math.min(k.length, o.length) >= 2; });
+  return near.length === 1 ? near[0] : '';
 }
 
 /** 成本對應：{ 「廠商|訂的品項」: 銷貨單品項 }（廠商空白＝每家都適用） */
