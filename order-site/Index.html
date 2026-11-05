@@ -1089,7 +1089,7 @@
       <details class="panel noprint" id="ucPanel">
         <summary style="cursor:pointer"><h2 style="display:inline">④ 📏 單位換算、🔗 成本品項對應</h2> <span class="muted small">老師訂「把、條、顆」，菜商銷貨單是「台斤」時填</span></summary>
         <div class="muted small" style="margin:6px 0">重量單位（g、公斤、斤、台斤、兩）會自動換算，不用填。老師用「把、條、顆、包…」訂、銷貨單用斤算的，填一次「1 把 ＝ 幾斤」，以後所有料單都照這個算成本。成本統計裡「⚠ 沒有成本的食材」也可以直接填。</div>
-        <div class="row"><input id="ucName" list="ucItems" placeholder="食材，例如 青蔥" style="width:160px"><span>1</span><input id="ucU" placeholder="單位，例如 把" style="width:90px"><span>＝</span><input id="ucQ" inputmode="decimal" placeholder="0.3" style="width:80px"><input id="ucU2" value="斤" style="width:70px"><button type="button" class="btn secondary small" id="ucAdd">＋ 存</button></div>
+        <div class="row"><input id="ucName" list="ucItems" placeholder="食材，例如 青蔥" style="width:160px"><span>1</span><input id="ucU" placeholder="單位，例如 把" style="width:90px"><span>＝</span><input id="ucQ" placeholder="0.3 或 11g" style="width:100px"><input id="ucU2" value="斤" style="width:70px"><button type="button" class="btn secondary small" id="ucAdd">＋ 存</button></div>
         <datalist id="ucItems"></datalist><div id="ucMsg"></div><div id="ucList" style="margin-top:8px"></div>
         <h3 style="font-size:16px;margin:14px 0 4px">🔗 成本品項對應 <span class="muted small" style="font-weight:normal">老師訂的跟廠商送的不同樣（叫中薑、送嫩薑）：訂的那樣用送的那樣的單價</span></h3>
         <div class="row"><input id="cmV" placeholder="廠商（空白＝每家）" style="width:140px"><input id="cmO" list="ucItems" placeholder="老師訂的，例如 中薑" style="width:150px"><span>←</span><input id="cmS" list="ucItems" placeholder="銷貨單上的，例如 嫩薑" style="width:150px"><button type="button" class="btn secondary small" id="cmAdd">＋ 存</button></div>
@@ -3349,7 +3349,7 @@
           opts.map(function (y) { return '<option value="' + esc(y.n) + '">' + esc(y.n + '　$' + fmtQty(y.p) + '／' + y.u) + '</option>'; }).join('') + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
           : '<span class="muted">這幾週 ' + esc(sv) + ' 的銷貨單還沒填品項</span>') : '<span class="muted">讀取銷貨單品項中…</span>') + '</div>' : '';
         return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(x.it.vendor || '') + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + pick +
-          (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" inputmode="decimal" style="width:70px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
+          (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
   // 細項：這一組的每張料單（日期、班級、實作項目、老師），點開看每個品項的數量、單價、金額、單價來源
@@ -3362,7 +3362,7 @@
         return '<tr><td>' + esc(it.name) + '</td><td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td><td class="muted small">' + esc(it.vendor) + '</td>' +
           '<td class="num">' + (c ? '$' + esc(fmtQty(Math.round(c.p * 100) / 100)) + '／' + esc(c.u) : '') + '</td>' +
           '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
-            return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" inputmode="decimal" style="width:70px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
+            return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
           })(costWhy(it))) + '</td>' +
           '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') : '<span class="muted">上次單價估</span>') + '</td></tr>';
       }).join('');
@@ -3579,14 +3579,21 @@
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-ucsave]');
     if (!b) return;
-    var inp = b.parentNode.querySelector('[data-uc-name]'), v = inp.value.trim();
-    if (!v) { inp.focus(); return; }
+    var inp = b.parentNode.querySelector('[data-uc-name]'), pq = parseConvQty(inp.value, inp.getAttribute('data-uc-u2'));
+    if (!pq) { inp.focus(); notice('請填數字，例如 0.3，或直接打重量，例如 11g、11克、2兩。'); return; }
     setBusy(b, true, '…');
-    call('adminSaveUnitConv', token, inp.getAttribute('data-uc-name'), inp.getAttribute('data-uc-u'), v, inp.getAttribute('data-uc-u2')).then(function (r) {
+    call('adminSaveUnitConv', token, inp.getAttribute('data-uc-name'), inp.getAttribute('data-uc-u'), pq.q, pq.u2).then(function (r) {
       data.unitConv = r; costOpen = true; costRerender();
-      costMsg('ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + v + ' ' + inp.getAttribute('data-uc-u2') + '。以後這一樣都會用這個換算算成本。');
+      costMsg('ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + pq.q + ' ' + pq.u2 + '。以後這一樣都會用這個換算算成本。');
     }).catch(function (err) { notice(err.message); setBusy(b, false); });
   });
+  // 換算的數字可以直接帶單位：「11g」「11克」「2兩」「0.5公斤」；沒帶單位就用預設的（通常是斤）
+  function parseConvQty(v, defU2) {
+    var m = String(v || '').trim().replace(/\s+/g, '').match(/^(\d+(?:\.\d+)?|\.\d+)(g|G|克|公克|kg|KG|Kg|公斤|兩|斤|台斤)?$/);
+    if (!m || !(Number(m[1]) > 0)) return null;
+    var u = m[2] ? ({ G: 'g', '克': 'g', '公克': 'g', KG: '公斤', Kg: '公斤', kg: '公斤' }[m[2]] || m[2]) : (defU2 || '斤');
+    return { q: Number(m[1]), u2: u };
+  }
   function renderSummary() {
     markDups(sumCache);
     var hideCancel = $('sHideCancel').checked;
@@ -7308,8 +7315,9 @@
       .catch(function (e) { msg('ucMsg', 'error', e.message); });
   }
   $('ucAdd').addEventListener('click', function () {
-    var n = $('ucName').value.trim(), u = $('ucU').value.trim(), q = $('ucQ').value.trim(), u2 = $('ucU2').value.trim() || '斤';
-    if (!n || !u || !q) { msg('ucMsg', 'error', '請填食材、單位和數字。'); return; }
+    var n = $('ucName').value.trim(), u = $('ucU').value.trim(), pq = parseConvQty($('ucQ').value, $('ucU2').value.trim() || '斤');
+    if (!n || !u || !pq) { msg('ucMsg', 'error', '請填食材、單位和數字（數字可以直接帶重量，例如 11g）。'); return; }
+    var q = pq.q, u2 = pq.u2;
     ucSave(n, u, q, u2, function () { msg('ucMsg', 'ok', '已存：' + n + ' 1 ' + u + ' ＝ ' + q + ' ' + u2 + '。'); $('ucName').value = ''; $('ucU').value = ''; $('ucQ').value = ''; $('ucName').focus(); });
   });
   $('ucList').addEventListener('click', function (e) {
