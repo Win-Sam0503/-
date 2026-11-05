@@ -1087,7 +1087,7 @@
         <div class="row" style="margin-top:8px"><span style="flex:1"></span><button type="button" class="btn" id="csSave">💾 儲存人數</button></div>
       </details>
       <details class="panel noprint" id="ucPanel">
-        <summary style="cursor:pointer"><h2 style="display:inline">④ 📏 單位換算、🔗 成本品項對應</h2> <span class="muted small">老師訂「把、條、顆」，菜商銷貨單是「台斤」時填</span></summary>
+        <summary style="cursor:pointer"><h2 style="display:inline">⑤ 📏 單位換算、🔗 成本品項對應</h2> <span class="muted small">老師訂「把、條、顆」，菜商銷貨單是「台斤」時填</span></summary>
         <div class="muted small" style="margin:6px 0">重量單位（g、公斤、斤、台斤、兩）會自動換算，不用填。老師用「把、條、顆、包…」訂、銷貨單用斤算的，填一次「1 把 ＝ 幾斤」，以後所有料單都照這個算成本。成本統計裡「⚠ 沒有成本的食材」也可以直接填。</div>
         <div class="row"><input id="ucName" list="ucItems" placeholder="食材，例如 青蔥" style="width:160px"><span>1</span><input id="ucU" placeholder="單位，例如 把" style="width:90px"><span>＝</span><input id="ucQ" placeholder="0.3 或 11g" style="width:100px"><input id="ucU2" value="斤" style="width:70px"><button type="button" class="btn secondary small" id="ucAdd">＋ 存</button></div>
         <datalist id="ucItems"></datalist><div id="ucMsg"></div><div id="ucList" style="margin-top:8px"></div>
@@ -3386,7 +3386,8 @@
   }
   var lastCostList = null, lastMissRows = [];
   // 成本的畫面有兩個地方：訂單彙整裡的「成本統計」、💰 成本 分頁。按鈕、存檔後要重畫目前那一頁
-  var costTab = false, costCache = [];
+  var costTab = false, costCache = [], costAll = [], slipTotals = [];
+  function weekMon(iso) { var d = parseDate(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)); }
   function costRange() { var f = $(costTab ? 'cFrom' : 'sFrom').value, t = $(costTab ? 'cTo' : 'sTo').value || f; return [f, t]; }
   function costRerender() { if (costTab) renderCostTab(); else renderSummary(); }
   function costReload() { if (costTab) loadCostTab(true); else loadSummaryKeepMsg(); }
@@ -3445,8 +3446,12 @@
     var keep = $('costMsg').innerHTML;
     if (!keepMsg) msg('costMsg', 'info', '載入中…（期間長的要等久一點）');
     setBusy($('cLoad'), true, '查詢中…');
-    call('adminGetOrders', token, rg[0], rg[1]).then(function (list) {
-      costCache = list.filter(function (o) { return o.status !== '已取消'; });
+    // 銷貨單是一週一張：分攤要整週的料單，所以多抓到整週，畫面只算選的日期
+    var wf = isoDate(weekMon(rg[0])), wt = isoDate(new Date(weekMon(rg[1]).getTime() + 6 * 864e5));
+    Promise.all([call('adminGetOrders', token, wf, wt), call('adminSlipTotals', token, wf, wt).catch(function () { return []; })]).then(function (res) {
+      costAll = res[0].filter(function (o) { return o.status !== '已取消'; });
+      costCache = costAll.filter(function (o) { return o.useDate >= rg[0] && o.useDate <= rg[1]; });
+      slipTotals = res[1] || [];
       renderCostTab();
       if (keepMsg) $('costMsg').innerHTML = keep; else msg('costMsg', '', '');
     }).catch(function (e) { msg('costMsg', 'error', '載入失敗：' + e.message); })
@@ -3473,7 +3478,65 @@
     $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
     $('costAuto').innerHTML = spreadHtml(list) + autoReviewHtml(list);
     costOpen = true;
-    $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計</b>');
+    $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計（依品項算）</b>') + allocHtml();
+  }
+  // ---------- ④ 依銷貨單總額分攤 ----------
+  // 每週每家廠商「銷貨單的食材金額」（真的花的錢）照那週料單「依品項算」的比例分給每張料單：加起來一定等於銷貨單
+  function allocGroup(v) { v = String(v || '').trim(); return /^E/.test(v) ? 'E 乾貨' : /^C.*蛋/.test(v) ? 'C蛋商' : v; }
+  function allocCompute() {
+    var slipT = {}, items = {}, per = {}, noSlip = {};
+    slipTotals.forEach(function (x) { var k = x.wk + '|' + allocGroup(x.v); slipT[k] = (slipT[k] || 0) + x.amt; });
+    costAll.forEach(function (o) {
+      var wk = isoDate(weekMon(o.useDate));
+      (o.items || []).forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
+        var k = wk + '|' + allocGroup(it.vendor), c = itemCost(it);
+        (items[k] = items[k] || []).push({ o: o, w: c ? c.amt : null });
+      });
+    });
+    var rows = [];
+    Object.keys(items).forEach(function (k) {
+      var xs = items[k], T = slipT[k] || 0, a = k.split('|');
+      // 算不出成本的品項：用同一週同一家其他品項的平均當比重，不會一毛都分不到
+      var known = xs.filter(function (x) { return x.w !== null; }), avg = known.length ? known.reduce(function (t, x) { return t + x.w; }, 0) / known.length : 1;
+      xs.forEach(function (x) { if (x.w === null) { x.w = avg || 1; x.guess = true; } });
+      var W = xs.reduce(function (t, x) { return t + x.w; }, 0), Wk = known.reduce(function (t, x) { return t + x.w; }, 0);
+      var inRange = xs.some(function (x) { return costCache.indexOf(x.o) >= 0; });
+      if (inRange) rows.push({ wk: a[0], g: a[1], T: T, W: Wk, n: xs.length, nk: known.length, has: !!slipT[k] });
+      if (!T) { xs.forEach(function (x) { noSlip[x.o.orderNo] = true; }); return; }
+      xs.forEach(function (x) { per[x.o.orderNo] = (per[x.o.orderNo] || 0) + (W ? T * x.w / W : T / xs.length); });
+    });
+    var orphan = Object.keys(slipT).filter(function (k) { return !items[k] && slipT[k]; }).map(function (k) { var a = k.split('|'); return { wk: a[0], g: a[1], T: slipT[k] }; });
+    rows.sort(function (a, b) { return a.wk < b.wk ? -1 : a.wk > b.wk ? 1 : a.g.localeCompare(b.g, 'zh-Hant'); });
+    return { per: per, noSlip: noSlip, rows: rows, orphan: orphan };
+  }
+  var allocOpen = false;
+  document.addEventListener('toggle', function (e) { if (e.target.id === 'costAlloc') allocOpen = e.target.open; }, true);
+  function allocHtml() {
+    if (!costCache.length) return '';
+    var A = allocCompute(), rg = costRange(), key = costKeyFn(), g = {}, order = [], tot = { item: 0, alloc: 0, n: 0, miss: 0 };
+    costCache.forEach(function (o) {
+      var k = key(o), it = orderCost(o).sum, al = A.per[o.orderNo] || 0;
+      if (!g[k]) { g[k] = { n: 0, item: 0, alloc: 0, miss: 0 }; order.push(k); }
+      g[k].n++; g[k].item += it; g[k].alloc += al; if (A.noSlip[o.orderNo]) g[k].miss++;
+      tot.n++; tot.item += it; tot.alloc += al; if (A.noSlip[o.orderNo]) tot.miss++;
+    });
+    order.sort(function (a, b) { return costBy === 'week' ? (a < b ? -1 : 1) : g[b].alloc - g[a].alloc; });
+    var lab = function (k) { return costBy === 'week' ? shortDate(k) + ' 那週' : k; };
+    var pct = function (a, b) { if (!b) return ''; var d = Math.round((a - b) / b * 100); return '<span class="' + (Math.abs(d) > 20 ? '' : 'muted') + '" style="' + (Math.abs(d) > 20 ? 'color:var(--warn)' : '') + '">' + (d > 0 ? '+' : '') + d + '%</span>'; };
+    return '<details class="panel" id="costAlloc"' + (allocOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>④ 依銷貨單總額分攤</b>　<span class="small muted">' + tot.n + ' 張料單分攤 <b>$' + money0(tot.alloc) + '</b>（依品項算 $' + money0(tot.item) + '）</span></summary>' +
+      '<div class="muted small" style="margin:6px 0">每週每家廠商銷貨單的<b>食材金額（真的花的錢）</b>，照那週每張料單「依品項算」的比例分下去，所以加起來一定等於銷貨單。名稱、單位對不到（沒成本）的品項，用同一週同一家其他品項的平均當比重，錢不會不見，只是比例差一點。器材、自備、有貨不算。E乾貨／E中餐乾貨／E烘焙乾貨合在一起算；蛋商也是。分組照上面 ③ 選的（依老師、班級…）。</div>' +
+      '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">依品項算</th><th style="text-align:right">依銷貨單分攤</th></tr>' +
+      order.map(function (k) { var x = g[k];
+        return '<tr><td>' + esc(lab(k)) + '</td><td class="num">' + x.n + ' 張</td><td class="num">$' + money0(x.item) + '</td><td class="num"><b>$' + money0(x.alloc) + '</b>' + (x.miss ? '<div class="muted small">' + x.miss + ' 張有廠商那週沒銷貨單</div>' : '') + '</td></tr>';
+      }).join('') + '<tr style="background:#f2f4f7"><td><b>合計</b></td><td class="num">' + tot.n + ' 張</td><td class="num">$' + money0(tot.item) + '</td><td class="num"><b>$' + money0(tot.alloc) + '</b></td></tr></table></div>' +
+      '<h4 style="margin:12px 0 4px">各週各廠商：銷貨單 vs 依品項算</h4><div class="muted small" style="margin-bottom:4px">差很多（超過 20%）的通常是：那週銷貨單還沒打完、單價打錯、或很多品項對不到。</div>' +
+      '<div class="tablewrap"><table class="small"><tr><th>那週</th><th>廠商</th><th style="text-align:right">銷貨單食材金額</th><th style="text-align:right">依品項算</th><th style="text-align:right">差</th><th style="text-align:right">品項數</th></tr>' +
+      A.rows.map(function (r) {
+        return '<tr><td>' + esc(shortDate(r.wk)) + '</td><td>' + esc(r.g) + '</td><td class="num">' + (r.has ? '$' + money0(r.T) : '<span style="color:var(--warn)">沒有銷貨單</span>') + '</td><td class="num">$' + money0(r.W) + '</td><td class="num">' + (r.has ? pct(r.W, r.T) : '') + '</td><td class="num">' + r.n + (r.nk < r.n ? '<div class="muted">' + (r.n - r.nk) + ' 項沒成本</div>' : '') + '</td></tr>';
+      }).join('') + '</table></div>' +
+      (A.orphan.length ? '<div class="small" style="margin-top:6px;color:var(--warn)">⚠ 這些銷貨單那週沒有對到任何料單（錢沒有分出去）：' + A.orphan.map(function (x) { return esc(shortDate(x.wk) + ' ' + x.g + ' $' + money0(x.T)); }).join('、') + '</div>' : '') +
+      (rg[0] !== isoDate(weekMon(rg[0])) || (parseDate(rg[1]).getDay() + 6) % 7 < 4 ? '<div class="muted small" style="margin-top:6px">選的日期不是整週：銷貨單是一週一張，系統用整週的料單算比例，上面只列選的日期裡的料單。</div>' : '') + '</details>';
   }
   // 自動對應（名稱相近猜的）列出來給管理者確認：✓ 存成固定對應、✗ 以後不要自動對
   function autoReviewHtml(list) {
@@ -3519,7 +3582,8 @@
   function costFileTail() { var rg = costRange(); return rg[0] + (rg[1] !== rg[0] ? '～' + rg[1] : '') + '.csv'; }
   $('cCsvOrders').addEventListener('click', function () {
     if (!costCache.length) { msg('costMsg', 'error', '先查詢。'); return; }
-    var rows = [['上課日期', '班級', '實作項目', '老師', '科別', '訂單編號', '品項數', '照銷貨單', '用上次單價估', '合計', '沒有成本的品項']];
+    var A = allocCompute();
+    var rows = [['上課日期', '班級', '實作項目', '老師', '科別', '訂單編號', '品項數', '照銷貨單', '用上次單價估', '合計（依品項算）', '依銷貨單總額分攤', '沒有成本的品項']];
     costCache.slice().sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : 0; }).forEach(function (o) {
       var real = 0, est = 0, none = [], n = 0;
       (o.items || []).forEach(function (it) {
@@ -3527,7 +3591,7 @@
         n++; var c = itemCost(it);
         if (!c) none.push(it.name); else if (c.real) real += c.amt; else est += c.amt;
       });
-      rows.push([o.useDate, o.className || '', o.project || '', o.onBehalfOf || o.teacher, o.dept || '', o.orderNo, n, real, est, real + est, none.join('、')]);
+      rows.push([o.useDate, o.className || '', o.project || '', o.onBehalfOf || o.teacher, o.dept || '', o.orderNo, n, real, est, real + est, Math.round(A.per[o.orderNo] || 0), none.join('、')]);
     });
     downloadCsv('料單成本 ' + costFileTail(), rows);
   });
@@ -3559,6 +3623,15 @@
       document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     }
   });
+  function costKeyFn() {
+    return {
+      teacher: function (o) { return o.onBehalfOf || o.teacher; },
+      class: function (o) { return o.className || '（沒填班級）'; },
+      project: function (o) { return o.project || '（沒填實作項目）'; },
+      week: function (o) { var d = parseDate(o.useDate), m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)); return isoDate(m); },
+      dept: function (o) { return o.dept || '（沒填科別）'; },
+    }[costBy];
+  }
   function costStatsHtml(list, noMiss) {
     lastCostList = list;
     var key = {

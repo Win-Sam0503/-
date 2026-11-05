@@ -1476,6 +1476,30 @@ function adminSlipItems(token, from, to) {
   return out;
 }
 
+/**
+ * 💰 成本「依銷貨單總額分攤」：每週每家廠商銷貨單的食材金額合計（器材不算）。
+ * 週＝銷貨單日期（沒有就用送貨日期）那週的週一。回傳 [{ wk, v, amt, n }]
+ */
+function adminSlipTotals(token, from, to) {
+  auth_(token, true);
+  const f = parseDate_(from), t = parseDate_(to);
+  if (!f || !t || !ss_().getSheetByName('銷貨單明細')) return [];
+  const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
+  const lo = mon(f), hi = mon(t), out = {};
+  readTable_('銷貨單明細', ['送貨日期（起）', '廠商']).rows.forEach(function (r) {
+    if (String(r['類型'] || '').trim() === '器材') return;
+    const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
+    const wk = mon(sd || d0);
+    if (!wk || wk < lo || wk > hi) return;
+    const a = Number(r['金額']), q = Number(r['數量']), p = Number(r['單價']);
+    const amt = a > 0 ? a : (q > 0 && p > 0 ? q * p : 0);
+    const v = String(r['廠商'] || '').trim(), k = wk + '|' + v;
+    if (!out[k]) out[k] = { wk: wk, v: v, amt: 0, n: 0, blank: 0 };
+    out[k].amt += amt; out[k].n++; if (!amt) out[k].blank++;
+  });
+  return Object.keys(out).map(function (k) { const x = out[k]; x.amt = Math.round(x.amt); return x; });
+}
+
 /** 銷貨單的單價：{ 「週一|廠商|品名（換成食材總表正式名稱）」: { u, p } }，只讀 weeks 裡的週 */
 function slipPriceMap_(weeks, noPrice, grams) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
