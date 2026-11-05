@@ -1296,7 +1296,7 @@ function attachSlipPrices_(list) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   const weeks = {};
   list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
-  const map = slipPriceMap_(weeks), cmap = readCostMap_();
+  const np = {}, map = slipPriceMap_(weeks, np), cmap = readCostMap_();
   const byVend = {}, byName = {};   // 那週各廠商銷貨單上有哪些品名、同一個品名在哪幾家
   Object.keys(map).forEach(function (k) {
     const a = k.split('|'), wv = a[0] + '|' + a[1], wn = a[0] + '|' + a.slice(2).join('|');
@@ -1326,7 +1326,12 @@ function attachSlipPrices_(list) {
       }
       // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有同名的食材，就用那一家的單價
       const others = (byName[wk + '|' + it.name] || []).filter(function (v) { return vs.indexOf(v) < 0; });
-      if (others.length === 1) { const w = map[wk + '|' + others[0] + '|' + it.name]; it.sp = { u: w.u, p: w.p, via: '自動：' + others[0] }; }
+      if (others.length === 1) { const w = map[wk + '|' + others[0] + '|' + it.name]; it.sp = { u: w.u, p: w.p, via: '自動：' + others[0] }; return; }
+      // 那週銷貨單有這一樣，只是單價沒填：告訴管理者去補
+      for (let i = 0; i < vs.length; i++) {
+        const sub = cmap[vs[i] + '|' + it.name] || cmap['|' + it.name];
+        if (np[wk + '|' + vs[i] + '|' + it.name] || (sub && np[wk + '|' + vs[i] + '|' + sub])) { it.spNP = vs[i] + '｜' + wk; return; }
+      }
     });
   });
 }
@@ -1414,7 +1419,7 @@ function adminSlipItems(token, from, to) {
 }
 
 /** 銷貨單的單價：{ 「週一|廠商|品名（換成食材總表正式名稱）」: { u, p } }，只讀 weeks 裡的週 */
-function slipPriceMap_(weeks) {
+function slipPriceMap_(weeks, noPrice) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   // 銷貨單上的品名（廠商的叫法，例如「大骨高湯罐」）用食材總表的別名換成正式名稱（高湯罐），才對得到老師的訂單
   const official = {}, itemRows = readTable_(SHEET.items, ['食材名稱']).rows;
@@ -1432,11 +1437,13 @@ function slipPriceMap_(weeks) {
   readTable_('銷貨單明細', ['送貨日期（起）', '廠商', '食材名稱', '單價']).rows.forEach(function (r) {
     const raw = String(r['食材名稱'] || '').trim(), p = Number(r['單價']);
     const name = toName(raw) || toName(r['銷貨單品名']) || raw;
-    if (!name || !(p > 0)) return;
+    if (!name) return;
     const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
     const wk = mon(sd || d0);
     if (!weeks[wk]) return;
-    map[wk + '|' + String(r['廠商']).trim() + '|' + name] = { u: String(r['單位'] || '').trim(), p: p };
+    const key = wk + '|' + String(r['廠商']).trim() + '|' + name;
+    if (!(p > 0)) { if (noPrice) noPrice[key] = true; return; }   // 有這一樣、單價沒填
+    map[key] = { u: String(r['單位'] || '').trim(), p: p };
   });
   return map;
 }
