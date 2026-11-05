@@ -1490,8 +1490,21 @@
         // 寬度直接用像素（百分比在有些平板的瀏覽器截圖時不準）：表格＝整頁寬，標題列的百分比換成像素
         if (c.classList.contains('vpage')) Array.prototype.forEach.call(c.querySelectorAll('table'), function (t) {
           t.style.setProperty('width', PDF_W + 'px', 'important'); t.style.setProperty('min-width', '0', 'important'); t.style.setProperty('max-width', 'none', 'important'); t.style.setProperty('table-layout', 'fixed', 'important');
+          t.setAttribute('width', PDF_W);
           var hr = t.querySelector('tr');
-          if (hr && !t.querySelector('col')) Array.prototype.forEach.call(hr.children, function (th) { var m = String(th.getAttribute('style') || '').match(/width:\s*([\d.]+)%/); if (m) th.style.setProperty('width', Math.round(PDF_W * Number(m[1]) / 100) + 'px', 'important'); });
+          if (hr && !t.querySelector('col')) {
+            // 每一欄都給固定像素寬（用 colgroup），沒寫百分比的欄平分剩下的寬度：表格一定撐滿整頁、不會縮成內容寬
+            // 列印時藏起來的欄（例如刪除鈕）不算
+            var ths = Array.prototype.filter.call(hr.children, function (th) { return doc.defaultView.getComputedStyle(th).display !== 'none'; }), pct = ths.map(function (th) { var m = String(th.getAttribute('style') || '').match(/width:\s*([\d.]+)%/); return m ? Number(m[1]) : 0; });
+            var used = pct.reduce(function (a, b) { return a + b; }, 0), free = pct.filter(function (x) { return !x; }).length, rest = Math.max(0, 100 - used);
+            var cg = doc.createElement('colgroup');
+            ths.forEach(function (th, i) {
+              var span = Number(th.getAttribute('colspan')) || 1, w = Math.round(PDF_W * (pct[i] || (free ? rest / free : 0)) / 100);
+              th.style.setProperty('width', w + 'px', 'important');
+              for (var j = 0; j < span; j++) { var col = doc.createElement('col'); col.style.width = Math.round(w / span) + 'px'; cg.appendChild(col); }
+            });
+            t.insertBefore(cg, t.firstChild);
+          }
         });
         // 直書的廠商名稱畫不出來：改成一字一行
         Array.prototype.forEach.call(c.querySelectorAll('.vtext'), function (x) {
