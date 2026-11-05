@@ -586,6 +586,8 @@
   .vpage .dsum { margin-bottom: 8px; }
   .vpage tr.vfirst td { border-top: 2.5px solid #000; }
   .vpage table.btbl { table-layout: fixed; }
+  .vpage table.pkt { table-layout: fixed; width: 100%; }
+  .vpage table.pkt td { overflow-wrap: anywhere; }
   .vpage .bblk { break-inside: avoid; page-break-inside: avoid; }
   .vpage .bblk table.btbl { margin-top: -1px; }
   .vpage tr { page-break-inside: avoid; }
@@ -656,6 +658,7 @@
     }
     .tablewrap, .vedit .ptot-wrap { overflow: visible !important; max-height: none !important; }   /* 平板、手機列印時，可左右捲動的框會把表格右邊切掉 */
     .vpage table { width: 100% !important; min-width: 0 !important; }
+    .vpage table.pkt { table-layout: fixed !important; width: 100% !important; max-width: none !important; }
     #vendorSheets.vp-sum .vedit .vpart-detail, #vendorSheets.vp-detail .vedit .vpart-sum { display: none; }
     #vendorSheets.vp-detail .vedit > h1, #vendorSheets.vp-detail .vedit > .vsub { display: none; }
     #vendorSheets.vp-detail .vedit .vdetail-title { display: block; }
@@ -5396,7 +5399,7 @@
       var places = list.map(function (r) { return r.place; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
       return '<div class="vpage"><h1>跨教室領料通知：在' + esc(home) + '上課的班級</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
         '<div style="margin-bottom:6px;font-size:1.05em">下面這些食材<b>不會送到' + esc(home) + '</b>，請上課前到 <b>' + esc(places.join('、')) + '</b> 拿，拿的時候在那邊的領料單簽名。</div>' +
-        '<table><thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:10%">老師</th><th style="width:14%">到哪裡拿</th><th>食材</th><th style="width:12%">數量</th><th style="width:14%">備註</th></tr></thead><tbody>' +
+        '<table class="pkt">' + pkCols([10, 11, 10, 10, 14, 19, 12, 14]) + '<thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:10%">老師</th><th style="width:14%">到哪裡拿</th><th style="width:19%">食材</th><th style="width:12%">數量</th><th style="width:14%">備註</th></tr></thead><tbody>' +
         list.map(function (r, i) {
           var first = i === 0 || key(list[i - 1]) !== key(r), rs = ' class="vm" rowspan="' + span[key(r)] + '"';
           return '<tr' + (first ? ' class="vfirst"' : '') + '>' +
@@ -5407,6 +5410,8 @@
     }).join('');
   }
   // 貼在放貨的教室：照領取地點分頁，拿的人簽名
+  // 跨教室領料單的欄寬寫死（colgroup＋固定排版）：列印、存 PDF 時表格一定撐滿整頁，不會被縮在左半邊
+  function pkCols(w) { return '<colgroup>' + w.map(function (x) { return '<col style="width:' + x + '%">'; }).join('') + '</colgroup>'; }
   function pickupByPlace(all, from, to) {
     var by = {};
     all.forEach(function (r) { (by[r.place] = by[r.place] || []).push(r); });
@@ -5416,7 +5421,7 @@
       list.forEach(function (r) { span[key(r)] = (span[key(r)] || 0) + 1; });
       return '<div class="vpage"><h1>跨教室領料單：到' + esc(place) + '領取（貼在' + esc(place) + '）</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
         '<div class="muted small" style="margin-bottom:6px">這些食材是跟' + esc(place.replace('教室', '')) + '一起叫貨、送到' + esc(place) + '，請上課的班級照下面的量來拿，拿完請簽名。</div>' +
-        '<table><thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:9%">老師</th><th>食材</th><th style="width:12%">數量</th><th style="width:15%">備註</th><th style="width:12%">領取簽名</th></tr></thead><tbody>' +
+        '<table class="pkt">' + pkCols([10, 11, 10, 9, 21, 12, 15, 12]) + '<thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:9%">老師</th><th style="width:21%">食材</th><th style="width:12%">數量</th><th style="width:15%">備註</th><th style="width:12%">領取簽名</th></tr></thead><tbody>' +
         list.map(function (r, i) {
           var first = i === 0 || key(list[i - 1]) !== key(r), rs = ' class="vm" rowspan="' + span[key(r)] + '"';
           return '<tr' + (first ? ' class="vfirst"' : '') + '>' +
