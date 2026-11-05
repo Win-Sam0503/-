@@ -1487,8 +1487,11 @@
         var c = doc.querySelector('[data-pdfcap]');
         c.classList.remove('vcollapsed');
         // 廠商單、跨教室領料單的表格一定撐滿整頁寬、照標題的寬度分欄（有些瀏覽器截圖時表格會縮成內容的寬度，欄位被擠在左半邊）
+        // 寬度直接用像素（百分比在有些平板的瀏覽器截圖時不準）：表格＝整頁寬，標題列的百分比換成像素
         if (c.classList.contains('vpage')) Array.prototype.forEach.call(c.querySelectorAll('table'), function (t) {
-          t.style.setProperty('width', '100%', 'important'); t.style.setProperty('min-width', '0', 'important'); t.style.setProperty('table-layout', 'fixed', 'important');
+          t.style.setProperty('width', PDF_W + 'px', 'important'); t.style.setProperty('min-width', '0', 'important'); t.style.setProperty('max-width', 'none', 'important'); t.style.setProperty('table-layout', 'fixed', 'important');
+          var hr = t.querySelector('tr');
+          if (hr && !t.querySelector('col')) Array.prototype.forEach.call(hr.children, function (th) { var m = String(th.getAttribute('style') || '').match(/width:\s*([\d.]+)%/); if (m) th.style.setProperty('width', Math.round(PDF_W * Number(m[1]) / 100) + 'px', 'important'); });
         });
         // 直書的廠商名稱畫不出來：改成一字一行
         Array.prototype.forEach.call(c.querySelectorAll('.vtext'), function (x) {
