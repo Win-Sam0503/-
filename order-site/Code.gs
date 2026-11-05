@@ -1340,15 +1340,17 @@ function slipMatcher_(map, np, cmap) {
       const sub = cmap[vs[i] + '|' + name] || cmap['|' + name];
       if (!r && sub && map[wk + '|' + vs[i] + '|' + sub]) r = hit(wk + '|' + vs[i] + '|' + sub, sub);
     }
+    // 管理者標了「✗ 不要自動對應」的：不猜
+    const noAuto = vs.some(function (v) { return (cmap[v + '|' + name] || cmap['|' + name]) === '✗'; });
     // 自動對應（設定的對應都沒有才用）：叫「蔥」、銷貨單是「青蔥」這類，名稱相近又只有一樣對得上的才算，畫面會標「自動」方便核對
-    for (let i = 0; i < vs.length && !r; i++) {
+    for (let i = 0; i < vs.length && !r && !noAuto; i++) {
       const nm = guessSlipName_(name, byVend[wk + '|' + vs[i]] || []);
       if (nm) r = hit(wk + '|' + vs[i] + '|' + nm, '自動：' + nm);
     }
     // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有同名的食材，就用那一家的單價
-    if (!r) {
+    if (!r && !noAuto) {
       const others = (byName[wk + '|' + name] || []).filter(function (v) { return vs.indexOf(v) < 0; });
-      if (others.length === 1) r = hit(wk + '|' + others[0] + '|' + name, '自動：' + others[0]);
+      if (others.length === 1) r = hit(wk + '|' + others[0] + '|' + name, '自動（' + others[0] + '）');
     }
     // 那週銷貨單有這一樣，只是單價沒填：告訴管理者去補
     for (let i = 0; i < vs.length && !r; i++) {

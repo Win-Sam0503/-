@@ -719,6 +719,7 @@
         <button type="button" data-view="viewMine">我的訂單</button>
         <button type="button" data-view="viewLessons">我的課<span id="lessonCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
+        <button type="button" data-view="viewCost" class="admin-only hidden">💰 成本</button>
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewAudit" class="admin-only hidden">抽查</button>
         <button type="button" data-view="viewCrew" class="admin-only hidden">放置登記</button>
@@ -1000,6 +1001,26 @@
     </section>
 
     <!-- 修改密碼 -->
+    <section id="viewCost" class="hidden">
+      <div class="panel">
+        <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div>料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）。<br>名稱不一樣的（紅K＝紅蘿蔔、子薑＝嫩薑…）會自動對應，標 ⚠ 的請在「自動對應待確認」按 ✓ 或 ✗。<br>老師用條、隻、盒訂，菜商用台斤算的，照那週銷貨單的總重分攤。<br>還沒對到的在「待處理」，每一行都可以直接處理。</div></details></h2>
+        <div class="grid2">
+          <div><label for="cFrom">上課日期（起）</label><input id="cFrom" type="date"></div>
+          <div><label for="cTo">上課日期（迄）</label><input id="cTo" type="date"></div>
+          <div class="span2"><div class="status-chips" id="cRanges" style="margin-top:0">
+            <button type="button" data-range="lastWeek">上週</button><button type="button" data-range="thisWeek">本週</button><button type="button" data-range="lastMonth">上個月</button><button type="button" data-range="thisMonth">本月</button><button type="button" data-range="last3">近 3 個月</button><button type="button" data-range="term">本學期</button><button type="button" data-range="lastTerm">上學期</button>
+          </div></div>
+        </div>
+        <div class="row noprint" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button type="button" class="btn" id="cLoad">查詢</button><span style="flex:1"></span><button type="button" class="btn ghost small" id="cCsvOrders">⬇ 下載：每張料單成本</button><button type="button" class="btn ghost small" id="cCsvItems">⬇ 下載：每個品項明細</button></div>
+        <div id="costMsg"></div>
+      </div>
+      <div id="costTop"></div>
+      <div id="costTodo"></div>
+      <div id="costAuto"></div>
+      <div id="costBox"></div>
+      <div id="costCfgSlot"></div>
+    </section>
+
     <section id="viewPassword" class="hidden">
       <form id="pwForm" class="panel pw-form" novalidate>
         <h2 id="pwTitle">修改密碼</h2>
@@ -1066,7 +1087,7 @@
         <div class="row" style="margin-top:8px"><span style="flex:1"></span><button type="button" class="btn" id="csSave">💾 儲存人數</button></div>
       </details>
       <details class="panel noprint" id="ucPanel">
-        <summary style="cursor:pointer"><h2 style="display:inline">📏 單位換算（算料單成本用）</h2> <span class="muted small">老師訂「把、條、顆」，菜商銷貨單是「台斤」時填</span></summary>
+        <summary style="cursor:pointer"><h2 style="display:inline">④ 📏 單位換算、🔗 成本品項對應</h2> <span class="muted small">老師訂「把、條、顆」，菜商銷貨單是「台斤」時填</span></summary>
         <div class="muted small" style="margin:6px 0">重量單位（g、公斤、斤、台斤、兩）會自動換算，不用填。老師用「把、條、顆、包…」訂、銷貨單用斤算的，填一次「1 把 ＝ 幾斤」，以後所有料單都照這個算成本。成本統計裡「⚠ 沒有成本的食材」也可以直接填。</div>
         <div class="row"><input id="ucName" list="ucItems" placeholder="食材，例如 青蔥" style="width:160px"><span>1</span><input id="ucU" placeholder="單位，例如 把" style="width:90px"><span>＝</span><input id="ucQ" inputmode="decimal" placeholder="0.3" style="width:80px"><input id="ucU2" value="斤" style="width:70px"><button type="button" class="btn secondary small" id="ucAdd">＋ 存</button></div>
         <datalist id="ucItems"></datalist><div id="ucMsg"></div><div id="ucList" style="margin-top:8px"></div>
@@ -1074,6 +1095,7 @@
         <div class="row"><input id="cmV" placeholder="廠商（空白＝每家）" style="width:140px"><input id="cmO" list="ucItems" placeholder="老師訂的，例如 中薑" style="width:150px"><span>←</span><input id="cmS" list="ucItems" placeholder="銷貨單上的，例如 嫩薑" style="width:150px"><button type="button" class="btn secondary small" id="cmAdd">＋ 存</button></div>
         <div id="cmList" style="margin-top:6px"></div>
       </details>
+      <div class="panel noprint muted small" style="padding:10px 16px">📏 單位換算、🔗 成本品項對應 搬到上面「💰 成本」分頁了。</div>
       <div class="panel noprint" id="autoPanel">
         <h2>自動化 <button type="button" class="btn ghost small" id="aReload">重新整理</button></h2>
         <div id="autoMsg"></div>
@@ -1846,7 +1868,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -1860,6 +1882,9 @@
     if (view === 'viewSchedule') loadGrid();
     keepMine = false;
     if (view === 'viewSummary') issCount();
+    costTab = view === 'viewCost';
+    if (view === 'viewCost') costOpenTab();
+    if (view === 'viewSummary') { $('costBox').innerHTML = ''; $('costTodo').innerHTML = ''; $('costAuto').innerHTML = ''; if (sumCache && sumCache.length) renderSummary(); }
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
@@ -3287,7 +3312,7 @@
   // 這段日期每家廠商銷貨單上有哪些品項（挑「廠商送的其實是…」用），篩選的日期換了才重讀
   var slipItemsCache = { key: '', data: null, loading: false };
   function loadSlipItems() {
-    var f = $('sFrom').value, t = $('sTo').value || f, key = f + '|' + t;
+    var rg = costRange(), f = rg[0], t = rg[1], key = f + '|' + t;
     if (!data.isAdmin || slipItemsCache.key === key || slipItemsCache.loading) return;
     slipItemsCache.loading = true;
     call('adminSlipItems', token, f, t).then(function (r) { slipItemsCache = { key: key, data: r, loading: false }; var el = $('costMiss'); if (el && lastCostList) el.outerHTML = missingCostHtml(lastCostList); })
@@ -3313,7 +3338,7 @@
     var nNone = keys.filter(function (k) { return !m[k].est; }).length, nEst = keys.length - nNone;
     var whyOf = function (x) { return x.est ? { text: x.it.spNP && !x.it.sp ? costWhy(x.it).text + '（現在先用單價表的上次單價估）' : '那週銷貨單沒對到「' + x.it.name + '」，先用單價表的上次單價估；廠商叫法不一樣的，在下面選對應' } : costWhy(x.it); };
     lastMissRows = keys.map(function (k) { var x = m[k]; return [x.it.name, x.it.vendor || '', x.it.unit || '', x.n, x.est ? '用上次單價估' : '沒有成本', whyOf(x).text]; });
-    if (slipItemsCache.key !== ($('sFrom').value + '|' + ($('sTo').value || $('sFrom').value))) setTimeout(loadSlipItems, 0);
+    if (slipItemsCache.key !== costRange().join('|')) setTimeout(loadSlipItems, 0);
     return '<details id="costMiss"' + (costMissOpen ? ' open' : '') + ' style="margin:6px 0 8px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 沒對到銷貨單：' + (nNone ? nNone + ' 樣沒有成本' : '') + (nNone && nEst ? '、' : '') + (nEst ? nEst + ' 樣用上次單價估' : '') + '</b>（點開看清單、原因、填換算）</summary>' +
       '<div class="noprint" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-misscopy>📋 複製清單</button><button type="button" class="btn ghost small" data-misscsv>⬇ 下載清單（Excel）</button></div>' +
       '<div class="tablewrap"><table class="small"><tr><th>食材</th><th>訂的單位</th><th>次數</th><th>狀態</th><th>原因／處理</th></tr>' +
@@ -3347,6 +3372,140 @@
     }).join('');
   }
   var lastCostList = null, lastMissRows = [];
+  // 成本的畫面有兩個地方：訂單彙整裡的「成本統計」、💰 成本 分頁。按鈕、存檔後要重畫目前那一頁
+  var costTab = false, costCache = [];
+  function costRange() { var f = $(costTab ? 'cFrom' : 'sFrom').value, t = $(costTab ? 'cTo' : 'sTo').value || f; return [f, t]; }
+  function costRerender() { if (costTab) renderCostTab(); else renderSummary(); }
+  function costReload() { if (costTab) loadCostTab(true); else loadSummaryKeepMsg(); }
+  function costMsg(type, text) { msg(costTab ? 'costMsg' : 'sumMsg', type, text); }
+  // ---------------- 💰 成本 分頁 ----------------
+  function costOpenTab() {
+    var old = document.querySelector('#viewSummary #costStats'); if (old) old.remove();   // 同一個 id 只能有一個
+    if (!$('cFrom').value) {
+      costMissOpen = true; var r = rangeOf('lastWeek'); $('cFrom').value = isoDate(r[0]); $('cTo').value = isoDate(r[1]); loadCostTab(); }
+    else if (costCache.length) renderCostTab();
+    cMarkRange();
+  }
+  $('costCfgSlot').appendChild($('ucPanel'));   // 單位換算、成本品項對應放在 💰 成本 分頁
+  function cMarkRange() {
+    Array.prototype.forEach.call($('cRanges').querySelectorAll('button'), function (b) {
+      var r = rangeOf(b.getAttribute('data-range'));
+      b.classList.toggle('on', isoDate(r[0]) === $('cFrom').value && isoDate(r[1]) === ($('cTo').value || $('cFrom').value));
+    });
+  }
+  $('cRanges').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-range]'); if (!b) return;
+    var r = rangeOf(b.getAttribute('data-range'));
+    $('cFrom').value = isoDate(r[0]); $('cTo').value = isoDate(r[1]); cMarkRange(); loadCostTab();
+  });
+  $('cLoad').addEventListener('click', function () { cMarkRange(); loadCostTab(); });
+  function loadCostTab(keepMsg) {
+    var rg = costRange();
+    if (!rg[0]) { msg('costMsg', 'error', '請選擇日期。'); return; }
+    if (rg[1] < rg[0]) { msg('costMsg', 'error', '迄日不能早於起日。'); return; }
+    var keep = $('costMsg').innerHTML;
+    if (!keepMsg) msg('costMsg', 'info', '載入中…（期間長的要等久一點）');
+    setBusy($('cLoad'), true, '查詢中…');
+    call('adminGetOrders', token, rg[0], rg[1]).then(function (list) {
+      costCache = list.filter(function (o) { return o.status !== '已取消'; });
+      renderCostTab();
+      if (keepMsg) $('costMsg').innerHTML = keep; else msg('costMsg', '', '');
+    }).catch(function (e) { msg('costMsg', 'error', '載入失敗：' + e.message); })
+      .then(function () { setBusy($('cLoad'), false); });
+  }
+  function renderCostTab() {
+    var list = costCache, t = { n: 0, sum: 0, real: 0, est: 0, none: 0, items: 0 };
+    list.forEach(function (o) {
+      t.n++;
+      (o.items || []).forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
+        var c = itemCost(it); t.items++;
+        if (!c) t.none++; else { t.sum += c.amt; if (c.real) t.real += c.amt; else t.est += c.amt; }
+      });
+    });
+    var pct = t.sum ? Math.round(t.real / t.sum * 100) : 0;
+    var card = function (lab, val, sub, color) { return '<div style="flex:1;min-width:130px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div class="muted small">' + lab + '</div><div style="font-size:22px;font-weight:700' + (color ? ';color:' + color : '') + '">' + val + '</div>' + (sub ? '<div class="muted small">' + sub + '</div>' : '') + '</div>'; };
+    $('costTop').innerHTML = !list.length ? '<div class="panel muted">這段期間沒有料單。</div>' : '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">' +
+      card('料單', t.n + ' 張', t.items + ' 個品項') + card('成本合計', '$' + money0(t.sum), '含估算') +
+      card('照銷貨單', '$' + money0(t.real), '佔 ' + pct + '%', 'var(--ok)') + card('用上次單價估', '$' + money0(t.est), '', t.est ? '#b54708' : '') +
+      card('沒有成本', t.none + ' 項', t.none ? '下面「待處理」' : '都算得出來', t.none ? 'var(--warn)' : 'var(--ok)') + '</div>';
+    if (!list.length) { $('costTodo').innerHTML = $('costAuto').innerHTML = $('costBox').innerHTML = ''; return; }
+    var miss = missingCostHtml(list);
+    $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
+    $('costAuto').innerHTML = autoReviewHtml(list);
+    costOpen = true;
+    $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計</b>');
+  }
+  // 自動對應（名稱相近猜的）列出來給管理者確認：✓ 存成固定對應、✗ 以後不要自動對
+  function autoReviewHtml(list) {
+    var m = {}, keys = [];
+    list.forEach(function (o) {
+      (o.items || []).forEach(function (it) {
+        var c = itemCost(it);
+        if (!c || !c.real || !/^自動：/.test(c.via || '')) return;
+        var to = c.via.replace(/^自動：/, ''), k = it.vendor + '|' + it.name + '|' + to;
+        if (!m[k]) { m[k] = { v: it.vendor || '', n: it.name, to: to, c: 0, p: c.p, u: c.u }; keys.push(k); }
+        m[k].c++;
+      });
+    });
+    if (!keys.length) return '';
+    keys.sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+    return '<details class="panel" id="costAutoBox" style="padding:12px 16px"' + (costAutoOpen ? ' open' : '') + '><summary style="cursor:pointer"><b>② 自動對應待確認（' + keys.length + ' 樣）</b> <span class="muted small">系統照名稱猜的，對的按 ✓ 以後固定這樣對；不對的按 ✗，再到「待處理」選正確的</span></summary>' +
+      '<div class="tablewrap" style="margin-top:6px"><table class="small"><tr><th>老師訂的</th><th>廠商</th><th>自動對到銷貨單的</th><th>單價</th><th>次數</th><th></th></tr>' +
+      keys.map(function (k) {
+        var x = m[k], d = esc(x.v) + '|' + esc(x.n) + '|' + esc(x.to);
+        return '<tr><td><b>' + esc(x.n) + '</b></td><td class="muted">' + esc(x.v) + '</td><td>' + esc(x.to) + '</td><td class="num">$' + esc(fmtQty(x.p)) + '／' + esc(x.u) + '</td><td class="num">' + x.c + '</td>' +
+          '<td style="white-space:nowrap"><button type="button" class="btn ghost small" data-arok="' + d + '" style="color:var(--ok)">✓ 對</button> <button type="button" class="btn ghost small" data-arno="' + d + '" style="color:var(--bad)">✗ 不對</button></td></tr>';
+      }).join('') + '</table></div></details>';
+  }
+  var costAutoOpen = true;
+  document.addEventListener('toggle', function (e) { if (e.target.id === 'costAutoBox') costAutoOpen = e.target.open; }, true);
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-arok], [data-arno]');
+    if (!b) return;
+    var ok = b.hasAttribute('data-arok'), p = b.getAttribute(ok ? 'data-arok' : 'data-arno').split('|');
+    if (!ok && !window.confirm('「' + p[1] + '」不要自動對到「' + p[2] + '」？\n之後它會出現在「待處理」，可以選正確的銷貨單品項。')) return;
+    setBusy(b, true, '…');
+    call('adminSaveCostMap', token, p[0], p[1], ok ? p[2] : '✗').then(function () {
+      costMsg('ok', ok ? '已確認：「' + p[1] + '」以後固定用「' + p[2] + '」的單價。' : '已取消自動對應：「' + p[1] + '」不會再自動對到「' + p[2] + '」。');
+      costReload();
+    }).catch(function (err) { notice(err.message); setBusy(b, false); });
+  });
+  // 匯出：每張料單、每個品項
+  function downloadCsv(name, rows) {
+    var csv = '﻿' + rows.map(function (r) { return r.map(function (v) { v = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  function costFileTail() { var rg = costRange(); return rg[0] + (rg[1] !== rg[0] ? '～' + rg[1] : '') + '.csv'; }
+  $('cCsvOrders').addEventListener('click', function () {
+    if (!costCache.length) { msg('costMsg', 'error', '先查詢。'); return; }
+    var rows = [['上課日期', '班級', '實作項目', '老師', '科別', '訂單編號', '品項數', '照銷貨單', '用上次單價估', '合計', '沒有成本的品項']];
+    costCache.slice().sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : 0; }).forEach(function (o) {
+      var real = 0, est = 0, none = [], n = 0;
+      (o.items || []).forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
+        n++; var c = itemCost(it);
+        if (!c) none.push(it.name); else if (c.real) real += c.amt; else est += c.amt;
+      });
+      rows.push([o.useDate, o.className || '', o.project || '', o.onBehalfOf || o.teacher, o.dept || '', o.orderNo, n, real, est, real + est, none.join('、')]);
+    });
+    downloadCsv('料單成本 ' + costFileTail(), rows);
+  });
+  $('cCsvItems').addEventListener('click', function () {
+    if (!costCache.length) { msg('costMsg', 'error', '先查詢。'); return; }
+    var rows = [['上課日期', '班級', '實作項目', '老師', '科別', '品項', '數量', '單位', '廠商', '單價', '單價單位', '金額', '來源']];
+    costCache.slice().sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : 0; }).forEach(function (o) {
+      (o.items || []).forEach(function (it) {
+        if (it.id === TOOL || it.status === '已取消') return;
+        var skip = it.noOrder || it.vendor === data.selfVendor, c = skip ? null : itemCost(it);
+        rows.push([o.useDate, o.className || '', o.project || '', o.onBehalfOf || o.teacher, o.dept || '', it.name, it.qty, it.unit, it.vendor,
+          c ? Math.round(c.p * 100) / 100 : '', c ? c.u : '', c ? c.amt : '',
+          skip ? (it.vendor === data.selfVendor ? '自備，不算' : '有貨，不算') : !c ? '沒有成本：' + costWhy(it).text : c.real ? '銷貨單' + (c.via ? '（' + c.via + '）' : '') + (c.share ? '，' + c.share : '') : '上次單價估']);
+      });
+    });
+    downloadCsv('料單成本明細 ' + costFileTail(), rows);
+  });
   document.addEventListener('click', function (e) {
     var cp = e.target.closest && e.target.closest('[data-misscopy], [data-misscsv]');
     if (!cp) return;
@@ -3357,11 +3516,11 @@
     } else {
       var csv = '\ufeff' + rows.map(function (r) { return r.map(function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
       var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-      a.download = '沒對到成本的食材 ' + ($('sFrom').value || '') + (($('sTo').value && $('sTo').value !== $('sFrom').value) ? '～' + $('sTo').value : '') + '.csv';
+      var rg = costRange(); a.download = '沒對到成本的食材 ' + rg[0] + (rg[1] !== rg[0] ? '～' + rg[1] : '') + '.csv';
       document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     }
   });
-  function costStatsHtml(list) {
+  function costStatsHtml(list, noMiss) {
     lastCostList = list;
     var key = {
       teacher: function (o) { return o.onBehalfOf || o.teacher; },
@@ -3386,7 +3545,7 @@
     return '<details class="panel" id="costStats"' + (costOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>💰 成本統計</b>　<span class="small muted">這 ' + tot.n + ' 張料單合計 <b>$' + money0(tot.sum) + '</b>（照銷貨單 $' + money0(tot.real) + '，其他用上次單價估）</span></summary>' +
       '<div class="status-chips noprint" style="margin:8px 0">' + opt('teacher', '依老師') + opt('class', '依班級') + opt('project', '依實作項目') + opt('dept', '依科別') + opt('week', '依週') +
       '<button type="button" id="costPrint" class="btn ghost small">🖨 列印</button></div>' +
-      missingCostHtml(list) +
+      (noMiss ? '' : missingCostHtml(list)) +
       '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">照銷貨單</th><th style="text-align:right">合計（含估算）</th></tr>' +
       order.map(function (k) {
         var x = g[k], open = costOpenRows[costBy + '|' + k];
@@ -3398,9 +3557,9 @@
   }
   document.addEventListener('click', function (e) {
     var cr = e.target.closest && e.target.closest('[data-costrow]');
-    if (cr) { var ck = costBy + '|' + cr.getAttribute('data-costrow'); costOpenRows[ck] = !costOpenRows[ck]; costOpen = true; renderSummary(); var el0 = document.querySelector('[data-costrow="' + CSS.escape(cr.getAttribute('data-costrow')) + '"]'); if (el0) el0.scrollIntoView({ block: 'nearest' }); return; }
+    if (cr) { var ck = costBy + '|' + cr.getAttribute('data-costrow'); costOpenRows[ck] = !costOpenRows[ck]; costOpen = true; costRerender(); var el0 = document.querySelector('[data-costrow="' + CSS.escape(cr.getAttribute('data-costrow')) + '"]'); if (el0) el0.scrollIntoView({ block: 'nearest' }); return; }
     var b = e.target.closest && e.target.closest('[data-costby]');
-    if (b) { costBy = b.getAttribute('data-costby'); costOpen = true; renderSummary(); var el = $('costStats'); if (el) el.scrollIntoView({ block: 'nearest' }); return; }
+    if (b) { costBy = b.getAttribute('data-costby'); costOpen = true; costRerender(); var el = $('costStats'); if (el) el.scrollIntoView({ block: 'nearest' }); return; }
     if (e.target.id === 'costPrint') { var d = $('costStats'); if (d) printSection(d); }
   });
   document.addEventListener('toggle', function (e) { if (e.target.id === 'costStats') costOpen = e.target.open; if (e.target.id === 'costMiss') costMissOpen = e.target.open; }, true);
@@ -3412,8 +3571,8 @@
     if (!sel.value) { sel.focus(); return; }
     setBusy(b, true, '…');
     call('adminSaveCostMap', token, sel.getAttribute('data-cm-v'), sel.getAttribute('data-cm-o'), sel.value).then(function () {
-      msg('sumMsg', 'ok', '已對應：' + sel.getAttribute('data-cm-o') + ' 用 ' + sel.getAttribute('data-cm-v') + ' 銷貨單上「' + sel.value + '」的單價（以後每週都這樣對）。');
-      costOpen = true; costMissOpen = true; loadSummaryKeepMsg();
+      costMsg('ok', '已對應：' + sel.getAttribute('data-cm-o') + ' 用 ' + sel.getAttribute('data-cm-v') + ' 銷貨單上「' + sel.value + '」的單價（以後每週都這樣對）。');
+      costOpen = true; costMissOpen = true; costReload();
     }).catch(function (err) { notice(err.message); setBusy(b, false); });
   });
   // 單位換算：在成本細項直接填「1 把 ＝ 0.3 斤」
@@ -3424,8 +3583,8 @@
     if (!v) { inp.focus(); return; }
     setBusy(b, true, '…');
     call('adminSaveUnitConv', token, inp.getAttribute('data-uc-name'), inp.getAttribute('data-uc-u'), v, inp.getAttribute('data-uc-u2')).then(function (r) {
-      data.unitConv = r; costOpen = true; renderSummary();
-      msg('sumMsg', 'ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + v + ' ' + inp.getAttribute('data-uc-u2') + '。以後這一樣都會用這個換算算成本。');
+      data.unitConv = r; costOpen = true; costRerender();
+      costMsg('ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + v + ' ' + inp.getAttribute('data-uc-u2') + '。以後這一樣都會用這個換算算成本。');
     }).catch(function (err) { notice(err.message); setBusy(b, false); });
   });
   function renderSummary() {
@@ -7124,7 +7283,7 @@
   }
   function cmRender(list) {
     $('cmList').innerHTML = list.length ? '<div class="tablewrap"><table><tr><th>廠商</th><th>老師訂的</th><th>用這樣的單價</th><th></th></tr>' + list.map(function (m) {
-      return '<tr><td>' + esc(m.vendor || '（每家）') + '</td><td><b>' + esc(m.order) + '</b></td><td>' + esc(m.slip) + '</td><td><button type="button" class="btn ghost small" data-cmdel="' + esc(m.vendor) + '|' + esc(m.order) + '" style="color:var(--bad)">🗑 刪除</button></td></tr>';
+      return '<tr><td>' + esc(m.vendor || '（每家）') + '</td><td><b>' + esc(m.order) + '</b></td><td>' + (m.slip === '✗' ? '<span class="muted">✗ 不要自動對應</span>' : esc(m.slip)) + '</td><td><button type="button" class="btn ghost small" data-cmdel="' + esc(m.vendor) + '|' + esc(m.order) + '" style="color:var(--bad)">🗑 刪除</button></td></tr>';
     }).join('') + '</table></div>' : '<div class="muted small">還沒有對應。成本統計「⚠ 沒有成本的食材」也可以直接選。</div>';
   }
   $('ucPanel').addEventListener('toggle', function () {
@@ -7136,16 +7295,16 @@
   $('cmAdd').addEventListener('click', function () {
     var v = $('cmV').value.trim(), o = $('cmO').value.trim(), sl = $('cmS').value.trim();
     if (!o || !sl) { msg('ucMsg', 'error', '請填老師訂的和銷貨單上的品項。'); return; }
-    call('adminSaveCostMap', token, v, o, sl).then(function (r) { cmRender(r); msg('ucMsg', 'ok', '已存：' + o + ' ← ' + sl + '。'); $('cmO').value = ''; $('cmS').value = ''; }).catch(function (e) { msg('ucMsg', 'error', e.message); });
+    call('adminSaveCostMap', token, v, o, sl).then(function (r) { cmRender(r); msg('ucMsg', 'ok', '已存：' + o + ' ← ' + sl + '。'); if (costTab && costCache.length) costReload(); $('cmO').value = ''; $('cmS').value = ''; }).catch(function (e) { msg('ucMsg', 'error', e.message); });
   });
   $('cmList').addEventListener('click', function (e) {
     var b = e.target.closest('[data-cmdel]'); if (!b) return;
     var p = b.getAttribute('data-cmdel').split('|');
     if (!window.confirm('刪除「' + p[1] + '」的對應？')) return;
-    call('adminSaveCostMap', token, p[0], p.slice(1).join('|'), '').then(cmRender).catch(function (e2) { msg('ucMsg', 'error', e2.message); });
+    call('adminSaveCostMap', token, p[0], p.slice(1).join('|'), '').then(function (r) { cmRender(r); if (costTab && costCache.length) costReload(); }).catch(function (e2) { msg('ucMsg', 'error', e2.message); });
   });
   function ucSave(n, u, q, u2, done) {
-    call('adminSaveUnitConv', token, n, u, q, u2).then(function (r) { data.unitConv = r; ucRender(); if (done) done(); })
+    call('adminSaveUnitConv', token, n, u, q, u2).then(function (r) { data.unitConv = r; ucRender(); if (costTab && costCache.length) renderCostTab(); if (done) done(); })
       .catch(function (e) { msg('ucMsg', 'error', e.message); });
   }
   $('ucAdd').addEventListener('click', function () {
