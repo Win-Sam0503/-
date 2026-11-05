@@ -1296,6 +1296,81 @@ function attachSlipPrices_(list) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   const weeks = {};
   list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
+  const map = slipPriceMap_(weeks), cmap = readCostMap_();
+  // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
+  const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : [v]; };
+  list.forEach(function (o) {
+    const wk = mon(parseDate_(o.useDate));
+    (o.items || []).forEach(function (it) {
+      const vs = alias(String(it.vendor || '').trim());
+      for (let i = 0; i < vs.length; i++) {
+        const x = map[wk + '|' + vs[i] + '|' + it.name];
+        if (x) { it.sp = x; break; }
+        // 成本對應：廠商送的是別樣（叫中薑、送嫩薑），用那一樣的單價
+        const sub = cmap[vs[i] + '|' + it.name] || cmap['|' + it.name];
+        const y = sub && map[wk + '|' + vs[i] + '|' + sub];
+        if (y) { it.sp = { u: y.u, p: y.p, via: sub }; break; }
+      }
+    });
+  });
+}
+
+/** 成本對應：{ 「廠商|訂的品項」: 銷貨單品項 }（廠商空白＝每家都適用） */
+const COST_MAP_SHEET = '成本對應', COST_MAP_HEADERS = ['廠商', '訂的品項', '銷貨單品項', '更新時間', '更新人'];
+function readCostMap_() {
+  const out = {};
+  if (!ss_().getSheetByName(COST_MAP_SHEET)) return out;
+  readTable_(COST_MAP_SHEET, ['訂的品項', '銷貨單品項']).rows.forEach(function (r) {
+    const a = String(r['訂的品項']).trim(), b = String(r['銷貨單品項']).trim();
+    if (a && b) out[String(r['廠商'] || '').trim() + '|' + a] = b;
+  });
+  return out;
+}
+/** 管理者：存／刪一筆成本對應（slipName 空白＝刪掉）。回傳全部 [{ vendor, order, slip }] */
+function adminSaveCostMap(token, vendor, orderName, slipName) {
+  const admin = auth_(token, true);
+  vendor = clean_(vendor, 30); orderName = clean_(orderName, 40); slipName = clean_(slipName, 40);
+  if (!orderName) throw new Error('資料不完整。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(COST_MAP_SHEET, COST_MAP_HEADERS);
+    const t = readTable_(COST_MAP_SHEET, ['訂的品項']);
+    const old = t.rows.filter(function (r) { return String(r['廠商'] || '').trim() === vendor && String(r['訂的品項']).trim() === orderName; }).map(function (r) { return r._row; });
+    if (old.length) deleteRows_(sh, old);
+    if (slipName) appendRows_(COST_MAP_SHEET, [{ '廠商': vendor, '訂的品項': orderName, '銷貨單品項': slipName, '更新時間': new Date(), '更新人': admin }], { '更新時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return adminGetCostMap(token);
+}
+function adminGetCostMap(token) {
+  auth_(token, true);
+  const m = readCostMap_();
+  return Object.keys(m).map(function (k) { const p = k.split('|'); return { vendor: p[0], order: p.slice(1).join('|'), slip: m[k] }; })
+    .sort(function (a, b) { return (a.vendor + a.order).localeCompare(b.vendor + b.order, 'zh-Hant'); });
+}
+/** 管理者：這幾週每家廠商銷貨單上有哪些品項（給「沒有成本」挑對應用）：{ 廠商: [{ n, u, p }] } */
+function adminSlipItems(token, from, to) {
+  auth_(token, true);
+  const f = parseDate_(from), t = parseDate_(to);
+  if (!f || !t || !ss_().getSheetByName('銷貨單明細')) return {};
+  const weeks = {};
+  for (let d = addDays_(f, -((f.getDay() + 6) % 7)); d <= t; d = addDays_(d, 7)) weeks[dateStr_(d)] = true;
+  const map = slipPriceMap_(weeks), out = {};
+  Object.keys(map).forEach(function (k) {
+    const p = k.split('|'), v = p[1], n = p.slice(2).join('|');
+    if (!out[v]) out[v] = {};
+    out[v][n] = { n: n, u: map[k].u, p: map[k].p };
+  });
+  Object.keys(out).forEach(function (v) { out[v] = Object.keys(out[v]).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); }).map(function (n) { return out[v][n]; }); });
+  return out;
+}
+
+/** 銷貨單的單價：{ 「週一|廠商|品名（換成食材總表正式名稱）」: { u, p } }，只讀 weeks 裡的週 */
+function slipPriceMap_(weeks) {
+  const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   // 銷貨單上的品名（廠商的叫法，例如「大骨高湯罐」）用食材總表的別名換成正式名稱（高湯罐），才對得到老師的訂單
   const official = {}, itemRows = readTable_(SHEET.items, ['食材名稱']).rows;
   itemRows.forEach(function (r) { const n = String(r['食材名稱'] || '').trim(); if (n) official[learnKey_(n)] = n; });   // 正式名稱優先
@@ -1314,15 +1389,7 @@ function attachSlipPrices_(list) {
     if (!weeks[wk]) return;
     map[wk + '|' + String(r['廠商']).trim() + '|' + name] = { u: String(r['單位'] || '').trim(), p: p };
   });
-  // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
-  const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : [v]; };
-  list.forEach(function (o) {
-    const wk = mon(parseDate_(o.useDate));
-    (o.items || []).forEach(function (it) {
-      const vs = alias(String(it.vendor || '').trim());
-      for (let i = 0; i < vs.length; i++) { const x = map[wk + '|' + vs[i] + '|' + it.name]; if (x) { it.sp = x; break; } }
-    });
-  });
+  return map;
 }
 
 /**
