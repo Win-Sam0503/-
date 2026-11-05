@@ -5393,9 +5393,9 @@
     var by = {};
     all.forEach(function (r) { if (r.home !== r.place) (by[r.home] = by[r.home] || []).push(r); });   // 手動加的沒填科別、地點就是自己教室的，不用通知
     return Object.keys(by).sort().map(function (home) {
-      var list = by[home].sort(function (a, b) { return (a.date + a.time + a.className + a.place + a.name).localeCompare(b.date + b.time + b.className + b.place + b.name, 'zh-Hant'); });
-      var span = {}, key = function (r) { return r.date + '|' + r.time + '|' + r.className + '|' + r.teacher + '|' + r.place; };
-      list.forEach(function (r) { span[key(r)] = (span[key(r)] || 0) + 1; });
+      var key = function (r) { return r.date + '|' + r.time + '|' + r.className + '|' + r.teacher + '|' + r.place; };
+      var list = by[home].sort(function (a, b) { return (key(a) + '|' + a.name).localeCompare(key(b) + '|' + b.name, 'zh-Hant'); });
+      var span = pkSpans(list, key);
       var places = list.map(function (r) { return r.place; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
       return '<div class="vpage"><h1>跨教室領料通知：在' + esc(home) + '上課的班級</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
         '<div style="margin-bottom:6px;font-size:1.05em">下面這些食材<b>不會送到' + esc(home) + '</b>，請上課前到 <b>' + esc(places.join('、')) + '</b> 拿，拿的時候在那邊的領料單簽名。</div>' +
@@ -5412,13 +5412,20 @@
   // 貼在放貨的教室：照領取地點分頁，拿的人簽名
   // 跨教室領料單的欄寬寫死（colgroup＋固定排版）：列印、存 PDF 時表格一定撐滿整頁，不會被縮在左半邊
   function pkCols(w) { return '<colgroup>' + w.map(function (x) { return '<col style="width:' + x + '%">'; }).join('') + '</colgroup>'; }
+  // 合併格子的列數：只算連在一起的同一組
+  function pkSpans(list, key) {
+    var span = {};
+    list.forEach(function (r, i) { var k = key(r); if (i && key(list[i - 1]) === k) span[k]++; else span[k] = 1; });
+    return span;
+  }
   function pickupByPlace(all, from, to) {
     var by = {};
     all.forEach(function (r) { (by[r.place] = by[r.place] || []).push(r); });
     return Object.keys(by).sort().map(function (place) {
-      var list = by[place].sort(function (a, b) { return (a.date + a.time + a.className + a.name).localeCompare(b.date + b.time + b.className + b.name, 'zh-Hant'); });
-      var span = {}, key = function (r) { return r.date + '|' + r.time + '|' + r.className + '|' + r.teacher; };
-      list.forEach(function (r) { span[key(r)] = (span[key(r)] || 0) + 1; });
+      // 同一班、同一位老師的排在一起（同班有好幾位老師時，不會交錯、合併的格子不會疊在一起把欄位擠歪）
+      var key = function (r) { return r.date + '|' + r.time + '|' + r.className + '|' + r.teacher; };
+      var list = by[place].sort(function (a, b) { return (key(a) + '|' + a.name).localeCompare(key(b) + '|' + b.name, 'zh-Hant'); });
+      var span = pkSpans(list, key);
       return '<div class="vpage"><h1>跨教室領料單：到' + esc(place) + '領取（貼在' + esc(place) + '）</h1><div class="vsub">' + esc(rangeText(from, to)) + '</div>' +
         '<div class="muted small" style="margin-bottom:6px">這些食材是跟' + esc(place.replace('教室', '')) + '一起叫貨、送到' + esc(place) + '，請上課的班級照下面的量來拿，拿完請簽名。</div>' +
         '<table class="pkt">' + pkCols([10, 11, 10, 9, 21, 12, 15, 12]) + '<thead><tr><th style="width:10%">日期</th><th style="width:11%">上課時間</th><th style="width:10%">班級</th><th style="width:9%">老師</th><th style="width:21%">食材</th><th style="width:12%">數量</th><th style="width:15%">備註</th><th style="width:12%">領取簽名</th></tr></thead><tbody>' +
