@@ -1486,6 +1486,10 @@
         doc.head.appendChild(st);
         var c = doc.querySelector('[data-pdfcap]');
         c.classList.remove('vcollapsed');
+        // 廠商單、跨教室領料單的表格一定撐滿整頁寬、照標題的寬度分欄（有些瀏覽器截圖時表格會縮成內容的寬度，欄位被擠在左半邊）
+        if (c.classList.contains('vpage')) Array.prototype.forEach.call(c.querySelectorAll('table'), function (t) {
+          t.style.setProperty('width', '100%', 'important'); t.style.setProperty('min-width', '0', 'important'); t.style.setProperty('table-layout', 'fixed', 'important');
+        });
         // 直書的廠商名稱畫不出來：改成一字一行
         Array.prototype.forEach.call(c.querySelectorAll('.vtext'), function (x) {
           x.style.writingMode = 'horizontal-tb'; x.style.whiteSpace = 'normal'; x.style.lineHeight = '1.1';
