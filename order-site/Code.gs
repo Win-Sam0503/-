@@ -1304,6 +1304,7 @@ function attachSlipPrices_(list) {
       const r = match(wk, it.vendor, it.name);
       if (!r) return;
       if (r.np) { it.spNP = r.np; return; }
+      if (r.sug) { it.spSug = r.sug; return; }
       it.sp = { u: r.u, p: r.p, wk: wk, sn: r.k.split('|').slice(2).join('|'), sv: r.k.split('|')[1] };
       if (r.via) it.sp.via = r.via;
       if (r.src) it.sp.src = r.src;
@@ -1334,29 +1335,32 @@ function slipMatcher_(map, np, cmap) {
     const mk = wk + '|' + vendor + '|' + name;
     if (mk in memo) return memo[mk];
     const vs = alias(String(vendor || '').trim());
+    // 設定的成本對應（訂單廠商、同一家乾貨／蛋商的別家、或「每家」都算）
+    let sub = '';
+    for (let i = 0; i < vs.length && !sub; i++) sub = cmap[vs[i] + '|' + name] || '';
+    sub = sub || cmap['|' + name] || '';
+    const noAuto = sub === '✗';   // 管理者標了「✗ 不要自動對應」
     let r = null;
     for (let i = 0; i < vs.length && !r; i++) {
       if (map[wk + '|' + vs[i] + '|' + name]) r = hit(wk + '|' + vs[i] + '|' + name);
       // 成本對應：廠商送的是別樣（叫中薑、送嫩薑），用那一樣的單價
-      const sub = cmap[vs[i] + '|' + name] || cmap['|' + name];
-      if (!r && sub && map[wk + '|' + vs[i] + '|' + sub]) r = hit(wk + '|' + vs[i] + '|' + sub, sub);
+      else if (sub && !noAuto && map[wk + '|' + vs[i] + '|' + sub]) r = hit(wk + '|' + vs[i] + '|' + sub, sub);
     }
-    // 管理者標了「✗ 不要自動對應」的：不猜
-    const noAuto = vs.some(function (v) { return (cmap[v + '|' + name] || cmap['|' + name]) === '✗'; });
-    // 自動對應（設定的對應都沒有才用）：叫「蔥」、銷貨單是「青蔥」這類，名稱相近又只有一樣對得上的才算，畫面會標「自動」方便核對
-    for (let i = 0; i < vs.length && !r && !noAuto; i++) {
-      const nm = guessSlipName_(name, byVend[wk + '|' + vs[i]] || []);
-      if (nm) r = hit(wk + '|' + vs[i] + '|' + nm, '自動：' + nm);
-    }
-    // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有同名的食材，就用那一家的單價
+    // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有「一模一樣」的名稱，就用那一家的單價
     if (!r && !noAuto) {
       const others = (byName[wk + '|' + name] || []).filter(function (v) { return vs.indexOf(v) < 0; });
       if (others.length === 1) r = hit(wk + '|' + others[0] + '|' + name, '自動（' + others[0] + '）');
     }
     // 那週銷貨單有這一樣，只是單價沒填：告訴管理者去補
     for (let i = 0; i < vs.length && !r; i++) {
-      const sub = cmap[vs[i] + '|' + name] || cmap['|' + name];
       if (np[wk + '|' + vs[i] + '|' + name] || (sub && np[wk + '|' + vs[i] + '|' + sub])) r = { np: vs[i] + '｜' + wk };
+    }
+    // 名稱相近的（叫「蔥」、銷貨單是「青蔥」）只當「建議」，管理者按 ✓ 才算成本，免得對錯
+    if (!r && !noAuto) {
+      for (let i = 0; i < vs.length; i++) {
+        const nm = guessSlipName_(name, byVend[wk + '|' + vs[i]] || []);
+        if (nm) { const x = map[wk + '|' + vs[i] + '|' + nm]; r = { sug: { to: nm, sv: vs[i], u: x.u, p: x.p } }; break; }
+      }
     }
     return (memo[mk] = r);
   };
