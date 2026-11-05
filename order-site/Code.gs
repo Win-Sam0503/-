@@ -1304,8 +1304,9 @@ function attachSlipPrices_(list) {
       const r = match(wk, it.vendor, it.name);
       if (!r) return;
       if (r.np) { it.spNP = r.np; return; }
-      it.sp = { u: r.u, p: r.p };
+      it.sp = { u: r.u, p: r.p, wk: wk, sn: r.k.split('|').slice(2).join('|'), sv: r.k.split('|')[1] };
       if (r.via) it.sp.via = r.via;
+      if (r.src) it.sp.src = r.src;
       // 菜商用台斤算、老師用條／隻／盒訂：照那週銷貨單分攤出來的「1 條 ≈ 幾斤」
       const c = ac[r.k], gu = UNIT_G_[r.u];
       if (c && gu && !UNIT_G_[String(it.unit || '').trim()] && c[String(it.unit || '').trim()]) it.sp.ac = { u: String(it.unit).trim(), n: c[String(it.unit).trim()] / gu };
@@ -1326,7 +1327,7 @@ function slipMatcher_(map, np, cmap) {
   // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
   // 乾貨：訂單上分 E乾貨／E中餐乾貨／E烘焙乾貨，銷貨單常常都記在同一家
   const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : /^E/.test(v) ? [v].concat(['E烘焙乾貨', 'E中餐乾貨', 'E乾貨'].filter(function (x) { return x !== v; })) : [v]; };
-  const hit = function (k, via) { const x = map[k]; return { k: k, u: x.u, p: x.p, via: via || '' }; };
+  const hit = function (k, via) { const x = map[k]; return { k: k, u: x.u, p: x.p, via: via || '', src: x.src }; };
   const memo = {};
   return function (wk, vendor, name) {
     name = String(name || '').trim();
@@ -1486,7 +1487,7 @@ function slipPriceMap_(weeks, noPrice, grams) {
     const k2 = learnKey_(String(v).replace(/[(（\[【][^)）\]】]*[)）\]】]/g, ''));   // 紅龍果(紅肉) → 紅龍果
     return official[k] || (k2 && official[k2]) || '';
   };
-  const map = {};
+  const map = {}, rows = {};
   readTable_('銷貨單明細', ['送貨日期（起）', '廠商', '食材名稱', '單價']).rows.forEach(function (r) {
     const raw = String(r['食材名稱'] || '').trim(), p = Number(r['單價']);
     const name = toName(raw) || toName(r['銷貨單品名']) || raw;
@@ -1498,9 +1499,37 @@ function slipPriceMap_(weeks, noPrice, grams) {
     const sq = Number(r['數量']), sg = UNIT_G_[String(r['單位'] || '').trim()];
     if (grams && sq > 0 && sg) grams[key] = (grams[key] || 0) + sq * sg;   // 那週銷貨單上這一樣總共幾公克（自動單位換算用）
     if (!(p > 0)) { if (noPrice) noPrice[key] = true; return; }   // 有這一樣、單價沒填
-    map[key] = { u: String(r['單位'] || '').trim(), p: p };
+    const amt = Number(r['金額']);
+    (rows[key] = rows[key] || []).push({ u: String(r['單位'] || '').trim(), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0) });
   });
+  // 同一週同一樣常常有好幾筆（每班一筆、有的單價是金額÷數量算的有小數）：
+  // 單價＝那週加總的金額 ÷ 加總的數量（重量單位先換成公克再換回最常用的單位），不是隨便拿最後一筆
+  Object.keys(rows).forEach(function (key) { map[key] = weekPrice_(rows[key]); });
   return map;
+}
+/** 一週同一樣的好幾筆 → { u, p, src: { n 筆數, q 總量, a 總金額, lo 最低, hi 最高 } } */
+function weekPrice_(list) {
+  const groups = {};   // 重量單位一組（換成公克），其他照單位分組
+  list.forEach(function (x) { const g = UNIT_G_[x.u] ? '#w' : x.u; (groups[g] = groups[g] || []).push(x); });
+  const amtOf = function (xs) { return xs.reduce(function (t, x) { return t + x.a; }, 0); };
+  const gk = Object.keys(groups).sort(function (a, b) { return amtOf(groups[b]) - amtOf(groups[a]) || groups[b].length - groups[a].length; })[0];
+  const xs = groups[gk];
+  let pu = xs[0].u;
+  if (gk === '#w') {   // 用金額最多的那個重量單位當單價單位（菜商通常是斤／台斤）
+    const by = {}; xs.forEach(function (x) { by[x.u] = (by[x.u] || 0) + x.a + 0.001; });
+    pu = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; })[0];
+  }
+  const toPu = function (x) { return gk === '#w' ? x.q * UNIT_G_[x.u] / UNIT_G_[pu] : x.q; };
+  const unitP = function (x) { return gk === '#w' ? x.p * UNIT_G_[pu] / UNIT_G_[x.u] : x.p; };
+  const withQ = xs.filter(function (x) { return x.q > 0 && x.a > 0; });
+  const ps = xs.map(unitP);
+  let p, q = 0, a = 0;
+  if (withQ.length) {
+    withQ.forEach(function (x) { q += toPu(x); a += x.a; });
+    p = a / q;
+  } else p = ps.reduce(function (t, v) { return t + v; }, 0) / ps.length;   // 都沒填數量：單價平均
+  const r2 = function (v) { return Math.round(v * 100) / 100; };
+  return { u: pu, p: r2(p), src: { n: xs.length, q: r2(q), a: Math.round(a), lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)) } };
 }
 
 /**

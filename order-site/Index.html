@@ -2567,7 +2567,7 @@
       var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name), share = '';
       // 單位換不過去（老師訂條、菜商用台斤）：用那週銷貨單分攤出來的「1 條 ≈ 幾斤」
       if (n === null && it.sp.ac && it.sp.ac.u === it.unit) { n = q * it.sp.ac.n; share = '照那週分攤：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; }
-      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share };
+      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share, src: it.sp.src || null };
     }
     var e = estCost(it), px = priceOf(it);
     return e === null ? null : { amt: e, p: px.p, u: px.u, real: false };
@@ -3364,7 +3364,7 @@
           '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
             return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
           })(costWhy(it))) + '</td>' +
-          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') : '<span class="muted">上次單價估</span>') + '</td></tr>';
+          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') + srcLine(c) : '<span class="muted">上次單價估</span>') + '</td></tr>';
       }).join('');
       return '<details style="margin:4px 0"><summary style="cursor:pointer">' + esc(shortDate(o.useDate)) + '　' + esc(o.className || '') + '「' + esc(o.project || '（沒填實作項目）') + '」　' + esc(o.onBehalfOf || o.teacher) +
         '　<b>$' + money0(e.c.sum) + '</b>' + (e.c.est || e.c.none ? '<span class="muted small">（' + (e.c.est ? '估 ' + e.c.est + ' 項' : '') + (e.c.est && e.c.none ? '・' : '') + (e.c.none ? e.c.none + ' 項沒有單價' : '') + '）</span>' : '') + '</summary>' +
@@ -3378,6 +3378,32 @@
   function costRerender() { if (costTab) renderCostTab(); else renderSummary(); }
   function costReload() { if (costTab) loadCostTab(true); else loadSummaryKeepMsg(); }
   function costMsg(type, text) { msg(costTab ? 'costMsg' : 'sumMsg', type, text); }
+  // 單價怎麼來的：那週銷貨單這一樣共幾筆、總量、總金額；同一週單價差很多的標出來
+  var SPREAD = 1.3;
+  function spreadOf(src) { return src && src.lo > 0 && src.hi / src.lo > SPREAD; }
+  function srcLine(c) {
+    var x = c && c.src; if (!x) return '';
+    var t = x.q ? '那週 ' + x.n + ' 筆、共 ' + fmtQty(x.q) + ' ' + c.u + '、$' + money0(x.a) + ' → 平均' : '那週 ' + x.n + ' 筆單價平均';
+    return '<div class="muted">' + esc(t) + '</div>' + (spreadOf(x) ? '<div style="color:var(--warn)">⚠ 那週單價 $' + esc(fmtQty(x.lo)) + '～$' + esc(fmtQty(x.hi)) + ' 差很多，請看銷貨單有沒有打錯</div>' : '');
+  }
+  // 同一週同一樣單價差很多（可能打錯單價、單位）
+  function spreadHtml(list) {
+    var m = {}, keys = [];
+    list.forEach(function (o) {
+      (o.items || []).forEach(function (it) {
+        var sp = it.sp; if (!sp || !spreadOf(sp.src)) return;
+        var k = sp.wk + '|' + sp.sv + '|' + sp.sn;
+        if (!m[k]) { m[k] = sp; keys.push(k); }
+      });
+    });
+    if (!keys.length) return '';
+    keys.sort();
+    return '<details class="panel" id="costSpread" open style="padding:12px 16px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 同一週單價差很多（' + keys.length + ' 樣）</b> <span class="muted small">到驗收核銷的銷貨單看看是不是打錯單價或單位；成本先用那週的平均（總金額 ÷ 總量）</span></summary>' +
+      '<div class="tablewrap" style="margin-top:6px"><table class="small"><tr><th>那週</th><th>廠商</th><th>銷貨單品項</th><th>筆數</th><th>最低～最高</th><th>用的平均單價</th></tr>' +
+      keys.map(function (k) { var sp = m[k], x = sp.src;
+        return '<tr><td>' + esc(shortDate(sp.wk)) + '</td><td>' + esc(sp.sv) + '</td><td><b>' + esc(sp.sn) + '</b></td><td class="num">' + x.n + '</td><td class="num">$' + esc(fmtQty(x.lo)) + '～$' + esc(fmtQty(x.hi)) + '／' + esc(sp.u) + '</td><td class="num"><b>$' + esc(fmtQty(sp.p)) + '</b>／' + esc(sp.u) + '</td></tr>';
+      }).join('') + '</table></div></details>';
+  }
   // ---------------- 💰 成本 分頁 ----------------
   function costOpenTab() {
     var old = document.querySelector('#viewSummary #costStats'); if (old) old.remove();   // 同一個 id 只能有一個
@@ -3432,7 +3458,7 @@
     if (!list.length) { $('costTodo').innerHTML = $('costAuto').innerHTML = $('costBox').innerHTML = ''; return; }
     var miss = missingCostHtml(list);
     $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
-    $('costAuto').innerHTML = autoReviewHtml(list);
+    $('costAuto').innerHTML = spreadHtml(list) + autoReviewHtml(list);
     costOpen = true;
     $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計</b>');
   }
