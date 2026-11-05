@@ -1296,7 +1296,27 @@ function attachSlipPrices_(list) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   const weeks = {};
   list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
-  const np = {}, map = slipPriceMap_(weeks, np), cmap = readCostMap_();
+  const np = {}, slipG = {}, map = slipPriceMap_(weeks, np, slipG), match = slipMatcher_(map, np, readCostMap_());
+  const ac = autoUnitConv_(weeks, match, slipG, mon);
+  list.forEach(function (o) {
+    const wk = mon(parseDate_(o.useDate));
+    (o.items || []).forEach(function (it) {
+      const r = match(wk, it.vendor, it.name);
+      if (!r) return;
+      if (r.np) { it.spNP = r.np; return; }
+      it.sp = { u: r.u, p: r.p };
+      if (r.via) it.sp.via = r.via;
+      // 菜商用台斤算、老師用條／隻／盒訂：照那週銷貨單分攤出來的「1 條 ≈ 幾斤」
+      const c = ac[r.k], gu = UNIT_G_[r.u];
+      if (c && gu && !UNIT_G_[String(it.unit || '').trim()] && c[String(it.unit || '').trim()]) it.sp.ac = { u: String(it.unit).trim(), n: c[String(it.unit).trim()] / gu };
+    });
+  });
+}
+
+const UNIT_G_ = { 'g': 1, '公克': 1, '克': 1, '公斤': 1000, 'kg': 1000, 'KG': 1000, 'Kg': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
+
+/** 找訂單品項對到哪一樣銷貨單品項：回傳 { k: 「週|廠商|銷貨單品名」, u, p, via } 或 { np: 單價空白的說明 } 或 null */
+function slipMatcher_(map, np, cmap) {
   const byVend = {}, byName = {};   // 那週各廠商銷貨單上有哪些品名、同一個品名在哪幾家
   Object.keys(map).forEach(function (k) {
     const a = k.split('|'), wv = a[0] + '|' + a[1], wn = a[0] + '|' + a.slice(2).join('|');
@@ -1306,34 +1326,65 @@ function attachSlipPrices_(list) {
   // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
   // 乾貨：訂單上分 E乾貨／E中餐乾貨／E烘焙乾貨，銷貨單常常都記在同一家
   const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : /^E/.test(v) ? [v].concat(['E烘焙乾貨', 'E中餐乾貨', 'E乾貨'].filter(function (x) { return x !== v; })) : [v]; };
-  list.forEach(function (o) {
-    const wk = mon(parseDate_(o.useDate));
-    (o.items || []).forEach(function (it) {
-      const vs = alias(String(it.vendor || '').trim());
-      for (let i = 0; i < vs.length; i++) {
-        const x = map[wk + '|' + vs[i] + '|' + it.name];
-        if (x) { it.sp = x; break; }
-        // 成本對應：廠商送的是別樣（叫中薑、送嫩薑），用那一樣的單價
-        const sub = cmap[vs[i] + '|' + it.name] || cmap['|' + it.name];
-        const y = sub && map[wk + '|' + vs[i] + '|' + sub];
-        if (y) { it.sp = { u: y.u, p: y.p, via: sub }; break; }
-      }
-      if (it.sp) return;
-      // 自動對應（設定的對應都沒有才用）：叫「蔥」、銷貨單是「青蔥」這類，名稱相近又只有一樣對得上的才算，畫面會標「自動」方便核對
-      for (let i = 0; i < vs.length; i++) {
-        const nm = guessSlipName_(it.name, byVend[wk + '|' + vs[i]] || []);
-        if (nm) { const z = map[wk + '|' + vs[i] + '|' + nm]; it.sp = { u: z.u, p: z.p, via: '自動：' + nm }; return; }
-      }
-      // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有同名的食材，就用那一家的單價
-      const others = (byName[wk + '|' + it.name] || []).filter(function (v) { return vs.indexOf(v) < 0; });
-      if (others.length === 1) { const w = map[wk + '|' + others[0] + '|' + it.name]; it.sp = { u: w.u, p: w.p, via: '自動：' + others[0] }; return; }
-      // 那週銷貨單有這一樣，只是單價沒填：告訴管理者去補
-      for (let i = 0; i < vs.length; i++) {
-        const sub = cmap[vs[i] + '|' + it.name] || cmap['|' + it.name];
-        if (np[wk + '|' + vs[i] + '|' + it.name] || (sub && np[wk + '|' + vs[i] + '|' + sub])) { it.spNP = vs[i] + '｜' + wk; return; }
-      }
-    });
+  const hit = function (k, via) { const x = map[k]; return { k: k, u: x.u, p: x.p, via: via || '' }; };
+  const memo = {};
+  return function (wk, vendor, name) {
+    name = String(name || '').trim();
+    const mk = wk + '|' + vendor + '|' + name;
+    if (mk in memo) return memo[mk];
+    const vs = alias(String(vendor || '').trim());
+    let r = null;
+    for (let i = 0; i < vs.length && !r; i++) {
+      if (map[wk + '|' + vs[i] + '|' + name]) r = hit(wk + '|' + vs[i] + '|' + name);
+      // 成本對應：廠商送的是別樣（叫中薑、送嫩薑），用那一樣的單價
+      const sub = cmap[vs[i] + '|' + name] || cmap['|' + name];
+      if (!r && sub && map[wk + '|' + vs[i] + '|' + sub]) r = hit(wk + '|' + vs[i] + '|' + sub, sub);
+    }
+    // 自動對應（設定的對應都沒有才用）：叫「蔥」、銷貨單是「青蔥」這類，名稱相近又只有一樣對得上的才算，畫面會標「自動」方便核對
+    for (let i = 0; i < vs.length && !r; i++) {
+      const nm = guessSlipName_(name, byVend[wk + '|' + vs[i]] || []);
+      if (nm) r = hit(wk + '|' + vs[i] + '|' + nm, '自動：' + nm);
+    }
+    // 訂單上的廠商跟銷貨單不一樣：那週只有一家廠商的銷貨單有同名的食材，就用那一家的單價
+    if (!r) {
+      const others = (byName[wk + '|' + name] || []).filter(function (v) { return vs.indexOf(v) < 0; });
+      if (others.length === 1) r = hit(wk + '|' + others[0] + '|' + name, '自動：' + others[0]);
+    }
+    // 那週銷貨單有這一樣，只是單價沒填：告訴管理者去補
+    for (let i = 0; i < vs.length && !r; i++) {
+      const sub = cmap[vs[i] + '|' + name] || cmap['|' + name];
+      if (np[wk + '|' + vs[i] + '|' + name] || (sub && np[wk + '|' + vs[i] + '|' + sub])) r = { np: vs[i] + '｜' + wk };
+    }
+    return (memo[mk] = r);
+  };
+}
+
+/**
+ * 自動單位換算：菜商銷貨單用台斤，老師用條／隻／盒訂。
+ * 同一週、同一樣（對到同一個銷貨單品項）：銷貨單總重 − 老師用重量單位訂的，剩下的照「條」數平分，
+ * 得到「1 條 ≈ 幾公克」。那週用重量以外的單位只有一種才算（條、顆混在一起分不出來）。
+ * 回傳 { 銷貨單key: { 條: 公克 } }
+ */
+function autoUnitConv_(weeks, match, slipG, mon) {
+  const agg = {};
+  readTable_(SHEET.orders, ['使用日期', '食材名稱', '廠商', '數量', '單位']).rows.forEach(function (r) {
+    const d = r['使用日期'] instanceof Date ? toDate_(r['使用日期']) : parseDate_(String(r['使用日期'] || ''));
+    const wk = mon(d);
+    if (!weeks[wk]) return;
+    if (/取消|退/.test(String(r['狀態'] || '')) || String(r['不叫貨'] || '').trim()) return;
+    const q = Number(r['數量']), u = String(r['單位'] || '').trim();
+    if (!(q > 0) || !u) return;
+    const m = match(wk, String(r['廠商'] || '').trim(), r['食材名稱']);
+    if (!m || m.np || !slipG[m.k]) return;
+    const a = agg[m.k] = agg[m.k] || { g: 0, n: {} };
+    if (UNIT_G_[u]) a.g += q * UNIT_G_[u]; else a.n[u] = (a.n[u] || 0) + q;
   });
+  const out = {};
+  Object.keys(agg).forEach(function (k) {
+    const a = agg[k], us = Object.keys(a.n), left = slipG[k] - a.g;
+    if (us.length === 1 && left > 0) out[k] = { [us[0]]: left / a.n[us[0]] };
+  });
+  return out;
 }
 
 /** 常見的同義叫法（老師叫的 → 銷貨單上可能的名稱），自動對應時優先用 */
@@ -1419,7 +1470,7 @@ function adminSlipItems(token, from, to) {
 }
 
 /** 銷貨單的單價：{ 「週一|廠商|品名（換成食材總表正式名稱）」: { u, p } }，只讀 weeks 裡的週 */
-function slipPriceMap_(weeks, noPrice) {
+function slipPriceMap_(weeks, noPrice, grams) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   // 銷貨單上的品名（廠商的叫法，例如「大骨高湯罐」）用食材總表的別名換成正式名稱（高湯罐），才對得到老師的訂單
   const official = {}, itemRows = readTable_(SHEET.items, ['食材名稱']).rows;
@@ -1442,6 +1493,8 @@ function slipPriceMap_(weeks, noPrice) {
     const wk = mon(sd || d0);
     if (!weeks[wk]) return;
     const key = wk + '|' + String(r['廠商']).trim() + '|' + name;
+    const sq = Number(r['數量']), sg = UNIT_G_[String(r['單位'] || '').trim()];
+    if (grams && sq > 0 && sg) grams[key] = (grams[key] || 0) + sq * sg;   // 那週銷貨單上這一樣總共幾公克（自動單位換算用）
     if (!(p > 0)) { if (noPrice) noPrice[key] = true; return; }   // 有這一樣、單價沒填
     map[key] = { u: String(r['單位'] || '').trim(), p: p };
   });

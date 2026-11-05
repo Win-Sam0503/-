@@ -2539,8 +2539,10 @@
     var q = toNum(it.qty);
     if (!(q > 0)) return null;
     if (it.sp) {
-      var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name);
-      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '' };
+      var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name), share = '';
+      // 單位換不過去（老師訂條、菜商用台斤）：用那週銷貨單分攤出來的「1 條 ≈ 幾斤」
+      if (n === null && it.sp.ac && it.sp.ac.u === it.unit) { n = q * it.sp.ac.n; share = '照那週分攤：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; }
+      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share };
     }
     var e = estCost(it), px = priceOf(it);
     return e === null ? null : { amt: e, p: px.p, u: px.u, real: false };
@@ -3337,7 +3339,7 @@
           '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
             return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" inputmode="decimal" style="width:70px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
           })(costWhy(it))) + '</td>' +
-          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') : '<span class="muted">上次單價估</span>') + '</td></tr>';
+          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') : '<span class="muted">上次單價估</span>') + '</td></tr>';
       }).join('');
       return '<details style="margin:4px 0"><summary style="cursor:pointer">' + esc(shortDate(o.useDate)) + '　' + esc(o.className || '') + '「' + esc(o.project || '（沒填實作項目）') + '」　' + esc(o.onBehalfOf || o.teacher) +
         '　<b>$' + money0(e.c.sum) + '</b>' + (e.c.est || e.c.none ? '<span class="muted small">（' + (e.c.est ? '估 ' + e.c.est + ' 項' : '') + (e.c.est && e.c.none ? '・' : '') + (e.c.none ? e.c.none + ' 項沒有單價' : '') + '）</span>' : '') + '</summary>' +
