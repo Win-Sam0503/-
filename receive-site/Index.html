@@ -810,8 +810,23 @@
     if (uploading(cur.b) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要回列表？')) return;
     show('vCheck'); loadWeek();
   });
+  var slipForce = false;
+  $('slMsg').addEventListener('click', function (e) {
+    var j = e.target.closest('[data-chk]');
+    if (j) { e.preventDefault(); var el = document.querySelector(j.getAttribute('data-chk')); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); el.style.outline = '3px solid #f79009'; setTimeout(function () { el.style.outline = ''; }, 2500); } return; }
+    if (e.target.id === 'slForce') { slipForce = true; $('slSave').click(); }
+  });
   $('slSave').addEventListener('click', function () {
     if (uploading(cur.b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再存。'); return; }
+    var issues = slipForce ? [] : slipCheck();
+    slipForce = false;
+    if (issues.length) {
+      $('slMsg').innerHTML = '<div class="msg warn"><b>⚠ 存檔前請看一下（' + issues.length + ' 項）</b>：這些會讓老師料單的成本算不準。點一下跳到那一格。' +
+        issues.slice(0, 20).map(function (x) { return '<div><a href="#" data-chk="' + esc(x.sel) + '">・' + esc(x.text) + '</a></div>'; }).join('') + (issues.length > 20 ? '<div class="muted small">…還有 ' + (issues.length - 20) + ' 項</div>' : '') +
+        '<div class="row" style="margin-top:6px"><button type="button" class="btn secondary small" id="slForce">先照這樣存，之後再補</button></div></div>';
+      $('slMsg').scrollIntoView({ block: 'center' });
+      return;
+    }
     var b = cur.b, btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
     call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave(), invs: invsUsed(), code: slipCodeVal() }).then(function (r) {
@@ -1540,6 +1555,35 @@
       cur.slip.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); go(j + 1, 'name');
     }
   });
+  // 單價空白、但有數量和金額：單價＝金額 ÷ 數量（料單成本、單價表才算得到）
+  function fillPrice(price, qty, amount) {
+    if (numv(price) !== null) return price;
+    var q = numv(qty), a = numv(amount);
+    return q && a !== null && q > 0 ? r2(a / q) : price;
+  }
+  // 存檔前檢查：單價空白、品名不在食材總表、單價或單位跟上次差很多、金額≠數量×單價。回傳 [{ text, sel }]
+  function slipCheck() {
+    var sl = cur.slip, out = [], rows = [];
+    if (!sl || sl.totalOnly) return out;
+    if (sl.papers) sl.papers.forEach(function (pp, i) {
+      if (pp.kind === '器材') return;
+      pp.rows.forEach(function (r, j) { var n = String(r.name || '').trim(); if (n || numv(r.amount) !== null) rows.push({ n: n, r: r, label: '第' + (i + 1) + '張「' + (n || '第 ' + (j + 1) + ' 行') + '」', sel: function (f) { return '[data-pi="' + i + '"][data-pj="' + j + '"][data-pf="' + f + '"]'; }, paper: true }); });
+    });
+    else {
+      slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && !r.merged && (numv(r.qty) !== null || numv(r.amount) !== null)) rows.push({ n: n, r: r, label: '「' + n + '」', sel: function (f) { return '[data-sn="' + CSS.escape(n) + '"][data-f="' + f + '"]'; } }); });
+      sl.extras.forEach(function (x, i) { if (x.map === '+') rows.push({ n: '', r: x, label: '「' + (x.slipName || '第 ' + (i + 1) + ' 行') + '」', sel: function (f) { return '[data-x="' + i + '"][data-f="' + f + '"]'; } }); });
+    }
+    rows.forEach(function (row) {
+      var r = row.r, q = slipQty(r), p = slipPrice(r), a = numv(r.amount), u = jinRow(r) ? '斤' : String(r.unit || '').trim();
+      if (p === null && !(q && a !== null)) out.push({ text: row.label + ' 沒填單價' + (a === null ? '、金額' : '') + '：料單成本會算不到', sel: row.sel('price') });
+      if (row.paper && row.n && !itemKnown(row.n)) out.push({ text: row.label + ' 食材總表沒有這個名稱：按那一行的「🔗 對應到…」選是哪一樣，老師料單才對得到成本', sel: row.sel('name') });
+      var lp = row.n && (cur.b.prices || {})[row.n];
+      if (lp && u && lp.unit && u !== lp.unit && !(W[u] && W[lp.unit])) out.push({ text: row.label + ' 單位「' + u + '」跟上次「' + lp.unit + '」不一樣，是不是選錯？', sel: row.sel('unit') });
+      else if (lp && p && (!u || u === lp.unit) && (p > lp.price * 1.5 || p < lp.price / 1.5)) out.push({ text: row.label + ' 單價 $' + money(r2(p)) + ' 跟上次 $' + money(lp.price) + ' 差很多', sel: row.sel('price') });
+      if (q && p !== null && a !== null && Math.abs(q * p - a) > Math.max(1, a * 0.02)) out.push({ text: row.label + ' 金額 $' + money(a) + ' 跟 數量×單價 $' + money(r2(q * p)) + ' 對不上', sel: row.sel('amount') });
+    });
+    return out;
+  }
   function slipToSave() {
     var sl = cur.slip;
     if (!sl) return null;
@@ -1550,6 +1594,7 @@
           var n = String(r.name || '').trim();
           if (!n && numv(r.amount) === null) return;
           var c = jinRow(r) ? { qty: slipQty(r) === null ? r.qty : Math.round(slipQty(r) * 10000) / 10000, unit: '斤', price: slipPrice(r) === null ? r.price : r2(slipPrice(r)) } : { qty: r.qty, unit: r.unit || '', price: r.price };
+          c.price = fillPrice(c.price, c.qty, r.amount);
           rows.push({ name: n, slipName: n, qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: '', sheet: i + 1, date: pp.date || '', kind: pp.kind || '食材' });
         });
       });
@@ -1559,7 +1604,8 @@
     var withs = {};
     slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && r.merged && r.into) (withs[r.into] = withs[r.into] || []).push(n); });
     // 斤兩的存成「幾斤（小數）＋每斤單價」，單價表才會一致
-    var qp = function (r) { if (!jinRow(r)) return { qty: r.qty, unit: r.unit || '', price: r.price }; var q = slipQty(r), p = slipPrice(r); return { qty: q === null ? r.qty : Math.round(q * 10000) / 10000, unit: '斤', price: p === null ? r.price : r2(p) }; };
+    var qp0 = function (r) { if (!jinRow(r)) return { qty: r.qty, unit: r.unit || '', price: r.price }; var q = slipQty(r), p = slipPrice(r); return { qty: q === null ? r.qty : Math.round(q * 10000) / 10000, unit: '斤', price: p === null ? r.price : r2(p) }; };
+    var qp = function (r) { var c = qp0(r); c.price = fillPrice(c.price, c.qty, r.amount); return c; };
     slipNames().forEach(function (n) { var r = sl.rows[n]; if (r && !r.merged) { var c = qp(r); rows.push({ name: n, noPrice: !!withs[n], slipName: r.slipName || (withs[n] ? [n].concat(withs[n]).join('＋') : ''), qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: r.code || '' }); } });
     sl.extras.forEach(function (x) { if (x.map === '+') { var c = qp(x); rows.push({ name: '', slipName: x.slipName || '', qty: c.qty, unit: c.unit, price: c.price, amount: x.amount, code: x.code || '' }); } });
     return { total: sl.total, rows: rows };
