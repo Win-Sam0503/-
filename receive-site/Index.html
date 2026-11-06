@@ -279,7 +279,7 @@
         <textarea id="slNote" rows="2" style="width:100%;margin-top:8px" placeholder="銷貨單備註（選填），例如：運費另計、少一張單"></textarea>
       <div id="slMoveBox" class="hidden panel" style="margin:8px 0;border:2px solid var(--brand)"></div>
       <div id="slMsg"></div>
-      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost small hidden" id="slMove" title="填錯週、填錯張：整份搬到別的叫貨單">📦 搬到別週／別張</button><button type="button" class="btn ghost small hidden" id="slDel">🗑 刪除這張</button><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
+      <div class="bar"><span id="slProgress" class="muted"></span><span style="flex:1"></span><button type="button" class="btn ghost small hidden" id="slVend" title="臨時銷貨單的廠商選錯了（例如銘哲的貨選成旺來興）">🏷 改廠商</button><button type="button" class="btn ghost small hidden" id="slMove" title="填錯週、填錯張：整份搬到別的叫貨單">📦 搬到別週／別張</button><button type="button" class="btn ghost small hidden" id="slDel">🗑 刪除這張</button><button type="button" class="btn" id="slSave">💾 儲存銷貨單</button></div>
     </div>
   </section>
 
@@ -608,7 +608,7 @@
   function extraCard(x, i) {
     var sl = x.slip;
     var xb = extraBatch(x);
-    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + (slipPicked(xb) ? ' picked' : '') + '" data-xs="' + i + '">' + slipPickMark(xb) + '<b>' + esc(x.vendor) + '</b> <span class="badge warn">臨時</span>' + codeTag(sl) +
+    return '<button type="button" class="card' + (sl.amount ? ' done' : '') + (slipPicked(xb) ? ' picked' : '') + '" data-xs="' + i + '">' + slipPickMark(xb) + '<b>' + esc(x.vendor) + '</b>' + coTag(x.vendor) + ' <span class="badge warn">臨時</span>' + codeTag(sl) +
       '<div class="muted">' + esc(mdw(x.date)) + ' 送貨・不在叫貨單裡</div><div style="margin-top:6px">' + (sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : '<span class="badge none">還沒填金額</span>') +
       ' <span class="muted small">' + (sl.photos.length ? '照片 ' + sl.photos.length + ' 張' : '') + '</span>' +
       invBadge(sl) + '</div></button>';
@@ -698,6 +698,7 @@
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
     $('slMove').classList.toggle('hidden', !(b.id && sl && (sl.amount || sl.rows.length || sl.photos.length || (sl.invs || []).length)));
     $('slMoveBox').classList.add('hidden');
+    $('slVend').classList.toggle('hidden', !(b.extra && b.id));
     $('slNoSlip').classList.toggle('hidden', !!b.extra || !!(sl && sl.noSlip));
     slipStopBanner();
     $('slipManual').classList.toggle('hidden', !!b.extra); $('slipQuick').classList.toggle('hidden', !!b.extra);   // 這兩個是對叫貨單品項用的
@@ -804,6 +805,32 @@
     box.classList.remove('hidden');
     box.innerHTML = '<b>📦 把這份銷貨單（' + esc(cur.b.vendor) + '）搬到：</b><div class="row" style="margin-top:6px"><label class="small">送貨日期 <input type="date" id="mvDate" style="width:auto"></label><span class="muted small">選那批貨真正送來的日期，下面會列出那一週的叫貨單</span></div><div id="mvList" style="margin-top:6px"></div>';
     $('mvDate').focus();
+  });
+  // 🏷 改廠商（臨時銷貨單）：照片、品項、發票、經費編號一起換到正確的廠商，日期不變
+  $('slVend').addEventListener('click', function () {
+    var box = $('slMoveBox');
+    box.classList.remove('hidden');
+    var vs = Object.keys(VENDOR_CO).filter(function (v) { return !/^C(烘焙|中餐)蛋$/.test(v); });
+    box.innerHTML = '<b>🏷 這張臨時銷貨單（' + esc(vco(cur.b.vendor)) + '，' + esc(mdw(cur.b.date)) + '）其實是：</b>' +
+      '<div class="row" style="margin-top:6px"><input id="vdTo" list="vdToL" placeholder="廠商代號或公司名稱，例如 銘哲" style="width:240px" autocomplete="off"><datalist id="vdToL">' + vOpts(vs) + '</datalist>' +
+      '<button type="button" class="btn" id="vdGo">改過去</button><button type="button" class="btn ghost small" id="mvCancel">取消</button></div>' +
+      '<div class="muted small">照片、品項、發票、經費編號、備註一起換；日期不變。已經拿去核銷的要先到核銷取消勾選。</div>';
+    $('vdTo').focus();
+  });
+  $('slMoveBox').addEventListener('click', function (e) {
+    if (e.target.id !== 'vdGo') return;
+    var v = vcode($('vdTo').value);
+    if (!v) { $('vdTo').focus(); return; }
+    if (v === cur.b.vendor) { msg('slMsg', 'error', '就是同一家。'); return; }
+    if (uploading(cur.b)) { msg('slMsg', 'error', '照片還在上傳，等上傳完再改。'); return; }
+    if (readSlipDraft(cur.b) && !window.confirm('這台還有沒存的修改，改廠商的是「已經存的」內容，沒存的會不見。確定要改？')) return;
+    if (!window.confirm('把這張 ' + mdw(cur.b.date) + ' 的臨時銷貨單從「' + vco(cur.b.vendor) + '」改成「' + vco(v) + '」？')) return;
+    var btn = e.target, old = cur.b; btn.disabled = true; btn.textContent = '改中…';
+    call('moveSlip', old.id, { extra: true, vendor: v, date: old.date }).then(function () {
+      try { localStorage.removeItem(slipDraftKey(old)); } catch (x) {}
+      msg('doneMsg', 'ok', '已把 ' + mdw(old.date) + ' 的臨時銷貨單改成「' + vco(v) + '」。');
+      show('vCheck'); loadWeek();
+    }).catch(function (err) { msg('slMsg', 'error', err.message); btn.disabled = false; btn.textContent = '改過去'; });
   });
   $('slMoveBox').addEventListener('change', function (e) {
     if (e.target.id !== 'mvDate' || !e.target.value) return;
