@@ -2572,7 +2572,7 @@
     var q = toNum(it.qty);
     if (!(q > 0)) return null;
     if (it.sp) {
-      var x = { u: it.sp.u, p: it.sp.p, c: convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name), share = '';
+      var x = { u: it.sp.u, p: it.sp.p, c: it.sp.c || convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name), share = '';   // it.sp.c：銷貨單填的規格（1 罐＝100 g）
       // 單位換不過去（老師訂條、菜商用台斤）：用那週銷貨單分攤出來的「1 條 ≈ 幾斤」
       if (n === null && it.sp.ac && it.sp.ac.u === it.unit) { n = q * it.sp.ac.n; share = '照那週分攤：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; }
       if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share, src: it.sp.src || null };

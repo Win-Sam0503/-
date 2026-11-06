@@ -1308,6 +1308,7 @@ function attachSlipPrices_(list) {
       it.sp = { u: r.u, p: r.p, wk: wk, sn: r.k.split('|').slice(2).join('|'), sv: r.k.split('|')[1] };
       if (r.via) it.sp.via = r.via;
       if (r.src) it.sp.src = r.src;
+      if (r.c) it.sp.c = r.c;
       // 菜商用台斤算、老師用條／隻／盒訂：照那週銷貨單分攤出來的「1 條 ≈ 幾斤」
       const c = ac[r.k], gu = UNIT_G_[r.u];
       if (c && gu && !UNIT_G_[String(it.unit || '').trim()] && c[String(it.unit || '').trim()]) it.sp.ac = { u: String(it.unit).trim(), n: c[String(it.unit).trim()] / gu };
@@ -1328,7 +1329,7 @@ function slipMatcher_(map, np, cmap) {
   // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
   // 乾貨：E中餐乾貨（銘哲）、E烘焙乾貨（旺來興）是不同家；訂單上「E乾貨」（通用的）兩家都可能送，兩家都找
   const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : v === 'E乾貨' ? ['E乾貨', 'E中餐乾貨', 'E烘焙乾貨'] : /^E/.test(v) ? [v, 'E乾貨'] : [v]; };
-  const hit = function (k, via) { const x = map[k]; return { k: k, u: x.u, p: x.p, via: via || '', src: x.src }; };
+  const hit = function (k, via) { const x = map[k]; return { k: k, u: x.u, p: x.p, via: via || '', src: x.src, c: x.c }; };
   const memo = {};
   return function (wk, vendor, name) {
     name = String(name || '').trim();
@@ -1528,7 +1529,9 @@ function slipPriceMap_(weeks, noPrice, grams) {
     if (grams && sq > 0 && sg) grams[key] = (grams[key] || 0) + sq * sg;   // 那週銷貨單上這一樣總共幾公克（自動單位換算用）
     if (!(p > 0)) { if (noPrice) noPrice[key] = true; return; }   // 有這一樣、單價沒填
     const amt = Number(r['金額']);
-    (rows[key] = rows[key] || []).push({ u: String(r['單位'] || '').trim(), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0) });
+    const pw = Number(r['每單位重量']), pwu = String(r['重量單位'] || '').trim();
+    (rows[key] = rows[key] || []).push({ u: String(r['單位'] || '').trim(), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0),
+      c: pw > 0 && UNIT_G_[pwu] && !UNIT_G_[String(r['單位'] || '').trim()] ? { u: pwu, q: pw } : null });   // 1 罐＝100 g（銷貨單填的規格），老師用 g 訂也算得到
   });
   // 同一週同一樣常常有好幾筆（每班一筆、有的單價是金額÷數量算的有小數）：
   // 單價＝那週加總的金額 ÷ 加總的數量（重量單位先換成公克再換回最常用的單位），不是隨便拿最後一筆
@@ -1557,7 +1560,8 @@ function weekPrice_(list) {
     p = a / q;
   } else p = ps.reduce(function (t, v) { return t + v; }, 0) / ps.length;   // 都沒填數量：單價平均
   const r2 = function (v) { return Math.round(v * 100) / 100; };
-  return { u: pu, p: r2(p), src: { n: xs.length, q: r2(q), a: Math.round(a), lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)) } };
+  const cv = xs.filter(function (x) { return x.c; }).pop();
+  return { u: pu, p: r2(p), c: cv ? cv.c : null, src: { n: xs.length, q: r2(q), a: Math.round(a), lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)) } };
 }
 
 /**
