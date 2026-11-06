@@ -2278,11 +2278,12 @@
           '・' + esc(inv.by) + ' ' + esc(inv.created) + '</div>' +
         '<div style="margin:4px 0"><b style="font-size:18px">$' + money(inv.amount) + '</b> ' + diff + '</div>' +
         (inv.lines.length > 1 || inv.lines[0].photos.length || inv.lines[0].note ? '<div class="small">' + inv.lines.map(function (l) {
-          return '<div>🧾 ' + esc(l.no || '（沒填號碼）') + '　' + esc(l.date) + '　$' + money(l.amount) + (l.note ? '　<span class="muted">' + esc(l.note) + '</span>' : '') + l.photos.map(function (u, i) { return ' <a href="' + esc(u) + '" target="_blank">照片' + (i + 1) + '</a>'; }).join('') + '</div>';
+          return '<div>🧾 ' + esc(l.no || '（沒填號碼）') + '　' + esc(l.date) + '　$' + money(l.amount) + (l.note ? '　<span class="muted">' + esc(l.note) + '</span>' : '') + l.photos.map(function (u, i) { return ' <a href="' + esc(u) + '" target="_blank">🧾 發票照片' + (i + 1) + '</a>'; }).join('') + '</div>';
         }).join('') + '</div>' : '') +
         (inv.extras.length ? '<div class="small" style="margin-top:4px"><b>另外叫料</b>' + inv.extras.map(function (x) {
           return '<div>・' + esc((x.date ? md(x.date) + ' ' : '') + x.name) + '　$' + money(x.amount) + '　<span class="badge none">' + esc(x.cat) + '</span>' + (x.buyer ? '　' + esc(x.buyer) + ' 先買' : '') + (x.note ? '　<span class="muted">' + esc(x.note) + '</span>' : '') + '</div>';
         }).join('') + '</div>' : '') +
+        ((inv.autoPhotos || []).length || (inv.slipPhotos || []).length ? '<div class="small">📄 銷貨單照片：' + (inv.autoPhotos || []).concat(inv.slipPhotos || []).map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank">' + (i + 1) + '</a>'; }).join(' ') + '</div>' : '') +
         (inv.note ? '<div class="small">備註：' + esc(inv.note) + '</div>' : '') +
         '<table class="hxt" style="margin-top:6px"><tr><th>類別</th><th>金額</th><th>經手人</th><th>核銷</th></tr>' + inv.allocs.map(function (a) {
           var done = a.status === '已核銷';
@@ -2323,6 +2324,7 @@
       '<datalist id="hxVl">' + vOpts(hx.vendors) + '</datalist>' +
       '<label>發票（不只一張就按「＋ 新增發票」）</label><div id="hxLines"></div>' +
       '<button type="button" class="btn ghost small" id="hxLineAdd" style="margin-top:6px">＋ 新增發票</button>' +
+      '<label>📄 銷貨單照片 <span class="muted small" style="font-weight:normal">勾的送貨的銷貨單照片自動帶進來；收據、另外叫料的單子可以另外拍</span></label><div id="hxSph"></div>' +
       '<label>包含哪幾次送貨？</label>' +
       '<div class="row"><label style="font-weight:normal;margin:0"><input type="radio" name="hxMode" value="pick"' + (f.mode !== 'range' ? ' checked' : '') + '> 自己勾選</label>' +
       '<label style="font-weight:normal;margin:0"><input type="radio" name="hxMode" value="range"' + (f.mode === 'range' ? ' checked' : '') + '> 這段日期全部</label>' +
@@ -2353,8 +2355,8 @@
         f('no', '發票號碼', 'placeholder="AB12345678" autocomplete="off"') + f('date', '日期', 'type="date"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
         '<label class="hxf"><span>付款方式</span><select data-hl="pay" data-i="' + i + '">' + ['', '匯款', '現金', '回科辦現金', '老師先墊', '廠商月結', '其他'].map(function (o) { return '<option value="' + o + '"' + ((l.pay || '') === o ? ' selected' : '') + '>' + (o || '（選）') + '</option>'; }).join('') + '</select></label>' +
         f('payee', '付款對象', 'list="hxPayees" placeholder="例如 鎧澤老師、科辦、廠商" autocomplete="off"') + f('note', '備註', 'placeholder="選填"') +
-        '<span style="white-space:nowrap"><label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0">📷 照片</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
-          l.photos.map(function (u, k) { return ' <a href="' + esc(u) + '" target="_blank" class="small">🧾' + (k + 1) + '</a>'; }).join('') + ' <span class="small muted" data-hlmsg="' + i + '"></span></span>' +
+        '<span style="white-space:nowrap"><label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0">🧾 發票照片</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
+          l.photos.map(function (u, k) { return ' <a href="' + esc(u) + '" target="_blank" class="small">🧾 發票' + (k + 1) + '</a>'; }).join('') + ' <span class="small muted" data-hlmsg="' + i + '"></span></span>' +
         (hxF.lines.length > 1 ? '<button type="button" class="btn ghost small" data-hldel="' + i + '" title="拿掉這張">✕</button>' : '') + '</div>';
     }).join('');
   }
@@ -2477,6 +2479,35 @@
     for (var i = 0; i < parts.length; i++) { if (parts[i] === '') continue; var x = Number(parts[i]); if (isNaN(x)) return null; n += x; }
     return r2(n);
   }
+  // 📄 銷貨單照片：勾的送貨帶進來的（不能刪，取消勾選就不見）＋自己拍的
+  function hxAutoPhotos() {
+    if (!hxF.cands) return hxF.autoPhotos || [];
+    var out = []; hxPicked().forEach(function (c) { (c.photos || []).forEach(function (u) { if (out.indexOf(u) < 0) out.push(u); }); });
+    return out;
+  }
+  function hxRenderSph() {
+    var box = $('hxSph'); if (!box) return;
+    var auto = hxAutoPhotos(), mine = hxF.slipPhotos || [];
+    box.innerHTML = '<div class="row" style="align-items:center;gap:6px">' +
+      (auto.length ? auto.map(function (u, k) { return '<a href="' + esc(u) + '" target="_blank" class="small">📄 銷貨單' + (k + 1) + '</a>'; }).join(' ') : '<span class="muted small">' + (hxF.cands ? '勾的送貨沒有銷貨單照片' : '按「列出送貨」勾了以後會帶進來') + '</span>') +
+      mine.map(function (u, k) { return '<span style="white-space:nowrap"><a href="' + esc(u) + '" target="_blank" class="small">📄 另拍' + (k + 1) + '</a><button type="button" class="clr" data-hxsphdel="' + k + '" title="刪掉這張">✕</button></span>'; }).join(' ') +
+      '<label class="btn ghost small" style="cursor:pointer;margin:0">📷 拍銷貨單／收據<input type="file" accept="image/*" capture="environment" multiple class="hidden" data-hxsph></label><span class="small muted" id="hxSphMsg"></span></div>';
+  }
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t.hasAttribute || !t.hasAttribute('data-hxsph') || !hxF) return;
+    var files = Array.prototype.slice.call(t.files || []), f0 = hxF; t.value = '';
+    if (!files.length) return;
+    $('hxSphMsg').textContent = '上傳中…';
+    files.reduce(function (p, f) {
+      return p.then(function () { return shrink(f, true); }).then(function (b64) { return uploadRetry(b64, (f0.lines[0] && f0.lines[0].date) || iso(new Date()), (vcode($('hxV').value) || '核銷') + ' 銷貨單'); })
+        .then(function (r) { (f0.slipPhotos = f0.slipPhotos || []).push(r.url); }, function () { msg('hxMsg', 'error', '有一張照片上傳失敗，請再拍一次。'); });
+    }, Promise.resolve()).then(function () { if (hxF === f0) hxRenderSph(); });
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-hxsphdel]'); if (!b || !hxF) return;
+    if (!window.confirm('刪掉這張銷貨單照片？')) return;
+    hxF.slipPhotos.splice(Number(b.getAttribute('data-hxsphdel')), 1); hxRenderSph();
+  });
   // 一次送貨（銷貨單）用到的經費編號：每張發票有填編號的照發票金額；沒有就用整張銷貨單的編號＋金額
   function candCodes(c) {
     var iv = (c.invs || []).filter(function (x) { return x.code; });
@@ -2658,6 +2689,7 @@
     return hxF.cands.filter(function (c) { return hxF.mode === 'range' ? !c.usedBy : hxF.checks.indexOf(c.key) >= 0; });
   }
   function hxRenderCands() {
+    hxRenderSph();
     var box = $('hxCands');
     if (!hxF.cands) { box.innerHTML = '<span class="muted">選好廠商和日期，按「列出送貨」。</span>'; $('hxRef').innerHTML = ''; return; }
     if (!hxF.cands.length) { box.innerHTML = '<span class="muted">這段日期這家廠商沒有送貨紀錄。</span>'; $('hxRef').innerHTML = ''; return; }
@@ -3310,7 +3342,8 @@
       if (vNow && hx.vendors.indexOf(vNow) < 0 && !(hx.invoices || []).some(function (x) { return x.vendor === vNow; }) &&
           !window.confirm('「' + vNow + '」是新的廠商名稱。\n如果是清單裡已經有的廠商（例如「旺來興」＝「E烘焙乾貨」），請改用清單裡的名字，統計才不會分開。\n確定用新名字？')) return;
       var p = { id: hxF.id, vendor: hxF.vendor, lines: hxF.lines, mode: hxF.mode, from: hxF.mode === 'range' ? hxF.from : '', to: hxF.mode === 'range' ? hxF.to : '',
-        checks: hxF.cands ? hxPicked().map(function (c) { return c.key; }) : hxF.checks, system: hxF.cands ? hxF._sys : hxF.system, note: hxF.note, allocs: hxF.allocs, extras: hxF.extras };
+        checks: hxF.cands ? hxPicked().map(function (c) { return c.key; }) : hxF.checks, system: hxF.cands ? hxF._sys : hxF.system, note: hxF.note, allocs: hxF.allocs, extras: hxF.extras,
+        slipPhotos: hxF.slipPhotos || [], autoPhotos: hxAutoPhotos() };
       t.disabled = true; t.textContent = '儲存中…';
       call('hxSaveInvoice', p).then(function () { hxF = null; hxOpen('list').then(function () { msg('hxMsg', 'ok', '已儲存。各類別經手人確認後，按「✓ 確認已核銷」。'); }); })
         .catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; t.textContent = '💾 儲存'; window.scrollTo(0, 0); });
