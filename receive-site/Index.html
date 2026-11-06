@@ -1597,7 +1597,7 @@
             '<td class="w1">' + a('unit', '單位', ' list="unitList" autocomplete="off"') + '</td>' +
             (showWt ? '<td class="w2">' + a('wt', '每1' + (r.unit || '單位'), ' inputmode="decimal"') + '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="wu" style="width:auto;font-size:13px;padding:2px;margin-top:2px">' + WT_UNITS.map(function (u) { return '<option' + ((r.wu || wtDefault()) === u ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select></td>' : '') +
             '<td class="w2">' + a('price', '單價', ' inputmode="decimal"') + pbSelect(i, j, r) + '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="pu" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (jinRow(r) && numv(r.wt) === null ? '' : ';display:none') + '"><option value="斤">元／斤</option><option value="兩"' + (r.pu === '兩' ? ' selected' : '') + '>元／兩</option></select></td>' +
-            '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"') + '</td><td><button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
+            '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"' + bigAmt(r)) + '</td><td><button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
         }).join('') + '</table></div><button type="button" class="btn ghost small" data-padd="' + i + '">＋ 加一行</button></div>';
     }).join('');
     html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">Enter：品名 → 數量 → 單位 → ' + (showWt ? '每單位重量 → ' : '') + '單價 → 金額 → 下一行（最後一行自動加一行）' + (showWt ? '。有填每單位重量的：單價下面選「元／罐」（金額＝數量×單價）或「元／公斤」（金額＝數量×每單位重量×單價）；直接打金額，系統會自己判斷' : '') + '</span></div>' +
@@ -1662,6 +1662,9 @@
     if (sib('wt')) sib('wt').placeholder = '每1' + (r.unit || '單位');
   }
   function wtDefault() { var u = ''; (cur.slip.papers || []).forEach(function (pp) { pp.rows.forEach(function (r) { if (numv(r.wt) !== null && r.wu) u = r.wu; }); }); return u || '公斤'; }
+  // 一行金額特別大（常常是單價選成「元／g」）：金額格變紅，滑過去看原因
+  function bigAmt(r) { var a = numv(r.amount); return a !== null && a > 30000 ? ' style="background:#fee4e2;color:#b42318;font-weight:700" title="金額很大：單價是每罐／每塊還是每斤？下面的「元／…」選對了嗎？"' : ''; }
+  function bigAmtMark(r, sib) { var el = sib('amount'); if (!el) return; var a = numv(r.amount), big = a !== null && a > 30000; el.style.background = big ? '#fee4e2' : ''; el.style.color = big ? '#b42318' : ''; el.style.fontWeight = big ? '700' : ''; el.title = big ? '金額很大：單價是每罐／每塊還是每斤？下面的「元／…」選對了嗎？' : ''; }
   function paperRowOf(t) { return cur.slip.papers[Number(t.getAttribute('data-pi'))].rows[Number(t.getAttribute('data-pj'))]; }
   $('slipBox').addEventListener('input', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
@@ -1690,6 +1693,7 @@
     if (f === 'qty' && !String(r.unit || '').trim() && (/[斤兩]/.test(r.qty) || (/菜商/.test(cur.b.vendor || '') && String(r.qty).trim()))) { r.unit = '斤'; sib('unit').value = '斤'; }
     sib('pu').style.display = jinRow(r) && numv(r.wt) === null ? '' : 'none';
     slipCalc(r, f === 'name' ? 'price' : f, sib);
+    bigAmtMark(r, sib);
     paperTotals(); saveDraft();
   });
   $('slipBox').addEventListener('change', function (e) {
@@ -1698,7 +1702,7 @@
     if (t.getAttribute && (t.getAttribute('data-pf') === 'wu' || t.getAttribute('data-pf') === 'pb')) {
       var r2w = paperRowOf(t), tr2 = t.closest('tr'), sb2 = function (g) { return tr2.querySelector('[data-pf="' + g + '"]'); };
       if (t.getAttribute('data-pf') === 'wu') r2w.wu = t.value; else r2w.pb = t.value;
-      pbRefresh(r2w, sb2); slipCalc(r2w, 'pb', sb2); paperTotals(); saveDraft();
+      pbRefresh(r2w, sb2); slipCalc(r2w, 'pb', sb2); bigAmtMark(r2w, sb2); paperTotals(); saveDraft();
     }
   });
   $('slipBox').addEventListener('click', function (e) {
