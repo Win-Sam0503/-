@@ -1490,7 +1490,8 @@ function adminSlipTotals(token, from, to) {
   readTable_('銷貨單明細', ['送貨日期（起）', '廠商']).rows.forEach(function (r) {
     if (String(r['類型'] || '').trim() === '器材') return;
     const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
-    const wk = mon(sd || d0);
+    // 算成本照「這批貨是哪一週的課用的」：叫貨單的銷貨單（R 開頭）照叫貨那週（週五先送下週的貨也算下週）；臨時銷貨單照銷貨單日期
+    const wk = /^R\d{8}-/.test(String(r['驗收編號'] || '')) && d0 ? mon(d0) : mon(sd || d0);
     if (!wk || wk < lo || wk > hi) return;
     const a = Number(r['金額']), q = Number(r['數量']), p = Number(r['單價']);
     const amt = a > 0 ? a : (q > 0 && p > 0 ? q * p : 0);
@@ -1522,7 +1523,8 @@ function slipPriceMap_(weeks, noPrice, grams) {
     const name = toName(raw) || toName(r['銷貨單品名']) || raw;
     if (!name) return;
     const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
-    const wk = mon(sd || d0);
+    // 算成本照「這批貨是哪一週的課用的」：叫貨單的銷貨單（R 開頭）照叫貨那週（週五先送下週的貨也算下週）；臨時銷貨單照銷貨單日期
+    const wk = /^R\d{8}-/.test(String(r['驗收編號'] || '')) && d0 ? mon(d0) : mon(sd || d0);
     if (!weeks[wk]) return;
     const key = wk + '|' + String(r['廠商']).trim() + '|' + name;
     const sq = Number(r['數量']), sg = UNIT_G_[String(r['單位'] || '').trim()];
