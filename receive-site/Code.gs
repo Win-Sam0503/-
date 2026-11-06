@@ -17,7 +17,7 @@ const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收
 const DRAFT_HEADERS = ['驗收編號', '暫存時間', '內容'];
 const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人', '沒有銷貨單', '發票號碼', '發票日期', '發票金額', '經費編號'];   // 一張銷貨單可以有好幾張發票：一行一張   // 沒有銷貨單：颱風假、停課整張沒送時填原因
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
-const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號', '第幾張', '銷貨單日期', '類型'];   // 類型：食材／器材（每張銷貨單選一類）   // 第幾張：照紙本一張一張打的
+const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號', '第幾張', '銷貨單日期', '類型', '件數', '件數單位'];   // 件數：海鮮這類「3 條、共 1.8 公斤」的：數量／單位存總重量（單價照重量），件數另外記   // 類型：食材／器材（每張銷貨單選一類）   // 第幾張：照紙本一張一張打的
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
 const LINE_HEADERS = ['驗收編號', '廠商', '送貨組別', '班級', '食材名稱', '應到', '實到', '狀態', '備註', '處理狀態', '處理時間', '處理備註', '照片'];
 // 照班級點貨的廠商（其他廠商點品項總量）
@@ -365,7 +365,7 @@ function slipsById_() {
     (out[id] = out[id] || []).push({ name: String(r['食材名稱'] || ''), slipName: String(r['銷貨單品名'] || ''), qty: String(r['數量'] === undefined ? '' : r['數量']),
       unit: String(r['單位'] || ''), price: String(r['單價'] === undefined ? '' : r['單價']), amount: String(r['金額'] === undefined ? '' : r['金額']),
       code: String(r['貨品編號'] || ''), sheet: Number(r['第幾張']) || 0, date: r['銷貨單日期'] instanceof Date ? dateStr_(r['銷貨單日期']) : String(r['銷貨單日期'] || '').replace(/^'/, ''),
-      kind: String(r['類型'] || '').trim() === '器材' ? '器材' : '食材' });
+      kind: String(r['類型'] || '').trim() === '器材' ? '器材' : '食材', pcs: r['件數'] === undefined || r['件數'] === '' ? '' : String(r['件數']), pcsUnit: String(r['件數單位'] || '') });
   });
   return out;
 }
@@ -445,7 +445,8 @@ function saveSlip_(p) {
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     const q4 = num_(x.qty) === '' ? '' : Math.round(Number(String(x.qty).replace(/[,，\s]/g, '')) * 10000) / 10000;   // 斤兩換成斤會有 4 位小數（3 兩＝0.1875 斤）
     return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: q4, unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
-      code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice, sheet: Number(x.sheet) || '', date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', kind: x.kind === '器材' ? '器材' : '食材' };
+      code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice, sheet: Number(x.sheet) || '', date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', kind: x.kind === '器材' ? '器材' : '食材',
+      pcs: num_(x.pcs), pcsUnit: clean_(x.pcsUnit, 10) };
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const sum = Math.round(slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0) * 100) / 100;
   const noSlip = clean_(p.noSlip, 50);
@@ -474,7 +475,7 @@ function saveSlip_(p) {
     if (slip.length) {
       appendRows_(SHEET.slip, slip.map(function (x) {
         return { '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '食材名稱': x.name, '銷貨單品名': x.slipName, '數量': x.qty, '單位': x.unit, '單價': x.price, '金額': x.amount, '貨品編號': x.code,
-          '第幾張': x.sheet, '銷貨單日期': x.date ? "'" + x.date : '', '類型': x.kind };
+          '第幾張': x.sheet, '銷貨單日期': x.date ? "'" + x.date : '', '類型': x.kind, '件數': x.pcs, '件數單位': x.pcs !== '' ? x.pcsUnit : '' };
       }));
       savePrices_(vendor, from, id, slip);
     }
