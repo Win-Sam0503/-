@@ -1334,7 +1334,7 @@
         pp[k] = pp[k] || { date: r.date || '', kind: r.kind || '食材', rows: [] };
         if (!pp[k].date && r.date) pp[k].date = r.date;
         var pw = r.pw !== undefined && r.pw !== '' ? r.pw : '', hasPcs = r.pcs !== undefined && r.pcs !== '';
-        if (hasPcs) pp[k].rows.push({ name: r.name || r.slipName || '', qty: r.pcs, unit: r.pcsUnit || '', wt: pw !== '' ? pw : (Number(r.pcs) ? r4(Number(r.qty) / Number(r.pcs)) : r.qty), wu: r.pwu || r.unit, pb: 'w', price: r.price, amount: r.amount });
+        if (hasPcs) pp[k].rows.push({ name: r.name || r.slipName || '', qty: r.pcs, unit: r.pcsUnit || '', wt: pw !== '' ? pw : (Number(r.pcs) ? r4(Number(r.qty) / Number(r.pcs)) : r.qty), wu: r.pwu || r.unit, pb: WG[r.unit] ? r.unit : 'w', price: r.price, amount: r.amount });
         else if (pw !== '') pp[k].rows.push({ name: r.name || r.slipName || '', qty: r.qty, unit: r.unit, wt: pw, wu: r.pwu || '公斤', pb: 'u', price: r.price, amount: r.amount });
         else pp[k].rows.push({ name: r.name || r.slipName || '', qty: q, unit: r.unit, price: r.price, amount: r.amount });
       });
@@ -1639,20 +1639,26 @@
   // 數量是幾條、幾隻、幾包，價錢照總重量算 → 「總重量」欄（每家廠商都有，不用就空著）
   var WT_UNITS = ['公斤', '斤', '台斤', 'g', '兩'];
   function wtVendor() { return !!(cur && cur.b); }   // 每家廠商都有「總重量」欄（不用就空著）
-  // 單價基準：'u'＝每個單位（元／罐），'w'＝每重量（元／公斤）。海鮮、肉商預設照重量，其他照罐
-  function pbDefault() { return /海鮮|^D|肉商|^B/.test((cur && cur.b && cur.b.vendor) || '') ? 'w' : 'u'; }
-  function pbOf(r) { return numv(r.wt) !== null && numv(r.wt) > 0 && !W[String(r.unit || '').trim()] ? (r.pb || pbDefault()) : 'u'; }
+  // 單價基準：'u'＝每個單位（元／罐、元／塊），或一個重量單位（'斤'＝元／斤、'公斤'＝元／公斤…），跟「每單位重量」用的單位分開
+  //（重量打 g、單價照斤也算得對）。海鮮、肉商預設元／斤，其他照罐
+  var WG = { 'g': 1, '公克': 1, '公斤': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
+  function hasWt(r) { return numv(r.wt) !== null && numv(r.wt) > 0 && !W[String(r.unit || '').trim()]; }
+  function pbDefault() { return /海鮮|^D|肉商|^B/.test((cur && cur.b && cur.b.vendor) || '') ? '斤' : 'u'; }
+  function pbOf(r) {
+    if (!hasWt(r)) return 'u';
+    var v = r.pb || pbDefault();
+    if (v === 'w') v = r.wu || wtDefault();   // 舊的存法：照每單位重量的單位
+    return v === 'u' || WG[v] ? v : 'u';
+  }
+  function pbOpts(r) { var o = ['u', '斤', '公斤'], wu = r.wu || wtDefault(); if (o.indexOf(wu) < 0 && WG[wu]) o.push(wu); return o; }
+  function pbOptHtml(r) { var b = pbOf(r); return pbOpts(r).map(function (v) { return '<option value="' + esc(v) + '"' + (b === v ? ' selected' : '') + '>元／' + esc(v === 'u' ? (r.unit || '單位') : v) + '</option>'; }).join(''); }
   function pbSelect(i, j, r) {
-    var on = numv(r.wt) !== null && numv(r.wt) > 0 && !W[String(r.unit || '').trim()], b = pbOf(r);
-    return '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="pb" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (on ? '' : ';display:none') + '">' +
-      '<option value="u"' + (b === 'u' ? ' selected' : '') + '>元／' + esc(r.unit || '單位') + '</option><option value="w"' + (b === 'w' ? ' selected' : '') + '>元／' + esc(r.wu || wtDefault()) + '</option></select>';
+    return '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="pb" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (hasWt(r) ? '' : ';display:none') + '">' + pbOptHtml(r) + '</select>';
   }
   function pbRefresh(r, sib) {
     var s2 = sib('pb'); if (!s2) return;
-    var on = numv(r.wt) !== null && numv(r.wt) > 0 && !W[String(r.unit || '').trim()];
-    s2.style.display = on ? '' : 'none';
-    s2.options[0].textContent = '元／' + (r.unit || '單位'); s2.options[1].textContent = '元／' + (r.wu || wtDefault());
-    s2.value = pbOf(r);
+    s2.style.display = hasWt(r) ? '' : 'none';
+    s2.innerHTML = pbOptHtml(r);
     if (sib('wt')) sib('wt').placeholder = '每1' + (r.unit || '單位');
   }
   function wtDefault() { var u = ''; (cur.slip.papers || []).forEach(function (pp) { pp.rows.forEach(function (r) { if (numv(r.wt) !== null && r.wu) u = r.wu; }); }); return u || '公斤'; }
@@ -1738,12 +1744,13 @@
       sl.extras.forEach(function (x, i) { if (x.map === '+') rows.push({ n: '', r: x, label: '「' + (x.slipName || '第 ' + (i + 1) + ' 行') + '」', sel: function (f) { return '[data-x="' + i + '"][data-f="' + f + '"]'; } }); });
     }
     rows.forEach(function (row) {
-      var r = row.r, isW = row.paper && pbOf(r) === 'w', q = row.paper ? priceQty(r) : slipQty(r), p = isW ? numv(r.price) : slipPrice(r), a = numv(r.amount), u = isW ? (r.wu || wtDefault()) : jinRow(r) ? '斤' : String(r.unit || '').trim();
+      var r = row.r, isW = row.paper && pbOf(r) !== 'u', q = row.paper ? priceQty(r) : slipQty(r), p = isW ? numv(r.price) : slipPrice(r), a = numv(r.amount), u = isW ? pbOf(r) : jinRow(r) ? '斤' : String(r.unit || '').trim();
       if (p === null && !(q && a !== null)) out.push({ text: row.label + ' 沒填單價' + (a === null ? '、金額' : '') + '：料單成本會算不到', sel: row.sel('price') });
       if (row.paper && row.n && !itemKnown(row.n)) out.push({ text: row.label + ' 食材總表沒有這個名稱：按那一行的「🔗 對應到…」選是哪一樣，老師料單才對得到成本', sel: row.sel('name') });
       var lp = row.n && (cur.b.prices || {})[row.n];
       if (lp && u && lp.unit && u !== lp.unit && !(W[u] && W[lp.unit])) out.push({ text: row.label + ' 單位「' + u + '」跟上次「' + lp.unit + '」不一樣，是不是選錯？', sel: row.sel('unit') });
       else if (lp && p && (!u || u === lp.unit) && (p > lp.price * 1.5 || p < lp.price / 1.5)) out.push({ text: row.label + ' 單價 $' + money(r2(p)) + ' 跟上次 $' + money(lp.price) + ' 差很多', sel: row.sel('price') });
+      if (a !== null && a > 30000) out.push({ text: row.label + ' 金額 $' + money(a) + ' 很大，請確認：單價是「每罐／每塊」還是「每斤」？每單位重量的單位對嗎？', sel: row.sel('amount') });
       if (q && p !== null && a !== null && Math.abs(q * p - a) > Math.max(1, a * 0.02)) out.push({ text: row.label + ' 金額 $' + money(a) + ' 跟 數量×單價 $' + money(r2(q * p)) + ' 對不上', sel: row.sel('amount') });
     });
     return out;
@@ -1759,7 +1766,7 @@
           if (!n && numv(r.amount) === null) return;
           var wt = numv(r.wt), c, hasW = wt !== null && wt > 0 && !W[String(r.unit || '').trim()];
           // 有每單位重量：照重量算的，數量／單位存總重量（單價是每斤／每公斤），幾條另外存「件數」；照罐算的，數量／單位照罐。規格都記「每單位重量」
-          if (hasW && pbOf(r) === 'w') c = { qty: priceQty(r), unit: r.wu || wtDefault(), price: r.price, pcs: r.qty, pcsUnit: r.unit || '', pw: wt, pwu: r.wu || wtDefault() };
+          if (hasW && pbOf(r) !== 'u') c = { qty: priceQty(r), unit: pbOf(r), price: r.price, pcs: r.qty, pcsUnit: r.unit || '', pw: wt, pwu: r.wu || wtDefault() };
           else if (hasW) c = { qty: r.qty, unit: r.unit || '', price: r.price, pw: wt, pwu: r.wu || wtDefault() };
           else c = jinRow(r) ? { qty: slipQty(r) === null ? r.qty : Math.round(slipQty(r) * 10000) / 10000, unit: '斤', price: slipPrice(r) === null ? r.price : r2(slipPrice(r)) } : { qty: r.qty, unit: r.unit || '', price: r.price };
           c.price = fillPrice(c.price, c.qty, r.amount);
@@ -2053,13 +2060,15 @@
   }
   // 數量×單價＝金額（斤兩自動換算）：改數量或單價就重算金額；改金額就重算單價
   // 這一行照單價算的數量：照罐算＝罐數；照重量算＝罐數 × 每罐重量（總重量）
-  function priceQty(o) { var n = slipQty(o), w = numv(o.wt); return pbOf(o) === 'w' && n !== null ? r4(n * w) : n; }
+  // 照重量算：數量 × 每單位重量，換成單價的重量單位（每罐 500 g、單價元／斤 → 0.8333 斤）
+  function priceQty(o) { var n = slipQty(o), w = numv(o.wt), pb = pbOf(o); return pb !== 'u' && n !== null ? r4(n * w * (WG[o.wu || wtDefault()] || 1) / WG[pb]) : n; }
   function slipCalc(o, f, sib) {
     var w = numv(o.wt), hasW = w !== null && w > 0 && !W[String(o.unit || '').trim()], a = numv(o.amount), n = slipQty(o);
     // 打金額、數量和單價都有：看金額比較像「數量×單價」還是「數量×重量×單價」，自動選單價基準
     if (f === 'amount' && hasW && n && a !== null && numv(o.price) !== null) {
-      var p0 = numv(o.price), du = Math.abs(n * p0 - a), dw = Math.abs(n * w * p0 - a);
-      if (Math.min(du, dw) <= Math.max(1, a * 0.02)) { o.pb = du <= dw ? 'u' : 'w'; pbRefresh(o, sib); return; }
+      var p0 = numv(o.price), best = null, bd = Infinity;
+      pbOpts(o).forEach(function (v) { var x = { wt: o.wt, wu: o.wu, unit: o.unit, qty: o.qty, pb: v }, d = Math.abs(priceQty(x) * p0 - a); if (d < bd) { bd = d; best = v; } });
+      if (bd <= Math.max(1, a * 0.02)) { o.pb = best; pbRefresh(o, sib); return; }
     }
     var q = priceQty(o), pr = hasW ? numv(o.price) : slipPrice(o), mul = !hasW && jinRow(o) && o.pu === '兩' ? 16 : 1;
     if ((f === 'qty' || f === 'price' || f === 'pu' || f === 'unit' || f === 'wt' || f === 'pb') && q !== null && pr !== null) { o.amount = r2(q * pr); if (sib('amount')) sib('amount').value = o.amount; }
