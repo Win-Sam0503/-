@@ -1056,7 +1056,7 @@ function getMonth_(vendor, ym) {
       } else if (b.slip && whole && b.slip.amount > 0) {
         // 填了銷貨單金額：照填的（只填合計的沒有品項，列一行合計）
         b.slip.rows.forEach(function (x) {
-          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0, kind: x.kind || '食材' });
+          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0, kind: x.kind || '食材', sheet: Number(x.sheet) || 0 });
         });
         if (!b.slip.rows.length) e.items.push({ cls: '', name: '銷貨單合計（只填合計，沒有品項）', got: '', price: '', amount: b.slip.amount });
         e.fromSlip = true;
@@ -1083,7 +1083,7 @@ function getMonth_(vendor, ym) {
   extraSlips_(recs, ms, me, vendor).forEach(function (x) {
     out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, fromSlip: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
       invs: x.slip.invs || [], code: x.slip.code || '',
-      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材' }; }) });
+      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材', sheet: Number(r.sheet) || 0 }; }) });
   });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
   if (ss_().getSheetByName('月結對帳')) {
@@ -1428,6 +1428,22 @@ function hxGet_(vendor, ym) {
 }
 
 /** 這家廠商在 from～to 之間的每一次送貨（驗收）：金額、各班金額，已經算進哪張發票 */
+/**
+ * 一次送貨開了好幾張發票（超過經費編號的預算，廠商拆成兩張銷貨單、兩張發票）：照發票拆開，各自拿去不同筆核銷。
+ * 紙本張數跟發票張數一樣時，第 1 張發票＝第 1 張紙本銷貨單的品項（照順序）。回傳 null＝不用拆
+ */
+function entryInvParts_(e) {
+  const iv = (e.invs || []).filter(function (x) { return x.no; });
+  if (iv.length < 2) return null;
+  const sheets = e.items.map(function (x) { return Number(x.sheet) || 0; }).filter(function (n, i, a) { return n && a.indexOf(n) === i; }).sort(function (a, b) { return a - b; });
+  const given = iv.reduce(function (n, x) { return n + (x.amount === '' ? 0 : Number(x.amount) || 0); }, 0), blank = iv.filter(function (x) { return x.amount === ''; });
+  return iv.map(function (x, i) {
+    const sh = sheets.length === iv.length ? sheets[i] : 0;
+    const amount = x.amount === '' ? (x === blank[0] ? Math.max(0, round2_(e.amount - given)) : 0) : Number(x.amount) || 0;
+    return { no: String(x.no).toUpperCase(), date: x.date || '', amount: amount, code: x.code || e.code || '', sheet: sh,
+      items: sh ? e.items.filter(function (y) { return (Number(y.sheet) || 0) === sh; }) : e.items };
+  });
+}
 function hxCandidates_(vendor, from, to, exceptId) {
   vendor = clean_(vendor, 30);
   const f = parseDate_(from), t = parseDate_(to);
@@ -1441,11 +1457,26 @@ function hxCandidates_(vendor, from, to, exceptId) {
     const ym = Utilities.formatDate(m, tz_(), 'yyyy-MM');
     getMonth_(vendor, ym).entries.forEach(function (e) {
       if (e.date < dateStr_(f) || e.date > dateStr_(t) || e.stopped) return;   // 停送的沒有錢，不用核銷
-      const byCls = {};
-      const byKind = {};
-      e.items.forEach(function (x) { const k = x.cls || ''; byCls[k] = round2_((byCls[k] || 0) + (Number(x.amount) || 0)); const kd = x.kind || '食材'; byKind[kd] = round2_((byKind[kd] || 0) + (Number(x.amount) || 0)); });
-      out.push({ key: e.id + '@' + ym, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated, fromSlip: !!e.fromSlip, invs: e.invs || [], code: e.code || '',
-        noPrice: e.noPrice.length, byCls: byCls, byKind: byKind, items: e.items, usedBy: used[e.id + '@' + ym] || '' });
+      const sums = function (items, scale) {
+        const byCls = {}, byKind = {};
+        items.forEach(function (x) { const a = (Number(x.amount) || 0) * scale, k = x.cls || '', kd = x.kind || '食材'; byCls[k] = round2_((byCls[k] || 0) + a); byKind[kd] = round2_((byKind[kd] || 0) + a); });
+        return { byCls: byCls, byKind: byKind };
+      };
+      const base = e.id + '@' + ym, parts = entryInvParts_(e);
+      if (!parts) {
+        const s0 = sums(e.items, 1);
+        out.push({ key: base, id: e.id, date: e.date, label: e.label, checked: e.checked, amount: e.amount, estimated: e.estimated, fromSlip: !!e.fromSlip, invs: e.invs || [], code: e.code || '',
+          noPrice: e.noPrice.length, byCls: s0.byCls, byKind: s0.byKind, items: e.items, usedBy: used[base] || '' });
+        return;
+      }
+      // 好幾張發票：一張發票一個選項（以前整張勾過的，每張都算已用）
+      parts.forEach(function (pt) {
+        const itAmt = pt.items.reduce(function (n, x) { return n + (Number(x.amount) || 0); }, 0), s1 = sums(pt.items, pt.sheet ? 1 : (e.amount ? pt.amount / e.amount : 0));
+        const k = base + '#' + pt.no;
+        out.push({ key: k, id: e.id, date: e.date, label: e.label + '・發票 ' + pt.no + (pt.sheet ? '（第 ' + pt.sheet + ' 張）' : ''), checked: e.checked, amount: pt.amount, estimated: e.estimated, fromSlip: !!e.fromSlip,
+          invs: [{ no: pt.no, date: pt.date, amount: pt.amount, code: pt.code }], code: pt.code, noPrice: e.noPrice.length, byCls: s1.byCls, byKind: s1.byKind, items: pt.items,
+          itemsAmt: round2_(itAmt), usedBy: used[k] || used[base] || '' });
+      });
     });
   }
   return out.sort(function (a, b) { return a.date.localeCompare(b.date); });
@@ -1567,11 +1598,19 @@ function hxPrintData_(id) {
     it.amount = round2_(it.amount + (Number(amount) || 0)); k.amount = round2_(k.amount + (Number(amount) || 0));
   };
   const months = {};
-  inv.checks.forEach(function (key) { const m = String(key).split('@'); if (m[1]) (months[m[1]] = months[m[1]] || []).push(m[0]); });
+  const onlyInv = {};   // 照發票拆開勾的：只印那張發票（那張紙本）的品項
+  inv.checks.forEach(function (key) {
+    const m = String(key).split('@'); if (!m[1]) return;
+    const ym = m[1].split('#')[0], no = m[1].split('#')[1];
+    (months[ym] = months[ym] || []).push(m[0]);
+    if (no) (onlyInv[m[0]] = onlyInv[m[0]] || []).push(no);
+  });
   Object.keys(months).forEach(function (ym) {
     getMonth_(inv.vendor, ym).entries.forEach(function (e) {
       if (months[ym].indexOf(e.id) < 0) return;
-      e.items.forEach(function (x) {
+      let its = e.items;
+      if (onlyInv[e.id]) { const pts = entryInvParts_(e) || []; its = [].concat.apply([], pts.filter(function (pt) { return onlyInv[e.id].indexOf(pt.no) >= 0; }).map(function (pt) { return pt.items; })); }
+      its.filter(function (x, i, a) { return a.indexOf(x) === i; }).forEach(function (x) {
         const m = String(x.got || '').trim().match(/^([\d.]+)\s*(.*)$/);
         add(x.kind || '食材', x.name, m ? m[1] : '', m ? m[2] : '', x.amount);
       });

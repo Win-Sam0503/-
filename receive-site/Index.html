@@ -3214,6 +3214,9 @@
       t.disabled = true; t.textContent = '讀取中…';
       call('hxCandidates', hxF.vendor, hxF.from, hxF.to, hxF.id || '').then(function (list) {
         hxF.cands = list; msg('hxMsg', '', '');
+        // 以前整張勾的（沒有分發票）：現在這張照發票拆開了，就全部勾起來
+        var keys = list.map(function (c) { return c.key; });
+        hxF.checks = [].concat.apply([], (hxF.checks || []).map(function (k) { return keys.indexOf(k) >= 0 ? [k] : keys.filter(function (x) { return x.indexOf(k + '#') === 0; }); }));
         hxAutoPick();
         hxRenderCands(); hxSumUp();
         // 補庫存先帶「餐飲科科費」（那一格還空著才帶）
