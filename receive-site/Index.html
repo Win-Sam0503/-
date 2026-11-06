@@ -2373,6 +2373,7 @@
       return '<div class="hxrow' + (x.ck ? ' ck' : '') + '"><label class="hxck" title="對過收據就打勾"><input type="checkbox" data-heck="' + i + '"' + (x.ck ? ' checked' : '') + '><span class="no">' + (i + 1) + '</span></label>' + f('name', '品名', 'list="hxExNames" placeholder="例如：草莓 2 盒"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
         '<label class="hxf"><span>類別</span><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
         f('date', '日期', 'type="date"') + f('buyer', '購買人', 'placeholder="老師先買的填名字"') + f('note', '備註', 'placeholder="例如：成果展"') +
+        '<label class="hxf" title="發票照經費編號的金額開、上面有銷貨單沒有的品項：這項的錢已經算在上面類別分配（經費編號）裡，不會再加一次"><span>湊足經費</span><span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" data-hefill="' + i + '"' + (x.fill ? ' checked' : '') + '> 含在分配裡</span></label>' +
         '<button type="button" class="btn ghost small" data-hedel="' + i + '" title="拿掉這項">✕</button></div>';
     }).join('') : '<div class="muted small">沒有就不用加。</div>');
   }
@@ -2384,6 +2385,18 @@
     for (var i = 0; i < parts.length; i++) { if (parts[i] === '') continue; var x = Number(parts[i]); if (isNaN(x)) return null; n += x; }
     return r2(n);
   }
+  // 「補足經費」：發票金額照經費編號開，比勾的送貨多的差額記成一項另外叫料（類別先放分配最多的那一類）
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-hxfill]');
+    if (!b || !hxF) return;
+    var amt = Number(b.getAttribute('data-hxfill')), parts = hxReadParts(), best = '', bestAmt = 0;
+    hx.cats.forEach(function (c) { var t = 0; (parts[c.name] || []).forEach(function (v) { t += sumExpr(v) || 0; }); if (t > bestAmt) { bestAmt = t; best = c.name; } });
+    var x = hxExNew('補足經費（發票上有、銷貨單沒有的品項）', String(amt));
+    x.cat = x.cat || best; x.fill = true; x.note = x.note || '湊足經費編號金額，品名可改成發票上的品項';
+    hxF.extras.push(x);
+    hxRenderExtras(); hxSumUp();
+    var en = document.querySelectorAll('[data-he="name"]'); if (en.length) { en[en.length - 1].scrollIntoView({ block: 'center' }); en[en.length - 1].select(); }
+  });
   function hxExAddRow() {
     var last = hxF.extras[hxF.extras.length - 1], x = hxExNew();
     if (last) ['date', 'cat', 'buyer', 'note'].forEach(function (k) { if (!(hxF.exBulk || {})[k] || k === 'date') x[k] = x[k] && k !== 'date' ? x[k] : last[k]; });   // 沒整批設定的格子跟上一項一樣
@@ -2565,7 +2578,7 @@
   function hxSumUp() {
     var inv = hxInvTotal(), cat = 0, bad = false, sys = 0, exAll = 0, exBy = {};
     var parts = hxReadParts();
-    hxF.extras.forEach(function (x) { var a = numv(x.amount) || 0; exAll += a; if (x.cat) exBy[x.cat] = r2((exBy[x.cat] || 0) + a); });
+    hxF.extras.forEach(function (x) { var a = numv(x.amount) || 0; exAll += a; if (x.cat && !x.fill) exBy[x.cat] = r2((exBy[x.cat] || 0) + a); });   // 含在分配（湊足經費）的已經算在經費編號裡，不再加
     exAll = r2(exAll);
     hx.cats.forEach(function (c) {
       var sub = 0;
@@ -2581,7 +2594,10 @@
     hxF._sys = hxF.cands ? sys : '';
     var got = r2(sys + exAll);
     setHtml($('hxSys'), hxF.cands || exAll ? (hxF.cands ? '勾選的送貨金額 <b>$' + money(sys) + '</b>' : '') + (exAll ? (hxF.cands ? '＋' : '') + '另外叫料 <b>$' + money(exAll) + '</b>' + (hxF.cands ? '＝ <b>$' + money(got) + '</b>' : '') : '') +
-      (inv ? (Math.abs(inv - got) < 1 ? ' <span class="badge ok">✓ 跟發票合計一樣</span>' : ' <span class="badge bad">發票合計' + (inv > got ? '多' : '少') + ' $' + money(Math.abs(r2(inv - got))) + '</span>') : '') : '');
+      (inv ? (Math.abs(inv - got) < 1 ? ' <span class="badge ok">✓ 跟發票合計一樣</span>' : ' <span class="badge bad">發票合計' + (inv > got ? '多' : '少') + ' $' + money(Math.abs(r2(inv - got))) + '</span>' +
+        // 發票照經費編號的金額開（湊足經費），上面有銷貨單沒有的品項：差額一鍵記成另外叫料
+        (inv > got ? ' <button type="button" class="btn ghost small" data-hxfill="' + r2(inv - got) + '" title="發票為了湊足經費編號的金額，上面有銷貨單沒有的品項">＋ 差額 $' + money(r2(inv - got)) + ' 記成「補足經費」</button>'
+          : '<div class="muted small" style="margin-top:2px">送貨比發票多 $' + money(r2(got - inv)) + '：超過經費的部分會開在下一張發票，可以先取消勾選那幾次送貨，留到下一次核銷。</div>')) : '') : '');
     if (exAll && hxF.extras.some(function (x) { return (numv(x.amount) || 0) && !x.cat; })) bad = bad || 'cat';
     var left = r2(inv - cat);
     // 經費編號：填的超過這個編號還剩的錢
@@ -3204,6 +3220,7 @@
       hxAutoAmt(); hxRenderCands(); hxSumUp(); return;
     }
     if (t.hasAttribute('data-hb')) { (hxF.exBulk = hxF.exBulk || {})[t.getAttribute('data-hb')] = t.value; return; }
+    if (t.hasAttribute('data-hefill')) { hxF.extras[Number(t.getAttribute('data-hefill'))].fill = t.checked; hxSumUp(); return; }
     if (t.hasAttribute('data-heck')) { var ex = hxF.extras[Number(t.getAttribute('data-heck'))]; ex.ck = t.checked; t.closest('.hxrow').classList.toggle('ck', t.checked); hxExCount(); return; }
     if (t.hasAttribute('data-he')) { hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value; hxSumUp(); return; }
     if (t.id === 'hxV' && t.value) {
