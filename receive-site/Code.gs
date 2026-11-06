@@ -15,7 +15,7 @@ const SITE_TITLE = '三信家商餐飲科 進貨驗收';
 const PHOTO_FOLDER_NAME = '三信家商餐飲科進貨銷貨單';   // 銷貨單照片放在雲端硬碟這個資料夾（每週一個子資料夾）
 const SHEET = { purchase: '叫貨紀錄', checks: '驗收紀錄', lines: '驗收明細', slip: '銷貨單明細', prices: '單價表', items: '食材總表', drafts: '驗收暫存' };
 const DRAFT_HEADERS = ['驗收編號', '暫存時間', '內容'];
-const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人', '沒有銷貨單', '發票號碼', '發票日期', '發票金額', '經費編號'];   // 一張銷貨單可以有好幾張發票：一行一張   // 沒有銷貨單：颱風假、停課整張沒送時填原因
+const SLIP_REC = '銷貨單紀錄', SLIP_REC_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '送貨組別', '銷貨單照片', '銷貨單金額', '銷貨單合計', '備註', '更新時間', '更新人', '沒有銷貨單', '發票號碼', '發票日期', '發票金額', '經費編號', '發票經費編號'];   // 一張銷貨單可以有好幾張發票：一行一張   // 沒有銷貨單：颱風假、停課整張沒送時填原因
 const CHECK_HEADERS = ['驗收編號', '送貨日期（起）', '送貨日期（迄）', '廠商', '送貨組別', '驗收時間', '品項數', '問題數', '銷貨單照片', '備註', '驗收人', '銷貨單金額', '銷貨單合計', '簽名人', '驗收人簽名'];
 const SLIP_HEADERS = ['驗收編號', '送貨日期（起）', '廠商', '食材名稱', '銷貨單品名', '數量', '單位', '單價', '金額', '貨品編號', '第幾張', '銷貨單日期', '類型', '件數', '件數單位', '每單位重量', '重量單位'];   // 每單位重量：1 罐／1 包幾 g（規格）。單價照重量算的（海鮮、肉）：數量／單位存總重量、件數另外記；照罐算的：數量／單位照罐   // 類型：食材／器材（每張銷貨單選一類）   // 第幾張：照紙本一張一張打的
 const PRICE_HEADERS = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];   // 換算：1 個「單位」等於多少，例如「190 顆」「1000 g」
@@ -409,10 +409,10 @@ function codeInNote_(note) {
 /** 銷貨單紀錄的發票（號碼、日期、金額各一欄，好幾張用換行分開）→ [{ no, date, amount }] */
 function slipInvs_(r) {
   const sp = function (v) { return v instanceof Date ? [dateStr_(v)] : String(v == null ? '' : v).replace(/^'/, '').split(/\n/).map(function (x) { return x.replace(/^'/, '').trim(); }); };
-  const nos = sp(r['發票號碼']), ds = sp(r['發票日期']), as = sp(r['發票金額']), out = [];
+  const nos = sp(r['發票號碼']), ds = sp(r['發票日期']), as = sp(r['發票金額']), cs = sp(r['發票經費編號']), out = [];
   for (let i = 0; i < Math.max(nos.length, ds.length); i++) {
     const no = nos[i] || '', d = ds[i] || '', a = as[i] === undefined || as[i] === '' ? '' : Number(as[i]);
-    if (no || d) out.push({ no: no, date: d, amount: a === '' || isNaN(a) ? '' : a });
+    if (no || d) out.push({ no: no, date: d, amount: a === '' || isNaN(a) ? '' : a, code: cs[i] || '' });
   }
   return out;
 }
@@ -454,7 +454,7 @@ function saveSlip_(p) {
   // 這張銷貨單的發票（可以好幾張；核銷時自動帶入）
   const invs = (p.invs || (p.invNo || p.invDate ? [{ no: p.invNo, date: p.invDate }] : [])).slice(0, 10).map(function (x) {
     const a = num_(x.amount);
-    return { no: clean_(x.no, 30).toUpperCase(), date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', amount: a };
+    return { no: clean_(x.no, 30).toUpperCase(), date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', amount: a, code: normCode_(clean_(x.code, 20)) };
   }).filter(function (x) { return x.no || x.date; });   // 這次沒有銷貨單（颱風假、停課）：不填金額
   if (noSlip) slip.length = 0;
   const total = p.slip && !noSlip ? num_(p.slip.total) : '';
@@ -469,7 +469,7 @@ function saveSlip_(p) {
       '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '', '沒有銷貨單': noSlip,
       '發票號碼': invs.length ? "'" + invs.map(function (x) { return x.no; }).join('\n') : '', '發票日期': invs.length ? "'" + invs.map(function (x) { return x.date; }).join('\n') : '',
       '發票金額': invs.some(function (x) { return x.amount !== ''; }) ? "'" + invs.map(function (x) { return x.amount; }).join('\n') : '',
-      '經費編號': clean_(p.code, 20).toUpperCase() }]);
+      '經費編號': clean_(p.code, 20).toUpperCase(), '發票經費編號': invs.some(function (x) { return x.code; }) ? "'" + invs.map(function (x) { return x.code; }).join('\n') : '' }]);
     const st = readTable_(SHEET.slip, ['驗收編號']);
     const oldSlip = st.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
     if (oldSlip.length) deleteRows_(st.sheet, oldSlip.map(function (r) { return r._row; }));

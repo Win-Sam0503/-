@@ -637,7 +637,13 @@
   // 這張叫貨單沒有銷貨單的原因（銷貨單頁按「這次沒有銷貨單」，或驗收標「整張停送」）；有填金額就不算
   function slipStopped(b) { var sl = b.slip; if (sl && sl.amount > 0) return ''; return sl && sl.noSlip || (b.stopAll ? b.stopNote || '停送' : ''); }
   // 經費編號放在廠商名稱旁邊，方便核對
-  function codeTag(sl) { return sl && sl.code ? ' <span class="badge" style="background:#e0eaff;color:#1849a9;font-size:15px;vertical-align:3px">📌 ' + esc(sl.code) + '</span>' : ''; }
+  function codeTag(sl) {
+    if (!sl) return '';
+    var cs = (sl.invs || []).map(function (x) { return x.code; }).filter(Boolean);
+    if (sl.code && cs.indexOf(sl.code) < 0) cs.unshift(sl.code);
+    cs = cs.filter(function (x, i, a) { return a.indexOf(x) === i; });
+    return cs.length ? ' <span class="badge" style="background:#e0eaff;color:#1849a9;font-size:15px;vertical-align:3px">📌 ' + esc(cs.join('、')) + '</span>' : '';
+  }
   function invBadge(sl) {
     var v = sl && sl.invs || [];
     return (v.length ? '<div class="small" style="margin-top:4px">🧾 ' + v.map(function (x) { return esc(x.no || '（沒填號碼）') + (x.date ? ' ' + esc(md(x.date)) : '') + (v.length > 1 && x.amount !== '' ? ' $' + money(x.amount) : ''); }).join('、') + '</div>' : '');
@@ -688,7 +694,7 @@
     } else $('slDraftMsg').innerHTML = '';
     $('slNote').value = d ? d.note || '' : sl ? sl.note || '' : '';
     cur.invs = (d && d.invs ? d.invs : d && (d.invNo || d.invDate) ? [{ no: d.invNo || '', date: d.invDate || '', amount: '' }] : sl && sl.invs ? sl.invs : [])
-      .map(function (x) { return { no: x.no || '', date: x.date || '', amount: x.amount === undefined || x.amount === null ? '' : String(x.amount) }; });
+      .map(function (x) { return { no: x.no || '', date: x.date || '', amount: x.amount === undefined || x.amount === null ? '' : String(x.amount), code: x.code || '' }; });
     renderInvs();
     $('slCode').value = d && d.code !== undefined ? d.code : sl ? sl.code || '' : '';
     fundCodesLoad();
@@ -763,7 +769,7 @@
   }
   $('slCode').addEventListener('input', function () { codeInfo(); saveDraft(); });
   // 銷貨單的發票（可以好幾張）
-  function invsUsed() { return (cur && cur.invs || []).filter(function (x) { return String(x.no).trim() || x.date || String(x.amount).trim(); }); }
+  function invsUsed() { return (cur && cur.invs || []).filter(function (x) { return String(x.no).trim() || x.date || String(x.amount).trim() || String(x.code || '').trim(); }).map(function (x) { return { no: x.no, date: x.date, amount: x.amount, code: (String(x.code || '').trim().toUpperCase().match(/^[A-Z]\d{5}|^B\d{3}/) || [String(x.code || '').trim().toUpperCase()])[0] }; }); }
   function renderInvs() {
     if (!cur.invs.length) cur.invs.push({ no: '', date: '', amount: '' });
     var many = cur.invs.length > 1;
@@ -772,6 +778,7 @@
         '<label class="small">發票號碼 <input data-inv="no" data-i="' + i + '" maxlength="30" value="' + esc(x.no) + '" placeholder="例如 AB12345678" autocomplete="off" style="width:150px;text-transform:uppercase"></label>' +
         '<label class="small">發票日期 <input data-inv="date" data-i="' + i + '" type="date" value="' + esc(x.date) + '" style="width:auto"></label>' +
         '<label class="small">金額 <input data-inv="amount" data-i="' + i + '" inputmode="decimal" value="' + esc(x.amount) + '" placeholder="' + (many ? '這張發票多少' : '只有一張可不填') + '" style="width:120px"></label>' +
+        '<label class="small" title="這張發票用哪個經費編號（兩張發票不同編號時各填各的；沒填就用下面整張的經費編號）">📌 經費編號 <input data-inv="code" data-i="' + i + '" list="slCodeList" maxlength="20" value="' + esc(x.code || '') + '" placeholder="' + (many ? '這張的編號' : '選填') + '" autocomplete="off" style="width:110px;text-transform:uppercase"></label>' +
         (many ? '<button type="button" class="btn ghost small" data-invdel="' + i + '" title="拿掉這張發票">✕</button>' : '') + '</div>';
     }).join('');
     invCheck();
@@ -2445,6 +2452,30 @@
     for (var i = 0; i < parts.length; i++) { if (parts[i] === '') continue; var x = Number(parts[i]); if (isNaN(x)) return null; n += x; }
     return r2(n);
   }
+  // 一次送貨（銷貨單）用到的經費編號：每張發票有填編號的照發票金額；沒有就用整張銷貨單的編號＋金額
+  function candCodes(c) {
+    var iv = (c.invs || []).filter(function (x) { return x.code; });
+    if (iv.length) {
+      var given = (c.invs || []).reduce(function (a, x) { return a + (x.amount === '' ? 0 : Number(x.amount) || 0); }, 0), blanks = (c.invs || []).filter(function (x) { return x.amount === ''; });
+      return iv.map(function (x) { return { code: String(x.code).toUpperCase(), amount: x.amount === '' ? (x === blanks[0] ? Math.max(0, r2(c.amount - given)) : 0) : Number(x.amount) || 0 }; });
+    }
+    return c.code ? [{ code: String(c.code).toUpperCase(), amount: c.amount }] : [];
+  }
+  // 照發票的經費編號帶入分配：每個編號放到它的類別、一個編號一格
+  document.addEventListener('click', function (e) {
+    if (!e.target || e.target.id !== 'hxCodeFill' || !hxF || !hxF._codeFill) return;
+    var list = hxF._codeFill, miss = [];
+    if (!window.confirm('照發票的經費編號重新填分配？\n' + list.map(function (x) { return x.code + ' $' + money(x.amount); }).join('\n') + '\n（目前填的分配會清掉）')) return;
+    hxF.parts = {}; hxF.pcodes = {};
+    list.forEach(function (x) {
+      var c = (hx.codes || []).filter(function (y) { return String(y.code).toUpperCase() === x.code; })[0];
+      if (!c || !c.cat) { miss.push(x.code); return; }
+      (hxF.parts[c.cat] = hxF.parts[c.cat] || []).push(String(x.amount));
+      (hxF.pcodes[c.cat] = hxF.pcodes[c.cat] || []).push(c.code);
+    });
+    hxRenderCats(); hxSumUp();
+    if (miss.length) msg('hxMsg', 'warn', '經費編號 ' + miss.join('、') + ' 在「經費編號」裡找不到，請自己拆類別。');
+  });
   // 「補足經費」：發票金額照經費編號開，比勾的送貨多的差額記成一項另外叫料（類別先放分配最多的那一類）
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-hxfill]');
@@ -2610,7 +2641,7 @@
         '<span><b>' + esc(mdw(c.date)) + '</b> ' + esc(c.label) + '　<b>$' + money(c.amount) + '</b>' + (c.estimated ? ' <span class="badge none">估</span>' : '') +
         (c.checked ? '' : ' <span class="badge warn">還沒驗收</span>') + (c.noPrice ? ' <span class="badge bad">' + c.noPrice + ' 項沒單價</span>' : '') +
         (c.usedBy ? ' <span class="badge none">已在發票 ' + esc(c.usedBy) + '</span>' : '') +
-        (c.code ? ' <span class="badge" style="background:#e0eaff;color:#1849a9">📌 ' + esc(c.code) + '</span>' : '') +
+        (candCodes(c).length ? ' <span class="badge" style="background:#e0eaff;color:#1849a9">📌 ' + esc(candCodes(c).map(function (x) { return x.code + (candCodes(c).length > 1 ? ' $' + money(x.amount) : ''); }).join('、')) + '</span>' : '') +
         (c.byKind && c.byKind['器材'] ? '<div class="small">🥬 食材 $' + money(c.byKind['食材'] || 0) + '　🔧 器材 $' + money(c.byKind['器材']) + '</div>' : '') + '</span></label>';
     }).join('');
     // 各班金額參考（補庫存、沒有班級的另外列）
@@ -2623,12 +2654,13 @@
     hxF._stock = by[''] || 0;
     // 銷貨單上填了經費編號：提醒拆類別時選這個編號（不自動帶）
     var cm = {};
-    hxPicked().forEach(function (c) { if (c.code) cm[c.code] = r2((cm[c.code] || 0) + c.amount); });
+    hxPicked().forEach(function (c) { candCodes(c).forEach(function (x) { cm[x.code] = r2((cm[x.code] || 0) + x.amount); }); });
     var ck = Object.keys(cm);
-    if (ck.length) $('hxRef').innerHTML = '<div class="msg info" style="margin-bottom:6px">📌 勾的銷貨單有填經費編號，拆類別時記得選：' + ck.map(function (k) {
+    hxF._codeFill = ck.map(function (k) { return { code: k, amount: cm[k] }; });
+    if (ck.length) $('hxRef').innerHTML = '<div class="msg info" style="margin-bottom:6px">📌 勾的銷貨單有填經費編號：' + ck.map(function (k) {
       var c = (hx.codes || []).filter(function (x) { return x.code === k; })[0];
-      return '<b>' + esc(k) + '</b>' + (c ? ' ' + esc(c.name) + '（' + esc(c.cat || '') + '）' : '') + ' 銷貨單 $' + money(cm[k]);
-    }).join('、') + '</div>' + $('hxRef').innerHTML;
+      return '<b>' + esc(k) + '</b>' + (c ? ' ' + esc(c.name) + '（' + esc(c.cat || '') + '）' : '') + ' $' + money(cm[k]);
+    }).join('、') + ' <button type="button" class="btn small" id="hxCodeFill" style="margin-left:6px">照發票的經費編號帶入分配</button></div>' + $('hxRef').innerHTML;
     // 食材／器材分開（銷貨單上每張選的類別）
     var bk = {};
     hxPicked().forEach(function (c) { Object.keys(c.byKind || {}).forEach(function (k) { bk[k] = r2((bk[k] || 0) + c.byKind[k]); }); });
@@ -3186,7 +3218,9 @@
         hxRenderCands(); hxSumUp();
         // 補庫存先帶「餐飲科科費」（那一格還空著才帶）
         hxReadParts();
-        if (hxF._stock && !(hxF.parts['餐飲科科費'] || []).some(function (v) { return String(v).trim(); }) && hx.cats.some(function (c) { return c.name === '餐飲科科費'; })) {
+        // 已經有拆類別（例如照發票的經費編號帶入）就不帶，免得重複算
+        var anyPart = Object.keys(hxF.parts || {}).some(function (k) { return (hxF.parts[k] || []).some(function (v) { return String(v).trim(); }); });
+        if (hxF._stock && !anyPart && hx.cats.some(function (c) { return c.name === '餐飲科科費'; })) {
           hxF.parts['餐飲科科費'] = [String(hxF._stock)]; hxRenderCats(); hxSumUp();
         }
       }).catch(function (err) { msg('hxMsg', 'error', err.message); })
