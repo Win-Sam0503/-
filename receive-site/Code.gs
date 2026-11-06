@@ -113,17 +113,57 @@ function doGet() {
 // ---------------------------------------------------------------------
 
 /** monday：'yyyy-MM-dd'（那週星期一）。回傳每一張 ③ 叫貨單（廠商＋送貨組別）和驗收狀態 */
-function getWeek_(monday) {
+function getWeek_(monday, mode) {
   const from = parseDate_(monday) || mondayOf_(today_());
   const to = addDays_(from, 4);
   const f = dateStr_(from), t = dateStr_(to);
-  const recs = readSlipRecs_();
-  const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_(), recs);
-  out.extras = extraSlips_(recs, f, t);
+  const recs = readSlipRecs_(), prices = readPrices_();
+  const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), prices, recs);
+  out.batches.forEach(function (b) { b.from = f; });
+  if (mode === 'slip') slipWeekView_(out, f, recs, prices);
+  else out.extras = extraSlips_(recs, f, t);
   out.lastUnits = lastUnits_();
   const drafts = readDrafts_();
   out.batches.forEach(function (b) { delete b.list; b.draft = drafts[b.id] || null; });
   return out;
+}
+
+/**
+ * 💰 銷貨單分頁：照「銷貨單上的日期」分週（週一～週日），不是叫貨的那週。
+ * - 這週叫貨、銷貨單還沒填或沒填日期的：照樣列在這週（才能填）
+ * - 這週叫貨、銷貨單日期全部在別週的：移到那一週（out.movedOut 記下來給畫面說明）
+ * - 別週叫貨、銷貨單上有這週日期的：拉進來（b.otherWeek）
+ * 一張叫貨單的銷貨單跨兩週的：兩週都會出現，畫面只算日期在這週的金額
+ */
+function slipWeekView_(out, f, recs, prices) {
+  const sEnd = dateStr_(addDays_(parseDate_(f), 6));
+  const inWk = function (d) { return d >= f && d <= sEnd; };
+  const dates = function (b) { return ((b.slip && b.slip.rows) || []).map(function (r) { return r.date; }).filter(Boolean); };
+  out.movedOut = [];
+  out.batches = out.batches.filter(function (b) {
+    const ds = dates(b);
+    if (!ds.length || ds.some(inWk)) return true;
+    out.movedOut.push({ vendor: b.vendor, group: b.group, dates: ds.filter(function (d, i, a) { return a.indexOf(d) === i; }).sort() });
+    return false;
+  });
+  // 別週叫貨、銷貨單日期在這週的
+  if (!SLIPS_MEMO_) SLIPS_MEMO_ = slipsById_();
+  const have = {}, need = {};
+  out.batches.forEach(function (b) { have[b.id] = true; });
+  Object.keys(SLIPS_MEMO_).forEach(function (id) {
+    const m = String(id).match(/^R(\d{4})(\d{2})(\d{2})-/);
+    if (!m || have[id]) return;
+    const wk = m[1] + '-' + m[2] + '-' + m[3];
+    if (wk === f) return;
+    if (SLIPS_MEMO_[id].some(function (r) { return r.date && inWk(r.date); })) (need[wk] = need[wk] || {})[id] = true;
+  });
+  Object.keys(need).sort().forEach(function (wk) {
+    const other = weekBatches_(purchaseRows_(wk, dateStr_(addDays_(parseDate_(wk), 4))), wk, readChecks_(wk), prices, recs);
+    other.batches.forEach(function (b) { if (need[wk][b.id]) { b.from = wk; b.otherWeek = true; out.batches.push(b); } });
+  });
+  // 臨時銷貨單：照送貨日期（週一～週日）
+  out.extras = extraSlips_(recs, f, sEnd);
+  out.slipTo = sEnd;
 }
 
 /** 銷貨單上次打的單位：{ 廠商: { 品名: 單位 } }（照試算表順序，後面的蓋前面的＝最新的），打品名時自動帶 */

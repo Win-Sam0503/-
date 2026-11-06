@@ -475,13 +475,16 @@
     var p = d.split('-'), mon = iso(mondayOf(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))));
     msg('listMsg', 'info', '載入中…');
     $('cards').innerHTML = '';
-    return call('getWeek', mon).then(function (w) {
+    var mode = listMode;
+    return call('getWeek', mon, mode).then(function (w) {
+      if (mode !== listMode) return;   // 等的時候換了分頁
       week = w;
-      $('weekText').textContent = mdw(w.from) + '～' + mdw(w.to);
+      $('weekText').textContent = mdw(w.from) + '～' + mdw(mode === 'slip' && w.slipTo ? w.slipTo : w.to);
       msg('listMsg', w.drafts.length ? 'warn' : '', w.drafts.length ? w.drafts.join('、') + ' 還是草稿、還沒「確定叫貨」，確定後才會出現在這裡。' : '');
-      $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）。選一張叫貨單開始；不在叫貨單裡的送貨按「＋ 新增銷貨單」。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
+      $('listHint').textContent = listMode === 'slip' ? '💰 銷貨單：照銷貨單上的日期分週（週一～週日）。拍銷貨單、填金額（跟點貨分開，還沒驗收也可以先填）；還沒填的照叫貨那週列。不在叫貨單裡的送貨按「＋ 新增銷貨單」。' : '列出這週「確定叫貨」的 ③ 叫貨單，一張一張點：菜商、肉商、海鮮照班級點，其他廠商點品項總量。';
       if (listMode === 'slip') {
         if (!w.batches.length) msg('listMsg', 'info', '這週沒有叫貨單；不在叫貨單裡的送貨可以按「＋ 新增銷貨單」。');
+        if (w.movedOut && w.movedOut.length) msg('listMsg', 'info', '這週叫貨、銷貨單日期在別週的，列在銷貨單日期那週：' + w.movedOut.map(function (x) { return x.vendor + (x.group ? '（' + x.group + '）' : '') + ' ' + x.dates.map(md).join('、'); }).join('；'));
         $('cards').innerHTML = slipWeekSum(w) + slipPickBar() + '<button type="button" class="card' + (slPick ? ' hidden' : '') + '" id="slNew" style="border-style:dashed;text-align:center"><b>＋ 新增銷貨單</b><div class="muted small">不在叫貨單裡的送貨（臨時叫的、外面買的）</div></button>' +
           w.batches.map(slipCard).join('') + (w.extras || []).map(extraCard).join('');
         return;
@@ -507,14 +510,14 @@
   // 本週銷貨單合計（列表上方）
   function slipWeekSum(w) {
     var tot = 0, food = 0, gear = 0, by = {}, n = 0, done = 0, stopN = 0;
-    var addSl = function (vendor, sl) {
-      if (!sl || !(sl.amount > 0)) return;
-      done++; tot += sl.amount; by[vendor] = (by[vendor] || 0) + sl.amount;
-      var g = (sl.rows || []).reduce(function (s0, r) { return s0 + (r.kind === '器材' ? Number(r.amount) || 0 : 0); }, 0);
-      gear += g; food += sl.amount - g;
+    var addSl = function (vendor, b) {
+      var wp = slipWeekPart(b);
+      if (!wp) return;
+      done++; tot += wp.amt; by[vendor] = (by[vendor] || 0) + wp.amt;
+      gear += wp.gear; food += wp.amt - wp.gear;
     };
-    w.batches.forEach(function (b) { n++; if (slipStopped(b)) { stopN++; done++; } else addSl(b.vendor, b.slip); });
-    (w.extras || []).forEach(function (x) { n++; addSl(x.vendor, x.slip); });
+    w.batches.forEach(function (b) { n++; if (slipStopped(b)) { stopN++; done++; } else addSl(b.vendor, b); });
+    (w.extras || []).forEach(function (x) { n++; addSl(x.vendor, x); });
     var ym = w.from.slice(0, 7), ym2 = w.to.slice(0, 7);
     return '<div class="panel" style="grid-column:1/-1;margin:0"><div class="row" style="align-items:baseline"><b style="font-size:18px">本週銷貨單合計 $' + money(r2(tot)) + '</b>' +
       (gear ? '<span class="small">🥬 食材 $' + money(r2(food)) + '　🔧 器材 $' + money(r2(gear)) + '</span>' : '') +
@@ -544,7 +547,7 @@
     else {
       if (slPick.vendor && slPick.vendor !== b.vendor && Object.keys(slPick.ids).length) { msg('slPickMsg', 'warn', '一筆核銷只能一家廠商：已經選了 ' + slPick.vendor + '，要換廠商請先取消。'); return; }
       slPick.vendor = b.vendor;
-      slPick.ids[b.id] = { amount: sl.amount, from: b.extra ? b.date : week.from, to: b.extra ? b.date : week.to };
+      slPick.ids[b.id] = { amount: sl.amount, from: b.extra ? b.date : bFrom(b), to: b.extra ? b.date : bTo(b) };
     }
     loadWeek();
   }
@@ -625,12 +628,25 @@
     var v = sl && sl.invs || [];
     return (v.length ? '<div class="small" style="margin-top:4px">🧾 ' + v.map(function (x) { return esc(x.no || '（沒填號碼）') + (x.date ? ' ' + esc(md(x.date)) : '') + (v.length > 1 && x.amount !== '' ? ' $' + money(x.amount) : ''); }).join('、') + '</div>' : '');
   }
+  // 這張叫貨單是哪一週叫的（銷貨單照單上日期分週，可能是別週叫的）
+  function bFrom(b) { return b.from || week.from; }
+  function bTo(b) { var p = bFrom(b).split('-'); return iso(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + 4)); }
+  // 銷貨單日期在這週（週一～週日）的金額；跨週的只算這週的
+  function slipWeekPart(b) {
+    var sl = b.slip; if (!sl || !(sl.amount > 0)) return null;
+    var end = week.slipTo || week.to, rows = sl.rows || [], dated = rows.filter(function (r) { return r.date; });
+    if (!dated.length || dated.every(function (r) { return r.date >= week.from && r.date <= end; })) return { amt: sl.amount, part: false, gear: rows.reduce(function (t, r) { return t + (r.kind === '器材' ? Number(r.amount) || 0 : 0); }, 0) };
+    var a = 0, g = 0;
+    rows.forEach(function (r) { if (!r.date || (r.date >= week.from && r.date <= end)) { var x = Number(r.amount) || 0; a += x; if (r.kind === '器材') g += x; } });
+    return { amt: r2(a), part: true, gear: g };
+  }
   function slipCard(b, i) {
     var sl = b.slip, d = readSlipDraft(b), c = b.check;
-    var stop = slipStopped(b);
-    var st = sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
+    var stop = slipStopped(b), wp = listMode === 'slip' ? slipWeekPart(b) : null;
+    var st = wp && wp.part ? '<span class="badge ok">💰 這週 $' + money(wp.amt) + '</span> <span class="muted small">整張 $' + money(sl.amount) + '</span>' : sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
     return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + codeTag(sl) +
       (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
+      (b.otherWeek ? '<div class="small" style="color:var(--warn)">📅 ' + esc(md(b.from)) + ' 那週叫的貨</div>' : '') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
       ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span>' +
       invBadge(sl) + '</div></button>';
@@ -664,7 +680,7 @@
     fundCodesLoad();
     if (!cur.slip) paperMode();   // 預設：照紙本一張一張打
     $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
-    $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : mdw(week.from) + '～' + mdw(week.to) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
+    $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : '叫貨 ' + mdw(bFrom(b)) + '～' + mdw(bTo(b)) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
     $('slMove').classList.toggle('hidden', !(b.id && sl && (sl.amount || sl.rows.length || sl.photos.length || (sl.invs || []).length)));
     $('slMoveBox').classList.add('hidden');
@@ -686,7 +702,7 @@
   }
   function saveNoSlip(why) {
     var b = cur.b;
-    return call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: false, id: b.id || '', date: '', photos: cur.photos, note: $('slNote').value, slip: why ? null : slipToSave(), noSlip: why, invs: invsUsed(), code: slipCodeVal() });
+    return call('saveSlip', { from: bFrom(b), vendor: b.vendor, group: b.group, extra: false, id: b.id || '', date: '', photos: cur.photos, note: $('slNote').value, slip: why ? null : slipToSave(), noSlip: why, invs: invsUsed(), code: slipCodeVal() });
   }
   $('slNoSlip').addEventListener('click', function () {
     var b = cur.b, btn = this;
@@ -843,7 +859,7 @@
     }
     var b = cur.b, btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveSlip', { from: week.from, vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave(), invs: invsUsed(), code: slipCodeVal() }).then(function (r) {
+    call('saveSlip', { from: bFrom(b), vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave(), invs: invsUsed(), code: slipCodeVal() }).then(function (r) {
       try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
       if (b.extra) b.id = r.id;
       msg('doneMsg', 'ok', b.vendor + ' 銷貨單已儲存：' + (r.amount !== '' ? '金額 $' + money(r.amount) + '（' + r.rows + ' 行）' : '還沒填金額') + '，照片 ' + r.photos + ' 張。');
@@ -1043,7 +1059,7 @@
     if (!f || !k) return;
     var x = cur.b.lines.filter(function (y) { return y.key === k; })[0], btn = document.querySelector('[data-k="' + CSS.escape(k) + '"] [data-ph]');
     if (btn) { btn.disabled = true; btn.textContent = '上傳中…'; }
-    shrink(f, true).then(function (b64) { return uploadRetry(b64, week.from, cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
+    shrink(f, true).then(function (b64) { return uploadRetry(b64, bFrom(cur.b), cur.b.vendor, (x.cls ? x.cls + ' ' : '') + x.name + ' ' + (cur.marks[k].status || '')); })
       .then(function (r) { var m = cur.marks[k] = cur.marks[k] || {}; (m.photos = m.photos || []).push(r.url); renderDo(); saveDraft(); })
       .catch(function (err) { msg('doMsg', 'error', '照片上傳失敗：' + err.message); if (btn) { btn.disabled = false; btn.textContent = '📷 拍照'; } });
   });
@@ -1140,7 +1156,7 @@
       if (next >= items.length) return Promise.resolve();
       var q = items[next++];
       q.st = 'up'; if (here()) renderThumbs();
-      return shrink(q.f).then(function (b64) { return uploadRetry(b64, week.from, c.b.vendor); })
+      return shrink(q.f).then(function (b64) { return uploadRetry(b64, c.b.extra ? c.b.date : bFrom(c.b), c.b.vendor); })
         .then(function (r) { ok++; (here() ? cur : c).photos.push(r.url); done(q); })
         .catch(function () { bad++; q.st = 'bad'; setTimeout(function () { done(q); if (here()) renderThumbs(); }, 6000); })   // 一張失敗，其他張照樣傳
         .then(function () { if (here()) { renderThumbs(); saveDraft(); } tell(); return one(); });
