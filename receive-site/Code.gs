@@ -1322,11 +1322,11 @@ function fmtQty_(n) { return String(Math.round(Number(n) * 100) / 100); }
 // ---------------------------------------------------------------------
 
 const HX_INVOICE_HEADERS = ['發票編號', '廠商', '發票號碼', '發票日期', '發票金額', '涵蓋方式', '起', '迄', '驗收編號', '系統金額', '發票照片', '備註', '建立時間', '建立人', '銷貨單照片', '送貨照片'];   // 銷貨單照片：核銷時另外拍的（收據、另外叫料）；送貨照片：勾的銷貨單的照片（存檔時記下）
-const HX_ALLOC_HEADERS = ['發票編號', '類別', '金額', '經手人', '狀態', '核銷日期', '核銷人', '明細', '經費編號'];   // 經費編號：「C30033=18400、C30034=9200」   // 明細：這一類填的好幾筆，例如「150+80+20」
+const HX_ALLOC_HEADERS = ['發票編號', '類別', '金額', '經手人', '狀態', '核銷日期', '核銷人', '明細', '經費編號', '簽核紀錄'];   // 簽核紀錄：一關一行「關卡|按的人|時間」   // 經費編號：「C30033=18400、C30034=9200」   // 明細：這一類填的好幾筆，例如「150+80+20」
 const HX_LINE_HEADERS = ['發票編號', '發票號碼', '發票日期', '金額', '照片', '備註', '付款方式', '付款對象'];   // 付款方式：匯款／現金／回科辦現金／老師先墊／廠商月結
 // 另外叫料：不在叫貨單裡的（臨時電話加叫、系統外的商店、活動用、老師先買後報帳），一項一列，金額算進那一類
 const HX_EXTRA_HEADERS = ['發票編號', '日期', '品名', '金額', '類別', '購買人', '備註', '含在分配'];   // 含在分配＝是：發票為了湊足經費編號金額開的品項，錢已經算在類別分配（經費編號）裡，不再另外加   // 一筆核銷可以有好幾張發票（「發票編號」是這筆核銷的編號）
-const HX_CAT_HEADERS = ['類別', '經手人', '排序'];
+const HX_CAT_HEADERS = ['類別', '經手人', '排序', '再確認'];   // 經手人可以好幾位（、隔開，誰都可以按）；再確認：經手人之後還要誰確認，照順序，例如「組長、主任」
 const HX_BUDGET_HEADERS = ['預算編號', '類別', '名稱', '起', '迄', '預算', '備註', '更新時間', '更新人'];
 const HX_DEFAULT_CATS = ['國中技藝班（餐旅）', '國中技藝班（食品）', '特教班', '實習實作', '餐飲科科費', '國中生涯實作（三信）', '國中生涯實作（國中）', '未未成果展'];
 const HX_STOCK_CAT = '餐飲科科費';   // 補庫存（沒有班級、大家共用的）先帶這一類
@@ -1343,12 +1343,12 @@ function hxCats_() {
   }
   return readTable_('核銷類別', ['類別']).rows.filter(function (r) { return String(r['類別']).trim(); })
     .sort(function (a, b) { return (Number(a['排序']) || 99) - (Number(b['排序']) || 99); })
-    .map(function (r) { return { name: hxCat_(r['類別']), handler: String(r['經手人'] || '').trim() }; });
+    .map(function (r) { return { name: hxCat_(r['類別']), handler: String(r['經手人'] || '').trim(), review: String(r['再確認'] || '').trim() }; });
 }
 
 /** 存類別設定：list = [{ name, handler }]，照順序 */
 function hxSaveCats_(list) {
-  list = (list || []).map(function (x) { return { name: clean_(x.name, 30), handler: clean_(x.handler, 30) }; }).filter(function (x) { return x.name; });
+  list = (list || []).map(function (x) { return { name: clean_(x.name, 30), handler: clean_(x.handler, 60), review: clean_(x.review, 60) }; }).filter(function (x) { return x.name; });
   if (!list.length) throw new Error('至少要有一個類別。');
   const seen = {};
   list.forEach(function (x) { if (seen[x.name]) throw new Error('類別「' + x.name + '」重複了。'); seen[x.name] = true; });
@@ -1357,7 +1357,7 @@ function hxSaveCats_(list) {
     ensureSheet_('核銷類別', HX_CAT_HEADERS);
     const t = readTable_('核銷類別', ['類別']);
     if (t.rows.length) deleteRows_(t.sheet, t.rows.map(function (r) { return r._row; }));
-    appendRows_('核銷類別', list.map(function (x, i) { return { '類別': x.name, '經手人': x.handler, '排序': i + 1 }; }));
+    appendRows_('核銷類別', list.map(function (x, i) { return { '類別': x.name, '經手人': x.handler, '排序': i + 1, '再確認': x.review }; }));
   } finally {
     lock.releaseLock();
   }
@@ -1382,7 +1382,7 @@ function hxReadInvoices_() {
     if (!inv) return;
     const amt = Number(r['金額']) || 0, parts = String(r['明細'] === undefined ? '' : r['明細']).replace(/^'/, '').split('+').map(Number).filter(function (n) { return !isNaN(n) && n; });
     inv.allocs.push({ cat: hxCat_(r['類別']), amount: amt, parts: parts.length || String(r['明細'] || '').replace(/^'/, '') === '0' ? parts : [amt], handler: String(r['經手人'] || ''), status: String(r['狀態'] || '待核銷'),
-      doneDate: r['核銷日期'] instanceof Date ? dateStr_(r['核銷日期']) : String(r['核銷日期'] || ''), doneBy: String(r['核銷人'] || ''),
+      doneDate: r['核銷日期'] instanceof Date ? dateStr_(r['核銷日期']) : String(r['核銷日期'] || ''), doneBy: String(r['核銷人'] || ''), signs: hxSigns_(r['簽核紀錄']),
       codes: String(r['經費編號'] || '').split(/[、,，\n]+/).map(function (x) { const m = x.trim().match(/^([A-Za-z0-9-]+)=([\d.]+)$/); return m ? { code: m[1], amount: Number(m[2]) } : null; }).filter(Boolean) });
   });
   if (ss_().getSheetByName('核銷發票明細')) readTable_('核銷發票明細', ['發票編號']).rows.forEach(function (r) {
@@ -1424,6 +1424,8 @@ function hxGet_(vendor, ym) {
   const rc = readSlipRecs_();   // 臨時銷貨單的廠商（例如全聯）也列進選單
   Object.keys(rc).forEach(function (id) { if (/^S\d{8}-/.test(id) && rc[id].vendor) vendors[rc[id].vendor] = true; });
   const budgets = hxBudgets_(list), codes = hxCodes_(list);
+  const mp = hxStepMaps_(codes);
+  list.forEach(function (inv) { inv.allocs.forEach(function (a) { a.steps = hxSteps_(a, mp.cat, mp.code); }); });
   if (vendor) list = list.filter(function (x) { return x.vendor === vendor; });
   if (ym) list = list.filter(function (x) { return x.date.slice(0, 7) === ym; });
   return { cats: cats, vendors: Object.keys(vendors).filter(Boolean).sort(), invoices: list, budgets: budgets, codes: codes, me: CURRENT_USER_ };
@@ -1557,7 +1559,8 @@ function hxSaveInvoice_(p) {
       const o = old[a.cat], keep = o && String(o['狀態']) === '已核銷' && Math.abs((Number(o['金額']) || 0) - a.amount) < 0.01;
       return { '發票編號': id, '類別': a.cat, '金額': a.amount, '經手人': handler[a.cat] || '', '狀態': keep ? '已核銷' : '待核銷',
         '核銷日期': keep ? o['核銷日期'] : '', '核銷人': keep ? o['核銷人'] : '', '明細': "'" + (a.parts.length ? a.parts.join('+') : '0'),
-        '經費編號': a.codes.map(function (x) { return x.code + '=' + x.amount; }).join('、') };
+        '經費編號': a.codes.map(function (x) { return x.code + '=' + x.amount; }).join('、'),
+        '簽核紀錄': o && Math.abs((Number(o['金額']) || 0) - a.amount) < 0.01 ? String(o['簽核紀錄'] || '') : '' };   // 金額沒改：已經確認的關卡留著
     }));
     if (extras.length) appendRows_('核銷另外叫料', extras.map(function (x) {
       return { '發票編號': id, '日期': x.date ? "'" + x.date : '', '品名': x.name, '金額': x.amount, '類別': x.cat, '購買人': x.buyer, '備註': x.note, '含在分配': x.fill ? '是' : '' };
@@ -1574,12 +1577,13 @@ function hxSaveInvoice_(p) {
 /** 核銷用到的分頁：沒有就建、缺欄位就補；檢查過記 6 小時，之後不再每次檢查 */
 function hxEnsureSheets_() {
   const cache = CacheService.getScriptCache();
-  if (cache.get('hxSheetsOk5')) return;
+  if (cache.get('hxSheetsOk6')) return;
   ensureSheet_('核銷發票', HX_INVOICE_HEADERS);
   ensureSheet_('核銷分配', HX_ALLOC_HEADERS);
   ensureSheet_('核銷發票明細', HX_LINE_HEADERS);
   ensureSheet_('核銷另外叫料', HX_EXTRA_HEADERS);
-  cache.put('hxSheetsOk5', '1', 6 * 3600);
+  if (ss_().getSheetByName('核銷類別')) ensureSheet_('核銷類別', HX_CAT_HEADERS);
+  cache.put('hxSheetsOk6', '1', 6 * 3600);
 }
 
 // ---------------------------------------------------------------------
@@ -1705,7 +1709,7 @@ function hxCodes_(invoices) {
   if (!ss_().getSheetByName('經費編號')) return [];
   const list = readTable_('經費編號', ['編號', '金額']).rows.filter(function (r) { return String(r['編號']).trim(); }).map(function (r) {
     return { code: String(r['編號']).trim(), name: String(r['實習課程名稱'] || r['名稱'] || '').trim(), amount: Number(r['金額']) || 0, vendors: String(r['廠商'] || '').trim(),
-      month: String(r['開發票月份'] || '').trim(), cat: hxCat_(r['類別']), group: String(r['組別'] || '').trim(), note: String(r['備註'] || '').trim(), used: 0, done: 0, uses: [] };
+      month: String(r['開發票月份'] || '').trim(), cat: hxCat_(r['類別']), group: String(r['組別'] || '').trim(), note: String(r['備註'] || '').trim(), handler: String(r['經手人'] || '').trim(), used: 0, done: 0, uses: [] };
   });
   const by = {};
   list.forEach(function (c) { by[c.code] = c; });
@@ -1728,7 +1732,7 @@ function hxCodes_(invoices) {
  * 新增／修改一個分支（經費編號）：8 大類每一類底下都可以分支，例如實習實作 → 歐式點心 C30039。
  * c = { code（沒填自動編，例如 B001）, old（修改時原本的編號）, cat, name, amount, group, vendors, month, note }
  */
-const FUND_HEADERS = ['編號', '實習課程名稱', '金額', '廠商', '開發票月份', '類別', '組別', '備註'];
+const FUND_HEADERS = ['編號', '實習課程名稱', '金額', '廠商', '開發票月份', '類別', '組別', '備註', '經手人'];
 function hxSaveCode_(c) {
   c = c || {};
   const cat = hxCat_(clean_(c.cat, 30)), name = clean_(c.name, 40), amount = Number(c.amount);
@@ -1747,7 +1751,7 @@ function hxSaveCode_(c) {
       code = 'B' + ('00' + n).slice(-3);
     }
     if (code !== old && all.indexOf(code) >= 0) throw new Error('編號「' + code + '」已經有了。');
-    const row = { '編號': code, '實習課程名稱': name, '金額': amount, '廠商': clean_(c.vendors, 60), '開發票月份': clean_(c.month, 30), '類別': cat, '組別': clean_(c.group, 20), '備註': clean_(c.note, 100) };
+    const row = { '編號': code, '實習課程名稱': name, '金額': amount, '廠商': clean_(c.vendors, 60), '開發票月份': clean_(c.month, 30), '類別': cat, '組別': clean_(c.group, 20), '備註': clean_(c.note, 100), '經手人': clean_(c.handler, 60) };
     const r = old ? t.rows.filter(function (x) { return String(x['編號']).trim().toUpperCase() === old; })[0] : null;
     if (old && !r) throw new Error('找不到編號「' + old + '」，請重新整理。');
     if (r) {
@@ -1889,13 +1893,45 @@ function hxRenameVendor_(from, to) {
 }
 
 /** 某張發票的某一類：經手人確認「已核銷」（done=false 改回待核銷） */
+function hxSigns_(v) { return String(v || '').split(/\n+/).filter(Boolean).map(function (l) { const p = l.split('|'); return { label: p[0] || '', by: p[1] || '', at: p[2] || '' }; }); }
+/**
+ * 一筆分配要經過哪幾關：① 經手人（用到的經費編號有設經手人就用那幾位，沒有就用類別的經手人；好幾位誰按都可以）
+ * ② 類別「再確認」照順序（例如組長、主任）。全部確認完才算已核銷
+ */
+function hxSteps_(a, catMap, codeMap) {
+  const split = function (v) { return String(v || '').split(/[、,，\/\s]+/).map(function (x) { return x.trim(); }).filter(Boolean); };
+  let who = [];
+  (a.codes || []).forEach(function (x) { const c = codeMap[x.code]; if (c && c.handler) split(c.handler).forEach(function (n) { if (who.indexOf(n) < 0) who.push(n); }); });
+  if (!who.length) who = split((catMap[a.cat] || {}).handler || a.handler);
+  const steps = [{ label: '經手人', who: who }];
+  split((catMap[a.cat] || {}).review).forEach(function (n) { steps.push({ label: n, who: [n] }); });
+  return steps;
+}
+function hxStepMaps_(codes) {
+  const catMap = {}, codeMap = {};
+  hxCats_().forEach(function (c) { catMap[c.name] = c; });
+  (codes || hxCodes_([])).forEach(function (c) { codeMap[c.code] = c; });
+  return { cat: catMap, code: codeMap };
+}
 function hxSetDone_(id, cat, done) {
+  ensureSheet_('核銷分配', HX_ALLOC_HEADERS);
   const t = readTable_('核銷分配', ['發票編號', '類別']);
   const r = t.rows.filter(function (x) { return String(x['發票編號']).trim() === id && hxCat_(x['類別']) === hxCat_(cat); })[0];
   if (!r) throw new Error('找不到這筆。');
-  setCell_(t, r._row, '狀態', done ? '已核銷' : '待核銷');
-  setCell_(t, r._row, '核銷日期', done ? new Date() : '');
-  setCell_(t, r._row, '核銷人', done ? CURRENT_USER_ : '');
+  const mp = hxStepMaps_();
+  const codes = String(r['經費編號'] || '').split(/[、,，\n]+/).map(function (x) { const m = x.trim().match(/^([A-Za-z0-9-]+)=([\d.]+)$/); return m ? { code: m[1], amount: Number(m[2]) } : null; }).filter(Boolean);
+  const steps = hxSteps_({ cat: hxCat_(r['類別']), handler: String(r['經手人'] || ''), codes: codes }, mp.cat, mp.code);
+  const signs = hxSigns_(r['簽核紀錄']), now = Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm');
+  if (done) {
+    if (String(r['狀態']) === '已核銷') return true;
+    const st = steps[Math.min(signs.length, steps.length - 1)];
+    signs.push({ label: st.label, by: CURRENT_USER_ || '', at: now });
+  } else if (signs.length) signs.pop();
+  const all = done && signs.length >= steps.length;
+  setCell_(t, r._row, '簽核紀錄', signs.map(function (x) { return [x.label, x.by, x.at].join('|'); }).join('\n'));
+  setCell_(t, r._row, '狀態', all ? '已核銷' : '待核銷');
+  setCell_(t, r._row, '核銷日期', all ? new Date() : '');
+  setCell_(t, r._row, '核銷人', all ? CURRENT_USER_ : '');
   return true;
 }
 

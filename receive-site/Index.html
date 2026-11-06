@@ -2287,9 +2287,19 @@
         (inv.note ? '<div class="small">備註：' + esc(inv.note) + '</div>' : '') +
         '<table class="hxt" style="margin-top:6px"><tr><th>類別</th><th>金額</th><th>經手人</th><th>核銷</th></tr>' + inv.allocs.map(function (a) {
           var done = a.status === '已核銷';
-          return '<tr><td>' + esc(a.cat) + '</td><td>$' + money(a.amount) + (a.parts.length > 1 ? '<div class="muted small">' + a.parts.map(money).join(' + ') + '</div>' : '') + '</td><td>' + esc(a.handler || '—') + '</td><td>' +
-            (done ? '<span class="badge ok">✓ 已核銷 ' + esc(a.doneDate) + '</span> <span class="muted small">' + esc(a.doneBy) + '</span> <button type="button" class="btn ghost small" data-hxundo="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '">取消</button>'
-              : '<button type="button" class="btn small" data-hxdone="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '">✓ 確認已核銷</button>') + '</td></tr>';
+          var steps = a.steps && a.steps.length ? a.steps : [{ label: '經手人', who: a.handler ? [a.handler] : [] }], signs = a.signs || [];
+          var whoTxt = (steps[0].who || []).join('、') || a.handler || '—';
+          // 每一關：已確認的打勾（誰按的、什麼時候）；下一關給按鈕；全部確認完＝已核銷
+          var legacyDone = done && !signs.length;
+          var flow = steps.map(function (st, k) {
+            var sg = signs[k], nm = st.label === '經手人' ? '經手人' + (st.who.length ? '（' + st.who.join('、') + '）' : '') : st.label;
+            if (sg || legacyDone) return '<span class="badge ok" title="' + esc(sg ? sg.by + ' ' + sg.at : '') + '">✓ ' + esc(nm) + (sg ? ' <span style="font-weight:normal">' + esc(sg.by) + ' ' + esc(sg.at.slice(5)) + '</span>' : '') + '</span>';
+            if (k === signs.length && !done) return '<button type="button" class="btn small" data-hxdone="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '">✓ ' + esc(nm) + '確認</button>';
+            return '<span class="badge none">' + esc(nm) + '</span>';
+          }).join(steps.length > 1 ? ' → ' : '');
+          return '<tr><td>' + esc(a.cat) + '</td><td>$' + money(a.amount) + (a.parts.length > 1 ? '<div class="muted small">' + a.parts.map(money).join(' + ') + '</div>' : '') + '</td><td>' + esc(whoTxt) + '</td><td>' + flow +
+            (done ? ' <span class="badge ok">✓ 已核銷 ' + esc(a.doneDate) + '</span>' : '') +
+            (signs.length || done ? ' <button type="button" class="btn ghost small" data-hxundo="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '" title="取消最後一關的確認">取消</button>' : '') + '</td></tr>';
         }).join('') + '</table>' +
         '<div class="row" style="margin-top:6px"><button type="button" class="btn ghost small" data-hxedit="' + esc(inv.id) + '">✏️ 修改</button><button type="button" class="btn ghost small" data-hxprint="' + esc(inv.id) + '">🖨 請購單</button>' +
         '<button type="button" class="btn ghost small" data-hxdel="' + esc(inv.id) + '" style="color:var(--bad);border-color:var(--bad)">🗑 刪除</button></div></div>';
@@ -2973,12 +2983,12 @@
   $('hxBox').addEventListener('click', function (e) { if (e.target.id === 'hxCprint') window.print(); });
   // 新增／修改分支
   function hxCodeForm(c) {
-    c = c || { code: '', cat: '', name: '', amount: '', group: '', vendors: '', month: '', note: '' };
+    c = c || { code: '', cat: '', name: '', amount: '', group: '', vendors: '', month: '', note: '', handler: '' };
     var f = function (k, label, ph, w) { return '<label class="small">' + label + ' <input data-cf="' + k + '" value="' + esc(c[k] === undefined ? '' : String(c[k])) + '" placeholder="' + (ph || '') + '" style="width:' + (w || 140) + 'px"></label>'; };
     $('hxCform').innerHTML = '<div class="hxcard" style="margin-top:8px"><b>' + (c.code ? '修改分支 ' + esc(c.code) : '＋ 新增分支') + '</b>' +
       '<div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap"><label class="small">大類 <select data-cf="cat">' + hx.cats.map(function (x) { return '<option' + (x.name === c.cat ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' +
       f('name', '分支名稱', '例如：歐式點心', 160) + f('code', '編號', '學校的編號，沒有就空白', 150) + f('amount', '金額', '0', 100) +
-      f('group', '組別', '中餐／烘焙／飲調（選填）', 150) + f('vendors', '廠商', '選填', 140) + f('month', '開發票月份', '選填，例如 菜商11月', 140) + f('note', '備註', '選填', 160) + '</div>' +
+      f('group', '組別', '中餐／烘焙／飲調（選填）', 150) + f('vendors', '廠商', '選填', 140) + f('month', '開發票月份', '選填，例如 菜商11月', 140) + f('handler', '經手人', '選填，好幾位用、隔開', 170) + f('note', '備註', '選填', 160) + '</div>' +
       '<div class="row" style="margin-top:6px"><button type="button" class="btn small" id="hxCodeSave" data-old="' + esc(c.code) + '">💾 儲存</button><button type="button" class="btn ghost small" id="hxCcancel">取消</button><span id="hxCmsg" class="small"></span></div></div>';
     $('hxCform').querySelector('[data-cf="name"]').focus();
   }
@@ -3235,13 +3245,15 @@
   $('hxBox').addEventListener('click', function (e) { if (e.target.id === 'hxPayPrint') { Array.prototype.forEach.call(document.querySelectorAll('#hxBox details'), function (d) { d.open = true; }); window.print(); } });
   function hxCatsView() {
     $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">類別與經手人</h2><div class="muted small">可以自己加第 9、10、11…類：按「＋ 新增大類」打名字和經手人，再按「💾 儲存」。新的大類會出現在新增核銷的「拆到各類別」、預算、統計，也可以在「經費編號・分支」幫它加分支。改名字不會改到已經存的發票（舊發票照原本的名字）。</div>' +
-      '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>經手人</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler); }).join('') + '</table>' +
+      '<div class="muted small" style="margin:6px 0">經手人可以好幾位，用「、」隔開，誰都可以按確認（系統記是誰按的）。<b>再確認</b>：經手人確認後還要誰確認，照順序填，例如「組長、主任」，全部確認完才算已核銷。經費編號（分支）也可以各自設經手人，有設的就用那幾位。</div>' +
+      '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>經手人</th><th>再確認（照順序）</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler, c.review); }).join('') + '</table>' +
       '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>';
     hxCatNum();
   }
   function hxCatNum() { Array.prototype.forEach.call(document.querySelectorAll('#hxCt [data-cnum]'), function (x, i) { x.textContent = '第 ' + (i + 1) + ' 類'; }); }
-  function hxCatRow(n, h) {
-    return '<tr><td data-cnum class="small muted" style="white-space:nowrap"></td><td><input data-cn value="' + esc(n) + '" style="width:220px"></td><td><input data-ch value="' + esc(h) + '" style="width:140px"></td>' +
+  function hxCatRow(n, h, rv) {
+    return '<tr><td data-cnum class="small muted" style="white-space:nowrap"></td><td><input data-cn value="' + esc(n) + '" style="width:220px"></td><td><input data-ch value="' + esc(h) + '" placeholder="例如 王老師、李老師" style="width:160px"></td>' +
+      '<td><input data-crv value="' + esc(rv || '') + '" placeholder="例如 組長、主任" style="width:140px"></td>' +
       '<td><button type="button" class="btn ghost small" data-cup>↑</button><button type="button" class="btn ghost small" data-cdel>刪除</button></td></tr>';
   }
   document.querySelector('.hxtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-hx]'); if (b) hxOpen(b.getAttribute('data-hx')); });
@@ -3250,8 +3262,9 @@
     if (t.id === 'hxFgo') { hxOpen('list'); return; }
     if ((b = t.closest('[data-hxdone], [data-hxundo]'))) {
       var undo = b.hasAttribute('data-hxundo'), id = b.getAttribute(undo ? 'data-hxundo' : 'data-hxdone'), cat = b.getAttribute('data-cat');
-      var who = catHandler(cat);
-      if (!undo && !window.confirm('確認「' + cat + '」這筆已經核銷完成？' + (who ? '\n（經手人：' + who + '）' : ''))) return;
+      var step = b.textContent.replace(/^✓\s*/, '').replace(/確認$/, '');
+      if (!undo && !window.confirm('「' + cat + '」' + step + ' 確認？\n（記錄是 ' + (hx.me || '你') + ' 按的）')) return;
+      if (undo && !window.confirm('取消「' + cat + '」最後一關的確認？')) return;
       b.disabled = true;
       call('hxSetDone', id, cat, !undo).then(function () { hxOpen('list'); }).catch(function (err) { msg('hxMsg', 'error', err.message); b.disabled = false; });
       return;
@@ -3345,7 +3358,7 @@
         checks: hxF.cands ? hxPicked().map(function (c) { return c.key; }) : hxF.checks, system: hxF.cands ? hxF._sys : hxF.system, note: hxF.note, allocs: hxF.allocs, extras: hxF.extras,
         slipPhotos: hxF.slipPhotos || [], autoPhotos: hxAutoPhotos() };
       t.disabled = true; t.textContent = '儲存中…';
-      call('hxSaveInvoice', p).then(function () { hxF = null; hxOpen('list').then(function () { msg('hxMsg', 'ok', '已儲存。各類別經手人確認後，按「✓ 確認已核銷」。'); }); })
+      call('hxSaveInvoice', p).then(function () { hxF = null; hxOpen('list').then(function () { msg('hxMsg', 'ok', '已儲存。各類別照順序按確認（經手人 → 再確認），全部確認完就是已核銷。'); }); })
         .catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; t.textContent = '💾 儲存'; window.scrollTo(0, 0); });
       return;
     }
@@ -3357,11 +3370,11 @@
     }
     if (t.id === 'hxSprint') { window.print(); return; }
     if (t.id === 'hxScsv') { hxCsv(); return; }
-    if (t.id === 'hxCadd') { $('hxCt').insertAdjacentHTML('beforeend', hxCatRow('', '')); hxCatNum(); var ns = document.querySelectorAll('#hxCt [data-cn]'); ns[ns.length - 1].focus(); msg('hxMsg', 'info', '打好名字後記得按「💾 儲存」。'); return; }
+    if (t.id === 'hxCadd') { $('hxCt').insertAdjacentHTML('beforeend', hxCatRow('', '', '')); hxCatNum(); var ns = document.querySelectorAll('#hxCt [data-cn]'); ns[ns.length - 1].focus(); msg('hxMsg', 'info', '打好名字後記得按「💾 儲存」。'); return; }
     if (t.hasAttribute('data-cdel')) { var nm = (t.closest('tr').querySelector('[data-cn]') || {}).value; if (nm && !window.confirm('刪除大類「' + nm + '」？\n已經存的發票不受影響；按「💾 儲存」才會存。')) return; t.closest('tr').remove(); hxCatNum(); return; }
     if (t.hasAttribute('data-cup')) { var tr = t.closest('tr'), pv = tr.previousElementSibling; if (pv && pv.querySelector('[data-cn]')) tr.parentNode.insertBefore(tr, pv); hxCatNum(); return; }
     if (t.id === 'hxCsave') {
-      var list = Array.prototype.map.call(document.querySelectorAll('#hxCt tr'), function (tr) { var n = tr.querySelector('[data-cn]'); return n ? { name: n.value.trim(), handler: tr.querySelector('[data-ch]').value.trim() } : null; }).filter(Boolean);
+      var list = Array.prototype.map.call(document.querySelectorAll('#hxCt tr'), function (tr) { var n = tr.querySelector('[data-cn]'); return n ? { name: n.value.trim(), handler: tr.querySelector('[data-ch]').value.trim(), review: (tr.querySelector('[data-crv]') || { value: '' }).value.trim() } : null; }).filter(Boolean);
       t.disabled = true;
       call('hxSaveCats', list).then(function (c) { hx.cats = c; hxCatsView(); msg('hxMsg', 'ok', '類別與經手人已儲存。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; });
     }
