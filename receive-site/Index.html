@@ -1483,11 +1483,28 @@
     return html;
   }
   // 品名不在食材總表（廠商的叫法，例如「大骨高湯罐」）：老師料單的成本對不到 → 一鍵對應成某一樣的別名
+  function itemKey(v) { return String(v || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }
+  // 「不用對應」：老師不會訂的品項（例如凍乾草莓），這台電腦記住，不再提醒
+  function noMapList() { try { return JSON.parse(localStorage.getItem('rcvNoMap') || '[]'); } catch (e) { return []; } }
+  function noMapAdd(n) { try { var l = noMapList(); if (l.indexOf(n) < 0) l.push(n); localStorage.setItem('rcvNoMap', JSON.stringify(l.slice(-500))); } catch (e) {} }
   function itemKnown(n) {
     n = String(n || '').trim();
     if (!n || !hxItemList) return true;
-    var k = function (v) { return String(v || '').replace(/[\s()（）\[\]【】]/g, '').toLowerCase(); }, kn = k(n);
-    return hxItemList.some(function (r) { return k(r[0]) === kn || String(r[1] || '').split(/[,，、]+/).some(function (a) { return k(a) === kn; }); });
+    if (noMapList().indexOf(n) >= 0) return true;
+    return !!itemResolve(n);
+  }
+  // 打的字對到食材總表的哪一樣：正式名稱、別名都算（不分空白、括號）
+  function itemResolve(v) {
+    var kn = itemKey(v); if (!kn || !hxItemList) return '';
+    var hit = hxItemList.filter(function (r) { return itemKey(r[0]) === kn; })[0] || hxItemList.filter(function (r) { return String(r[1] || '').split(/[,，、]+/).some(function (a) { return itemKey(a) === kn; }); })[0];
+    return hit ? hit[0] : '';
+  }
+  // 可能是哪幾樣：名稱互相包含的，短的優先，最多 6 個
+  function itemSuggest(v) {
+    var kn = itemKey(v); if (!kn || !hxItemList) return [];
+    var core = kn.replace(/^\d+[*x×]\d+/, '');
+    return hxItemList.map(function (r) { return r[0]; }).filter(function (n) { var k = itemKey(n); return k && (k.indexOf(core) >= 0 || core.indexOf(k) >= 0) && Math.min(k.length, core.length) >= 2; })
+      .sort(function (a, b) { return a.length - b.length; }).slice(0, 6);
   }
   function pmapHtml(i, j, n) {
     return '<div class="small" data-pmap="' + i + '-' + j + '" style="color:var(--warn);margin-top:2px' + (itemKnown(n) ? ';display:none' : '') + '">⚠ 食材總表沒有這個名稱，老師料單成本對不到 <button type="button" class="btn ghost small" data-pmapgo="' + i + '-' + j + '" style="padding:1px 6px">🔗 對應到…</button></div>';
@@ -1501,15 +1518,26 @@
   $('slipBox').addEventListener('click', function (e) {
     var b = e.target.closest('[data-pmapgo]'), ok = e.target.closest('[data-pmapok]'), no = e.target.closest('[data-pmapno]');
     if (b) {
-      var box = b.parentNode;
-      box.innerHTML = '是哪一樣食材？ <input data-pmapin list="itemList" placeholder="打名稱選，例如 高湯罐" style="width:160px;display:inline-block"> <button type="button" class="btn small" data-pmapok="' + b.getAttribute('data-pmapgo') + '" style="padding:2px 8px">對應</button> <button type="button" class="btn ghost small" data-pmapno style="padding:2px 8px">取消</button>';
+      var box = b.parentNode, ijg = b.getAttribute('data-pmapgo'), ijs = ijg.split('-');
+      if (!hxItemList) { b.disabled = true; b.textContent = '讀取食材總表中…'; call('hxItems').then(function (r) { hxItemList = r; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts(); b.disabled = false; b.click(); }).catch(function (err) { b.disabled = false; b.textContent = '🔗 對應到…'; box.insertAdjacentHTML('beforeend', '<div style="color:var(--bad)">' + esc(err.message) + '</div>'); }); return; }
+      var nm0 = document.querySelector('[data-pi="' + ijs[0] + '"][data-pj="' + ijs[1] + '"][data-pf="name"]').value.trim(), sug = itemSuggest(nm0);
+      box.innerHTML = '是哪一樣食材？ <input data-pmapin list="itemList" placeholder="打名稱或別名，例如 高湯罐" style="width:160px;display:inline-block"> <button type="button" class="btn small" data-pmapok="' + ijg + '" style="padding:2px 8px">對應</button> ' +
+        '<button type="button" class="btn ghost small" data-pmapskip="' + esc(nm0) + '" style="padding:2px 8px" title="老師不會訂這一樣（例如凍乾草莓），不用對應，不再提醒">不用對應</button> ' +
+        (sug.length ? '<div style="margin-top:3px">可能是：' + sug.map(function (n) { return '<button type="button" class="btn ghost small" data-pmapsug="' + esc(n) + '" style="padding:1px 8px">' + esc(n) + '</button>'; }).join(' ') + '</div>' : '') + '<span data-pmaperr></span> <button type="button" class="btn ghost small" data-pmapno style="padding:2px 8px">取消</button>';
       box.querySelector('[data-pmapin]').focus(); return;
     }
     if (no) { var bx = no.parentNode, ij0 = bx.getAttribute('data-pmap').split('-'); bx.outerHTML = pmapHtml(ij0[0], ij0[1], ''); pmapRefresh(); return; }
+    var sg = e.target.closest('[data-pmapsug]'), sk = e.target.closest('[data-pmapskip]');
+    if (sg) { var inS = sg.closest('[data-pmap]').querySelector('[data-pmapin]'); inS.value = sg.getAttribute('data-pmapsug'); sg.closest('[data-pmap]').querySelector('[data-pmapok]').click(); return; }
+    if (sk) { noMapAdd(sk.getAttribute('data-pmapskip')); var bs = sk.closest('[data-pmap]'); bs.innerHTML = '<span class="muted">好，「' + esc(sk.getAttribute('data-pmapskip')) + '」不用對應，這台電腦不再提醒。</span>'; setTimeout(pmapRefresh, 2500); return; }
     if (ok) {
       var bx2 = ok.parentNode, ij = ok.getAttribute('data-pmapok').split('-'), alias = document.querySelector('[data-pi="' + ij[0] + '"][data-pj="' + ij[1] + '"][data-pf="name"]').value.trim();
-      var target = bx2.querySelector('[data-pmapin]').value.trim();
-      if (!target || !hxItemList.some(function (r) { return r[0] === target; })) { bx2.querySelector('[data-pmapin]').focus(); bx2.querySelector('[data-pmapin]').placeholder = '請從清單選食材總表的名稱'; bx2.querySelector('[data-pmapin]').value = ''; return; }
+      var typed = bx2.querySelector('[data-pmapin]').value.trim(), target = itemResolve(typed), errEl = bx2.querySelector('[data-pmaperr]');
+      if (!target) {
+        var s2 = itemSuggest(typed);
+        if (errEl) errEl.innerHTML = '<div style="color:var(--bad);margin-top:3px">' + (typed ? '食材總表沒有「' + esc(typed) + '」' + (s2.length ? '，是不是：' + s2.map(function (n) { return '<button type="button" class="btn ghost small" data-pmapsug="' + esc(n) + '" style="padding:1px 8px">' + esc(n) + '</button>'; }).join(' ') : '。老師不會訂的按「不用對應」；要新增食材請到訂貨網「審核食材」') : '請打食材總表的名稱（打幾個字會跳出清單）') + '</div>';
+        bx2.querySelector('[data-pmapin]').focus(); return;
+      }
       ok.disabled = true;
       call('addItemAlias', target, alias).then(function (r) {
         hxItemList = r.items; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts();
