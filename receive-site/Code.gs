@@ -54,7 +54,7 @@ function rcvLogin(account, password) {
   if (!admin) throw new Error('驗收系統只有管理者可以登入。');
   cache.remove(failKey);
   const token = Utilities.getUuid();
-  cache.put('rsess:' + token, account, RCV_SESSION_HOURS * 3600);
+  cache.put('rsess:' + token, account, Math.min(RCV_SESSION_HOURS * 3600, 21600));   // Google 暫存最多 6 小時；有在用會一直延長（api）
   return { token: token, account: account };
 }
 function rcvLogout(token) { CacheService.getScriptCache().remove('rsess:' + String(token || '')); return true; }
@@ -85,9 +85,11 @@ const API_ = {
   hxSaveCode: function (a) { return hxSaveCode_.apply(null, a); }, hxDeleteCode: function (a) { return hxDeleteCode_.apply(null, a); },
 };
 function api(token, fn, args) {
-  const account = CacheService.getScriptCache().get('rsess:' + String(token || ''));
+  const cache = CacheService.getScriptCache(), sk = 'rsess:' + String(token || ''), account = cache.get(sk);
   if (!account) throw new Error('請重新登入。');
   if (!API_[fn]) throw new Error('沒有這個功能：' + fn);
+  // 有在用就延長登入（Google 暫存最多只放 6 小時，不延長的話用到一半會被登出）
+  try { cache.put(sk, account, 21600); } catch (e) {}
   CURRENT_USER_ = account;
   return API_[fn](args || []);
 }
