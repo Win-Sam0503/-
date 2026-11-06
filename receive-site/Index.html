@@ -313,6 +313,7 @@
       <button type="button" class="btn ghost small on" data-hx="list">📄 發票</button>
       <button type="button" class="btn ghost small" data-hx="new">＋ 新增核銷</button>
       <button type="button" class="btn ghost small" data-hx="stats">📊 統計表</button>
+      <button type="button" class="btn ghost small" data-hx="track">📋 送簽進度</button>
       <button type="button" class="btn ghost small" data-hx="pay">💳 付款</button>
       <button type="button" class="btn ghost small" data-hx="budget">💰 經費預算</button>
       <button type="button" class="btn ghost small" data-hx="codes">📋 經費編號・分支</button>
@@ -2264,6 +2265,7 @@
       else if (hxTab === 'edit') hxForm();
       else if (hxTab === 'stats') hxStatsView();
       else if (hxTab === 'pay') hxPayView();
+      else if (hxTab === 'track') hxTrackView();
       else if (hxTab === 'budget') hxBudgetView();
       else if (hxTab === 'codes') hxCodesView();
       else hxCatsView();
@@ -3256,9 +3258,42 @@
   $('hxBox').addEventListener('change', function (e) { if (e.target.id === 'hxPayPay') { hxPayF.pay = e.target.value; hxPayView(); } });
   $('hxBox').addEventListener('input', function (e) { if (e.target.id === 'hxPayQ' && !e.isComposing) { hxPayF.q = e.target.value.trim(); var pos = e.target.selectionStart; hxPayView(); var n = $('hxPayQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) {} } });
   $('hxBox').addEventListener('click', function (e) { if (e.target.id === 'hxPayPrint') { Array.prototype.forEach.call(document.querySelectorAll('#hxBox details'), function (d) { d.open = true; }); window.print(); } });
+  // 📋 送簽進度：還沒核銷完的，照「現在在哪一關」分組，多久沒動（最久的排前面）
+  function hxDaysSince(s) {
+    var m = String(s || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/); if (!m) return null;
+    return Math.floor((new Date() - new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) / 864e5);
+  }
+  function hxTrackView() {
+    var rows = [], by = {}, order = [];
+    (hx.invoices || []).forEach(function (inv) {
+      (inv.allocs || []).forEach(function (a) {
+        if (a.status === '已核銷') return;
+        var steps = a.steps && a.steps.length ? a.steps : [{ label: '經手人', who: [] }], signs = a.signs || [], st = steps[Math.min(signs.length, steps.length - 1)];
+        var last = signs.length ? signs[signs.length - 1].at : inv.created, days = hxDaysSince(last);
+        var nm = st.label === '經手人' ? '經手人' + (st.who && st.who.length ? '（' + st.who.join('、') + '）' : '') : st.label;
+        var r = { inv: inv, a: a, step: nm, k: signs.length, n: steps.length, days: days, since: last };
+        rows.push(r); if (!by[nm]) { by[nm] = []; order.push(nm); } by[nm].push(r);
+      });
+    });
+    order.sort(function (x, y) { return by[y].length - by[x].length; });
+    var html = '<div class="panel"><h2 style="margin-top:0">📋 送簽進度</h2><div class="muted small">還沒核銷完的，照「現在在哪一關（哪個處室）」分組。簽好拿回來就按「✓ 確認」，會換到下一關。超過 7 天沒動的標紅。</div>' +
+      (rows.length ? '<div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap">' + order.map(function (nm) { return '<span class="badge none" style="font-size:14px">' + esc(nm) + ' <b>' + by[nm].length + '</b></span>'; }).join('') + '</div>' : '<div class="muted" style="margin-top:8px">✓ 全部都核銷完了。</div>');
+    order.forEach(function (nm) {
+      by[nm].sort(function (x, y) { return (y.days || 0) - (x.days || 0); });
+      html += '<h3 style="margin:14px 0 4px">現在在：' + esc(nm) + '（' + by[nm].length + ' 筆）</h3><div class="slipwrap"><table class="hxt"><tr><th>廠商</th><th>發票</th><th>類別</th><th style="text-align:right">金額</th><th>第幾關</th><th>多久沒動</th><th></th></tr>' +
+        by[nm].map(function (r) {
+          var late = r.days !== null && r.days > 7;
+          return '<tr><td>' + esc(vco(r.inv.vendor)) + '</td><td>' + esc(r.inv.no || '（沒填號碼）') + '<div class="muted small">' + esc(r.inv.date) + '</div></td><td>' + esc(r.a.cat) + '</td><td style="text-align:right">$' + money(r.a.amount) + '</td>' +
+            '<td>' + (r.k + 1) + '／' + r.n + '</td><td' + (late ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + (r.days === null ? '' : r.days + ' 天') + '<div class="muted small">' + esc(String(r.since || '').slice(0, 10)) + ' 起</div></td>' +
+            '<td style="white-space:nowrap"><button type="button" class="btn small" data-hxdone="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">✓ ' + esc(nm) + '確認</button>' + (r.k ? ' <button type="button" class="btn ghost small" data-hxundo="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">取消上一關</button>' : '') + '</td></tr>';
+        }).join('') + '</table></div>';
+    });
+    $('hxBox').innerHTML = html + '</div>';
+  }
   function hxCatsView() {
     $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">類別與經手人</h2><div class="muted small">可以自己加第 9、10、11…類：按「＋ 新增大類」打名字和經手人，再按「💾 儲存」。新的大類會出現在新增核銷的「拆到各類別」、預算、統計，也可以在「經費編號・分支」幫它加分支。改名字不會改到已經存的發票（舊發票照原本的名字）。</div>' +
       '<div class="muted small" style="margin:6px 0">經手人可以好幾位，用「、」隔開，誰都可以按確認（系統記是誰按的）。<b>再確認</b>：經手人確認後還要誰確認，照順序填，例如「組長、主任」，全部確認完才算已核銷。經費編號（分支）也可以各自設經手人，有設的就用那幾位。</div>' +
+      '<div class="row" style="margin:6px 0;align-items:center"><b class="small">全部類別一樣的送簽流程：</b><input id="hxRouteAll" placeholder="例如 組長、主任、總務處、會計室、校長" style="width:320px"><button type="button" class="btn ghost small" id="hxRouteApply">套用到下面每一類</button><span class="muted small">套用後還可以個別改，按「💾 儲存」才會存</span></div>' +
       '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>經手人</th><th>再確認（照順序）</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler, c.review); }).join('') + '</table>' +
       '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>';
     hxCatNum();
@@ -3279,7 +3314,7 @@
       if (!undo && !window.confirm('「' + cat + '」' + step + ' 確認？\n（記錄是 ' + (hx.me || '你') + ' 按的）')) return;
       if (undo && !window.confirm('取消「' + cat + '」最後一關的確認？')) return;
       b.disabled = true;
-      call('hxSetDone', id, cat, !undo).then(function () { hxOpen('list'); }).catch(function (err) { msg('hxMsg', 'error', err.message); b.disabled = false; });
+      call('hxSetDone', id, cat, !undo).then(function () { hxOpen(hxTab === 'track' ? 'track' : 'list'); }).catch(function (err) { msg('hxMsg', 'error', err.message); b.disabled = false; });
       return;
     }
     if ((b = t.closest('[data-hxedit]'))) {
@@ -3383,6 +3418,12 @@
     }
     if (t.id === 'hxSprint') { window.print(); return; }
     if (t.id === 'hxScsv') { hxCsv(); return; }
+    if (t.id === 'hxRouteApply') {
+      var rv = $('hxRouteAll').value.trim();
+      if (!rv) { $('hxRouteAll').focus(); return; }
+      Array.prototype.forEach.call(document.querySelectorAll('#hxCt [data-crv]'), function (i) { i.value = rv; });
+      msg('hxMsg', 'info', '已經填到每一類的「再確認」，確認沒問題按「💾 儲存」。'); return;
+    }
     if (t.id === 'hxCadd') { $('hxCt').insertAdjacentHTML('beforeend', hxCatRow('', '', '')); hxCatNum(); var ns = document.querySelectorAll('#hxCt [data-cn]'); ns[ns.length - 1].focus(); msg('hxMsg', 'info', '打好名字後記得按「💾 儲存」。'); return; }
     if (t.hasAttribute('data-cdel')) { var nm = (t.closest('tr').querySelector('[data-cn]') || {}).value; if (nm && !window.confirm('刪除大類「' + nm + '」？\n已經存的發票不受影響；按「💾 儲存」才會存。')) return; t.closest('tr').remove(); hxCatNum(); return; }
     if (t.hasAttribute('data-cup')) { var tr = t.closest('tr'), pv = tr.previousElementSibling; if (pv && pv.querySelector('[data-cn]')) tr.parentNode.insertBefore(tr, pv); hxCatNum(); return; }
