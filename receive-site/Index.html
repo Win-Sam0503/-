@@ -197,7 +197,7 @@
   <section id="vCheck">
     <div class="panel">
       <div class="row">
-        <button type="button" class="chip" data-w="-1">上週</button><button type="button" class="chip" data-w="0">本週</button><button type="button" class="chip" data-w="1">下週</button>
+        <b id="weekFor">✅ 驗收的週：</b><button type="button" class="chip" data-w="-1">上週</button><button type="button" class="chip" data-w="0">本週</button><button type="button" class="chip" data-w="1">下週</button>
         <input id="weekDate" type="date" aria-label="哪一週">
         <span id="weekText" class="muted"></span>
       </div>
@@ -435,16 +435,30 @@
     if (!b) return;
     var v = b.getAttribute('data-v');
     if (v === 'vIssues') { show('vIssues'); loadIssues(); } else if (v === 'vMonth') { show('vMonth'); openMonth(); } else if (v === 'vHx') { show('vHx'); hxOpen('list'); }
-    else { if ((cur && cur.mode === 'slip' && uploading(cur.b)) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要離開？')) return; listMode = v === 'vSlip' ? 'slip' : 'check'; msg('doneMsg', '', ''); show('vCheck'); loadWeek(); }
+    else { if ((cur && cur.mode === 'slip' && uploading(cur.b)) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要離開？')) return; switchMode(v === 'vSlip' ? 'slip' : 'check'); msg('doneMsg', '', ''); show('vCheck'); loadWeek(); }
   });
 
   // ---------------- 這週的叫貨單 ----------------
   var week = null, listMode = 'check';   // check＝驗收點貨、slip＝銷貨單（照片＋金額）
+  // 驗收、銷貨單各記各的週：在銷貨單換到上週補單，回驗收還是原來那週（反過來也一樣）
+  var weekSel = { check: null, slip: null };
+  function weekChips(offset) { Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.toggle('on', offset !== null && Number(b.getAttribute('data-w')) === offset); }); }
+  function weekLabel() { $('weekFor').textContent = listMode === 'slip' ? '💰 銷貨單的週：' : '✅ 驗收的週：'; }
+  function switchMode(mode) {
+    if (mode === listMode) return;
+    weekSel[listMode] = { d: $('weekDate').value, off: weekOffset() };
+    listMode = mode;
+    var w = weekSel[mode];
+    if (w && w.d) { $('weekDate').value = w.d; weekChips(w.off); }
+    else { var m = mondayOf(new Date()); $('weekDate').value = iso(m); weekChips(0); }
+    weekLabel();
+  }
+  function weekOffset() { var b = document.querySelector('[data-w].on'); return b ? Number(b.getAttribute('data-w')) : null; }
   function setWeek(offset) {
     var m = mondayOf(new Date());
     m.setDate(m.getDate() + 7 * offset);
     $('weekDate').value = iso(m);
-    Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-w')) === offset); });
+    weekChips(offset);
     loadWeek();
   }
   document.querySelector('#vCheck .row').addEventListener('click', function (e) {
