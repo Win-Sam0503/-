@@ -1374,7 +1374,15 @@ function slipMatcher_(map, np, cmap) {
  * 回傳 { 銷貨單key: { 條: 公克 } }
  */
 function autoUnitConv_(weeks, match, slipG, mon) {
-  const agg = {};
+  const agg = {}, uc = readUnitConv_();
+  // 條、付、片混在一起：先換成同一種再分。來源：品名裡寫的「(1付=2片)」、系統設定「單位換算」裡兩邊都不是重量的（1 付 ＝ 2 片）
+  const toBase = function (name, u) {
+    name = String(name || '');
+    const m = name.match(/1\s*([^\d\s=＝()（）]+?)\s*[=＝]\s*([\d.]+)\s*([^\d\s()（）]+)/);
+    if (m && m[1] === u && Number(m[2]) > 0) return { b: m[3], f: Number(m[2]) };
+    const c = (uc[name.trim()] || []).filter(function (x) { return x.u === u && !UNIT_G_[x.u2]; })[0];
+    return c ? { b: c.u2, f: c.q } : { b: u, f: 1 };
+  };
   readTable_(SHEET.orders, ['使用日期', '食材名稱', '廠商', '數量', '單位']).rows.forEach(function (r) {
     const d = r['使用日期'] instanceof Date ? toDate_(r['使用日期']) : parseDate_(String(r['使用日期'] || ''));
     const wk = mon(d);
@@ -1384,13 +1392,19 @@ function autoUnitConv_(weeks, match, slipG, mon) {
     if (!(q > 0) || !u) return;
     const m = match(wk, String(r['廠商'] || '').trim(), r['食材名稱']);
     if (!m || m.np || !slipG[m.k]) return;
-    const a = agg[m.k] = agg[m.k] || { g: 0, n: {} };
-    if (UNIT_G_[u]) a.g += q * UNIT_G_[u]; else a.n[u] = (a.n[u] || 0) + q;
+    const a = agg[m.k] = agg[m.k] || { g: 0, n: {}, alias: {} };
+    if (UNIT_G_[u]) { a.g += q * UNIT_G_[u]; return; }
+    const t = toBase(r['食材名稱'], u);
+    a.n[t.b] = (a.n[t.b] || 0) + q * t.f;
+    if (t.b !== u) a.alias[u] = t;
   });
   const out = {};
   Object.keys(agg).forEach(function (k) {
     const a = agg[k], us = Object.keys(a.n), left = slipG[k] - a.g;
-    if (us.length === 1 && left > 0) out[k] = { [us[0]]: left / a.n[us[0]] };
+    if (us.length !== 1 || !(left > 0)) return;
+    const per = left / a.n[us[0]];
+    out[k] = { [us[0]]: per };
+    Object.keys(a.alias).forEach(function (u) { out[k][u] = per * a.alias[u].f; });   // 1 付＝2 片：付的重量＝片的兩倍
   });
   return out;
 }
