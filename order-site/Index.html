@@ -3361,7 +3361,7 @@
         var pick = !w.conv && data.isAdmin ? '<div class="noprint" style="margin-top:3px">' + (slipItemsCache.data ? (opts.length ? '廠商送的其實是：<select data-cm-v="' + esc(sv) + '" data-cm-o="' + esc(x.it.name) + '" style="width:auto;max-width:220px;display:inline-block;padding:2px 4px"><option value="">（選銷貨單上的品項）</option>' +
           opts.map(function (y) { return '<option value="' + esc(y.n) + '">' + esc(y.n + '　$' + fmtQty(y.p) + '／' + y.u) + '</option>'; }).join('') + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
           : '<span class="muted">這幾週 ' + esc(sv) + ' 的銷貨單還沒填品項</span>') : '<span class="muted">讀取銷貨單品項中…</span>') + '</div>' : '';
-        return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(x.it.vendor || '') + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + pick +
+        return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + pick +
           (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
@@ -3372,7 +3372,7 @@
       var o = e.o, items = (o.items || []).filter(function (it) { return it.id !== TOOL && it.status !== '已取消'; });
       var rows = items.map(function (it) {
         var c = itemCost(it), skip = it.noOrder || it.vendor === data.selfVendor;
-        return '<tr><td>' + esc(it.name) + '</td><td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td><td class="muted small">' + esc(it.vendor) + '</td>' +
+        return '<tr><td>' + esc(it.name) + '</td><td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + '</td><td class="muted small">' + esc(vco(it.vendor)) + '</td>' +
           '<td class="num">' + (c ? '$' + esc(fmtQty(Math.round(c.p * 100) / 100)) + '／' + esc(c.u) : '') + '</td>' +
           '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
             return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
@@ -3482,7 +3482,16 @@
   }
   // ---------- ④ 依銷貨單總額分攤 ----------
   // 每週每家廠商「銷貨單的食材金額」（真的花的錢）照那週料單「依品項算」的比例分給每張料單：加起來一定等於銷貨單
-  function allocGroup(v) { v = String(v || '').trim(); return /^E/.test(v) ? 'E 乾貨' : /^C.*蛋/.test(v) ? 'C蛋商' : v; }
+  // 廠商代號 → 公司名稱（銷貨單、發票上寫的）
+  var VENDOR_CO = { 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'C烘焙蛋': '開勛蛋行', 'C中餐蛋': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
+  function vco(v) { v = String(v || ''); return VENDOR_CO[v] ? v + '（' + VENDOR_CO[v] + '）' : v; }
+  // 分攤的分組＝哪一家公司：蛋分烘焙／中餐但都是開勛蛋行；E乾貨（通用的）看單價是從哪家銷貨單來的，沒有就照科別（烘焙→旺來興，其他→銘哲）
+  function allocGroup(v, it, o) {
+    v = String(v || '').trim();
+    if (/^C.*蛋/.test(v)) return 'C蛋商';
+    if (v === 'E乾貨' && it) return it.sp && it.sp.sv && it.sp.sv !== 'E乾貨' ? it.sp.sv : /烘焙/.test((o && o.dept) || '') ? 'E烘焙乾貨' : 'E中餐乾貨';
+    return v;
+  }
   function allocCompute() {
     var slipT = {}, items = {}, per = {}, noSlip = {};
     slipTotals.forEach(function (x) { var k = x.wk + '|' + allocGroup(x.v); slipT[k] = (slipT[k] || 0) + x.amt; });
@@ -3490,7 +3499,7 @@
       var wk = isoDate(weekMon(o.useDate));
       (o.items || []).forEach(function (it) {
         if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
-        var k = wk + '|' + allocGroup(it.vendor), c = itemCost(it);
+        var k = wk + '|' + allocGroup(it.vendor, it, o), c = itemCost(it);
         (items[k] = items[k] || []).push({ o: o, w: c ? c.amt : null });
       });
     });
@@ -3525,7 +3534,7 @@
     var lab = function (k) { return costBy === 'week' ? shortDate(k) + ' 那週' : k; };
     var pct = function (a, b) { if (!b) return ''; var d = Math.round((a - b) / b * 100); return '<span class="' + (Math.abs(d) > 20 ? '' : 'muted') + '" style="' + (Math.abs(d) > 20 ? 'color:var(--warn)' : '') + '">' + (d > 0 ? '+' : '') + d + '%</span>'; };
     return '<details class="panel" id="costAlloc"' + (allocOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>④ 依銷貨單總額分攤</b>　<span class="small muted">' + tot.n + ' 張料單分攤 <b>$' + money0(tot.alloc) + '</b>（依品項算 $' + money0(tot.item) + '）</span></summary>' +
-      '<div class="muted small" style="margin:6px 0">每週每家廠商銷貨單的<b>食材金額（真的花的錢）</b>，照那週每張料單「依品項算」的比例分下去，所以加起來一定等於銷貨單。名稱、單位對不到（沒成本）的品項，用同一週同一家其他品項的平均當比重，錢不會不見，只是比例差一點。器材、自備、有貨不算。E乾貨／E中餐乾貨／E烘焙乾貨合在一起算；蛋商也是。分組照上面 ③ 選的（依老師、班級…）。</div>' +
+      '<div class="muted small" style="margin:6px 0">每週每家廠商銷貨單的<b>食材金額（真的花的錢）</b>，照那週每張料單「依品項算」的比例分下去，所以加起來一定等於銷貨單。名稱、單位對不到（沒成本）的品項，用同一週同一家其他品項的平均當比重，錢不會不見，只是比例差一點。器材、自備、有貨不算。E中餐乾貨（銘哲）、E烘焙乾貨（旺來興）分開算，訂單上「E乾貨」的照單價是哪家來的（沒有就照科別）；蛋商烘焙、中餐合在一起（開勛蛋行）。分組照上面 ③ 選的（依老師、班級…）。</div>' +
       '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">依品項算</th><th style="text-align:right">依銷貨單分攤</th></tr>' +
       order.map(function (k) { var x = g[k];
         return '<tr><td>' + esc(lab(k)) + '</td><td class="num">' + x.n + ' 張</td><td class="num">$' + money0(x.item) + '</td><td class="num"><b>$' + money0(x.alloc) + '</b>' + (x.miss ? '<div class="muted small">' + x.miss + ' 張有廠商那週沒銷貨單</div>' : '') + '</td></tr>';
@@ -3533,9 +3542,9 @@
       '<h4 style="margin:12px 0 4px">各週各廠商：銷貨單 vs 依品項算</h4><div class="muted small" style="margin-bottom:4px">差很多（超過 20%）的通常是：那週銷貨單還沒打完、單價打錯、或很多品項對不到。</div>' +
       '<div class="tablewrap"><table class="small"><tr><th>那週</th><th>廠商</th><th style="text-align:right">銷貨單食材金額</th><th style="text-align:right">依品項算</th><th style="text-align:right">差</th><th style="text-align:right">品項數</th></tr>' +
       A.rows.map(function (r) {
-        return '<tr><td>' + esc(shortDate(r.wk)) + '</td><td>' + esc(r.g) + '</td><td class="num">' + (r.has ? '$' + money0(r.T) : '<span style="color:var(--warn)">沒有銷貨單</span>') + '</td><td class="num">$' + money0(r.W) + '</td><td class="num">' + (r.has ? pct(r.W, r.T) : '') + '</td><td class="num">' + r.n + (r.nk < r.n ? '<div class="muted">' + (r.n - r.nk) + ' 項沒成本</div>' : '') + '</td></tr>';
+        return '<tr><td>' + esc(shortDate(r.wk)) + '</td><td>' + esc(vco(r.g)) + '</td><td class="num">' + (r.has ? '$' + money0(r.T) : '<span style="color:var(--warn)">沒有銷貨單</span>') + '</td><td class="num">$' + money0(r.W) + '</td><td class="num">' + (r.has ? pct(r.W, r.T) : '') + '</td><td class="num">' + r.n + (r.nk < r.n ? '<div class="muted">' + (r.n - r.nk) + ' 項沒成本</div>' : '') + '</td></tr>';
       }).join('') + '</table></div>' +
-      (A.orphan.length ? '<div class="small" style="margin-top:6px;color:var(--warn)">⚠ 這些銷貨單那週沒有對到任何料單（錢沒有分出去）：' + A.orphan.map(function (x) { return esc(shortDate(x.wk) + ' ' + x.g + ' $' + money0(x.T)); }).join('、') + '</div>' : '') +
+      (A.orphan.length ? '<div class="small" style="margin-top:6px;color:var(--warn)">⚠ 這些銷貨單那週沒有對到任何料單（錢沒有分出去）：' + A.orphan.map(function (x) { return esc(shortDate(x.wk) + ' ' + vco(x.g) + ' $' + money0(x.T)); }).join('、') + '</div>' : '') +
       (rg[0] !== isoDate(weekMon(rg[0])) || (parseDate(rg[1]).getDay() + 6) % 7 < 4 ? '<div class="muted small" style="margin-top:6px">選的日期不是整週：銷貨單是一週一張，系統用整週的料單算比例，上面只列選的日期裡的料單。</div>' : '') + '</details>';
   }
   // 自動對應（名稱相近猜的）列出來給管理者確認：✓ 存成固定對應、✗ 以後不要自動對

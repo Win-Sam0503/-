@@ -1326,8 +1326,8 @@ function slipMatcher_(map, np, cmap) {
     (byName[wn] = byName[wn] || []).push(a[1]);
   });
   // 訂單上的廠商跟銷貨單上的不一定一樣：蛋分烘焙／中餐，銷貨單是同一家
-  // 乾貨：訂單上分 E乾貨／E中餐乾貨／E烘焙乾貨，銷貨單常常都記在同一家
-  const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : /^E/.test(v) ? [v].concat(['E烘焙乾貨', 'E中餐乾貨', 'E乾貨'].filter(function (x) { return x !== v; })) : [v]; };
+  // 乾貨：E中餐乾貨（銘哲）、E烘焙乾貨（旺來興）是不同家；訂單上「E乾貨」（通用的）兩家都可能送，兩家都找
+  const alias = function (v) { return /^C.*蛋/.test(v) ? ['C蛋商', v] : v === 'E乾貨' ? ['E乾貨', 'E中餐乾貨', 'E烘焙乾貨'] : /^E/.test(v) ? [v, 'E乾貨'] : [v]; };
   const hit = function (k, via) { const x = map[k]; return { k: k, u: x.u, p: x.p, via: via || '', src: x.src }; };
   const memo = {};
   return function (wk, vendor, name) {

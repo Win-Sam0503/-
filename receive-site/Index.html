@@ -439,6 +439,20 @@
   });
 
   // ---------------- 這週的叫貨單 ----------------
+  // 廠商代號 → 公司名稱（銷貨單、發票上寫的）；打公司名稱也認得
+  var VENDOR_CO = { 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'C烘焙蛋': '開勛蛋行', 'C中餐蛋': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
+  var CO_VENDOR = { '杰善': 'A菜商', '進億': 'B肉商', '海鑫晟': 'D海鮮', '開勛蛋行': 'C蛋商', '開勛': 'C蛋商', '銘哲': 'E中餐乾貨', '旺來興': 'E烘焙乾貨', '五洲': 'F飲調' };
+  function vco(v) { v = String(v || ''); return VENDOR_CO[v] ? v + '（' + VENDOR_CO[v] + '）' : v; }
+  function coTag(v) { return VENDOR_CO[v] ? ' <span class="muted small" style="font-weight:normal">' + esc(VENDOR_CO[v]) + '</span>' : ''; }
+  // 打的是公司名稱（「杰善」「杰善蔬果」「A菜商（杰善）」）→ 換成系統的廠商代號
+  function vcode(v) {
+    v = String(v || '').trim();
+    var m = v.match(/^([A-Z][^（(]*)[（(]/); if (m && VENDOR_CO[m[1].trim()]) return m[1].trim();
+    if (VENDOR_CO[v]) return v;
+    var hit = Object.keys(CO_VENDOR).filter(function (c) { return v.indexOf(c) >= 0; }).sort(function (a, b) { return b.length - a.length; })[0];
+    return hit ? CO_VENDOR[hit] : v;
+  }
+  function vOpts(list) { return list.map(function (v) { return '<option value="' + esc(v) + '">' + esc(VENDOR_CO[v] || '') + '</option>'; }).join(''); }
   var week = null, listMode = 'check';   // check＝驗收點貨、slip＝銷貨單（照片＋金額）
   // 驗收、銷貨單各記各的週：在銷貨單換到上週補單，回驗收還是原來那週（反過來也一樣）
   var weekSel = { check: null, slip: null };
@@ -494,7 +508,7 @@
         var c = b.check, n = b.lines.length;
         var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
         var st = stopAll ? '<span class="badge none">⛔ 停送</span>' : b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
-        return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' +
+        return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) +
           (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
           '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
       }).join('');
@@ -604,8 +618,8 @@
     week.batches.forEach(function (b) { vs[b.vendor] = 1; }); (week.extras || []).forEach(function (x) { vs[x.vendor] = 1; });
     var today = iso(new Date()), d = today >= week.from && today <= week.to ? today : week.from;
     $('cards').insertAdjacentHTML('afterbegin', '<div class="panel" id="slNewForm" style="grid-column:1/-1"><b>＋ 新增銷貨單</b>' +
-      '<div class="row" style="margin-top:8px"><input id="slNewV" list="slNewVl" placeholder="廠商或店名（例如：全聯、A菜商）" style="flex:1;min-width:200px" autocomplete="off">' +
-      '<datalist id="slNewVl">' + Object.keys(vs).map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
+      '<div class="row" style="margin-top:8px"><input id="slNewV" list="slNewVl" placeholder="廠商或店名（例如：全聯、A菜商、杰善）" style="flex:1;min-width:200px" autocomplete="off">' +
+      '<datalist id="slNewVl">' + vOpts(Object.keys(vs)) + '</datalist>' +
       '<label class="small">送貨日期 <input id="slNewD" type="date" value="' + d + '" style="width:auto"></label>' +
       '<button type="button" class="btn" id="slNewGo">開始填</button><button type="button" class="btn ghost small" id="slNewCancel">取消</button></div><div id="slNewMsg"></div></div>');
     $('slNew').classList.add('hidden');
@@ -614,7 +628,7 @@
   $('cards').addEventListener('click', function (e) {
     if (e.target.id === 'slNewCancel') { $('slNewForm').remove(); $('slNew').classList.remove('hidden'); return; }
     if (e.target.id !== 'slNewGo') return;
-    var v = $('slNewV').value.trim(), d = $('slNewD').value;
+    var v = vcode($('slNewV').value), d = $('slNewD').value;
     if (!v) { msg('slNewMsg', 'error', '請填廠商或店名。'); $('slNewV').focus(); return; }
     if (!d) { msg('slNewMsg', 'error', '請選送貨日期。'); return; }
     openSlip({ id: '', extra: true, vendor: v, date: d, group: '', lines: [], totals: {}, prices: {}, slip: null });
@@ -644,7 +658,7 @@
     var sl = b.slip, d = readSlipDraft(b), c = b.check;
     var stop = slipStopped(b), wp = listMode === 'slip' ? slipWeekPart(b) : null;
     var st = wp && wp.part ? '<span class="badge ok">💰 這週 $' + money(wp.amt) + '</span> <span class="muted small">整張 $' + money(sl.amount) + '</span>' : sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
-    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + codeTag(sl) +
+    return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) + codeTag(sl) +
       (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       (b.otherWeek ? '<div class="small" style="color:var(--warn)">📅 ' + esc(md(b.from)) + ' 那週叫的貨</div>' : '') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
@@ -679,7 +693,7 @@
     $('slCode').value = d && d.code !== undefined ? d.code : sl ? sl.code || '' : '';
     fundCodesLoad();
     if (!cur.slip) paperMode();   // 預設：照紙本一張一張打
-    $('slTitle').textContent = '💰 ' + b.vendor + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
+    $('slTitle').textContent = '💰 ' + vco(b.vendor) + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
     $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : '叫貨 ' + mdw(bFrom(b)) + '～' + mdw(bTo(b)) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
     $('slMove').classList.toggle('hidden', !(b.id && sl && (sl.amount || sl.rows.length || sl.photos.length || (sl.invs || []).length)));
@@ -888,7 +902,7 @@
     b.lines.forEach(function (x) { if (x.cls && cl.indexOf(x.cls) < 0) cl.push(x.cls); });
     $('doCls').innerHTML = '<option value="">全部班級</option>' + cl.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
     $('doCls').classList.toggle('hidden', cl.length < 2);
-    $('doTitle').textContent = b.vendor + (b.group ? '　送貨組別 ' + b.group : '');
+    $('doTitle').textContent = vco(b.vendor) + (b.group ? '　送貨組別 ' + b.group : '');
     $('doSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + b.lines.length + ' 項・' + (b.perClass ? '照班級點' : '點品項總量') +
       (b.check ? '・上次驗收 ' + b.check.time + '（重新存會蓋掉）' : '');
     $('doNote').value = d ? d.note : b.check ? b.check.note : '';
@@ -2126,7 +2140,7 @@
       var diff = !hasSys ? '' : dAmt < 1 ? '<span class="badge ok">✓ 跟送貨金額一樣</span>'
         : '<span class="badge bad">' + (far ? '⚠ ' : '') + '勾的送貨 $' + money(inv.system) + '（' + (inv.amount > inv.system ? '發票多' : '發票少') + ' $' + money(r2(dAmt)) + '）</span>';
       var allDone = inv.allocs.length && inv.allocs.every(function (a) { return a.status === '已核銷'; });
-      html += '<div class="hxcard"' + (far ? ' style="border:2px solid var(--bad)"' : '') + '><h3>' + esc(inv.vendor) + '　' + esc(inv.lines.length > 1 ? inv.lines.length + ' 張發票' : (inv.no || '（沒填號碼）')) + ' ' + (allDone ? '<span class="badge ok">✓ 全部已核銷</span>' : '') + '</h3>' +
+      html += '<div class="hxcard"' + (far ? ' style="border:2px solid var(--bad)"' : '') + '><h3>' + esc(vco(inv.vendor)) + '　' + esc(inv.lines.length > 1 ? inv.lines.length + ' 張發票' : (inv.no || '（沒填號碼）')) + ' ' + (allDone ? '<span class="badge ok">✓ 全部已核銷</span>' : '') + '</h3>' +
         '<div class="small muted">發票日期 ' + esc(inv.date) + '・' + (inv.mode === '日期區間' && inv.from ? '送貨 ' + esc(md(inv.from) + '～' + md(inv.to)) : inv.checks.length ? '包含 ' + inv.checks.length + ' 次送貨' : inv.extras.length ? '只有另外叫料' : '沒有勾送貨') +
           '・' + esc(inv.by) + ' ' + esc(inv.created) + '</div>' +
         '<div style="margin:4px 0"><b style="font-size:18px">$' + money(inv.amount) + '</b> ' + diff + '</div>' +
@@ -2173,7 +2187,7 @@
     hxF = f; hxF.cands = hxF.cands || null;
     $('hxBox').innerHTML = '<div class="panel hxform"><h2 style="margin-top:0">' + (f.id ? '修改核銷' : '新增核銷') + '</h2>' +
       '<label for="hxV">廠商</label><input id="hxV" list="hxVl" value="' + esc(f.vendor) + '" placeholder="選系統裡的廠商，或直接打名字（例如全聯）" style="width:100%;max-width:360px" autocomplete="off">' +
-      '<datalist id="hxVl">' + hx.vendors.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="hxVl">' + vOpts(hx.vendors) + '</datalist>' +
       '<label>發票（不只一張就按「＋ 新增發票」）</label><div id="hxLines"></div>' +
       '<button type="button" class="btn ghost small" id="hxLineAdd" style="margin-top:6px">＋ 新增發票</button>' +
       '<label>包含哪幾次送貨？</label>' +
@@ -2894,7 +2908,7 @@
     }
   });
   function hxCollect() {
-    hxF.vendor = $('hxV').value; hxF.from = $('hxFrom').value; hxF.to = $('hxTo').value; hxF.note = $('hxNote').value;
+    hxF.vendor = vcode($('hxV').value); hxF.from = $('hxFrom').value; hxF.to = $('hxTo').value; hxF.note = $('hxNote').value;
     var parts = hxReadParts();
     hxF.allocs = Object.keys(parts).map(function (c) {
       var ps = [], codes = [];
@@ -3143,6 +3157,7 @@
     if (t.hasAttribute('data-heck')) { var ex = hxF.extras[Number(t.getAttribute('data-heck'))]; ex.ck = t.checked; t.closest('.hxrow').classList.toggle('ck', t.checked); hxExCount(); return; }
     if (t.hasAttribute('data-he')) { hxF.extras[Number(t.getAttribute('data-i'))][t.getAttribute('data-he')] = t.value; hxSumUp(); return; }
     if (t.id === 'hxV' && t.value) {
+      if (vcode(t.value) !== t.value) t.value = vcode(t.value);   // 打「杰善」→ A菜商
       hxCollect(); hxF.cands = null; hxF.checks = [];
       if (hx.vendors.indexOf(t.value) >= 0) $('hxList').click(); else { hxRenderCands(); hxSumUp(); $('hxCands').innerHTML = '<span class="muted">「' + esc(t.value) + '」不在叫貨單裡，沒有送貨可以勾，請用下面的「另外叫料」填。</span>'; }
       return;
@@ -3212,7 +3227,7 @@
         }).join('') + '</div>' : '';
       $('issueList').innerHTML = pendHtml + order.map(function (id) {
         var g = by[id], h = g[0];
-        return '<div class="panel" data-id="' + esc(id) + '"><div class="row" style="justify-content:space-between"><div><b style="font-size:19px">' + esc(h.vendor) + '</b>' +
+        return '<div class="panel" data-id="' + esc(id) + '"><div class="row" style="justify-content:space-between"><div><b style="font-size:19px">' + esc(vco(h.vendor)) + '</b>' +
           (h.group ? ' <span class="muted">送貨組別 ' + esc(h.group) + '</span>' : '') + '<div class="muted small">' + esc(h.from ? md(h.from) + '～' + md(h.to) : '') + '・驗收 ' + esc(h.time) +
           (h.photos.length ? '・' + h.photos.map(function (u, i) { return '<a href="' + esc(u) + '" target="_blank">銷貨單' + (h.photos.length > 1 ? i + 1 : '') + '</a>'; }).join(' ') : '') + '</div></div>' +
           '<button type="button" class="btn ghost small" data-copy="' + esc(id) + '">📋 複製給廠商</button></div>' +
