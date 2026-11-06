@@ -1574,9 +1574,9 @@
   }
   function nameAmtOn() { try { return localStorage.getItem('rcvNameAmt') === '1'; } catch (e) { return false; } }
   $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} } });
-  // 海鮮這類：數量是幾條、幾隻，價錢照總重量算 → 多一欄「總重量」
+  // 數量是幾條、幾隻、幾包，價錢照總重量算 → 「總重量」欄（每家廠商都有，不用就空著）
   var WT_UNITS = ['公斤', '斤', '台斤', 'g', '兩'];
-  function wtVendor() { return /海鮮|^D|肉商|^B/.test((cur && cur.b && cur.b.vendor) || ''); }
+  function wtVendor() { return !!(cur && cur.b); }   // 每家廠商都有「總重量」欄（不用就空著）
   function wtDefault() { var u = ''; (cur.slip.papers || []).forEach(function (pp) { pp.rows.forEach(function (r) { if (numv(r.wt) !== null && r.wu) u = r.wu; }); }); return u || '公斤'; }
   function paperRowOf(t) { return cur.slip.papers[Number(t.getAttribute('data-pi'))].rows[Number(t.getAttribute('data-pj'))]; }
   $('slipBox').addEventListener('input', function (e) {
