@@ -69,6 +69,7 @@ const API_ = {
   saveSlip: function (a) { return saveSlip_.apply(null, a); }, slipMonth: function (a) { return slipMonth_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); }, readSlips: function (a) { return readSlips_.apply(null, a); },
   aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
+  aiModelSet: function (a) { return aiModelSet_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
@@ -835,9 +836,26 @@ function readSlips_(photos, vendor, names) {
 // ---------------------------------------------------------------------
 // AI 讀銷貨單照片（Claude）：金鑰存在指令碼屬性，畫面上看不到、也不會傳回瀏覽器
 // ---------------------------------------------------------------------
-const AI_MODEL = 'claude-opus-5-5';
+// 可選的 AI 型號（價格：每百萬 token 輸入／輸出，美元）
+const AI_MODELS = {
+  'claude-haiku-5-5': { name: '便宜（Haiku）', note: '每張約 NT$0.05～0.1' },
+  'claude-sonnet-5-5': { name: '中等（Sonnet）', note: '每張約 NT$0.5～1' },
+  'claude-opus-5-5': { name: '最準（Opus）', note: '每張約 NT$1～2' }
+};
+const AI_MODEL_DEFAULT = 'claude-haiku-5-5';
+function aiModel_() { const m = PropertiesService.getScriptProperties().getProperty('AI_MODEL'); return AI_MODELS[m] ? m : AI_MODEL_DEFAULT; }
 function aiKey_() { return PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY') || ''; }
-function aiKeyStatus_() { const k = aiKey_(); return { set: !!k, tail: k ? k.slice(-4) : '', model: AI_MODEL }; }
+function aiKeyStatus_() {
+  const k = aiKey_();
+  return { set: !!k, tail: k ? k.slice(-4) : '', model: aiModel_(),
+    models: Object.keys(AI_MODELS).map(function (id) { return { id: id, name: AI_MODELS[id].name, note: AI_MODELS[id].note }; }) };
+}
+/** 換 AI 型號（不用重貼金鑰） */
+function aiModelSet_(m) {
+  if (!AI_MODELS[m]) throw new Error('沒有這個型號。');
+  PropertiesService.getScriptProperties().setProperty('AI_MODEL', m);
+  return aiKeyStatus_();
+}
 /** 存／清掉 AI 金鑰（key 空白＝清掉，改回 Google 文字辨識） */
 function aiKeySet_(key) {
   key = String(key || '').trim();
@@ -874,15 +892,19 @@ function aiReadSlips_(list, vendor, names) {
     '規則：\n- 只讀單上真的有的品項，不要編；看不清楚的數字填 null。\n- 斤兩：「1斤10」「1斤10兩」＝1.625 斤，「11兩」＝0.6875 斤；台斤就寫「斤」。\n' +
     '- 品名對得到下面「已知品名」就用那個名字（例如單上寫「紅K」→紅蘿蔔、「雞胸」→雞胸肉(1付=2片)、「梅肉」→豬梅花肉），對不到就照單上寫。\n' +
     '- 不要讀「以下空白」、表頭、合計那幾行當品項。\n\n已知品名：' + known.slice(0, 400).join('、');
+  const model = aiModel_();
+  const fb = model === 'claude-opus-5-5';   // 只有 Opus 支援伺服器端備援；Haiku 送了會 400
+  const hdr = { 'x-api-key': key, 'anthropic-version': '2026-10-21' };
+  if (fb) hdr['anthropic-beta'] = 'server-side-fallback-2026-07-01';
   const req = function (x) {
     const blob = DriveApp.getFileById(x.id).getBlob();
     return { url: 'https://api.anthropic.com/v1/messages', method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { 'x-api-key': key, 'anthropic-version': '2026-10-21', 'anthropic-beta': 'server-side-fallback-2026-07-01' },
-      payload: JSON.stringify({ model: AI_MODEL, max_tokens: 16000, fallbacks: 'default',
+      headers: hdr,
+      payload: JSON.stringify(Object.assign({ model: model, max_tokens: 16000 }, fb ? { fallbacks: 'default' } : {}, {
         output_config: { effort: 'low', format: { type: 'json_schema', schema: AI_SLIP_SCHEMA } },
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: blob.getContentType() || 'image/jpeg', data: Utilities.base64Encode(blob.getBytes()) } },
-          { type: 'text', text: prompt }] }] }) };
+          { type: 'text', text: prompt }] }] })) };
   };
   const reqs = list.map(req);
   let res = UrlFetchApp.fetchAll(reqs);

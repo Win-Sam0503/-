@@ -2019,9 +2019,16 @@
     if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
     box.classList.remove('hidden');
     box.innerHTML = '<b>🤖 AI 讀銷貨單</b>　' + (aiSt && aiSt.set ? '<span class="badge ok">已設定（金鑰最後 4 碼 ' + esc(aiSt.tail) + '）</span>' : '<span class="badge none">還沒設定，現在用 Google 文字辨識</span>') +
-      '<div class="muted small" style="margin:4px 0">設了金鑰以後，「🔎 自動讀銷貨單」改用 AI（' + esc((aiSt && aiSt.model) || 'Claude') + '）看照片：手寫、歪的、斤兩都讀得懂，也會把「紅K」「雞胸」換成系統的品名。每張照片大約 NT$1 元，從你的 Anthropic 帳戶扣。金鑰只存在系統裡，畫面上看不到，<b>不要貼在聊天或傳給別人</b>。</div>' +
+      '<div class="muted small" style="margin:4px 0">設了金鑰以後，「🔎 自動讀銷貨單」改用 AI 看照片：手寫、歪的、斤兩都讀得懂，也會把「紅K」「雞胸」換成系統的品名。費用從你的 Anthropic 帳戶扣。金鑰只存在系統裡，畫面上看不到，<b>不要貼在聊天或傳給別人</b>。</div>' +
       '<div class="row"><input id="aiKeyIn" type="password" autocomplete="off" placeholder="貼上 sk-ant- 開頭的金鑰" style="flex:1;min-width:240px"><button type="button" class="btn small" id="aiKeySave">儲存</button>' +
-      (aiSt && aiSt.set ? '<button type="button" class="btn ghost small" id="aiKeyClear" style="color:var(--bad)">清掉（改回 Google 辨識）</button>' : '') + '</div><div id="aiKeyMsg" class="small"></div>';
+      (aiSt && aiSt.set ? '<button type="button" class="btn ghost small" id="aiKeyClear" style="color:var(--bad)">清掉（改回 Google 辨識）</button>' : '') + '</div><div class="row" style="margin-top:6px"><b class="small">型號</b>' + ((aiSt && aiSt.models) || []).map(function (m) {
+        return '<label class="small" style="margin-right:10px"><input type="radio" name="aiModel" value="' + esc(m.id) + '"' + (m.id === aiSt.model ? ' checked' : '') + '> ' + esc(m.name) + ' <span class="muted">' + esc(m.note) + '</span></label>';
+      }).join('') + '</div><div class="muted small">建議先用「便宜」；常讀錯再換「中等」或「最準」。換型號不用重貼金鑰。</div><div id="aiKeyMsg" class="small"></div>';
+  });
+  $('aiKeyBox').addEventListener('change', function (e) {
+    var t = e.target; if (t.name !== 'aiModel') return;
+    call('aiModelSet', t.value).then(function (r) { aiSt = r; $('aiKeyMsg').innerHTML = '<span style="color:var(--ok)">已改用 ' + esc((r.models.filter(function (m) { return m.id === r.model; })[0] || {}).name || r.model) + '</span>'; })
+      .catch(function (err) { $('aiKeyMsg').innerHTML = '<span style="color:var(--bad)">' + esc(err.message) + '</span>'; });
   });
   $('aiKeyBox').addEventListener('click', function (e) {
     var t = e.target;
