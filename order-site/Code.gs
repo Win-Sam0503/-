@@ -412,6 +412,7 @@ function orderPrices_() {
       const d = r['更新日期'] instanceof Date ? dateStr_(toDate_(r['更新日期'])) : String(r['更新日期'] || '').trim();
       const m = String(r['換算'] || '').trim().match(/^([\d.]+)\s*([^\d\s].*)$/);
       const x = { v: v, u: u, p: p, c: m && Number(m[1]) > 0 ? { q: Number(m[1]), u: m[2].trim() } : null, d: d };
+      if (/^手動/.test(String(r['驗收編號'] || ''))) x.m = 1;   // 管理者在成本頁自己填的
       const k = v + '|' + n + '|' + u;
       if (seen[k] && seen[k].d >= d) return;
       if (seen[k]) out[n].splice(out[n].indexOf(seen[k]), 1);
@@ -485,6 +486,40 @@ function readUnitConv_() {
   });
   return out;
 }
+/**
+ * 管理者：自己找到的單價直接填進單價表（例如廠商報價單、網路價格）。
+ * 同一家同一樣同一單位只留一筆；price 空白＝刪掉手填的那筆（銷貨單記的不動）。
+ * 之後那家廠商的銷貨單有這一樣，成本會自動改用銷貨單的單價。回傳最新的單價表（給畫面用）
+ */
+function adminSavePrice(token, vendor, name, unit, price) {
+  const admin = auth_(token, true);
+  vendor = clean_(vendor, 30); name = clean_(name, 40); unit = clean_(unit, 10);
+  if (!vendor || !name || !unit) throw new Error('資料不完整（廠商、品名、單位都要有）。');
+  const raw = String(price == null ? '' : price).replace(/[,，$＄\s]/g, ''), p = Number(raw);
+  if (raw !== '' && !(p > 0 && p < 1000000)) throw new Error('單價請填大於 0 的數字。');
+  const H = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_('單價表', H);
+    const t = readTable_('單價表', ['廠商', '食材名稱', '單價']);
+    const same = t.rows.filter(function (r) { return String(r['廠商']).trim() === vendor && String(r['食材名稱']).trim() === name && String(r['單位'] || '').trim() === unit; });
+    const tag = '手動（' + admin + '）', today = dateStr_(new Date());
+    if (raw === '') {
+      const del = same.filter(function (r) { return /^手動/.test(String(r['驗收編號'] || '')); }).map(function (r) { return r._row; });
+      if (del.length) deleteRows_(sh, del);
+    } else if (same.length) {
+      const r = same[same.length - 1];
+      setCell_(t, r._row, '單價', p); setCell_(t, r._row, '更新日期', today); setCell_(t, r._row, '驗收編號', tag);
+    } else appendRows_('單價表', [{ '廠商': vendor, '食材名稱': name, '單位': unit, '單價': p, '更新日期': today, '驗收編號': tag }]);
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
+  } finally {
+    lock.releaseLock();
+  }
+  return orderPrices_();
+}
+
 /** 管理者：存一筆換算（q 空白＝刪掉）。回傳全部換算 */
 function adminSaveUnitConv(token, name, unit, q, unit2) {
   const admin = auth_(token, true);

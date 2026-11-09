@@ -2539,7 +2539,8 @@
     if (!list || !list.length) return null;
     var v = dispVendor(c.vendor), mine = list.filter(function (x) { return x.v === v; });
     var pool = mine.length ? mine : list;
-    return pool.filter(function (x) { return qtyInPriceN(1, c.unit, x, c.name) !== null; })[0] || pool[0];
+    var ok = pool.filter(function (x) { return qtyInPriceN(1, c.unit, x, c.name) !== null; });
+    return ok.filter(function (x) { return x.m; })[0] || ok[0] || pool[0];   // 管理者手填的優先
   }
   // q 個 unit 換成單價的單位：同單位、重量互換、或用換算（1 K＝190 顆、1 袋＝22000 g）
   // 再試管理者設的單位換算（1 把 ＝ 0.3 斤）：先把老師的單位換掉，再換成單價的單位
@@ -2588,7 +2589,7 @@
       if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share, src: it.sp.src || null };
     }
     var e = estCost(it), px = priceOf(it);
-    return e === null ? null : { amt: e, p: px.p, u: px.u, real: false };
+    return e === null ? null : { amt: e, p: px.p, u: px.u, real: false, manual: !!px.m };
   }
   // 沒有成本的原因：給成本細項顯示，順便給「單位換不過去」一個換算輸入
   function costWhy(it) {
@@ -3341,6 +3342,14 @@
     call('adminSlipItems', token, f, t).then(function (r) { slipItemsCache = { key: key, data: r, loading: false }; var el = $('costMiss'); if (el && lastCostList) el.outerHTML = missingCostHtml(lastCostList); })
       .catch(function () { slipItemsCache.loading = false; });
   }
+  // 自己找到的單價直接填：「$ 25 ／ 顆」存進單價表（廠商、品名、單位），之後銷貨單有這一樣會自動改用銷貨單的
+  function priceInput(it, cur) {
+    if (!data.isAdmin || !it.vendor) return '';
+    var u = cur ? cur.u : (it.unit || '');
+    return '<div class="noprint" style="white-space:nowrap;margin-top:3px">' + (cur ? '改單價' : '知道單價？') + '：$ <input data-mp-p placeholder="例如 25" value="' + (cur ? esc(fmtQty(cur.p)) : '') + '" inputmode="decimal" style="width:70px;display:inline-block;padding:2px 4px"> ／ <input data-mp-u value="' + esc(u) + '" style="width:52px;display:inline-block;padding:2px 4px" title="單位：照你找到的價格填（顆、斤、包…）">' +
+      ' <button type="button" class="btn ghost small" data-mpsave data-mp-v="' + esc(it.vendor) + '" data-mp-n="' + esc(it.name) + '" style="padding:1px 8px">存</button>' +
+      (cur ? ' <button type="button" class="btn ghost small" data-mpdel data-mp-v="' + esc(it.vendor) + '" data-mp-n="' + esc(it.name) + '" data-mp-ou="' + esc(cur.u) + '" style="padding:1px 8px;color:var(--bad)">刪掉</button>' : '') + '</div>';
+  }
   // 沒有成本的品項（同名同單位合在一起），一次看原因、一次填換算
   function missingCostHtml(list) {
     var m = {}, keys = [];
@@ -3350,19 +3359,19 @@
         if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
         var c = itemCost(it);
         if (c && c.real) return;
-        var k = it.name + '|' + (it.unit || '') + '|' + (c ? 'e' : 'n');
-        if (!m[k]) { m[k] = { it: it, n: 0, est: !!c }; keys.push(k); }
+        var k = it.name + '|' + (it.unit || '') + '|' + (c ? (c.manual ? 'h' : 'e') : 'n');
+        if (!m[k]) { m[k] = { it: it, n: 0, est: !!c, man: !!(c && c.manual), c: c }; keys.push(k); }
         m[k].n++;
       });
     });
     if (!keys.length) return '';
     // 沒有成本的排前面，再照廠商、品名
-    keys.sort(function (a, b) { var x = m[a], y = m[b]; return (x.est - y.est) || String(x.it.vendor || '').localeCompare(String(y.it.vendor || ''), 'zh-Hant') || x.it.name.localeCompare(y.it.name, 'zh-Hant'); });
-    var nNone = keys.filter(function (k) { return !m[k].est; }).length, nEst = keys.length - nNone;
-    var whyOf = function (x) { return x.est ? { text: (x.it.spSug || x.it.spNP) && !x.it.sp ? costWhy(x.it).text + '（現在先用單價表的上次單價估）' : '那週銷貨單沒對到「' + x.it.name + '」，先用單價表的上次單價估；廠商叫法不一樣的，在下面選對應' } : costWhy(x.it); };
-    lastMissRows = keys.map(function (k) { var x = m[k]; return [x.it.name, x.it.vendor || '', x.it.unit || '', x.n, x.est ? '用上次單價估' : '沒有成本', whyOf(x).text]; });
+    keys.sort(function (a, b) { var x = m[a], y = m[b]; return (x.man - y.man) || (x.est - y.est) || String(x.it.vendor || '').localeCompare(String(y.it.vendor || ''), 'zh-Hant') || x.it.name.localeCompare(y.it.name, 'zh-Hant'); });
+    var nNone = keys.filter(function (k) { return !m[k].est; }).length, nMan = keys.filter(function (k) { return m[k].man; }).length, nEst = keys.length - nNone - nMan;
+    var whyOf = function (x) { return x.man ? { text: '用你自己填的單價（$' + fmtQty(x.c.p) + '／' + x.c.u + '）；之後那家的銷貨單有這一樣，會自動改用銷貨單的單價' } : x.est ? { text: (x.it.spSug || x.it.spNP) && !x.it.sp ? costWhy(x.it).text + '（現在先用單價表的上次單價估）' : '那週銷貨單沒對到「' + x.it.name + '」，先用單價表的上次單價估；廠商叫法不一樣的，在下面選對應' } : costWhy(x.it); };
+    lastMissRows = keys.map(function (k) { var x = m[k]; return [x.it.name, x.it.vendor || '', x.it.unit || '', x.n, x.man ? '手填單價' : x.est ? '用上次單價估' : '沒有成本', whyOf(x).text]; });
     if (slipItemsCache.key !== costRange().join('|')) setTimeout(loadSlipItems, 0);
-    return '<details id="costMiss"' + (costMissOpen ? ' open' : '') + ' style="margin:6px 0 8px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 沒對到銷貨單：' + (nNone ? nNone + ' 樣沒有成本' : '') + (nNone && nEst ? '、' : '') + (nEst ? nEst + ' 樣用上次單價估' : '') + '</b>（點開看清單、原因、填換算）</summary>' +
+    return '<details id="costMiss"' + (costMissOpen ? ' open' : '') + ' style="margin:6px 0 8px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 沒對到銷貨單：' + (nNone ? nNone + ' 樣沒有成本' : '') + (nNone && nEst ? '、' : '') + (nEst ? nEst + ' 樣用上次單價估' : '') + (!nNone && !nEst ? '都處理好了' : '') + '</b>' + (nMan ? '<span class="muted">（' + nMan + ' 樣用手填單價）</span>' : '') + '（點開看清單、原因、填換算、填單價）</summary>' +
       '<div class="noprint" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-misscopy>📋 複製清單</button><button type="button" class="btn ghost small" data-misscsv>⬇ 下載清單（Excel）</button></div>' +
       '<div class="tablewrap"><table class="small"><tr><th>食材</th><th>訂的單位</th><th>次數</th><th>狀態</th><th>原因／處理</th></tr>' +
       keys.map(function (k) {
@@ -3371,7 +3380,7 @@
         var pick = !w.conv && data.isAdmin ? '<div class="noprint" style="margin-top:3px">' + (slipItemsCache.data ? (opts.length ? '廠商送的其實是：<select data-cm-v="' + esc(sv) + '" data-cm-o="' + esc(x.it.name) + '" style="width:auto;max-width:220px;display:inline-block;padding:2px 4px"><option value="">（選銷貨單上的品項）</option>' +
           opts.map(function (y) { return '<option value="' + esc(y.n) + '">' + esc(y.n + '　$' + fmtQty(y.p) + '／' + y.u) + '</option>'; }).join('') + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
           : '<span class="muted">這幾週 ' + esc(sv) + ' 的銷貨單還沒填品項</span>') : '<span class="muted">讀取銷貨單品項中…</span>') + '</div>' : '';
-        return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + pick +
+        return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.man ? '<span style="color:var(--ok)">✏ 手填單價</span>' : x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + (x.man ? '' : pick) + priceInput(x.it, x.man ? x.c : null) +
           (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
@@ -3387,7 +3396,7 @@
           '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
             return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
           })(costWhy(it))) + '</td>' +
-          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') + srcLine(c) : '<span class="muted">上次單價估</span>') + '</td></tr>';
+          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') + srcLine(c) : (c.manual ? '<span style="color:#475467">✏ 手填單價</span>' : '<span class="muted">上次單價估</span>')) + '</td></tr>';
       }).join('');
       return '<details style="margin:4px 0"><summary style="cursor:pointer">' + esc(shortDate(o.useDate)) + '　' + esc(o.className || '') + '「' + esc(o.project || '（沒填實作項目）') + '」　' + esc(o.onBehalfOf || o.teacher) +
         '　<b>$' + money0(e.c.sum) + '</b>' + (e.c.est || e.c.none ? '<span class="muted small">（' + (e.c.est ? '估 ' + e.c.est + ' 項' : '') + (e.c.est && e.c.none ? '・' : '') + (e.c.none ? e.c.none + ' 項沒有單價' : '') + '）</span>' : '') + '</summary>' +
@@ -3738,6 +3747,23 @@
       costMsg('ok', '已對應：' + sel.getAttribute('data-cm-o') + ' 用 ' + sel.getAttribute('data-cm-v') + ' 銷貨單上「' + sel.value + '」的單價（以後每週都這樣對）。');
       costOpen = true; costMissOpen = true; costReload();
     }).catch(function (err) { notice(err.message); setBusy(b, false); });
+  });
+  // 自己填單價：存進單價表
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-mpsave],[data-mpdel]');
+    if (!b) return;
+    var del = b.hasAttribute('data-mpdel'), box = b.parentNode, v = b.getAttribute('data-mp-v'), n = b.getAttribute('data-mp-n');
+    var pv = del ? '' : box.querySelector('[data-mp-p]').value.replace(/[,，$＄\s]/g, ''), u = del ? b.getAttribute('data-mp-ou') : box.querySelector('[data-mp-u]').value.trim();
+    if (!del && !(Number(pv) > 0)) { box.querySelector('[data-mp-p]').focus(); notice('請填單價（數字），例如 25。'); return; }
+    if (!u) { box.querySelector('[data-mp-u]').focus(); notice('請填單位，例如 顆、斤、包。'); return; }
+    var go = function () {
+      setBusy(b, true, '…');
+      call('adminSavePrice', token, v, n, u, pv).then(function (r) {
+        data.prices = r; costOpen = true; costMissOpen = true; costRerender();
+        costMsg('ok', del ? '已刪掉「' + n + '」手填的單價。' : '已存：' + n + '（' + vco(v) + '）$' + pv + '／' + u + '。成本先用這個算，之後銷貨單有這一樣會自動改用銷貨單的單價。');
+      }).catch(function (err) { notice(err.message); setBusy(b, false); });
+    };
+    if (del) ask('刪掉「' + n + '」手填的單價？', '刪掉').then(function (ok) { if (ok) go(); }); else go();
   });
   // 單位換算：在成本細項直接填「1 把 ＝ 0.3 斤」
   document.addEventListener('click', function (e) {
