@@ -2025,6 +2025,7 @@
             if (r.date) pp.date = r.date;
             Object.keys(r.rows).forEach(function (n) { var x = r.rows[n]; pp.rows.push({ name: n, qty: x.qty, unit: x.unit, price: x.price, amount: x.amount }); });
             r.extras.forEach(function (x) { pp.rows.push({ name: x.slipName || '', qty: x.qty, unit: x.unit, price: x.price, amount: x.amount }); });
+            if (!String(r.text || '').trim()) { warn.push('有一張辨識失敗，再按一次「🔎 自動讀」會重讀那張'); return; }   // 沒讀到字：不算讀過
             (cur.slip.readUrls = cur.slip.readUrls || []).push(r.url);
             if (!pp.rows.length) { warn.push('有一張沒讀到品項'); return; }
             ps.push(pp); made.push(ps.length);

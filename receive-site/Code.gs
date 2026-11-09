@@ -849,12 +849,29 @@ function ocrTexts_(fileIds) {
     const r2 = UrlFetchApp.fetchAll(again.map(function (i) { return reqs[i]; }));
     again.forEach(function (i, k) { res[i] = r2[k]; });
   }
+  // 還是失敗（例如 400）：改用「在雲端硬碟複製成 Google 文件」的方式辨識（不用重新傳照片內容）
+  const bad = [];
+  res.forEach(function (r, i) { if (r.getResponseCode() >= 300) bad.push(i); });
+  if (bad.length) {
+    const r3 = UrlFetchApp.fetchAll(bad.map(function (i) {
+      return { url: 'https://www.googleapis.com/drive/v3/files/' + fileIds[i] + '/copy?fields=id&ocrLanguage=zh-TW&supportsAllDrives=true', method: 'post', contentType: 'application/json',
+        payload: JSON.stringify({ name: '[銷貨單辨識暫存]', mimeType: 'application/vnd.google-apps.document' }), headers: auth, muteHttpExceptions: true };
+    }));
+    bad.forEach(function (i, k) { if (r3[k].getResponseCode() < 300) res[i] = r3[k]; });
+  }
   const docIds = res.map(function (r) { return r.getResponseCode() < 300 ? JSON.parse(r.getContentText()).id : ''; });
-  if (!docIds.some(Boolean)) throw new Error('銷貨單辨識失敗（' + res[0].getResponseCode() + '），請再試一次或手動填。');
+  if (!docIds.some(Boolean)) {
+    let why = '';
+    try { const j = JSON.parse(res[0].getContentText()); why = (j.error && (j.error.message || (j.error.errors && j.error.errors[0] && j.error.errors[0].message))) || ''; } catch (e) { why = String(res[0].getContentText() || '').slice(0, 150); }
+    console.error('ocrTexts_ ' + res[0].getResponseCode() + ' ' + res[0].getContentText().slice(0, 500));
+    throw new Error('銷貨單辨識失敗（' + res[0].getResponseCode() + (why ? '：' + why : '') + '），請再試一次或手動填。');
+  }
   try {
     const ok = docIds.filter(Boolean);
     const outs = UrlFetchApp.fetchAll(ok.map(function (id) { return { url: 'https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text/plain', headers: auth, muteHttpExceptions: true }; }));
-    return outs.map(function (o) { return o.getResponseCode() < 300 ? o.getContentText('UTF-8') : ''; });
+    // 跟照片一張對一張（讀失敗的那張是空字串，後面的不會錯位）
+    let k = 0;
+    return docIds.map(function (id) { if (!id) return ''; const o = outs[k++]; return o.getResponseCode() < 300 ? o.getContentText('UTF-8') : ''; });
   } finally {
     docIds.filter(Boolean).forEach(function (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} });
   }
