@@ -708,6 +708,40 @@ function cachedItems_() {
   return items;
 }
 
+/** 管理者：全部食材（含停用的），停用／恢復用。回傳 [{ id, name, alias, vendor, dept, active, n }]（n＝最近 60 天被訂幾次） */
+function adminItemsAll(token) {
+  auth_(token, true);
+  const since = addDays_(today_(), -60), cnt = {};
+  readTable_(SHEET.orders, ['食材ID']).rows.forEach(function (r) {
+    const d = r['使用日期'] instanceof Date ? toDate_(r['使用日期']) : parseDate_(String(r['使用日期'] || ''));
+    if (d && d >= since) { const id = String(r['食材ID']).trim(); cnt[id] = (cnt[id] || 0) + 1; }
+  });
+  return readTable_(SHEET.items, ['食材ID', '食材名稱']).rows.filter(function (r) { return String(r['食材ID']).trim() && String(r['食材名稱']).trim(); }).map(function (r) {
+    const id = String(r['食材ID']).trim();
+    return { id: id, name: String(r['食材名稱']).trim(), alias: String(r['別名'] || '').trim(), vendor: String(r['廠商'] || '').trim(), dept: String(r['科別'] || '').trim(),
+      active: r['啟用'] === undefined || isTrue_(r['啟用']), n: cnt[id] || 0 };
+  });
+}
+/** 管理者：停用／恢復食材（ids 可以好幾個）。停用的老師搜不到、不能訂；舊訂單、成本不受影響 */
+function adminSetItemsActive(token, ids, on) {
+  auth_(token, true);
+  ids = [].concat(ids || []).map(function (x) { return String(x || '').trim(); }).filter(Boolean).slice(0, 300);
+  if (!ids.length) throw new Error('請選食材。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    ensureHeaders_(sheet_(SHEET.items), ['啟用']);
+    const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
+    let n = 0;
+    t.rows.forEach(function (r) { if (ids.indexOf(String(r['食材ID']).trim()) >= 0) { setCell_(t, r._row, '啟用', !!on); n++; } });
+    if (!n) throw new Error('找不到這些食材，請重新整理。');
+    SpreadsheetApp.flush();
+    clearItemsCache_();
+  } finally {
+    lock.releaseLock();
+  }
+  return adminItemsAll(token);
+}
 function clearItemsCache_() {
   CacheService.getScriptCache().remove('items:n');
 }

@@ -1326,6 +1326,16 @@
           <input id="aliasFind" type="search" placeholder="找食材或叫法，例如：糖" style="margin:8px 0;max-width:280px" autocomplete="off">
           <div id="aliasList" class="small" style="line-height:2.2"></div></details>
       </div>
+      <details class="panel" id="actPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">🚫 停用／恢復食材</h2> <span class="muted small" style="font-weight:normal">不再叫的、重複的、寫錯的食材停用，老師就搜不到；舊訂單、成本不受影響，隨時可以恢復</span></summary>
+        <div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap;align-items:center">
+          <input id="actQ" type="search" placeholder="找食材，例如：奶油、杏仁" autocomplete="off" style="max-width:240px">
+          <select id="actV" style="width:auto"><option value="">全部廠商</option></select>
+          <select id="actS" style="width:auto"><option value="on">使用中</option><option value="off">已停用</option><option value="">全部</option><option value="idle">使用中、60 天沒人訂</option></select>
+          <span style="flex:1"></span><button type="button" class="btn small" id="actOff" style="background:var(--bad)">🚫 停用勾的</button><button type="button" class="btn secondary small" id="actOn">↩ 恢復勾的</button>
+        </div>
+        <div id="actMsg"></div><div id="actList" class="small"></div>
+      </details>
     </section>
   </main>
   <footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
@@ -4573,6 +4583,57 @@
       renderUnitList(r);
     }).catch(function (err) { $('unMsg').innerHTML = '<span style="color:var(--bad)">' + esc(err.message) + '</span>'; });
   });
+  // 🚫 停用／恢復食材
+  var actItems = null;
+  function actLoad() {
+    $('actList').innerHTML = '<span class="muted">讀取中…</span>';
+    call('adminItemsAll', token).then(function (r) {
+      actItems = r;
+      var vs = r.map(function (x) { return x.vendor; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
+      var cur0 = $('actV').value;
+      $('actV').innerHTML = '<option value="">全部廠商</option>' + vs.map(function (v) { return '<option' + (v === cur0 ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
+      actRender();
+    }).catch(function (e) { $('actList').innerHTML = ''; msg('actMsg', 'error', e.message); });
+  }
+  function actRender() {
+    if (!actItems) return;
+    var q = $('actQ').value.trim().toLowerCase(), v = $('actV').value, st = $('actS').value;
+    var list = actItems.filter(function (x) {
+      if (v && x.vendor !== v) return false;
+      if (st === 'on' && !x.active) return false;
+      if (st === 'off' && x.active) return false;
+      if (st === 'idle' && (!x.active || x.n)) return false;
+      return !q || (x.name + ' ' + x.alias + ' ' + x.id).toLowerCase().indexOf(q) >= 0;
+    }).sort(function (a, b) { return a.vendor.localeCompare(b.vendor, 'zh-Hant') || a.name.localeCompare(b.name, 'zh-Hant'); });
+    var nOff = actItems.filter(function (x) { return !x.active; }).length;
+    $('actList').innerHTML = '<div class="muted" style="margin-bottom:4px">共 ' + actItems.length + ' 樣，已停用 ' + nOff + ' 樣；下面列 ' + list.length + ' 樣' + (list.length > 300 ? '（只顯示前 300 樣，請用搜尋縮小）' : '') + '</div>' +
+      (list.length ? '<div class="tablewrap"><table><tr><th><input type="checkbox" id="actAll" title="全選"></th><th>食材</th><th>廠商</th><th>科別</th><th>近 60 天被訂</th><th>狀態</th></tr>' +
+        list.slice(0, 300).map(function (x) {
+          return '<tr' + (x.active ? '' : ' style="color:#98a2b3"') + '><td><input type="checkbox" data-actid="' + esc(x.id) + '"></td><td><b>' + esc(x.name) + '</b>' + (x.alias ? '<div class="muted">' + esc(x.alias) + '</div>' : '') + '</td><td>' + esc(x.vendor) + '</td><td>' + esc(x.dept) + '</td>' +
+            '<td class="num">' + (x.n ? x.n + ' 次' : '<span class="muted">0</span>') + '</td><td>' + (x.active ? '<span class="badge ok">使用中</span>' : '<span class="badge none">已停用</span>') + '</td></tr>';
+        }).join('') + '</table></div>' : '<div class="muted">沒有符合的食材。</div>');
+  }
+  $('actPanel').addEventListener('toggle', function () { if (this.open && !actItems) actLoad(); });
+  $('actQ').addEventListener('input', function (e) { if (!e.isComposing) actRender(); });
+  $('actQ').addEventListener('compositionend', actRender);
+  $('actV').addEventListener('change', actRender);
+  $('actS').addEventListener('change', actRender);
+  $('actList').addEventListener('change', function (e) { if (e.target.id === 'actAll') Array.prototype.forEach.call($('actList').querySelectorAll('[data-actid]'), function (c) { c.checked = e.target.checked; }); });
+  function actSet(on, btn) {
+    var ids = Array.prototype.filter.call($('actList').querySelectorAll('[data-actid]'), function (c) { return c.checked; }).map(function (c) { return c.getAttribute('data-actid'); });
+    if (!ids.length) { msg('actMsg', 'error', '請先勾要' + (on ? '恢復' : '停用') + '的食材。'); return; }
+    var names = ids.map(function (id) { var x = actItems.filter(function (y) { return y.id === id; })[0]; return x ? x.name : id; });
+    var used = on ? [] : ids.filter(function (id) { var x = actItems.filter(function (y) { return y.id === id; })[0]; return x && x.n; });
+    if (!safeConfirm((on ? '恢復' : '停用') + ' ' + ids.length + ' 樣食材？\n' + names.slice(0, 15).join('、') + (names.length > 15 ? '…' : '') +
+      (on ? '' : '\n\n停用後老師搜不到、不能再訂；已經送出的訂單、成本不受影響，之後可以恢復。' + (used.length ? '\n⚠ 其中 ' + used.length + ' 樣最近 60 天還有人訂。' : '')))) return;
+    setBusy(btn, true, '處理中…');
+    call('adminSetItemsActive', token, ids, on).then(function (r) {
+      actItems = r; actRender();
+      msg('actMsg', 'ok', '已' + (on ? '恢復' : '停用') + ' ' + ids.length + ' 樣：' + names.slice(0, 10).join('、') + (names.length > 10 ? '…' : '') + '。老師重新整理後生效。');
+    }).catch(function (e) { msg('actMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  }
+  $('actOff').addEventListener('click', function () { actSet(false, this); });
+  $('actOn').addEventListener('click', function () { actSet(true, this); });
   function loadPendingUnits() {
     return call('adminGetPendingUnits', token).then(function (list) {
       pendUnitCount = list.length;
