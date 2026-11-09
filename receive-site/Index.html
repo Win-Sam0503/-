@@ -264,12 +264,14 @@
         <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
           <div class="row"><b>💰 金額</b>
             <button type="button" class="btn small" id="slipRead">🔎 自動讀銷貨單</button>
+            <button type="button" class="btn ghost small" id="aiKeyBtn" title="用 AI 看照片讀銷貨單（手寫、歪的也讀得懂）">🤖 AI 讀取</button>
             <button type="button" class="btn ghost small" id="slipManual">手動填</button>
             <button type="button" class="btn ghost small hidden" id="slipPaperMode" title="照手上的紙本一張一張打">📄 一張一張打</button>
             <button type="button" class="btn ghost small" id="slipOldMode" title="舊版：照叫貨單的品項填（可以用快速核對、✕併到）">舊版表格</button>
             <button type="button" class="btn ghost small" id="slipTotalOnly" title="品項太多時先只打總金額，品項之後有空再補">只填合計</button>
             <button type="button" class="btn small" id="slipQuick" title="一品一張銷貨單（例如菜商）：拿到哪張點哪一項">⚡ 快速核對</button>
             <span id="slipMsg" class="muted small">選填。存起來的單價會進「單價表」，之後算成本用。</span></div>
+          <div id="aiKeyBox" class="hidden panel" style="margin:8px 0;border:2px solid var(--brand)"></div>
           <div id="slipQWrap" class="hidden" style="margin-top:8px"><input id="slipQ" type="search" placeholder="🔍 搜尋品名（例如：洋蔥、蔥、蛋）" autocomplete="off" style="max-width:360px"> <span id="slipQN" class="muted small"></span></div>
           <div id="slipBox"></div>
         </div>
@@ -702,6 +704,8 @@
     $('slCode').value = d && d.code !== undefined ? d.code : sl ? sl.code || '' : '';
     fundCodesLoad();
     if (!cur.slip) paperMode();   // 預設：照紙本一張一張打
+    if (!aiSt) aiLoad(); else aiBtnText();
+    $('aiKeyBox').classList.add('hidden');
     $('slTitle').textContent = '💰 ' + vco(b.vendor) + (b.extra ? '（臨時銷貨單）' : b.group ? '　送貨組別 ' + b.group : '');
     $('slSub').textContent = (b.extra ? mdw(b.date) + ' 送貨・不在叫貨單裡' : '叫貨 ' + mdw(bFrom(b)) + '～' + mdw(bTo(b)) + '・' + (b.check ? '已驗收' : '還沒驗收')) + (sl && sl.time ? '・上次存 ' + sl.time + (sl.by ? '（' + sl.by + '）' : '') : '');
     $('slDel').classList.toggle('hidden', !(b.extra && b.id));
@@ -2006,6 +2010,29 @@
     var row = { qty: $('qkQty').value, unit: $('qkU').value, price: $('qkP').value, pu: $('qkPu').value }, q = slipQty(row), p = slipPrice(row);
     if (q !== null && p !== null) $('qkA').value = r2(q * p);
   });
+  // 🤖 AI 讀取：設了金鑰，「🔎 自動讀」就改用 AI 看照片；金鑰只存在伺服器，畫面上只顯示最後 4 碼
+  var aiSt = null;
+  function aiBtnText() { $('aiKeyBtn').textContent = aiSt && aiSt.set ? '🤖 AI 讀取：開' : '🤖 AI 讀取：關'; $('aiKeyBtn').style.color = aiSt && aiSt.set ? 'var(--ok)' : ''; }
+  function aiLoad() { call('aiKeyStatus').then(function (r) { aiSt = r; aiBtnText(); }).catch(function () {}); }
+  $('aiKeyBtn').addEventListener('click', function () {
+    var box = $('aiKeyBox');
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    box.innerHTML = '<b>🤖 AI 讀銷貨單</b>　' + (aiSt && aiSt.set ? '<span class="badge ok">已設定（金鑰最後 4 碼 ' + esc(aiSt.tail) + '）</span>' : '<span class="badge none">還沒設定，現在用 Google 文字辨識</span>') +
+      '<div class="muted small" style="margin:4px 0">設了金鑰以後，「🔎 自動讀銷貨單」改用 AI（' + esc((aiSt && aiSt.model) || 'Claude') + '）看照片：手寫、歪的、斤兩都讀得懂，也會把「紅K」「雞胸」換成系統的品名。每張照片大約 NT$1 元，從你的 Anthropic 帳戶扣。金鑰只存在系統裡，畫面上看不到，<b>不要貼在聊天或傳給別人</b>。</div>' +
+      '<div class="row"><input id="aiKeyIn" type="password" autocomplete="off" placeholder="貼上 sk-ant- 開頭的金鑰" style="flex:1;min-width:240px"><button type="button" class="btn small" id="aiKeySave">儲存</button>' +
+      (aiSt && aiSt.set ? '<button type="button" class="btn ghost small" id="aiKeyClear" style="color:var(--bad)">清掉（改回 Google 辨識）</button>' : '') + '</div><div id="aiKeyMsg" class="small"></div>';
+  });
+  $('aiKeyBox').addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.id !== 'aiKeySave' && t.id !== 'aiKeyClear') return;
+    var k = t.id === 'aiKeyClear' ? '' : $('aiKeyIn').value.trim();
+    if (t.id === 'aiKeySave' && !k) { $('aiKeyIn').focus(); return; }
+    if (t.id === 'aiKeyClear' && !window.confirm('清掉 AI 金鑰？之後「自動讀」改回 Google 文字辨識。')) return;
+    t.disabled = true;
+    call('aiKeySet', k).then(function (r) { aiSt = r; aiBtnText(); $('aiKeyBox').classList.add('hidden'); msg('slMsg', 'ok', r.set ? 'AI 讀取已開啟，按「🔎 自動讀銷貨單」試試看。' : '已清掉 AI 金鑰，改回 Google 文字辨識。'); })
+      .catch(function (err) { $('aiKeyMsg').innerHTML = '<span style="color:var(--bad)">' + esc(err.message) + '</span>'; t.disabled = false; });
+  });
   $('slipRead').addEventListener('click', function () {
     if (!cur.photos.length) { $('slipMsg').textContent = '請先按「📷 拍銷貨單」。'; return; }
     var btn = this;
@@ -2016,7 +2043,7 @@
       var done0 = cur.slip.readUrls || [], todo = cur.photos.filter(function (u) { return done0.indexOf(u) < 0; });
       if (!todo.length) { $('slipMsg').textContent = '這些照片都讀過了。新拍的照片才會讀。'; return; }
       if (window.confirm('一張照片讀成一張銷貨單？（' + todo.length + ' 張，日期照單上的「單據日期」）\n按「取消」＝全部照片合起來讀成一張。')) {
-        btn.disabled = true; $('slipMsg').textContent = '辨識中，' + todo.length + ' 張一起讀，大約 15～40 秒…';
+        btn.disabled = true; $('slipMsg').textContent = (aiSt && aiSt.set ? '🤖 AI 讀取中，' : '辨識中，') + todo.length + ' 張一起讀，大約 15～40 秒…';
         call('readSlips', todo.slice(0, 12), cur.b.vendor, slipNames()).then(function (list) {
           var ps = cur.slip.papers, made = [], warn = [];
           if (ps.length === 1 && ps[0].rows.every(function (y) { return !String(y.name || '').trim() && numv(y.amount) === null; })) ps.length = 0;   // 空的第 1 張拿掉

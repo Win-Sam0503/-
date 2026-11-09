@@ -68,6 +68,7 @@ const API_ = {
   getWeek: function (a) { return getWeek_.apply(null, a); }, moveSlip: function (a) { return moveSlip_.apply(null, a); }, fundCodes: function () { return fundCodes_(); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
   saveSlip: function (a) { return saveSlip_.apply(null, a); }, slipMonth: function (a) { return slipMonth_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
   uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); }, readSlips: function (a) { return readSlips_.apply(null, a); },
+  aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
@@ -798,6 +799,14 @@ function folderNamed_(name, parent) {
 function readSlip_(photos, vendor, names) {
   const ids = (photos || []).map(fileIdOf_).filter(Boolean);
   if (!ids.length) throw new Error('請先拍銷貨單。');
+  if (aiKey_()) {   // AI：每張照片各讀一次，合成一張
+    const rs = aiReadSlips_(ids.slice(0, 6).map(function (id, i) { return { url: photos[i], id: id }; }), clean_(vendor, 30), names || []);
+    const out = { text: rs.map(function (r) { return r.text; }).join('\n'), rows: {}, extras: [], total: '' };
+    let tot = 0, hasTot = false;
+    rs.forEach(function (r) { out.extras = out.extras.concat(r.extras); if (r.total !== '') { tot += Number(r.total) || 0; hasTot = true; } });
+    if (hasTot) out.total = round2_(tot);
+    return out;
+  }
   const text = ocrTexts_(ids.slice(0, 6)).join('\n');
   return parseSlip_(text, slipKeys_(clean_(vendor, 30), (names || []).map(function (n) { return clean_(n, 40); }).filter(Boolean)));
 }
@@ -809,6 +818,7 @@ function readSlip_(photos, vendor, names) {
 function readSlips_(photos, vendor, names) {
   const list = (photos || []).map(function (u) { return { url: u, id: fileIdOf_(u) }; }).filter(function (x) { return x.id; }).slice(0, 12);
   if (!list.length) throw new Error('請先拍銷貨單。');
+  if (aiKey_()) return aiReadSlips_(list, clean_(vendor, 30), names || []);   // 設了 AI 金鑰：用 AI 看照片（手寫、歪的也讀得懂）
   const keys = slipKeys_(clean_(vendor, 30), (names || []).map(function (n) { return clean_(n, 40); }).filter(Boolean));
   const texts = ocrTexts_(list.map(function (x) { return x.id; }));
   return list.map(function (x, i) {
@@ -820,6 +830,86 @@ function readSlips_(photos, vendor, names) {
     r.no = no ? no[1] : '';
     return r;
   });
+}
+
+// ---------------------------------------------------------------------
+// AI 讀銷貨單照片（Claude）：金鑰存在指令碼屬性，畫面上看不到、也不會傳回瀏覽器
+// ---------------------------------------------------------------------
+const AI_MODEL = 'claude-opus-5-5';
+function aiKey_() { return PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY') || ''; }
+function aiKeyStatus_() { const k = aiKey_(); return { set: !!k, tail: k ? k.slice(-4) : '', model: AI_MODEL }; }
+/** 存／清掉 AI 金鑰（key 空白＝清掉，改回 Google 文字辨識） */
+function aiKeySet_(key) {
+  key = String(key || '').trim();
+  const pr = PropertiesService.getScriptProperties();
+  if (!key) { pr.deleteProperty('ANTHROPIC_API_KEY'); return aiKeyStatus_(); }
+  if (!/^sk-ant-[\w-]{20,}$/.test(key)) throw new Error('金鑰格式不對：應該是 sk-ant- 開頭的一長串。');
+  pr.setProperty('ANTHROPIC_API_KEY', key);
+  return aiKeyStatus_();
+}
+const AI_SLIP_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['date', 'no', 'total', 'rows'],
+  properties: {
+    date: { type: 'string', description: '單上的日期，yyyy-mm-dd；民國年換成西元；看不到就空字串' },
+    no: { type: 'string', description: '單據編號；沒有就空字串' },
+    total: { anyOf: [{ type: 'number' }, { type: 'null' }], description: '單上寫的合計／總額；沒有就 null' },
+    rows: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['name', 'slip_name', 'qty', 'unit', 'price', 'amount'],
+      properties: {
+        name: { type: 'string', description: '品名：對得到「已知品名」就用那個名字（一字不差），對不到就照單上寫的' },
+        slip_name: { type: 'string', description: '單上原本寫的品名' },
+        qty: { anyOf: [{ type: 'number' }, { type: 'null' }], description: '數量；斤兩換成斤的小數（1斤10兩＝1.625），台斤就是斤' },
+        unit: { type: 'string', description: '單位；台斤寫「斤」' },
+        price: { anyOf: [{ type: 'number' }, { type: 'null' }], description: '單價（跟 unit 同一個單位）' },
+        amount: { anyOf: [{ type: 'number' }, { type: 'null' }], description: '這一行的金額／小計' } } } }
+  }
+};
+/** list = [{ url, id }] → 跟 readSlips_ 一樣的格式 [{ url, text, rows: {}, extras: [{ slipName, qty, unit, price, amount }], total, date, no }] */
+function aiReadSlips_(list, vendor, names) {
+  const key = aiKey_();
+  // 已知品名：叫貨單的＋食材總表這家廠商的（讓 AI 把「紅K」「雞翅」換成系統的名字）
+  const known = [];
+  (names || []).forEach(function (n) { n = clean_(n, 40); if (n && known.indexOf(n) < 0) known.push(n); });
+  try { readTable_(SHEET.items, ['食材名稱']).rows.forEach(function (r) { const n = String(r['食材名稱']).trim(); if (n && String(r['廠商'] || '').trim() === vendor && known.indexOf(n) < 0) known.push(n); }); } catch (e) {}
+  const prompt = '這是廠商「' + vendor + '」的銷貨單／出貨單／收據照片（可能是電腦印的或手寫的）。請把每一行品項讀出來。\n' +
+    '規則：\n- 只讀單上真的有的品項，不要編；看不清楚的數字填 null。\n- 斤兩：「1斤10」「1斤10兩」＝1.625 斤，「11兩」＝0.6875 斤；台斤就寫「斤」。\n' +
+    '- 品名對得到下面「已知品名」就用那個名字（例如單上寫「紅K」→紅蘿蔔、「雞胸」→雞胸肉(1付=2片)、「梅肉」→豬梅花肉），對不到就照單上寫。\n' +
+    '- 不要讀「以下空白」、表頭、合計那幾行當品項。\n\n已知品名：' + known.slice(0, 400).join('、');
+  const req = function (x) {
+    const blob = DriveApp.getFileById(x.id).getBlob();
+    return { url: 'https://api.anthropic.com/v1/messages', method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'x-api-key': key, 'anthropic-version': '2026-10-21', 'anthropic-beta': 'server-side-fallback-2026-07-01' },
+      payload: JSON.stringify({ model: AI_MODEL, max_tokens: 16000, fallbacks: 'default',
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: AI_SLIP_SCHEMA } },
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: blob.getContentType() || 'image/jpeg', data: Utilities.base64Encode(blob.getBytes()) } },
+          { type: 'text', text: prompt }] }] }) };
+  };
+  const reqs = list.map(req);
+  let res = UrlFetchApp.fetchAll(reqs);
+  // 忙碌（429、5xx）等一下再送一次
+  const again = [];
+  res.forEach(function (r, i) { const c = r.getResponseCode(); if (c === 429 || c >= 500) again.push(i); });
+  if (again.length) { Utilities.sleep(2500); const r2 = UrlFetchApp.fetchAll(again.map(function (i) { return reqs[i]; })); again.forEach(function (i, k) { res[i] = r2[k]; }); }
+  const errs = [];
+  const out = list.map(function (x, i) {
+    const r = res[i], code = r.getResponseCode(), body = r.getContentText();
+    const fail = function (why) { errs.push(why); return { url: x.url, text: '', rows: {}, extras: [], total: '', date: '', no: '' }; };
+    if (code === 401) return fail('AI 金鑰不對或已停用');
+    if (code >= 300) { let m = ''; try { m = JSON.parse(body).error.message; } catch (e) { m = body.slice(0, 120); } console.error('AI ' + code + ' ' + body.slice(0, 400)); return fail('AI 讀取失敗（' + code + '：' + m + '）'); }
+    let j; try { j = JSON.parse(body); } catch (e) { return fail('AI 回傳看不懂'); }
+    if (j.stop_reason === 'refusal') return fail('AI 拒絕讀這張');
+    if (j.stop_reason === 'max_tokens') return fail('這張品項太多，AI 沒讀完');
+    const t = (j.content || []).filter(function (b) { return b.type === 'text'; })[0];
+    let d; try { d = JSON.parse(t ? t.text : ''); } catch (e) { return fail('AI 回傳格式不對'); }
+    const extras = (d.rows || []).filter(function (y) { return String(y.name || y.slip_name || '').trim(); }).map(function (y) {
+      const v = function (n) { return n === null || n === undefined || isNaN(Number(n)) ? '' : String(round2_(Number(n))); };
+      return { slipName: String(y.name || y.slip_name).trim(), qty: y.qty === null ? '' : String(y.qty), unit: String(y.unit || '').trim(), price: v(y.price), amount: v(y.amount), sure: true, code: '' };
+    });
+    const dt = /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : '';
+    return { url: x.url, text: JSON.stringify(d), rows: {}, extras: extras, total: d.total === null || d.total === undefined ? '' : d.total, date: dt, no: String(d.no || '') };
+  });
+  if (!out.some(function (x) { return x.text; })) throw new Error(errs[0] || 'AI 讀取失敗，請再試一次或手動填。');
+  return out;
 }
 
 function fileIdOf_(url) {
