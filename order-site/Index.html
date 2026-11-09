@@ -3410,6 +3410,39 @@
     var t = x.q ? '那週 ' + x.n + ' 筆、共 ' + fmtQty(x.q) + ' ' + c.u + '、$' + money0(x.a) + ' → 平均' : '那週 ' + x.n + ' 筆單價平均';
     return '<div class="muted">' + esc(t) + '</div>' + (spreadOf(x) ? '<div style="color:var(--warn)">⚠ 那週單價 $' + esc(fmtQty(x.lo)) + '～$' + esc(fmtQty(x.hi)) + ' 差很多，請看銷貨單有沒有打錯</div>' : '');
   }
+  // ⚠ 可疑金額：一項特別貴、一張料單特別貴、分攤出來的「1 條＝幾斤」不合理、單價跟以前差很多
+  function suspectHtml(list) {
+    var rows = [];
+    list.forEach(function (o) {
+      var oc = orderCost(o);
+      if (oc.sum > 15000) rows.push({ o: o, it: null, why: '這張料單合計 $' + money0(oc.sum) + '，比一般多很多', amt: oc.sum });
+      (o.items || []).forEach(function (it) {
+        var c = itemCost(it); if (!c) return;
+        var why = [];
+        if (c.amt > 3000) why.push('這一項 $' + money0(c.amt) + ' 很貴');
+        if (it.sp && it.sp.ac && it.sp.ac.u === it.unit) {
+          var g = it.sp.ac.n * (GRAMS[it.sp.u] || 0);   // 1 條幾公克
+          if (g && (g > 3000 || g < 3)) why.push('分攤出來 1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + it.sp.u + '，不太合理（那週銷貨單數量或老師的單位可能填錯）');
+        }
+        if (it.sp && it.sp.c && GRAMS[it.sp.c.u]) {
+          var pg = it.sp.c.q * GRAMS[it.sp.c.u];
+          if (/桶|箱/.test(it.sp.u) && pg < 3000) why.push('銷貨單規格「1 ' + it.sp.u + ' ＝ ' + it.sp.c.q + ' ' + it.sp.c.u + '」好像太輕（一桶、一箱通常好幾公斤）');
+        }
+        var px = priceOf(it);
+        if (c.real && px && px.u === c.u && px.p > 0 && (c.p > px.p * 2 || c.p < px.p / 2)) why.push('單價 $' + fmtQty(c.p) + '／' + c.u + ' 跟單價表的 $' + fmtQty(px.p) + ' 差很多');
+        if (why.length) rows.push({ o: o, it: it, why: why.join('；'), amt: c.amt });
+      });
+    });
+    if (!rows.length) return '';
+    rows.sort(function (a, b) { return b.amt - a.amt; });
+    return '<details class="panel" id="costSuspect" open style="padding:12px 16px"><summary style="cursor:pointer;color:var(--bad)"><b>⚠ 可疑金額（' + rows.length + ' 筆）</b> <span class="muted small">系統覺得怪的，先看這裡：多半是銷貨單的單價、單位、規格打錯，或老師的數量單位填錯</span></summary>' +
+      '<div class="tablewrap" style="margin-top:6px"><table class="small"><tr><th>上課日</th><th>班級／老師</th><th>品項</th><th>數量</th><th style="text-align:right">算出來</th><th>為什麼怪</th></tr>' +
+      rows.slice(0, 80).map(function (r) {
+        var it = r.it;
+        return '<tr><td>' + esc(shortDate(r.o.useDate)) + '</td><td>' + esc(r.o.className || '') + '<div class="muted">' + esc(r.o.onBehalfOf || r.o.teacher) + '</div></td><td>' + (it ? '<b>' + esc(it.name) + '</b><div class="muted">' + esc(vco(it.vendor)) + '</div>' : '（整張）') + '</td>' +
+          '<td>' + (it ? esc(fmtQty(it.qty) + ' ' + (it.unit || '')) : '') + '</td><td class="num"><b>$' + money0(r.amt) + '</b></td><td style="white-space:normal;color:var(--bad)">' + esc(r.why) + '</td></tr>';
+      }).join('') + '</table></div>' + (rows.length > 80 ? '<div class="muted small">只列金額最大的 80 筆</div>' : '') + '</details>';
+  }
   // 同一週同一樣單價差很多（可能打錯單價、單位）
   function spreadHtml(list) {
     var m = {}, keys = [];
@@ -3486,7 +3519,7 @@
     if (!list.length) { $('costTodo').innerHTML = $('costAuto').innerHTML = $('costBox').innerHTML = ''; return; }
     var miss = missingCostHtml(list);
     $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
-    $('costAuto').innerHTML = spreadHtml(list) + autoReviewHtml(list);
+    $('costAuto').innerHTML = suspectHtml(list) + spreadHtml(list) + autoReviewHtml(list);
     costOpen = true;
     $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計（依品項算）</b>') + allocHtml();
   }
