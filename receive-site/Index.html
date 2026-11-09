@@ -2289,11 +2289,12 @@
     hxTab = tab || hxTab;
     Array.prototype.forEach.call(document.querySelectorAll('.hxtabs button'), function (b) { b.classList.toggle('on', b.getAttribute('data-hx') === (hxTab === 'edit' ? 'new' : hxTab)); });
     // 篩選條件要在清畫面之前讀（清掉就讀不到，篩選會沒反應）
-    var fv = $('hxFv') ? $('hxFv').value : '', fm = $('hxFm') ? $('hxFm').value : '';
+    var fv = $('hxFv') ? $('hxFv').value : '', fm = $('hxFm') ? $('hxFm').value : '', fd = $('hxFd') ? $('hxFd').value : '';
+    if (fd) fm = '';   // 選了單日：整月的條件不用（發票日期在那天的都列）
     msg('hxMsg', 'info', '讀取中…'); $('hxBox').innerHTML = '';
     return call('hxGet', hxTab === 'list' ? fv : '', hxTab === 'list' ? fm : '').then(function (r) {
       hx = r; msg('hxMsg', '', '');
-      if (hxTab === 'list') hxList(fv, fm);
+      if (hxTab === 'list') hxList(fv, fm, fd);
       else if (hxTab === 'new') { hxF = null; hxForm(); }
       else if (hxTab === 'edit') hxForm();
       else if (hxTab === 'stats') hxStatsView();
@@ -2306,16 +2307,20 @@
   }
   function catHandler(n) { var c = hx.cats.filter(function (x) { return x.name === n; })[0]; return c ? c.handler : ''; }
   // ① 發票列表
-  function hxList(fv, fm) {
+  function hxList(fv, fm, fd) {
     var todo = 0;
-    hx.invoices.forEach(function (inv) { inv.allocs.forEach(function (a) { if (a.status !== '已核銷') todo += a.amount; }); });
+    // 單日：這筆核銷裡有一張發票的日期是那天就列
+    var invs = fd ? hx.invoices.filter(function (inv) { return inv.date === fd || (inv.lines || []).some(function (l) { return l.date === fd; }); }) : hx.invoices;
+    invs.forEach(function (inv) { inv.allocs.forEach(function (a) { if (a.status !== '已核銷') todo += a.amount; }); });
     var html = '<div class="panel"><div class="row"><select id="hxFv" style="width:auto"><option value="">全部廠商</option>' +
       hx.vendors.map(function (v) { return '<option value="' + esc(v) + '"' + (v === fv ? ' selected' : '') + '>' + esc(vco(v)) + '</option>'; }).join('') + '</select>' +
-      '<input id="hxFm" type="month" style="width:auto" value="' + esc(fm) + '"><button type="button" class="btn small" id="hxFgo">篩選</button>' +
-      '<span class="muted small">共 ' + hx.invoices.length + ' 張' + (todo ? '，<b style="color:var(--bad)">待核銷 $' + money(todo) + '</b>' : '') + '</span>' +
+      '<label class="small">整月 <input id="hxFm" type="month" style="width:auto" value="' + esc(fm) + '"></label>' +
+      '<label class="small">單日 <input id="hxFd" type="date" style="width:auto" value="' + esc(fd || '') + '"></label><button type="button" class="btn ghost small" id="hxFtoday">今天</button>' +
+      (fv || fm || fd ? '<button type="button" class="btn ghost small" id="hxFclear">清除篩選</button>' : '') + '<button type="button" class="btn small" id="hxFgo">篩選</button>' +
+      '<span class="muted small">' + (fd ? esc(fd.replace(/-/g, '/')) + ' 的發票 ' : '共 ') + invs.length + ' 筆' + (fd ? '，合計 $' + money(r2(invs.reduce(function (t, x) { return t + (x.lines || []).filter(function (l) { return l.date === fd; }).reduce(function (a, l) { return a + (Number(l.amount) || 0); }, 0) || (x.date === fd ? x.amount : 0); }, 0))) : '') + (todo ? '，<b style="color:var(--bad)">待核銷 $' + money(todo) + '</b>' : '') + '</span>' +
       '<span style="flex:1"></span><button type="button" class="btn ghost small" id="hxRnOpen">🔀 統一廠商名稱</button></div><div id="hxRn"></div>';
-    if (!hx.invoices.length) html += '<div class="muted" style="margin-top:10px">還沒有發票。按上面「＋ 新增核銷」。</div>';
-    hx.invoices.forEach(function (inv) {
+    if (!invs.length) html += '<div class="muted" style="margin-top:10px">' + (fd ? '這一天沒有發票。' : '還沒有發票。按上面「＋ 新增核銷」。') + '</div>';
+    invs.forEach(function (inv) {
       // 有勾送貨才比（沒勾的「系統金額」是 0，不是對不上）；差超過 $100 而且超過 5% 算「差很多」
       var hasSys = inv.system !== '' && inv.checks.length && Number(inv.system) > 0, dAmt = hasSys ? Math.abs(inv.amount - inv.system) : 0, far = hasSys && dAmt > Math.max(100, inv.amount * 0.05);
       var diff = !hasSys ? '' : dAmt < 1 ? '<span class="badge ok">✓ 跟送貨金額一樣</span>'
@@ -3026,7 +3031,15 @@
       (html ? '<div style="margin-top:8px"><b>合計</b>　$' + money(r2(tot.a)) + '・已用 $' + money(r2(tot.u)) + '（已核銷 $' + money(r2(tot.d)) + '）・剩 $' + money(r2(tot.a - tot.u)) + '</div>' : '');
   }
   $('hxBox').addEventListener('input', function (e) { if (e.target.id === 'hxCq' && !e.isComposing) { hxCodeF.q = e.target.value.trim(); hxCodesRender(); } });
-  $('hxBox').addEventListener('change', function (e) { if (e.target.id === 'hxFv' || e.target.id === 'hxFm') hxOpen('list'); });   // 選了廠商、月份就直接篩
+  $('hxBox').addEventListener('change', function (e) {
+    if (e.target.id === 'hxFm' && e.target.value && $('hxFd')) $('hxFd').value = '';   // 整月、單日只用一個
+    if (e.target.id === 'hxFd' && e.target.value && $('hxFm')) $('hxFm').value = '';
+    if (e.target.id === 'hxFv' || e.target.id === 'hxFm' || e.target.id === 'hxFd') hxOpen('list');
+  });
+  $('hxBox').addEventListener('click', function (e) {
+    if (e.target.id === 'hxFtoday') { $('hxFd').value = iso(new Date()); if ($('hxFm')) $('hxFm').value = ''; hxOpen('list'); }
+    if (e.target.id === 'hxFclear') { ['hxFv', 'hxFm', 'hxFd'].forEach(function (k) { if ($(k)) $(k).value = ''; }); hxOpen('list'); }
+  });   // 選了廠商、月份就直接篩
   $('hxBox').addEventListener('change', function (e) { if (e.target.id === 'hxCst') { hxCodeF.st = e.target.value; hxCodesRender(); } });
   $('hxBox').addEventListener('click', function (e) { if (e.target.id === 'hxCprint') window.print(); });
   // 新增／修改分支
