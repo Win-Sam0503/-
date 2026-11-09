@@ -253,7 +253,9 @@
       </div>
       <div id="slDraftMsg"></div><div id="slStopMsg"></div>
         <div class="row">
-          <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label><span class="muted small">（發票照片在下面「🧾 發票」每張旁邊拍）</span>
+          <label class="btn ghost small" for="photoIn" style="cursor:pointer">📷 拍銷貨單</label>
+          <label class="btn ghost small" for="photoFile" style="cursor:pointer" title="選手機相簿、電腦裡已經有的照片（掃描的 JPG、PNG 也可以），可以一次選很多張">🖼 選照片檔</label>
+          <input id="photoFile" type="file" accept="image/*" multiple class="hidden"><span class="muted small">（發票照片在下面「🧾 發票」每張旁邊拍）</span>
           <input id="photoIn" type="file" accept="image/*" capture="environment" multiple class="hidden">
           <select id="photoRot" style="width:auto" title="照片拍成橫的，自動讀不出來時選"><option value="0">照片不轉</option><option value="90">向右轉 90°</option><option value="270">向左轉 90°</option><option value="180">轉 180°</option></select>
           <span id="photoMsg" class="muted small">可以拍好幾張，照片存在雲端硬碟。字要是正的才讀得準（拍歪了先選轉向再拍）。</span>
@@ -1218,7 +1220,9 @@
   try { $('photoRot').value = localStorage.getItem('rcvRot') || '0'; } catch (e) {}
   $('photoRot').addEventListener('change', function () { try { localStorage.setItem('rcvRot', this.value); } catch (e) {} });
   // 銷貨單照片：先在畫面上顯示預覽，同時 2 張一起上傳；上傳時可以繼續點貨
-  $('photoIn').addEventListener('change', function () {
+  $('photoFile').addEventListener('change', function () { photoPicked.call(this); });
+  $('photoIn').addEventListener('change', function () { photoPicked.call(this); });
+  function photoPicked() {
     var files = Array.prototype.slice.call(this.files || []);
     this.value = '';
     if (!files.length) return;
@@ -1240,7 +1244,7 @@
       if (!here()) return;
       $('photoMsg').textContent = bad ? '上傳好 ' + ok + ' 張，' + bad + ' 張失敗（網路不穩），請再拍一次那幾張。' : '已上傳 ' + ok + ' 張，按「💾 儲存銷貨單」才會存。';
     });
-  });
+  }
 
   $('doHold').addEventListener('click', function () {
     var b = cur.b, btn = this;
