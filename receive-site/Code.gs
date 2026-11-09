@@ -67,7 +67,7 @@ function isTrue_(v) { return v === true || String(v).trim().toUpperCase() === 'T
 const API_ = {
   getWeek: function (a) { return getWeek_.apply(null, a); }, moveSlip: function (a) { return moveSlip_.apply(null, a); }, fundCodes: function () { return fundCodes_(); }, saveCheck: function (a) { return saveCheck_.apply(null, a); },
   saveSlip: function (a) { return saveSlip_.apply(null, a); }, slipMonth: function (a) { return slipMonth_.apply(null, a); }, getPhoto: function (a) { return getPhoto_.apply(null, a); }, deleteSlip: function (a) { return deleteSlip_.apply(null, a); },
-  uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); },
+  uploadPhoto: function (a) { return uploadPhoto_.apply(null, a); }, readSlip: function (a) { return readSlip_.apply(null, a); }, readSlips: function (a) { return readSlips_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
@@ -800,6 +800,26 @@ function readSlip_(photos, vendor, names) {
   if (!ids.length) throw new Error('請先拍銷貨單。');
   const text = ocrTexts_(ids.slice(0, 6)).join('\n');
   return parseSlip_(text, slipKeys_(clean_(vendor, 30), (names || []).map(function (n) { return clean_(n, 40); }).filter(Boolean)));
+}
+
+/**
+ * 好幾張出貨單，一張照片一張單分開讀（菜商一班一張）：每張回傳 { url, text, rows, extras, total, date（單據日期）, no（單據編號） }
+ * 一次最多 12 張（Google 辨識同時送）
+ */
+function readSlips_(photos, vendor, names) {
+  const list = (photos || []).map(function (u) { return { url: u, id: fileIdOf_(u) }; }).filter(function (x) { return x.id; }).slice(0, 12);
+  if (!list.length) throw new Error('請先拍銷貨單。');
+  const keys = slipKeys_(clean_(vendor, 30), (names || []).map(function (n) { return clean_(n, 40); }).filter(Boolean));
+  const texts = ocrTexts_(list.map(function (x) { return x.id; }));
+  return list.map(function (x, i) {
+    const text = texts[i] || '', r = parseSlip_(text, keys);
+    r.url = x.url;
+    const d = text.match(/(?:單據|銷貨|出貨|交貨)?日期\s*[:：]?\s*(\d{3,4})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/);
+    if (d) { let y = Number(d[1]); if (y < 1911) y += 1911; r.date = y + '-' + ('0' + d[2]).slice(-2) + '-' + ('0' + d[3]).slice(-2); } else r.date = '';
+    const no = text.match(/(?:單據|銷貨單|出貨單)?編號\s*[:：]?\s*([A-Za-z0-9-]{6,})/);
+    r.no = no ? no[1] : '';
+    return r;
+  });
 }
 
 function fileIdOf_(url) {

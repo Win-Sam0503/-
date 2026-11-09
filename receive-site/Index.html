@@ -2006,6 +2006,34 @@
     if (!cur.photos.length) { $('slipMsg').textContent = '請先按「📷 拍銷貨單」。'; return; }
     var btn = this;
     if (uploading(cur.b)) { $('slipMsg').textContent = '照片還在上傳，等上傳完再按。'; return; }
+    // 好幾張照片、照紙本一張一張打：一張照片讀成一張（菜商一班一張出貨單），日期照單上的「單據日期」；讀過的照片不再讀
+    if (cur.slip && cur.slip.papers && cur.photos.length > 1 || !cur.slip && cur.photos.length > 1) {
+      if (!cur.slip) paperMode();
+      var done0 = cur.slip.readUrls || [], todo = cur.photos.filter(function (u) { return done0.indexOf(u) < 0; });
+      if (!todo.length) { $('slipMsg').textContent = '這些照片都讀過了。新拍的照片才會讀。'; return; }
+      if (window.confirm('一張照片讀成一張銷貨單？（' + todo.length + ' 張，日期照單上的「單據日期」）\n按「取消」＝全部照片合起來讀成一張。')) {
+        btn.disabled = true; $('slipMsg').textContent = '辨識中，' + todo.length + ' 張一起讀，大約 15～40 秒…';
+        call('readSlips', todo.slice(0, 12), cur.b.vendor, slipNames()).then(function (list) {
+          var ps = cur.slip.papers, made = [], warn = [];
+          if (ps.length === 1 && ps[0].rows.every(function (y) { return !String(y.name || '').trim() && numv(y.amount) === null; })) ps.length = 0;   // 空的第 1 張拿掉
+          list.forEach(function (r) {
+            var pp = newPaper(); pp.rows = [];
+            if (r.date) pp.date = r.date;
+            Object.keys(r.rows).forEach(function (n) { var x = r.rows[n]; pp.rows.push({ name: n, qty: x.qty, unit: x.unit, price: x.price, amount: x.amount }); });
+            r.extras.forEach(function (x) { pp.rows.push({ name: x.slipName || '', qty: x.qty, unit: x.unit, price: x.price, amount: x.amount }); });
+            (cur.slip.readUrls = cur.slip.readUrls || []).push(r.url);
+            if (!pp.rows.length) { warn.push('有一張沒讀到品項'); return; }
+            ps.push(pp); made.push(ps.length);
+            var sum = pp.rows.reduce(function (t, y) { return t + (numv(y.amount) || 0); }, 0);
+            if (r.total !== '' && numv(r.total) !== null && Math.abs(numv(r.total) - sum) >= 1) warn.push('第 ' + ps.length + ' 張讀到的品項合計 $' + money(r2(sum)) + '，單上總額 $' + money(numv(r.total)) + '，請對一下');
+          });
+          if (!ps.length) ps.push(newPaper());
+          $('slipMsg').textContent = (made.length ? '讀好 ' + made.length + ' 張（第 ' + made[0] + (made.length > 1 ? '～' + made[made.length - 1] : '') + ' 張）。' : '') + (warn.length ? warn.join('；') + '。' : '') + '辨識不一定準，請對照出貨單看一下。';
+          renderSlip(); saveDraft();
+        }).catch(function (e) { $('slipMsg').textContent = e.message; }).then(function () { btn.disabled = false; });
+        return;
+      }
+    }
     btn.disabled = true; $('slipMsg').textContent = '辨識中，' + (cur.photos.length > 1 ? cur.photos.length + ' 張一起讀，' : '') + '大約 10～20 秒…';
     call('readSlip', cur.photos, cur.b.vendor, slipNames()).then(function (r) {
       if (cur.slip && cur.slip.papers) {   // 一張一張打：讀到的變成新的一張
