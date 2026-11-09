@@ -830,31 +830,36 @@ function fileIdOf_(url) {
 /** 照片 → 文字：轉成 Google 文件（會做中文文字辨識）、匯出純文字，再把暫存的文件丟到垃圾桶。好幾張同時送，不用一張一張排隊 */
 function ocrTexts_(fileIds) {
   const auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
-  const reqs = fileIds.map(function (fileId, i) {
-    const blob = DriveApp.getFileById(fileId).getBlob();
-    const boundary = 'slip' + Date.now() + i;
+  // 語言提示：Google 有時候回「Invalid Value」（400）不收 zh-TW，就改 zh，再不行就不給語言（Google 自己判斷）
+  const LANGS = ['zh-TW', 'zh', ''];
+  const blobs = fileIds.map(function (fileId) { return DriveApp.getFileById(fileId).getBlob(); });
+  const upReq = function (i, lang) {
+    const blob = blobs[i], boundary = 'slip' + Date.now() + i;
     const meta = JSON.stringify({ name: '[銷貨單辨識暫存]', mimeType: 'application/vnd.google-apps.document' });
     const head = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
       '\r\n--' + boundary + '\r\nContent-Type: ' + (blob.getContentType() || 'image/jpeg') + '\r\n\r\n').getBytes();
     const tail = Utilities.newBlob('\r\n--' + boundary + '--').getBytes();
-    return { url: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&ocrLanguage=zh-TW', method: 'post',
+    return { url: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id' + (lang ? '&ocrLanguage=' + encodeURIComponent(lang) : ''), method: 'post',
       contentType: 'multipart/related; boundary=' + boundary, payload: head.concat(blob.getBytes(), tail), headers: auth, muteHttpExceptions: true };
-  });
-  let res = UrlFetchApp.fetchAll(reqs);
-  // 失敗的（Google 忙碌）等一下再送一次
-  const again = [];
-  res.forEach(function (r, i) { if (r.getResponseCode() >= 300) again.push(i); });
-  if (again.length) {
-    Utilities.sleep(1500);
-    const r2 = UrlFetchApp.fetchAll(again.map(function (i) { return reqs[i]; }));
+  };
+  let res = UrlFetchApp.fetchAll(fileIds.map(function (x, i) { return upReq(i, LANGS[0]); }));
+  for (let li = 0; li < LANGS.length; li++) {
+    const again = [];
+    res.forEach(function (r, i) { if (r.getResponseCode() >= 300) again.push(i); });
+    if (!again.length) break;
+    // 400＝不收這個語言 → 換下一個語言；其他（Google 忙碌）等一下用同一個語言再送
+    const lang = res[again[0]].getResponseCode() === 400 ? LANGS[li + 1] : LANGS[li];
+    if (lang === undefined) break;
+    if (res[again[0]].getResponseCode() !== 400) Utilities.sleep(1500);
+    const r2 = UrlFetchApp.fetchAll(again.map(function (i) { return upReq(i, lang); }));
     again.forEach(function (i, k) { res[i] = r2[k]; });
   }
-  // 還是失敗（例如 400）：改用「在雲端硬碟複製成 Google 文件」的方式辨識（不用重新傳照片內容）
+  // 還是失敗：改用「在雲端硬碟複製成 Google 文件」的方式辨識（不給語言）
   const bad = [];
   res.forEach(function (r, i) { if (r.getResponseCode() >= 300) bad.push(i); });
   if (bad.length) {
     const r3 = UrlFetchApp.fetchAll(bad.map(function (i) {
-      return { url: 'https://www.googleapis.com/drive/v3/files/' + fileIds[i] + '/copy?fields=id&ocrLanguage=zh-TW&supportsAllDrives=true', method: 'post', contentType: 'application/json',
+      return { url: 'https://www.googleapis.com/drive/v3/files/' + fileIds[i] + '/copy?fields=id&supportsAllDrives=true', method: 'post', contentType: 'application/json',
         payload: JSON.stringify({ name: '[銷貨單辨識暫存]', mimeType: 'application/vnd.google-apps.document' }), headers: auth, muteHttpExceptions: true };
     }));
     bad.forEach(function (i, k) { if (r3[k].getResponseCode() < 300) res[i] = r3[k]; });
