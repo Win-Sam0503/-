@@ -3442,7 +3442,7 @@
       });
     });
     order.sort(function (x, y) { return by[y].length - by[x].length; });
-    var html = '<div class="panel"><h2 style="margin-top:0">📋 送簽進度</h2><div class="muted small">還沒核銷完的，照「現在在哪一關（哪個處室）」分組。簽好拿回來就按「✓ 確認」，會換到下一關。超過 7 天沒動的標紅。</div>' +
+    var html = '<div class="panel"><h2 style="margin-top:0">📋 送簽進度</h2><div class="muted small">還沒核銷完的，照「現在在哪一關（哪個處室）」分組。簽好拿回來就按「✓ 確認」，會換到下一關。超過 7 天沒動的標紅。<br>📱 不想每次進系統：按「🖨 送簽單」印一張夾在文件最上面，每一關簽完用手機掃自己那一關的 QR code 就記好了。</div>' +
       (rows.length ? '<div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap">' + order.map(function (nm) { return '<span class="badge none" style="font-size:14px">' + esc(nm) + ' <b>' + by[nm].length + '</b></span>'; }).join('') + '</div>' : '<div class="muted" style="margin-top:8px">✓ 全部都核銷完了。</div>');
     order.forEach(function (nm) {
       by[nm].sort(function (x, y) { return (y.days || 0) - (x.days || 0); });
@@ -3451,18 +3451,70 @@
           var late = r.days !== null && r.days > 7;
           return '<tr><td>' + esc(vco(r.inv.vendor)) + '</td><td>' + esc(r.inv.no || '（沒填號碼）') + '<div class="muted small">' + esc(r.inv.date) + '</div></td><td>' + esc(r.a.cat) + '</td><td style="text-align:right">$' + money(r.a.amount) + '</td>' +
             '<td>' + (r.k + 1) + '／' + r.n + '</td><td' + (late ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + (r.days === null ? '' : r.days + ' 天') + '<div class="muted small">' + esc(String(r.since || '').slice(0, 10)) + ' 起</div></td>' +
-            '<td style="white-space:nowrap"><button type="button" class="btn small" data-hxdone="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">✓ ' + esc(nm) + '確認</button>' + (r.k ? ' <button type="button" class="btn ghost small" data-hxundo="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">取消上一關</button>' : '') + '</td></tr>';
+            '<td style="white-space:nowrap"><button type="button" class="btn ghost small" data-hxsign="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '" title="印一張送簽單夾在文件上：每一關簽完用手機掃 QR code 就記好了，不用進系統">🖨 送簽單</button> <button type="button" class="btn small" data-hxdone="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">✓ ' + esc(nm) + '確認</button>' + (r.k ? ' <button type="button" class="btn ghost small" data-hxundo="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">取消上一關</button>' : '') + '</td></tr>';
         }).join('') + '</table></div>';
     });
     $('hxBox').innerHTML = html + '</div>';
   }
+  // 🖨 送簽單：每一關一個 QR code，簽完用手機掃就記錄（不用登入）
+  var qrLib = null;
+  function loadQrLib() {
+    return qrLib || (qrLib = new Promise(function (ok, bad) {
+      var sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+      sc.onload = function () { ok(window.qrcode); }; sc.onerror = function () { qrLib = null; bad(new Error('QR code 元件載入失敗，請檢查網路再試一次。')); };
+      document.head.appendChild(sc);
+    }));
+  }
+  function qrImg(url) { var q = window.qrcode(0, 'M'); q.addData(url); q.make(); return q.createImgTag(3, 2); }
+  function hxSignSheetOpen(id, cat) {
+    msg('hxMsg', 'info', '產生送簽單…');
+    Promise.all([call('hxSignSheet', id, cat), loadQrLib()]).then(function (res) {
+      var v = res[0]; msg('hxMsg', '', '');
+      var rows = v.steps.map(function (lb, i) {
+        var sg = v.signs[i];
+        return '<tr><td style="width:34px;text-align:center;font-size:18px"><b>' + (i + 1) + '</b></td><td style="font-size:17px"><b>' + esc(lb) + '</b>' +
+          (sg ? '<div style="color:#067647">✓ 已確認 ' + esc(sg.at) + '</div>' : '<div class="small" style="color:#57534e">紙本簽好後，用手機相機掃右邊 →</div>') + '</td>' +
+          '<td style="width:120px;text-align:center">' + (sg ? '' : qrImg(v.urls[i])) + '</td><td style="width:150px"></td></tr>';
+      }).join('');
+      $('hxBox').innerHTML = '<div class="panel noprint"><div class="row" style="justify-content:space-between"><h2 style="margin:0">🖨 送簽單</h2><span><button type="button" class="btn ghost small" id="hxSignBack">← 回送簽進度</button> <button type="button" class="btn small" id="hxSignPrint">🖨 列印</button></span></div>' +
+        '<div class="muted small">印出來夾在核銷文件最上面。每一關（主任、會計…）在紙本簽好後，用手機相機掃自己那一關的 QR code，按「已簽好」就記錄了，不用帳號、不用進系統。要照順序：前一關還沒好，後面的掃了會顯示文件在哪裡。</div></div>' +
+        '<div class="signsheet" style="background:#fff;padding:14px;border:2px solid #1c1917;border-radius:8px;max-width:720px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:22px">核銷送簽單</b><span style="font-size:20px"><b>$' + money(v.amount) + '</b></span></div>' +
+        '<div style="font-size:16px;margin:4px 0 8px">' + esc(v.vendor) + (v.co ? '（' + esc(v.co) + '）' : '') + (v.no ? '　發票 ' + esc(v.no) : '') + (v.date ? '　' + esc(v.date) : '') + '　<b>' + esc(v.cat) + '</b></div>' +
+        '<table class="hxt" style="width:100%"><tr><th>關</th><th>關卡</th><th>簽完掃這裡</th><th>備註</th></tr>' + rows + '</table>' +
+        '<div class="small" style="margin-top:6px;color:#57534e">掃描後打開的頁面只能確認這一筆的這一關。紙本簽名仍是正式憑證。</div></div>';
+      window.scrollTo(0, 0);
+    }).catch(function (e) { msg('hxMsg', 'error', e.message); });
+  }
+  // 📱 LINE 通知下一關：各關卡綁定 LINE（學校官方帳號）
+  function signLineRender(list, note) {
+    var el = $('signLine'); if (!el) return;
+    el.innerHTML = (note ? '<div class="msg ok" style="margin:6px 0">' + note + '</div>' : '') + (list.length ? '<table class="hxt"><tr><th>關卡</th><th>LINE</th><th></th></tr>' + list.map(function (x) {
+      return '<tr><td><b>' + esc(x.role) + '</b></td><td>' + (x.bound ? '<span class="badge ok">✓ 已綁定</span> <span class="muted small">' + esc(x.at) + '</span>' : x.code ? '<span class="badge warn">等待綁定：簽核 ' + esc(x.code) + '</span>' : '<span class="muted">還沒綁定</span>') + '</td>' +
+        '<td style="white-space:nowrap"><button type="button" class="btn ghost small" data-slcode="' + esc(x.role) + '">' + (x.bound ? '重新綁定' : '產生綁定碼') + '</button>' + (x.bound ? ' <button type="button" class="btn ghost small" data-slun="' + esc(x.role) + '" style="color:var(--bad)">解除</button>' : '') + '</td></tr>';
+    }).join('') + '</table>' : '<div class="muted small">上面「再確認」還沒填任何關卡。</div>');
+  }
+  function signLineLoad(note) { call('signLineList').then(function (l) { signLineRender(l, note); }).catch(function (e) { var el = $('signLine'); if (el) el.innerHTML = '<div class="msg error">' + esc(e.message) + '</div>'; }); }
+  $('hxBox').addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-slcode],[data-slun]'); if (!b) return;
+    if (b.hasAttribute('data-slun')) {
+      var r0 = b.getAttribute('data-slun'); if (!window.confirm('解除「' + r0 + '」的 LINE 通知？')) return;
+      call('signLineUnbind', r0).then(function (l) { signLineRender(l, '已解除「' + esc(r0) + '」。'); }).catch(function (er) { msg('hxMsg', 'error', er.message); }); return;
+    }
+    var role = b.getAttribute('data-slcode'); b.disabled = true;
+    call('signLineCode', role).then(function (r) {
+      signLineLoad('請「<b>' + esc(r.role) + '</b>」用手機 LINE，傳這句話給學校的官方帳號（' + r.minutes + ' 分鐘內）：<div style="font-size:26px;font-weight:700;margin:6px 0">簽核 ' + esc(r.code) + '</div>官方帳號回「綁定完成」就好了。之後有文件輪到他簽，會收到 LINE，裡面有「已簽好」的連結。');
+    }).catch(function (er) { msg('hxMsg', 'error', er.message); b.disabled = false; });
+  });
   function hxCatsView() {
     $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">類別與經手人</h2><div class="muted small">可以自己加第 9、10、11…類：按「＋ 新增大類」打名字和經手人，再按「💾 儲存」。新的大類會出現在新增核銷的「拆到各類別」、預算、統計，也可以在「經費編號・分支」幫它加分支。改名字不會改到已經存的發票（舊發票照原本的名字）。</div>' +
       '<div class="muted small" style="margin:6px 0">經手人可以好幾位，用「、」隔開，誰都可以按確認（系統記是誰按的）。<b>再確認</b>：經手人確認後還要誰確認，照順序填，例如「組長、主任」，全部確認完才算已核銷。經費編號（分支）也可以各自設經手人，有設的就用那幾位。</div>' +
       '<div class="row" style="margin:6px 0;align-items:center"><b class="small">全部類別一樣的送簽流程：</b><input id="hxRouteAll" placeholder="例如 組長、主任、總務處、會計室、校長" style="width:320px"><button type="button" class="btn ghost small" id="hxRouteApply">套用到下面每一類</button><span class="muted small">套用後還可以個別改，按「💾 儲存」才會存</span></div>' +
       '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>經手人</th><th>再確認（照順序）</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler, c.review); }).join('') + '</table>' +
-      '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>';
+      '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>' +
+      '<div class="panel"><h2 style="margin-top:0">📱 LINE 通知下一關</h2><div class="muted small">每一關綁定一次 LINE（用訂貨系統的學校官方帳號）。文件輪到那一關時，系統大約 10 分鐘內傳 LINE 給他，裡面有「已簽好」的連結，按一下就記錄，不用進系統。<b>沒綁定的關卡不會通知</b>，照樣可以掃送簽單或在這裡按確認。LINE 免費方案每月則數有限，快用完時會先停止通知。</div><div id="signLine" style="margin-top:8px">讀取中…</div></div>';
     hxCatNum();
+    signLineLoad();
   }
   function hxCatNum() { Array.prototype.forEach.call(document.querySelectorAll('#hxCt [data-cnum]'), function (x, i) { x.textContent = '第 ' + (i + 1) + ' 類'; }); }
   function hxCatRow(n, h, rv) {
@@ -3474,6 +3526,9 @@
   $('hxBox').addEventListener('click', function (e) {
     var t = e.target, b;
     if (t.id === 'hxFgo') { hxOpen('list'); return; }
+    if ((b = t.closest('[data-hxsign]'))) { hxSignSheetOpen(b.getAttribute('data-hxsign'), b.getAttribute('data-cat')); return; }
+    if (t.id === 'hxSignBack') { hxOpen('track'); return; }
+    if (t.id === 'hxSignPrint') { window.print(); return; }
     if ((b = t.closest('[data-hxdone], [data-hxundo]'))) {
       var undo = b.hasAttribute('data-hxundo'), id = b.getAttribute(undo ? 'data-hxundo' : 'data-hxdone'), cat = b.getAttribute('data-cat');
       var step = b.textContent.replace(/^✓\s*/, '').replace(/確認$/, '');

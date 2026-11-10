@@ -77,7 +77,9 @@ const API_ = {
   hxGet: function (a) { return hxGet_.apply(null, a); }, hxCandidates: function (a) { return hxCandidates_.apply(null, a); },
   hxRenameVendor: function (a) { return hxRenameVendor_.apply(null, a); },
   hxSaveInvoice: function (a) { return hxSaveInvoice_.apply(null, a); }, hxDeleteInvoice: function (a) { return hxDeleteInvoice_.apply(null, a); },
-  hxSetDone: function (a) { return hxSetDone_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
+  hxSetDone: function (a) { return hxSetDone_.apply(null, a); },
+  hxSignSheet: function (a) { return hxSignSheet_.apply(null, a); },
+  signLineList: function () { return signLineList_(); }, signLineCode: function (a) { return signLineCode_.apply(null, a); }, signLineUnbind: function (a) { return signLineUnbind_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
   hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudgets_([a[0]]); },
   hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
@@ -106,7 +108,12 @@ function authorizeAll() {
   return '全部權限都有了';
 }
 
-function doGet() {
+function doGet(e) {
+  // 送簽單上的 QR code／LINE 通知的連結：不用登入，只能確認那一筆的那一關
+  if (e && e.parameter && e.parameter.sign) {
+    return HtmlService.createHtmlOutput(signPageHtml_(String(e.parameter.sign)))
+      .setTitle('核銷送簽確認').addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle(SITE_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -2084,6 +2091,7 @@ function hxSetDone_(id, cat, done) {
     signs.push({ label: st.label, by: CURRENT_USER_ || '', at: now });
   } else if (signs.length) signs.pop();
   const all = done && signs.length >= steps.length;
+  if (done && !all) { try { signEnqueue_(id, hxCat_(r['類別']), signs.length, steps[signs.length].label, Number(r['金額']) || 0); } catch (e) { console.error('signEnqueue_ ' + e.message); } }
   setCell_(t, r._row, '簽核紀錄', signs.map(function (x) { return [x.label, x.by, x.at].join('|'); }).join('\n'));
   setCell_(t, r._row, '狀態', all ? '已核銷' : '待核銷');
   setCell_(t, r._row, '核銷日期', all ? new Date() : '');
@@ -2238,3 +2246,164 @@ function clean_(v, maxLen) {
 function escHtml_(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
 }
+
+// ---------------------------------------------------------------------
+// 送簽單 QR code、LINE 通知下一關：不用進系統也能確認「這一關簽好了」
+// ---------------------------------------------------------------------
+const SIGN_VCO = { 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
+const SIGN_QUEUE_HEADERS = ['時間', '關卡', '發票編號', '類別', '廠商', '發票號碼', '金額', '簽核網址', '已通知'];
+const SIGN_LINE_HEADERS = ['關卡', 'LINE ID', '綁定時間', '綁定碼', '綁定碼期限'];
+function signSecret_() {
+  const p = PropertiesService.getScriptProperties();
+  let k = p.getProperty('SIGN_SECRET');
+  if (!k) { k = Utilities.getUuid() + Utilities.getUuid(); p.setProperty('SIGN_SECRET', k); }
+  return k;
+}
+function signMac_(body) { return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body, signSecret_())).replace(/=+$/, '').slice(0, 22); }
+/** 一筆（發票編號＋類別）的第 step 關（0＝經手人）專用的連結碼；改不了、猜不到 */
+function signToken_(id, cat, step) {
+  const body = Utilities.base64EncodeWebSafe(id + '|' + cat + '|' + step, Utilities.Charset.UTF_8).replace(/=+$/, '');
+  return body + '.' + signMac_(body);
+}
+function signParse_(tok) {
+  const m = String(tok || '').match(/^([A-Za-z0-9_-]{4,600})\.([A-Za-z0-9_-]{22})$/);
+  if (!m || signMac_(m[1]) !== m[2]) return null;
+  const b = m[1] + '==='.slice((m[1].length + 3) % 4);
+  const p = Utilities.newBlob(Utilities.base64DecodeWebSafe(b)).getDataAsString('UTF-8').split('|');
+  if (p.length < 3) return null;
+  return { id: p[0], cat: p.slice(1, -1).join('|'), step: Number(p[p.length - 1]) };
+}
+function signUrl_(id, cat, step) { return ScriptApp.getService().getUrl() + '?sign=' + signToken_(id, cat, step); }
+/** 找那一筆分配、發票，算出關卡和已簽的紀錄 */
+function signState_(id, cat) {
+  if (!ss_().getSheetByName('核銷分配')) return null;
+  const t = readTable_('核銷分配', ['發票編號', '類別']);
+  const r = t.rows.filter(function (x) { return String(x['發票編號']).trim() === id && hxCat_(x['類別']) === hxCat_(cat); })[0];
+  if (!r) return null;
+  const mp = hxStepMaps_();
+  const codes = String(r['經費編號'] || '').split(/[、,，\n]+/).map(function (x) { const m = x.trim().match(/^([A-Za-z0-9-]+)=([\d.]+)$/); return m ? { code: m[1], amount: Number(m[2]) } : null; }).filter(Boolean);
+  const steps = hxSteps_({ cat: hxCat_(r['類別']), handler: String(r['經手人'] || ''), codes: codes }, mp.cat, mp.code);
+  let inv = {};
+  if (ss_().getSheetByName('核銷發票')) inv = readTable_('核銷發票', ['發票編號']).rows.filter(function (x) { return String(x['發票編號']).trim() === id; })[0] || {};
+  const vendor = String(inv['廠商'] || '');
+  return { t: t, r: r, steps: steps, signs: hxSigns_(r['簽核紀錄']), done: String(r['狀態']) === '已核銷',
+    info: { vendor: vendor, co: SIGN_VCO[vendor] || '', no: String(inv['發票號碼'] || '').replace(/^'/, ''), date: inv['發票日期'] instanceof Date ? dateStr_(inv['發票日期']) : String(inv['發票日期'] || '').replace(/^'/, ''),
+      amount: Number(r['金額']) || 0, cat: hxCat_(r['類別']) } };
+}
+function signView_(st, step) {
+  const label = (st.steps[step] || {}).label || '';
+  const k = st.signs.length;
+  const status = st.done || k >= st.steps.length ? 'finished' : k > step ? 'done' : k < step ? 'waiting' : 'ready';
+  return Object.assign({ ok: true, label: label, step: step, total: st.steps.length, status: status,
+    waitFor: k < st.steps.length ? st.steps[k].label : '', mine: st.signs[step] || null,
+    signs: st.signs.map(function (x) { return { label: x.label, at: x.at }; }), steps: st.steps.map(function (x) { return x.label; }) }, st.info);
+}
+/** 送簽頁按「我已簽好」（不用登入：連結碼本身就是憑證，只能按那一筆的那一關，而且要照順序） */
+function signByToken(tok, confirm) {
+  const p = signParse_(tok);
+  if (!p) return { ok: false, error: '這個連結不正確或已經失效，請找承辦人。' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const st = signState_(p.id, p.cat);
+    if (!st) return { ok: false, error: '找不到這筆核銷（可能已經刪掉或改過），請找承辦人。' };
+    if (!confirm || st.done || st.signs.length !== p.step || p.step >= st.steps.length) return signView_(st, p.step);
+    const now = Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm');
+    st.signs.push({ label: st.steps[p.step].label, by: st.steps[p.step].label + '（掃碼）', at: now });
+    const all = st.signs.length >= st.steps.length;
+    setCell_(st.t, st.r._row, '簽核紀錄', st.signs.map(function (x) { return [x.label, x.by, x.at].join('|'); }).join('\n'));
+    setCell_(st.t, st.r._row, '狀態', all ? '已核銷' : '待核銷');
+    setCell_(st.t, st.r._row, '核銷日期', all ? new Date() : '');
+    setCell_(st.t, st.r._row, '核銷人', all ? st.steps[p.step].label + '（掃碼）' : '');
+    if (!all) { try { signEnqueue_(p.id, st.info.cat, st.signs.length, st.steps[st.signs.length].label, st.info.amount); } catch (e) { console.error('signEnqueue_ ' + e.message); } }
+    st.done = all;
+    const v = signView_(st, p.step);
+    v.justSigned = true;
+    return v;
+  } finally {
+    lock.releaseLock();
+  }
+}
+function signEsc_(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+/** 掃 QR 打開的頁面（伺服器先把內容畫好，按鈕再呼叫 signByToken） */
+function signPageHtml_(tok) {
+  let v;
+  try { v = signByToken(tok, false); } catch (e) { v = { ok: false, error: '系統忙碌，請稍後再掃一次。' }; }
+  const css = '<style>body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;margin:0;background:#f5f5f4;color:#1c1917}.c{max-width:460px;margin:24px auto;background:#fff;border-radius:16px;padding:20px 18px;box-shadow:0 2px 10px #0001}' +
+    'h1{font-size:20px;margin:0 0 12px}.big{font-size:26px;font-weight:700}.m{color:#78716c;font-size:14px}.st{margin:14px 0;padding:12px;border-radius:12px;font-size:17px}.ok{background:#ecfdf3;color:#067647}.wait{background:#fffaeb;color:#b54708}.bad{background:#fef3f2;color:#b42318}' +
+    'button{width:100%;font-size:20px;padding:16px;border:0;border-radius:12px;background:#8b1a1a;color:#fff;font-weight:700;margin-top:10px}button:disabled{opacity:.5}ol{padding-left:22px;margin:8px 0}li{margin:3px 0}.done{color:#067647}.now{font-weight:700;color:#8b1a1a}</style>';
+  if (!v.ok) return css + '<div class="c"><h1>核銷送簽</h1><div class="st bad">' + signEsc_(v.error) + '</div></div>';
+  const list = '<ol>' + v.steps.map(function (lb, i) {
+    const sg = v.signs[i];
+    return '<li class="' + (sg ? 'done' : i === v.signs.length ? 'now' : '') + '">' + signEsc_(lb) + (sg ? ' ✓ <span class="m">' + signEsc_(sg.at) + '</span>' : i === v.signs.length ? '　← 現在在這裡' : '') + '</li>';
+  }).join('') + '</ol>';
+  const head = '<h1>核銷送簽確認</h1><div class="m">' + signEsc_(v.vendor) + (v.co ? '（' + signEsc_(v.co) + '）' : '') + (v.no ? '・發票 ' + signEsc_(v.no) : '') + (v.date ? '・' + signEsc_(v.date) : '') + '</div>' +
+    '<div class="big">$' + Number(v.amount || 0).toLocaleString('en-US') + '</div><div>' + signEsc_(v.cat) + '</div>';
+  let body;
+  if (v.status === 'ready') body = '<div class="st wait">這一關：<b>' + signEsc_(v.label) + '</b>（第 ' + (v.step + 1) + '／' + v.total + ' 關）<br>紙本簽好後，按下面的按鈕。</div>' +
+    '<button id="go">✓ ' + signEsc_(v.label) + ' 已簽好</button><div id="msg" class="m" style="margin-top:8px"></div>' +
+    '<script>document.getElementById("go").onclick=function(){var b=this;b.disabled=true;b.textContent="記錄中…";google.script.run.withSuccessHandler(function(r){' +
+    'if(r&&r.ok&&(r.status==="done"||r.status==="finished")){document.body.innerHTML=' + JSON.stringify(css) + '+"<div class=\\"c\\"><h1>✓ 已記錄</h1><div class=\\"st ok\\">"+(r.status==="finished"?"全部關卡都簽好了，這筆核銷完成。":"已記錄，下一關是「"+r.waitFor.replace(/[<>&]/g,"")+"」，請把文件送過去。")+"</div></div>";}' +
+    'else{b.disabled=false;b.textContent="再試一次";document.getElementById("msg").textContent=(r&&r.error)||"沒有記錄成功，可能前一關還沒簽，請重新整理看看。";}' +
+    '}).withFailureHandler(function(){b.disabled=false;b.textContent="再試一次";document.getElementById("msg").textContent="網路不穩，請再按一次。";}).signByToken(' + JSON.stringify(tok) + ',true);};<\/script>';
+  else if (v.status === 'done') body = '<div class="st ok">「' + signEsc_(v.label) + '」已經確認過了' + (v.mine ? '（' + signEsc_(v.mine.at) + '）' : '') + '。' + (v.waitFor ? '<br>現在在「' + signEsc_(v.waitFor) + '」。' : '') + '</div>';
+  else if (v.status === 'finished') body = '<div class="st ok">這筆核銷已經全部簽好了。</div>';
+  else body = '<div class="st wait">還沒輪到「' + signEsc_(v.label) + '」：文件現在在「' + signEsc_(v.waitFor) + '」，等前面簽好再按。</div>';
+  return css + '<div class="c">' + head + body + list + '</div>';
+}
+/** 下一關要簽了：放進「簽核通知」，訂貨網的排程（每 10 分鐘）用 LINE 通知那一關綁定的人 */
+function signEnqueue_(id, cat, step, label, amount) {
+  if (!label || label === '經手人') return;
+  if (!ss_().getSheetByName('簽核LINE')) return;   // 還沒有人綁定 LINE，不用排
+  const bound = readTable_('簽核LINE', ['關卡']).rows.some(function (x) { return String(x['關卡']).trim() === label && String(x['LINE ID'] || '').trim(); });
+  if (!bound) return;
+  const st = signState_(id, cat), inf = st ? st.info : {};
+  ensureSheet_('簽核通知', SIGN_QUEUE_HEADERS);
+  appendRows_('簽核通知', [{ '時間': new Date(), '關卡': label, '發票編號': id, '類別': cat, '廠商': (inf.co || inf.vendor || ''), '發票號碼': inf.no ? "'" + inf.no : '', '金額': amount, '簽核網址': signUrl_(id, cat, step), '已通知': '' }]);
+}
+/** 送簽單：每一關一個 QR code（給管理者列印） */
+function hxSignSheet_(id, cat) {
+  const st = signState_(id, cat);
+  if (!st) throw new Error('找不到這筆核銷。');
+  const v = signView_(st, 0);
+  v.id = id;
+  v.urls = st.steps.map(function (x, i) { return signUrl_(id, v.cat, i); });
+  v.signs = st.signs;
+  return v;
+}
+/** LINE 簽核通知：各關卡（再確認裡的人／處室）綁定了沒有 */
+function signLineList_() {
+  const roles = [];
+  hxCats_().forEach(function (c) { String(c.review || '').split(/[、,，\/\s]+/).forEach(function (n) { n = n.trim(); if (n && roles.indexOf(n) < 0) roles.push(n); }); });
+  const bound = {};
+  if (ss_().getSheetByName('簽核LINE')) readTable_('簽核LINE', ['關卡']).rows.forEach(function (x) {
+    const k = String(x['關卡']).trim(); if (!k) return;
+    bound[k] = { bound: !!String(x['LINE ID'] || '').trim(), at: fmtDateTime_(x['綁定時間']), code: String(x['綁定碼'] || '').replace(/^'/, ''), until: x['綁定碼期限'] instanceof Date ? x['綁定碼期限'].getTime() : 0 };
+    if (roles.indexOf(k) < 0) roles.push(k);
+  });
+  return roles.map(function (k) { const b = bound[k] || {}; return { role: k, bound: !!b.bound, at: b.at || '', code: b.until > Date.now() ? b.code : '' }; });
+}
+/** 產生綁定碼：那一關的人用 LINE 傳「簽核 123456」給學校的官方帳號（30 分鐘內） */
+function signLineCode_(role) {
+  role = clean_(role, 40);
+  if (!role) throw new Error('請選關卡。');
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const until = new Date(Date.now() + 30 * 60 * 1000);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    ensureSheet_('簽核LINE', SIGN_LINE_HEADERS);
+    const t = readTable_('簽核LINE', ['關卡']);
+    const r = t.rows.filter(function (x) { return String(x['關卡']).trim() === role; })[0];
+    if (r) { setCell_(t, r._row, '綁定碼', "'" + code); setCell_(t, r._row, '綁定碼期限', until); }
+    else appendRows_('簽核LINE', [{ '關卡': role, 'LINE ID': '', '綁定時間': '', '綁定碼': "'" + code, '綁定碼期限': until }]);
+  } finally { lock.releaseLock(); }
+  return { role: role, code: code, minutes: 30 };
+}
+function signLineUnbind_(role) {
+  role = clean_(role, 40);
+  if (!ss_().getSheetByName('簽核LINE')) return signLineList_();
+  const t = readTable_('簽核LINE', ['關卡']);
+  t.rows.filter(function (x) { return String(x['關卡']).trim() === role; }).forEach(function (r) { setCell_(t, r._row, 'LINE ID', ''); setCell_(t, r._row, '綁定時間', ''); });
+  return signLineList_();
+}
+

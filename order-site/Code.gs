@@ -3511,7 +3511,7 @@ function deleteTemplateRows_(account, name) {
 // 第一次使用：在 Apps Script 編輯器選函式「setupAutomation」按「執行」並授權，
 // 之後就會在訂貨截止那天、每天早上自動執行。也可以在網站「系統設定」頁管理。
 
-const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance', 'remindTeachers'];
+const AUTO_HANDLERS = ['autoVendorOrders', 'dailyDigest', 'weeklyMaintenance', 'remindTeachers', 'signNotifyRun'];
 
 /**
  * 授權跳不出來、或出現「你沒有呼叫 ○○ 的權限」時：在 Apps Script 編輯器選這個函式按「執行」。
@@ -3543,9 +3543,18 @@ function setTriggers_(enabled) {
     .onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(MAINT_HOUR).inTimezone(tz_()).create();
   ScriptApp.newTrigger('remindTeachers').timeBased()
     .onWeekDay(days[remindWeekday_()]).atHour(REMIND_HOUR).inTimezone(tz_()).create();
+  ScriptApp.newTrigger('signNotifyRun').timeBased().everyMinutes(10).create();
+}
+/** 核銷送簽的 LINE 通知排程（每 10 分鐘）：有開自動化、但還沒有這個排程的（舊版升級上來）補建 */
+function ensureSignTrigger_() {
+  try {
+    const hs = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+    if (hs.indexOf('signNotifyRun') < 0 && (hs.indexOf('dailyDigest') >= 0 || hs.indexOf('autoVendorOrders') >= 0)) ScriptApp.newTrigger('signNotifyRun').timeBased().everyMinutes(10).create();
+  } catch (e) { console.error('ensureSignTrigger_ ' + e.message); }
 }
 
 function automationStatus_() {
+  ensureSignTrigger_();
   const handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
   const props = PropertiesService.getScriptProperties();
   return {
@@ -3601,6 +3610,7 @@ function autoVendorOrders(e) {
 // 排程：每天早上寄摘要（沒有新東西就不寄）
 function dailyDigest(e) {
   if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
+  ensureSignTrigger_();
   logged_('每日摘要', function () { runDigest_(false); });
 }
 
@@ -3760,6 +3770,8 @@ function doPost(e) {
         const codeAns = updateCodeReply_(ev, props);
         if (codeAns) { lineReply_(ev.replyToken, codeAns); return; }
       }
+      const sm = String(ev.message.text).trim().match(/^簽核\s*(\d{6})$/);
+      if (sm) { lineReply_(ev.replyToken, signLineBind_(sm[1], ev.source)); return; }
       const m = String(ev.message.text).trim().match(/^綁定\s*(群組)?\s*(\d{6})$/);
       if (!m) {
         // 選單按鈕（我的未訂貨課程、我的訂單、截止時間說明）：免費回覆；群組裡不回
@@ -6563,3 +6575,69 @@ function earliestClassDate_(now) {
 function isLocked_(classDate) {
   return !classDate || classDate < earliestClassDate_(new Date());
 }
+
+// ---------------------------------------------------------------------
+// 核銷送簽：LINE 通知下一關（進貨驗收網站把「輪到誰簽」放進「簽核通知」，這裡每 10 分鐘傳 LINE）
+// 各關卡的 LINE 綁定在「簽核LINE」：進貨驗收產生綁定碼，那一關的人傳「簽核 123456」給官方帳號
+// ---------------------------------------------------------------------
+function signLineBind_(code, src) {
+  if (!src || src.type !== 'user' || !src.userId) return '請用個人聊天室（不是群組）傳「簽核 綁定碼」。';
+  if (!ss_().getSheetByName('簽核LINE')) return '綁定碼不正確或已過期，請找承辦人重新產生。';
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const t = readTable_('簽核LINE', ['關卡']);
+    const r = t.rows.filter(function (x) {
+      const c = String(x['綁定碼'] || '').replace(/^'/, '').trim(), until = x['綁定碼期限'] instanceof Date ? x['綁定碼期限'].getTime() : 0;
+      return c === code && until > Date.now();
+    })[0];
+    if (!r) return '綁定碼不正確或已過期，請找承辦人重新產生。';
+    setCell_(t, r._row, 'LINE ID', src.userId);
+    setCell_(t, r._row, '綁定時間', new Date());
+    setCell_(t, r._row, '綁定碼', '');
+    setCell_(t, r._row, '綁定碼期限', '');
+    return '綁定完成！之後有核銷文件輪到「' + String(r['關卡']).trim() + '」簽的時候，會傳 LINE 通知您，簽好後按訊息裡的連結就記錄好了。';
+  } finally { lock.releaseLock(); }
+}
+/** 排程（每 10 分鐘）：把「簽核通知」裡還沒傳的，同一個人合成一則傳出去 */
+function signNotifyRun(e) {
+  if (!fromTrigger_(e)) throw new Error('這個功能只能由排程執行。');
+  logged_('核銷送簽通知', function () { runSignNotify_(); });
+}
+function runSignNotify_() {
+  if (!ss_().getSheetByName('簽核通知') || !ss_().getSheetByName('簽核LINE')) return 0;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return 0;
+  try {
+    const uid = {};
+    readTable_('簽核LINE', ['關卡']).rows.forEach(function (x) { const k = String(x['關卡']).trim(), u = String(x['LINE ID'] || '').trim(); if (k && u) uid[k] = u; });
+    const t = readTable_('簽核通知', ['關卡', '發票編號']);
+    const todo = t.rows.filter(function (x) { return !String(x['已通知'] || '').trim(); });
+    if (!todo.length) return 0;
+    const by = {}, now = Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm');
+    todo.forEach(function (x) {
+      const role = String(x['關卡']).trim(), u = uid[role];
+      if (!u) { setCell_(t, x._row, '已通知', '沒有綁定 LINE'); return; }
+      (by[u] = by[u] || { role: role, rows: [] }).rows.push(x);
+    });
+    const users = Object.keys(by);
+    if (!users.length) return 0;
+    const q = lineQuota_();
+    if (q && q.limit && q.limit - q.used - users.length < LINE_RESERVE) {
+      todo.forEach(function (x) { if (!String(x['已通知'] || '').trim()) setCell_(t, x._row, '已通知', '本月 LINE 則數快用完，沒有傳'); });
+      return 0;
+    }
+    let sent = 0;
+    users.forEach(function (u) {
+      const g = by[u];
+      const text = '【核銷送簽】有 ' + g.rows.length + ' 份文件輪到「' + g.role + '」簽：\n' + g.rows.map(function (x) {
+        return '・' + String(x['廠商'] || '') + ' $' + (Number(x['金額']) || 0).toLocaleString('en-US') + '（' + String(x['類別'] || '') + '）' + (String(x['發票號碼'] || '').replace(/^'/, '') ? ' 發票 ' + String(x['發票號碼']).replace(/^'/, '') : '') +
+          '\n  簽好後按這裡：' + String(x['簽核網址'] || '');
+      }).join('\n') + '\n\n（紙本簽名仍要簽；按連結只是記錄「這一關好了」，文件會換到下一關）';
+      const ok = linePush_(u, text);
+      g.rows.forEach(function (x) { setCell_(t, x._row, '已通知', ok ? now : '傳送失敗'); });
+      if (ok) sent++;
+    });
+    return sent;
+  } finally { lock.releaseLock(); }
+}
+
