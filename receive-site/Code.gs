@@ -80,7 +80,8 @@ const API_ = {
   hxSetDone: function (a) { return hxSetDone_.apply(null, a); },
   hxSignSheet: function (a) { return hxSignSheet_.apply(null, a); },
   signLineList: function () { return signLineList_(); }, signLineCode: function (a) { return signLineCode_.apply(null, a); }, signLineUnbind: function (a) { return signLineUnbind_.apply(null, a); },
-  signLineSetPush: function (a) { return signLineSetPush_.apply(null, a); }, signLineSetToken: function (a) { return signLineSetToken_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
+  signLineSetPush: function (a) { return signLineSetPush_.apply(null, a); }, signLineSetToken: function (a) { return signLineSetToken_.apply(null, a); },
+  signLineMenu: function (a) { return signLineMenu_.apply(null, a); }, hxStats: function (a) { return hxStats_.apply(null, a); },
   hxSaveCats: function (a) { return hxSaveCats_.apply(null, a); },
   hxBudgets: function () { return hxBudgets_(); }, hxSaveBudget: function (a) { return hxSaveBudgets_([a[0]]); },
   hxSaveBudgets: function (a) { return hxSaveBudgets_.apply(null, a); },
@@ -2403,6 +2404,8 @@ function doPost(e) {
       if (src.type !== 'user' || !src.userId) return;   // 群組裡不回
       const m = text.match(/^簽核\s*(\d{6})$/);
       if (m) { signLineReply_(ev.replyToken, signLineBind_(m[1], src.userId)); return; }
+      if (/^(已簽|已簽紀錄|我簽過的)$/.test(text)) { signLineReply_(ev.replyToken, signDoneText_(src.userId)); return; }
+      if (/^(說明|使用說明|怎麼用)$/.test(text)) { signLineReply_(ev.replyToken, SIGN_HELP_TEXT); return; }
       if (/待簽|簽核|核銷|清單/.test(text) && text.length <= 10) { signLineReply_(ev.replyToken, signPendingText_(src.userId)); return; }
       signLineReply_(ev.replyToken, '傳「待簽」可以看輪到您簽的文件。\n第一次使用請傳「簽核 綁定碼」（綁定碼請找承辦人拿）。');
     });
@@ -2423,13 +2426,60 @@ function signLineBind_(code, userId) {
     setCell_(t, r._row, '綁定時間', new Date());
     setCell_(t, r._row, '綁定碼', '');
     setCell_(t, r._row, '綁定碼期限', '');
-    return '綁定完成！您是「' + String(r['關卡']).trim() + '」。\n之後傳「待簽」，就會列出輪到您簽的文件，每一份都有「已簽好」的連結。';
+    return '綁定完成！您是「' + String(r['關卡']).trim() + '」。\n之後按下方選單「📋 我的待簽」（或傳「待簽」），就會列出輪到您簽的文件，每一份都有「已簽好」的連結。';
   } finally { lock.releaseLock(); }
+}
+const SIGN_HELP_TEXT = '【核銷送簽 使用說明】\n1. 文件送到您這裡時，先在紙本上簽名。\n2. 按下方「📋 我的待簽」，找到那一份，按「簽好後按」的連結，再按「✓ 已簽好」。\n   （也可以用手機相機掃送簽單上您那一關的 QR code）\n3. 把文件送到下一關。\n\n・「✅ 我簽過的」：看最近 30 天您確認過的文件。\n・按錯了請找承辦人退回。';
+function signRolesOf_(userId) {
+  const roles = [];
+  if (ss_().getSheetByName('簽核LINE')) readTable_('簽核LINE', ['關卡']).rows.forEach(function (x) { if (String(x['LINE ID'] || '').trim() === userId) roles.push(String(x['關卡']).trim()); });
+  return roles;
+}
+/** 「我簽過的」：最近 30 天，這個 LINE 綁定的關卡確認過的 */
+function signDoneText_(userId) {
+  const roles = signRolesOf_(userId);
+  if (!roles.length) return '您還沒綁定。請找承辦人拿綁定碼，傳「簽核 123456」（換成您的綁定碼）。';
+  if (!ss_().getSheetByName('核銷分配')) return '最近 30 天沒有您確認過的文件。';
+  const inv = {}, out = [], since = Utilities.formatDate(new Date(Date.now() - 30 * 86400000), tz_(), 'yyyy/MM/dd');
+  if (ss_().getSheetByName('核銷發票')) readTable_('核銷發票', ['發票編號']).rows.forEach(function (x) { inv[String(x['發票編號']).trim()] = x; });
+  readTable_('核銷分配', ['發票編號', '類別']).rows.forEach(function (r) {
+    const id = String(r['發票編號']).trim(), v = inv[id] ? String(inv[id]['廠商'] || '') : '';
+    hxSigns_(r['簽核紀錄']).forEach(function (g) {
+      if (roles.indexOf(g.label) >= 0 && g.at >= since) out.push({ at: g.at, co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: hxCat_(r['類別']), done: String(r['狀態']) === '已核銷' });
+    });
+  });
+  if (!out.length) return '最近 30 天沒有「' + roles.join('、') + '」確認過的文件。';
+  out.sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+  return '「' + roles.join('、') + '」最近 30 天確認過 ' + out.length + ' 份：\n' + out.slice(0, 20).map(function (x) {
+    return '・' + x.at.slice(5, 16) + ' ' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.done ? ' ✓已核銷' : '');
+  }).join('\n');
+}
+/** 管理者：建立核銷官方帳號的圖文選單（一排 3 個按鈕），圖片在瀏覽器畫好傳上來 */
+function signLineMenu_(pngBase64) {
+  if (!signLineToken_()) throw new Error('請先連接核銷用官方帳號。');
+  const b64 = String(pngBase64 || '').replace(/^data:image\/png;base64,/, '');
+  if (b64.length < 1000 || b64.length > 1300000) throw new Error('選單圖片不正確，請再按一次。');
+  const w = 2500, h = 843, cw = Math.floor(w / 3);
+  const areas = [{ text: '待簽', label: '我的待簽' }, { text: '已簽', label: '我簽過的' }, { text: '說明', label: '使用說明' }].map(function (a, i) {
+    return { bounds: { x: i * cw, y: 0, width: i === 2 ? w - 2 * cw : cw, height: h }, action: { type: 'message', label: a.label, text: a.text } };
+  });
+  const auth = { Authorization: 'Bearer ' + signLineToken_() };
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
+    payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '核銷送簽選單', chatBarText: '核銷選單', areas: areas }) });
+  if (res.getResponseCode() !== 200) throw new Error('建立選單失敗：' + res.getContentText().slice(0, 200));
+  const id = JSON.parse(res.getContentText()).richMenuId;
+  const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: 'image/png', muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
+  if (up.getResponseCode() !== 200) throw new Error('上傳選單圖片失敗：' + up.getContentText().slice(0, 200));
+  const def = UrlFetchApp.fetch('https://api.line.me/v2/bot/user/all/richmenu/' + id, { method: 'post', muteHttpExceptions: true, headers: auth });
+  if (def.getResponseCode() !== 200) throw new Error('設定預設選單失敗：' + def.getContentText().slice(0, 200));
+  const p = PropertiesService.getScriptProperties(), old = p.getProperty('SIGN_RICH_MENU_ID');
+  if (old && old !== id) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
+  p.setProperty('SIGN_RICH_MENU_ID', id);
+  return signLineList_();
 }
 /** 傳「待簽」的回覆：這個 LINE 綁定的關卡，現在輪到他的文件 */
 function signPendingText_(userId) {
-  const roles = [];
-  if (ss_().getSheetByName('簽核LINE')) readTable_('簽核LINE', ['關卡']).rows.forEach(function (x) { if (String(x['LINE ID'] || '').trim() === userId) roles.push(String(x['關卡']).trim()); });
+  const roles = signRolesOf_(userId);
   if (!roles.length) return '您還沒綁定。請找承辦人拿綁定碼，傳「簽核 123456」（換成您的綁定碼）。';
   const list = signPendingFor_(roles);
   if (!list.length) return '✓ 目前沒有文件等「' + roles.join('、') + '」簽。';
@@ -2476,7 +2526,7 @@ function signLineList_() {
   });
   const list = roles.map(function (k) { const b = bound[k] || {}; return { role: k, bound: !!b.bound, push: !!b.push, at: b.at || '', code: b.until > Date.now() ? b.code : '' }; });
   const p = PropertiesService.getScriptProperties();
-  return { list: list, tokenSet: !!signLineToken_(), bot: p.getProperty('SIGN_LINE_BOT') || '', webhook: ScriptApp.getService().getUrl() };
+  return { list: list, tokenSet: !!signLineToken_(), bot: p.getProperty('SIGN_LINE_BOT') || '', webhook: ScriptApp.getService().getUrl(), menu: !!p.getProperty('SIGN_RICH_MENU_ID') };
 }
 /** 某一關要不要主動推播（算 LINE 則數） */
 function signLineSetPush_(role, on) {

@@ -3491,7 +3491,7 @@
     var el = $('signLine'); if (!el) return;
     var list = r.list || [];
     var head = r.tokenSet
-      ? '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><span class="badge ok">✓ 已連接核銷用官方帳號' + (r.bot ? '：' + esc(r.bot) : '') + '</span><button type="button" class="btn ghost small" id="slTokChg">更換 token</button><button type="button" class="btn ghost small" id="slTokClr" style="color:var(--bad)">中斷連接</button></div>'
+      ? '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><span class="badge ok">✓ 已連接核銷用官方帳號' + (r.bot ? '：' + esc(r.bot) : '') + '</span><button type="button" class="btn ghost small" id="slMenu" title="在 LINE 聊天室下面放一排按鈕：我的待簽、我簽過的、使用說明">' + (r.menu ? '🔁 重建選單按鈕' : '📱 建立 LINE 選單按鈕') + '</button><button type="button" class="btn ghost small" id="slTokChg">更換 token</button><button type="button" class="btn ghost small" id="slTokClr" style="color:var(--bad)">中斷連接</button></div>'
       : '<div class="msg info" style="margin:6px 0"><b>第一次設定（只要一次）：</b><ol style="margin:4px 0 0 18px;padding:0">' +
         '<li>到「LINE 官方帳號管理後台」<b>另外建立一個官方帳號</b>（免費，名稱例如「三信餐飲科核銷」），<b>不要用訂貨系統那個</b>。</li>' +
         '<li>在新帳號的「設定 → Messaging API」按「啟用 Messaging API」。</li>' +
@@ -3507,6 +3507,21 @@
     signLineLast = r;
   }
   var signLineLast = null;
+  // LINE 圖文選單的圖片：2500×843，一排三格，在瀏覽器畫好再傳上去
+  function signMenuPng() {
+    var W = 2500, H = 843, cw = Math.floor(W / 3), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d'), items = [['📋', '我的待簽', '輪到我簽的文件', '#8b1a1a'], ['✅', '我簽過的', '最近 30 天', '#067647'], ['❓', '使用說明', '怎麼確認已簽好', '#475467']];
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    items.forEach(function (it, i) {
+      var x = i * cw, w = i === 2 ? W - 2 * cw : cw;
+      g.fillStyle = it[3]; g.fillRect(x + 18, 18, w - 36, H - 36);
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = '230px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillText(it[0], x + w / 2, 270);
+      g.font = 'bold 150px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(it[1], x + w / 2, 540);
+      g.font = '80px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(it[2], x + w / 2, 700);
+    });
+    return cv.toDataURL('image/png');
+  }
   function signLineLoad(note) { call('signLineList').then(function (l) { signLineRender(l, note); }).catch(function (e) { var el = $('signLine'); if (el) el.innerHTML = '<div class="msg error">' + esc(e.message) + '</div>'; }); }
   $('hxBox').addEventListener('change', function (e) {
     var c = e.target; if (!c.hasAttribute || !c.hasAttribute('data-slpush')) return;
@@ -3515,6 +3530,12 @@
   });
   $('hxBox').addEventListener('click', function (e) {
     var t = e.target;
+    if (t.id === 'slMenu') {
+      t.disabled = true; t.textContent = '建立中…';
+      call('signLineMenu', signMenuPng()).then(function (l) { signLineRender(l, '✓ 選單按鈕建好了。主任們打開核銷官方帳號的聊天室，下面就會有「📋 我的待簽、✅ 我簽過的、❓ 使用說明」三個按鈕（沒出現的話關掉聊天室再打開）。'); })
+        .catch(function (er) { msg('hxMsg', 'error', er.message); t.disabled = false; t.textContent = '📱 建立 LINE 選單按鈕'; });
+      return;
+    }
     if (t.id === 'slTokChg' && signLineLast) { signLineLast.showTok = true; signLineRender(signLineLast); return; }
     if (t.id === 'slTokClr') { if (!window.confirm('中斷核銷用官方帳號？綁定的人會保留，重新連接後就能用。')) return; call('signLineSetToken', '').then(function (l) { signLineRender(l, '已中斷連接。'); }).catch(function (er) { msg('hxMsg', 'error', er.message); }); return; }
     if (t.id === 'slTokSave') {
