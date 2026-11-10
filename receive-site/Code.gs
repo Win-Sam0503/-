@@ -2252,6 +2252,8 @@ function escHtml_(s) {
 // ---------------------------------------------------------------------
 // 送簽單 QR code、LINE 通知下一關：不用進系統也能確認「這一關簽好了」
 // ---------------------------------------------------------------------
+/** 核銷編號（給人看的）：HX20261110081234 56 → 1110-0812（建立的月日-時分）。舊的 ID 格式不同就原樣 */
+function hxNo_(id) { const m = String(id || '').match(/^HX\d{4}(\d{4})(\d{4})/); return m ? m[1] + '-' + m[2] : String(id || ''); }
 const SIGN_VCO = { 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
 const SIGN_LINE_HEADERS = ['關卡', 'LINE ID', '綁定時間', '綁定碼', '綁定碼期限', '主動通知'];   // 主動通知：「是」才主動推播（算 LINE 則數）；預設不推，在 LINE 傳「待簽」查（免費）
 const SIGN_LINE_RESERVE = 20;   // 本月剩下的則數少於這個，就不再主動推播
@@ -2289,7 +2291,7 @@ function signState_(id, cat) {
   if (ss_().getSheetByName('核銷發票')) inv = readTable_('核銷發票', ['發票編號']).rows.filter(function (x) { return String(x['發票編號']).trim() === id; })[0] || {};
   const vendor = String(inv['廠商'] || '');
   return { t: t, r: r, steps: steps, signs: hxSigns_(r['簽核紀錄']), done: String(r['狀態']) === '已核銷',
-    info: { vendor: vendor, co: SIGN_VCO[vendor] || '', no: String(inv['發票號碼'] || '').replace(/^'/, ''), date: inv['發票日期'] instanceof Date ? dateStr_(inv['發票日期']) : String(inv['發票日期'] || '').replace(/^'/, ''),
+    info: { hxno: hxNo_(id), vendor: vendor, co: SIGN_VCO[vendor] || '', no: String(inv['發票號碼'] || '').replace(/^'/, ''), date: inv['發票日期'] instanceof Date ? dateStr_(inv['發票日期']) : String(inv['發票日期'] || '').replace(/^'/, ''),
       amount: Number(r['金額']) || 0, cat: hxCat_(r['類別']) } };
 }
 function signView_(st, step) {
@@ -2339,7 +2341,7 @@ function signPageHtml_(tok) {
     const sg = v.signs[i];
     return '<li class="' + (sg ? 'done' : i === v.signs.length ? 'now' : '') + '">' + signEsc_(lb) + (sg ? ' ✓ <span class="m">' + signEsc_(sg.at) + '</span>' : i === v.signs.length ? '　← 現在在這裡' : '') + '</li>';
   }).join('') + '</ol>';
-  const head = '<h1>核銷送簽確認</h1><div class="m">' + signEsc_(v.vendor) + (v.co ? '（' + signEsc_(v.co) + '）' : '') + (v.no ? '・發票 ' + signEsc_(v.no) : '') + (v.date ? '・' + signEsc_(v.date) : '') + '</div>' +
+  const head = '<h1>核銷送簽確認</h1><div style="font-size:18px;margin:-4px 0 6px">核銷編號 <b>' + signEsc_(v.hxno) + '</b></div><div class="m">' + signEsc_(v.vendor) + (v.co ? '（' + signEsc_(v.co) + '）' : '') + (v.no ? '・發票 ' + signEsc_(v.no) : '') + (v.date ? '・' + signEsc_(v.date) : '') + '</div>' +
     '<div class="big">$' + Number(v.amount || 0).toLocaleString('en-US') + '</div><div>' + signEsc_(v.cat) + '</div>';
   let body;
   if (v.status === 'ready') body = '<div class="st wait">這一關：<b>' + signEsc_(v.label) + '</b>（第 ' + (v.step + 1) + '／' + v.total + ' 關）<br>紙本簽好後，按下面的按鈕。</div>' +
@@ -2361,7 +2363,7 @@ function signEnqueue_(id, cat, step, label, amount) {
   const q = signLineQuota_();
   if (q && q.limit && q.limit - q.used - 1 < SIGN_LINE_RESERVE) return;
   const st = signState_(id, cat), inf = st ? st.info : {};
-  signLinePush_(String(row['LINE ID']).trim(), '【核銷送簽】有一份文件輪到「' + label + '」簽：\n・' + (inf.co || inf.vendor || '') + ' $' + (Number(amount) || 0).toLocaleString('en-US') + '（' + cat + '）' + (inf.no ? ' 發票 ' + inf.no : '') +
+  signLinePush_(String(row['LINE ID']).trim(), '【核銷送簽】有一份文件輪到「' + label + '」簽：\n・核銷編號 ' + hxNo_(id) + '　' + (inf.co || inf.vendor || '') + ' $' + (Number(amount) || 0).toLocaleString('en-US') + '（' + cat + '）' + (inf.no ? ' 發票 ' + inf.no : '') +
     '\n簽好後按這裡：' + signUrl_(id, cat, step) + '\n\n（傳「待簽」可以看全部輪到您的文件）');
 }
 // ---- 核銷專用的 LINE 官方帳號（跟訂貨系統分開）：Webhook 填這個網站的網址 ----
@@ -2445,13 +2447,13 @@ function signDoneText_(userId) {
   readTable_('核銷分配', ['發票編號', '類別']).rows.forEach(function (r) {
     const id = String(r['發票編號']).trim(), v = inv[id] ? String(inv[id]['廠商'] || '') : '';
     hxSigns_(r['簽核紀錄']).forEach(function (g) {
-      if (roles.indexOf(g.label) >= 0 && g.at >= since) out.push({ at: g.at, co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: hxCat_(r['類別']), done: String(r['狀態']) === '已核銷' });
+      if (roles.indexOf(g.label) >= 0 && g.at >= since) out.push({ at: g.at, hxno: hxNo_(id), co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: hxCat_(r['類別']), done: String(r['狀態']) === '已核銷' });
     });
   });
   if (!out.length) return '最近 30 天沒有「' + roles.join('、') + '」確認過的文件。';
   out.sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   return '「' + roles.join('、') + '」最近 30 天確認過 ' + out.length + ' 份：\n' + out.slice(0, 20).map(function (x) {
-    return '・' + x.at.slice(5, 16) + ' ' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.done ? ' ✓已核銷' : '');
+    return '・' + x.at.slice(5, 16) + ' 【' + x.hxno + '】' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.done ? ' ✓已核銷' : '');
   }).join('\n');
 }
 /** 管理者：建立核銷官方帳號的圖文選單（一排 3 個按鈕），圖片在瀏覽器畫好傳上來 */
@@ -2484,7 +2486,7 @@ function signPendingText_(userId) {
   const list = signPendingFor_(roles);
   if (!list.length) return '✓ 目前沒有文件等「' + roles.join('、') + '」簽。';
   return '輪到「' + roles.join('、') + '」簽的文件有 ' + list.length + ' 份：\n' + list.slice(0, 15).map(function (x, i) {
-    return '\n' + (i + 1) + '. ' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.no ? '\n   發票 ' + x.no : '') + '\n   第 ' + x.k + '／' + x.n + ' 關，' + (x.since ? x.since.slice(5, 10).replace('/', '/') + ' 起' : '') +
+    return '\n' + (i + 1) + '. 【' + x.hxno + '】' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.no ? '\n   發票 ' + x.no : '') + '\n   第 ' + x.k + '／' + x.n + ' 關，' + (x.since ? x.since.slice(5, 10).replace('/', '/') + ' 起' : '') +
       '\n   簽好後按：' + x.url;
   }).join('\n') + (list.length > 15 ? '\n\n還有 ' + (list.length - 15) + ' 份，簽完這些再傳一次「待簽」。' : '') + '\n\n（紙本仍要簽名；按連結只是記錄這一關好了）';
 }
@@ -2500,7 +2502,7 @@ function signPendingFor_(roles) {
     const steps = hxSteps_({ cat: cat, handler: String(r['經手人'] || ''), codes: codes }, mp.cat, mp.code), signs = hxSigns_(r['簽核紀錄']), k = signs.length;
     if (k === 0 || k >= steps.length || roles.indexOf(steps[k].label) < 0) return;   // 經手人還沒好＝文件還沒送出去
     const v = String(inv[id]['廠商'] || '');
-    out.push({ co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: cat, no: String(inv[id]['發票號碼'] || '').replace(/^'/, ''), k: k + 1, n: steps.length, since: signs[k - 1].at, url: signUrl_(id, cat, k) });
+    out.push({ hxno: hxNo_(id), co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: cat, no: String(inv[id]['發票號碼'] || '').replace(/^'/, ''), k: k + 1, n: steps.length, since: signs[k - 1].at, url: signUrl_(id, cat, k) });
   });
   return out.sort(function (a, b) { return a.since < b.since ? -1 : 1; });
 }

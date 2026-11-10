@@ -2448,7 +2448,7 @@
       var diff = !hasSys ? '' : dAmt < 1 ? '<span class="badge ok">✓ 跟送貨金額一樣</span>'
         : '<span class="badge bad">' + (far ? '⚠ ' : '') + '勾的送貨 $' + money(inv.system) + '（' + (inv.amount > inv.system ? '發票多' : '發票少') + ' $' + money(r2(dAmt)) + '）</span>';
       var allDone = inv.allocs.length && inv.allocs.every(function (a) { return a.status === '已核銷'; });
-      html += '<div class="hxcard"' + (far ? ' style="border:2px solid var(--bad)"' : '') + '><h3>' + esc(vco(inv.vendor)) + '　' + esc(inv.lines.length > 1 ? inv.lines.length + ' 張發票' : (inv.no || '（沒填號碼）')) + ' ' + (allDone ? '<span class="badge ok">✓ 全部已核銷</span>' : '') + '</h3>' +
+      html += '<div class="hxcard"' + (far ? ' style="border:2px solid var(--bad)"' : '') + '><h3><span class="badge none" style="font-size:13px;vertical-align:2px" title="核銷編號：送簽單、LINE、簽核頁都用這個號碼">#' + esc(hxNo(inv.id)) + '</span> ' + esc(vco(inv.vendor)) + '　' + esc(inv.lines.length > 1 ? inv.lines.length + ' 張發票' : (inv.no || '（沒填號碼）')) + ' ' + (allDone ? '<span class="badge ok">✓ 全部已核銷</span>' : '') + '</h3>' +
         '<div class="small muted">發票日期 ' + esc(inv.date) + '・' + (inv.mode === '日期區間' && inv.from ? '送貨 ' + esc(md(inv.from) + '～' + md(inv.to)) : inv.checks.length ? '包含 ' + inv.checks.length + ' 次送貨' : inv.extras.length ? '只有另外叫料' : '沒有勾送貨') +
           '・' + esc(inv.by) + ' ' + esc(inv.created) + '</div>' +
         '<div style="margin:4px 0"><b style="font-size:18px">$' + money(inv.amount) + '</b> ' + diff + '</div>' +
@@ -3431,6 +3431,8 @@
     var m = String(s || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/); if (!m) return null;
     return Math.floor((new Date() - new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) / 864e5);
   }
+  // 核銷編號（給人看的短號碼）：HX20261110081234xx → 1110-0812
+  function hxNo(id) { var m = String(id || '').match(/^HX\d{4}(\d{4})(\d{4})/); return m ? m[1] + '-' + m[2] : String(id || ''); }
   // 📜 簽核紀錄：所有關卡的每一次確認（誰、什麼時候、用系統還是掃碼／LINE），可以篩選、下載
   var slogF = null;
   function slogTime(s) { var m = String(s || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/); return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : null; }
@@ -3441,7 +3443,7 @@
         var prev = inv.created;
         (a.signs || []).forEach(function (g, i) {
           var t0 = slogTime(prev), t1 = slogTime(g.at), scan = /（掃碼）$/.test(g.by);
-          out.push({ at: g.at, t: t1, label: g.label, by: scan ? g.by.replace(/（掃碼）$/, '') : g.by, via: scan ? '📱 掃碼／LINE' : '💻 系統', vendor: vco(inv.vendor), no: inv.no || '', cat: a.cat, amount: a.amount,
+          out.push({ hxno: hxNo(inv.id), at: g.at, t: t1, label: g.label, by: scan ? g.by.replace(/（掃碼）$/, '') : g.by, via: scan ? '📱 掃碼／LINE' : '💻 系統', vendor: vco(inv.vendor), no: inv.no || '', cat: a.cat, amount: a.amount,
             k: i + 1, n: (a.steps && a.steps.length) || (a.signs || []).length, done: a.status === '已核銷', days: t0 !== null && t1 !== null ? Math.max(0, (t1 - t0) / 864e5) : null });
           prev = g.at;
         });
@@ -3458,7 +3460,7 @@
     $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">📜 簽核紀錄</h2><div class="muted small">每一關每一次確認都在這裡：誰、什麼時候、用系統按的還是主任用手機掃碼／LINE 按的。「停留」＝文件在這一關待了幾天（從上一關確認到這一關確認）。</div>' +
       '<div class="row noprint" style="margin-top:8px;gap:6px;flex-wrap:wrap;align-items:center"><label class="small">從 <input type="date" id="slgF" value="' + esc(slogF.from) + '" style="width:auto"></label><label class="small">到 <input type="date" id="slgT" value="' + esc(slogF.to) + '" style="width:auto"></label>' +
       '<select id="slgL" style="width:auto">' + opt(labels, slogF.label, '全部關卡') + '</select><select id="slgC" style="width:auto">' + opt(cats, slogF.cat, '全部類別') + '</select>' +
-      '<input id="slgQ" type="search" placeholder="🔍 廠商、發票、誰" value="' + esc(slogF.q) + '" style="width:160px"><button type="button" class="btn ghost small" id="slgAll">全部期間</button><button type="button" class="btn ghost small" id="slgCsv">⬇ 下載（Excel）</button><button type="button" class="btn ghost small" id="slgPrint">🖨 列印</button></div><div id="slgBox"></div></div>';
+      '<input id="slgQ" type="search" placeholder="🔍 核銷編號、廠商、發票、誰" value="' + esc(slogF.q) + '" style="width:160px"><button type="button" class="btn ghost small" id="slgAll">全部期間</button><button type="button" class="btn ghost small" id="slgCsv">⬇ 下載（Excel）</button><button type="button" class="btn ghost small" id="slgPrint">🖨 列印</button></div><div id="slgBox"></div></div>';
     slogRender();
   }
   function slogFiltered() {
@@ -3468,7 +3470,7 @@
       if (to !== null && (x.t === null || x.t >= to)) return false;
       if (f.label && x.label !== f.label) return false;
       if (f.cat && x.cat !== f.cat) return false;
-      return !q || [x.vendor, x.no, x.by, x.label, x.cat].join(' ').toLowerCase().indexOf(q) >= 0;
+      return !q || [x.hxno, x.vendor, x.no, x.by, x.label, x.cat].join(' ').toLowerCase().indexOf(q) >= 0;
     });
   }
   function slogRender() {
@@ -3478,8 +3480,8 @@
       var g = by[k], avg = g.dn ? g.d / g.dn : null;
       return '<tr><td><b>' + esc(k) + '</b></td><td style="text-align:right">' + g.n + '</td><td style="text-align:right">' + g.scan + '</td><td style="text-align:right' + (avg !== null && avg > 7 ? ';color:var(--bad);font-weight:700' : '') + '">' + (avg === null ? '' : (Math.round(avg * 10) / 10) + ' 天') + '</td></tr>';
     }).join('') + '</table></div>' : '';
-    $('slgBox').innerHTML = '<div class="small muted" style="margin-top:6px">共 ' + rows.length + ' 筆確認</div>' + sum + (rows.length ? '<div class="slipwrap"><table class="hxt"><tr><th>時間</th><th>關卡</th><th>誰按的</th><th>方式</th><th>廠商</th><th>發票</th><th>類別</th><th style="text-align:right">金額</th><th>第幾關</th><th style="text-align:right">停留</th></tr>' + rows.map(function (x) {
-      return '<tr><td style="white-space:nowrap">' + esc(x.at) + '</td><td><b>' + esc(x.label) + '</b></td><td>' + esc(x.by) + '</td><td class="small">' + x.via + '</td><td>' + esc(x.vendor) + '</td><td class="small">' + esc(x.no) + '</td><td class="small">' + esc(x.cat) + '</td><td style="text-align:right">$' + money(x.amount) + '</td>' +
+    $('slgBox').innerHTML = '<div class="small muted" style="margin-top:6px">共 ' + rows.length + ' 筆確認</div>' + sum + (rows.length ? '<div class="slipwrap"><table class="hxt"><tr><th>時間</th><th>核銷編號</th><th>關卡</th><th>誰按的</th><th>方式</th><th>廠商</th><th>發票</th><th>類別</th><th style="text-align:right">金額</th><th>第幾關</th><th style="text-align:right">停留</th></tr>' + rows.map(function (x) {
+      return '<tr><td style="white-space:nowrap">' + esc(x.at) + '</td><td><b>' + esc(x.hxno) + '</b></td><td><b>' + esc(x.label) + '</b></td><td>' + esc(x.by) + '</td><td class="small">' + x.via + '</td><td>' + esc(x.vendor) + '</td><td class="small">' + esc(x.no) + '</td><td class="small">' + esc(x.cat) + '</td><td style="text-align:right">$' + money(x.amount) + '</td>' +
         '<td class="small">' + x.k + '／' + x.n + (x.done && x.k === x.n ? ' ✓' : '') + '</td><td style="text-align:right' + (x.days !== null && x.days > 7 ? ';color:var(--bad)' : '') + '">' + (x.days === null ? '' : (Math.round(x.days * 10) / 10) + ' 天') + '</td></tr>';
     }).join('') + '</table></div>' : '<div class="muted" style="margin-top:8px">這段期間沒有簽核紀錄。</div>');
   }
@@ -3498,8 +3500,8 @@
     if (t.id === 'slgAll') { slogF.from = ''; slogF.to = ''; hxSignLogView(); return; }
     if (t.id === 'slgPrint') { window.print(); return; }
     if (t.id !== 'slgCsv') return;
-    var lines = [['時間', '關卡', '誰按的', '方式', '廠商', '發票號碼', '類別', '金額', '第幾關', '共幾關', '已核銷', '停留天數']];
-    slogFiltered().forEach(function (x) { lines.push([x.at, x.label, x.by, x.via.replace(/^\S+\s/, ''), x.vendor, x.no, x.cat, x.amount, x.k, x.n, x.done ? '是' : '', x.days === null ? '' : Math.round(x.days * 10) / 10]); });
+    var lines = [['時間', '核銷編號', '關卡', '誰按的', '方式', '廠商', '發票號碼', '類別', '金額', '第幾關', '共幾關', '已核銷', '停留天數']];
+    slogFiltered().forEach(function (x) { lines.push([x.at, x.hxno, x.label, x.by, x.via.replace(/^\S+\s/, ''), x.vendor, x.no, x.cat, x.amount, x.k, x.n, x.done ? '是' : '', x.days === null ? '' : Math.round(x.days * 10) / 10]); });
     var csv = '\ufeff' + lines.map(function (l) { return l.map(function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -3523,10 +3525,10 @@
       (rows.length ? '<div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap">' + order.map(function (nm) { return '<span class="badge none" style="font-size:14px">' + esc(nm) + ' <b>' + by[nm].length + '</b></span>'; }).join('') + '</div>' : '<div class="muted" style="margin-top:8px">✓ 全部都核銷完了。</div>');
     order.forEach(function (nm) {
       by[nm].sort(function (x, y) { return (y.days || 0) - (x.days || 0); });
-      html += '<h3 style="margin:14px 0 4px">現在在：' + esc(nm) + '（' + by[nm].length + ' 筆）</h3><div class="slipwrap"><table class="hxt"><tr><th>廠商</th><th>發票</th><th>類別</th><th style="text-align:right">金額</th><th>第幾關</th><th>多久沒動</th><th></th></tr>' +
+      html += '<h3 style="margin:14px 0 4px">現在在：' + esc(nm) + '（' + by[nm].length + ' 筆）</h3><div class="slipwrap"><table class="hxt"><tr><th>核銷編號</th><th>廠商</th><th>發票</th><th>類別</th><th style="text-align:right">金額</th><th>第幾關</th><th>多久沒動</th><th></th></tr>' +
         by[nm].map(function (r) {
           var late = r.days !== null && r.days > 7;
-          return '<tr><td>' + esc(vco(r.inv.vendor)) + '</td><td>' + esc(r.inv.no || '（沒填號碼）') + '<div class="muted small">' + esc(r.inv.date) + '</div></td><td>' + esc(r.a.cat) + '</td><td style="text-align:right">$' + money(r.a.amount) + '</td>' +
+          return '<tr><td><b>' + esc(hxNo(r.inv.id)) + '</b></td><td>' + esc(vco(r.inv.vendor)) + '</td><td>' + esc(r.inv.no || '（沒填號碼）') + '<div class="muted small">' + esc(r.inv.date) + '</div></td><td>' + esc(r.a.cat) + '</td><td style="text-align:right">$' + money(r.a.amount) + '</td>' +
             '<td>' + (r.k + 1) + '／' + r.n + '</td><td' + (late ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + (r.days === null ? '' : r.days + ' 天') + '<div class="muted small">' + esc(String(r.since || '').slice(0, 10)) + ' 起</div></td>' +
             '<td style="white-space:nowrap"><button type="button" class="btn ghost small" data-hxsign="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '" title="印一張送簽單夾在文件上：每一關簽完用手機掃 QR code 就記好了，不用進系統">🖨 送簽單</button> <button type="button" class="btn small" data-hxdone="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">✓ ' + esc(nm) + '確認</button>' + (r.k ? ' <button type="button" class="btn ghost small" data-hxundo="' + esc(r.inv.id) + '" data-cat="' + esc(r.a.cat) + '">取消上一關</button>' : '') + '</td></tr>';
         }).join('') + '</table></div>';
@@ -3556,7 +3558,7 @@
       $('hxBox').innerHTML = '<div class="panel noprint"><div class="row" style="justify-content:space-between"><h2 style="margin:0">🖨 送簽單</h2><span><button type="button" class="btn ghost small" id="hxSignBack">← 回送簽進度</button> <button type="button" class="btn small" id="hxSignPrint">🖨 列印</button></span></div>' +
         '<div class="muted small">印出來夾在核銷文件最上面。每一關（主任、會計…）在紙本簽好後，用手機相機掃自己那一關的 QR code，按「已簽好」就記錄了，不用帳號、不用進系統。要照順序：前一關還沒好，後面的掃了會顯示文件在哪裡。</div></div>' +
         '<div class="signsheet" style="background:#fff;padding:14px;border:2px solid #1c1917;border-radius:8px;max-width:720px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:22px">核銷送簽單</b><span style="font-size:20px"><b>$' + money(v.amount) + '</b></span></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:22px">核銷送簽單　<span style="border:2px solid #1c1917;border-radius:6px;padding:0 8px">核銷編號 ' + esc(v.hxno || hxNo(v.id)) + '</span></b><span style="font-size:20px"><b>$' + money(v.amount) + '</b></span></div>' +
         '<div style="font-size:16px;margin:4px 0 8px">' + esc(v.vendor) + (v.co ? '（' + esc(v.co) + '）' : '') + (v.no ? '　發票 ' + esc(v.no) : '') + (v.date ? '　' + esc(v.date) : '') + '　<b>' + esc(v.cat) + '</b></div>' +
         '<table class="hxt" style="width:100%"><tr><th>關</th><th>關卡</th><th>簽完掃這裡</th><th>備註</th></tr>' + rows + '</table>' +
         '<div class="small" style="margin-top:6px;color:#57534e">掃描後打開的頁面只能確認這一筆的這一關。紙本簽名仍是正式憑證。</div></div>';
