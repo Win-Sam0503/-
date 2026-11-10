@@ -1474,7 +1474,20 @@
       tr.style.display = hit ? '' : 'none';
       all++; if (hit) n++;
     });
-    $('slipQN').textContent = q.length ? '符合 ' + n + '／' + all + ' 項' : '';
+    // 一張一張打的：比對每一行的品名，沒找到的行藏起來；整張都沒有的那張也收起來
+    Array.prototype.forEach.call($('slipBox').querySelectorAll('.paper'), function (pp) {
+      var any = false;
+      Array.prototype.forEach.call(pp.querySelectorAll('tr'), function (tr) {
+        var inp = tr.querySelector('[data-pf="name"]'); if (!inp) return;
+        var name = inp.value.trim().toLowerCase(), hit = !q.length || (name && q.every(function (k) { return name.indexOf(k) >= 0; }));
+        tr.style.display = hit ? '' : 'none';
+        all++; if (hit) { n++; any = true; }
+      });
+      pp.style.display = any || !q.length ? '' : 'none';
+      var sep = pp.previousElementSibling;
+      if (sep && sep.classList.contains('paper-sep')) sep.style.display = pp.style.display;
+    });
+    $('slipQN').textContent = q.length ? '符合 ' + n + '／' + all + ' 項' + (n ? '' : '（清掉搜尋字就會全部出現）') : '';
   }
   $('slipQ').addEventListener('input', function (e) { if (!e.isComposing) slipFilter(); });
   $('slipQ').addEventListener('compositionend', slipFilter);
@@ -1604,7 +1617,7 @@
   function itemUnit(n) { var r = (hxItemList || []).filter(function (x) { return x[0] === n; })[0]; return r && r[3] || ''; }
   function renderPapers() {
     var sl = cur.slip;
-    $('slipQWrap').classList.add('hidden');
+    $('slipQWrap').classList.remove('hidden');   // 一張一張打的也可以搜尋品名
     if (!hxItemList) call('hxItems').then(function (r) { hxItemList = r; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts(); pmapRefresh(); }).catch(function () {});
     var html = '<datalist id="itemList">' + itemOpts() + '</datalist>' +
       '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
@@ -1630,6 +1643,7 @@
     $('slipBox').innerHTML = html;
     unitListRefresh();
     paperTotals();
+    if ($('slipQ').value.trim()) slipFilter();
   }
   // 每張小計、品項合計（跟叫貨量對照）、總計
   function paperTotals() {
