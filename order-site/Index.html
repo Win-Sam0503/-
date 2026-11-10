@@ -339,7 +339,7 @@
   .grid-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 8px 0; font-size: 14px; }
   .grid-legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; border: 1px solid; }
   .grid-print-head { display: none; }
-  @page gridland { size: A4 landscape; margin: 8mm; }
+  @page gridland { size: A4 landscape; margin: 8mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: bottom; padding-bottom: 1mm; } }
   @media print {
     #viewSchedule .grid-print-head { display: block; text-align: center; margin-bottom: 4px; }
     #viewSchedule .grid-print-head h1 { font-size: 18px; margin: 0; }
@@ -640,7 +640,7 @@
   .sheet.teacher .boxes .bt td { font-size: 12.5pt; text-align: center; height: 8mm; border-width: 1.5px; }
   .sheet.teacher .extra { margin: 5mm 6mm 0; font-size: 10.5pt; white-space: normal; }
 
-  @page { size: A4 portrait; margin: 8mm 10mm; }   /* 上下 8mm：可印高度 281mm，請料單 277mm 有一點餘裕，不會擠到第二頁 */
+  @page { size: A4 portrait; margin: 8mm 10mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: bottom; padding-bottom: 1mm; } }   /* 右上角印頁數（Chrome、Edge；iPhone 的 Safari 不支援就不印） */   /* 上下 8mm：可印高度 281mm，請料單 277mm 有一點餘裕，不會擠到第二頁 */
   @media print {
     body { background: #fff; }
     #viewLogin, #app > header, .noprint, #globalMsg, #watermark, .copyright { display: none !important; }

@@ -115,6 +115,7 @@
   .hxcpi { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid #eaecf0; cursor: pointer; font-weight: normal !important; margin: 0 !important; }
   .hxcpi input { width: 20px; height: 20px; } .hxcpi .amt { margin-left: auto; } .hxcpi.on { background: #eff8ff; } .hxcpi.used { color: var(--muted); }
   .hxsum { position: sticky; bottom: 0; background: #fff; border-top: 2px solid var(--line); padding: 8px 0; margin-top: 8px; }
+  @page { margin: 10mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: bottom; padding-bottom: 1mm; } }   /* 右上角印頁數；核銷、請購單那些正式表單自己設 margin 0，就不會印 */
   @media print { header, .hxtabs, .noprint { display: none !important; } }
   @media print { body.pmon #vCheck > .panel, body.pmon #listMsg, body.pmon #doneMsg, body.pmon #cards > :not(.panel), body.pmon #cards > .panel > :not(#slMonth) { display: none !important; } body.pmon #cards { display: block; } }
   @media print { #vHx > .panel:first-child { display: none !important; } }
