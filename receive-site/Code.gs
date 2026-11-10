@@ -2058,17 +2058,20 @@ function hxRenameVendor_(from, to) {
 }
 
 /** 某張發票的某一類：經手人確認「已核銷」（done=false 改回待核銷） */
-function hxSigns_(v) { return String(v || '').split(/\n+/).filter(Boolean).map(function (l) { const p = l.split('|'); return { label: p[0] || '', by: p[1] || '', at: p[2] || '' }; }); }
+function hxSigns_(v) { return String(v || '').split(/\n+/).filter(Boolean).map(function (l) { const p = l.split('|'); return { label: hxStepName_(p[0] || ''), by: p[1] || '', at: p[2] || '' }; }); }
 /**
  * 一筆分配要經過哪幾關：① 經手人（用到的經費編號有設經手人就用那幾位，沒有就用類別的經手人；好幾位誰按都可以）
  * ② 類別「再確認」照順序（例如組長、主任）。全部確認完才算已核銷
  */
+const HX_FIRST_STEP = '餐飲科行政助理';   // 送簽第一關的名稱
+/** 舊紀錄裡的「經手人」＝現在的第一關 */
+function hxStepName_(label) { return label === '經手人' ? HX_FIRST_STEP : label; }
 function hxSteps_(a, catMap, codeMap) {
   const split = function (v) { return String(v || '').split(/[、,，\/\s]+/).map(function (x) { return x.trim(); }).filter(Boolean); };
   let who = [];
   (a.codes || []).forEach(function (x) { const c = codeMap[x.code]; if (c && c.handler) split(c.handler).forEach(function (n) { if (who.indexOf(n) < 0) who.push(n); }); });
   if (!who.length) who = split((catMap[a.cat] || {}).handler || a.handler);
-  const steps = [{ label: '經手人', who: who }];
+  const steps = [{ label: HX_FIRST_STEP, who: who }];   // 第一關（以前叫「經手人」）
   split((catMap[a.cat] || {}).review).forEach(function (n) { steps.push({ label: n, who: [n] }); });
   return steps;
 }
@@ -2357,7 +2360,7 @@ function signPageHtml_(tok) {
 }
 /** 下一關要簽了：那一關有綁定 LINE、而且打開「主動通知」才推播（算則數）；平常在 LINE 傳「待簽」查（免費） */
 function signEnqueue_(id, cat, step, label, amount) {
-  if (!label || label === '經手人' || !signLineToken_() || !ss_().getSheetByName('簽核LINE')) return;
+  if (!label || step === 0 || label === HX_FIRST_STEP || !signLineToken_() || !ss_().getSheetByName('簽核LINE')) return;
   const row = readTable_('簽核LINE', ['關卡']).rows.filter(function (x) { return String(x['關卡']).trim() === label && String(x['LINE ID'] || '').trim() && String(x['主動通知'] || '').trim() === '是'; })[0];
   if (!row) return;
   const q = signLineQuota_();

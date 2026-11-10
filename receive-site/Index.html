@@ -2462,12 +2462,12 @@
         (inv.note ? '<div class="small">備註：' + esc(inv.note) + '</div>' : '') +
         '<table class="hxt" style="margin-top:6px"><tr><th>類別</th><th>金額</th><th>經手人</th><th>核銷</th></tr>' + inv.allocs.map(function (a) {
           var done = a.status === '已核銷';
-          var steps = a.steps && a.steps.length ? a.steps : [{ label: '經手人', who: a.handler ? [a.handler] : [] }], signs = a.signs || [];
+          var steps = a.steps && a.steps.length ? a.steps : [{ label: '餐飲科行政助理', who: a.handler ? [a.handler] : [] }], signs = a.signs || [];
           var whoTxt = (steps[0].who || []).join('、') || a.handler || '—';
           // 每一關：已確認的打勾（誰按的、什麼時候）；下一關給按鈕；全部確認完＝已核銷
           var legacyDone = done && !signs.length;
           var flow = steps.map(function (st, k) {
-            var sg = signs[k], nm = st.label === '經手人' ? '經手人' + (st.who.length ? '（' + st.who.join('、') + '）' : '') : st.label;
+            var sg = signs[k], nm = st.label;
             if (sg || legacyDone) return '<span class="badge ok" title="' + esc(sg ? sg.by + ' ' + sg.at : '') + '">✓ ' + esc(nm) + (sg ? ' <span style="font-weight:normal">' + esc(sg.by) + ' ' + esc(sg.at.slice(5)) + '</span>' : '') + '</span>';
             if (k === signs.length && !done) return '<button type="button" class="btn small" data-hxdone="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '">✓ ' + esc(nm) + '確認</button>';
             return '<span class="badge none">' + esc(nm) + '</span>';
@@ -2475,7 +2475,7 @@
           return '<tr><td>' + esc(a.cat) + '</td><td>$' + money(a.amount) + (a.parts.length > 1 ? '<div class="muted small">' + a.parts.map(money).join(' + ') + '</div>' : '') + '</td><td>' + esc(whoTxt) + '</td><td>' + flow +
             (done ? ' <span class="badge ok">✓ 已核銷 ' + esc(a.doneDate) + '</span>' : '') +
             (signs.length || done ? ' <button type="button" class="btn ghost small" data-hxundo="' + esc(inv.id) + '" data-cat="' + esc(a.cat) + '" title="取消最後一關的確認">取消</button>' : '') + '</td></tr>';
-        }).join('') + '</table>' +
+        }).join('') + '</table>' + hxSignTimeline(inv) +
         '<div class="row" style="margin-top:6px"><button type="button" class="btn ghost small" data-hxedit="' + esc(inv.id) + '">✏️ 修改</button><button type="button" class="btn ghost small" data-hxprint="' + esc(inv.id) + '">🖨 請購單</button>' +
         '<button type="button" class="btn ghost small" data-hxdel="' + esc(inv.id) + '" style="color:var(--bad);border-color:var(--bad)">🗑 刪除</button></div></div>';
     });
@@ -3431,6 +3431,27 @@
     var m = String(s || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/); if (!m) return null;
     return Math.floor((new Date() - new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) / 864e5);
   }
+  // 每一筆核銷下面：每一類「目前送到哪一關」，點開看完整簽核紀錄（每一關誰、什麼時候、停留幾天）
+  function hxSignTimeline(inv) {
+    return inv.allocs.map(function (a) {
+      var steps = a.steps && a.steps.length ? a.steps : [{ label: '餐飲科行政助理', who: [] }], signs = a.signs || [], done = a.status === '已核銷', k = signs.length;
+      var legacy = done && !k;
+      var now = done ? '✓ 已核銷' + (a.doneDate ? '（' + a.doneDate + '）' : '') : k < steps.length ? '目前在「' + steps[k].label + '」' : '';
+      var since = k ? signs[k - 1].at : inv.created, waited = !done ? hxDaysSince(since) : null;
+      var prev = inv.created;
+      var rows = steps.map(function (st, i) {
+        var sg = signs[i], t0 = slogTime(prev), t1 = sg ? slogTime(sg.at) : null, days = sg && t0 !== null && t1 !== null ? Math.max(0, (t1 - t0) / 864e5) : null;
+        if (sg) prev = sg.at;
+        var cur = !done && i === k, scan = sg && /（掃碼）$/.test(sg.by);
+        return '<tr' + (cur ? ' style="background:#fffaeb;font-weight:700"' : '') + '><td style="text-align:center">' + (i + 1) + '</td><td>' + esc(st.label) + '</td>' +
+          '<td>' + (sg || legacy ? '<span style="color:var(--ok)">✓ 已簽</span>' : cur ? '<span style="color:#b54708">⏳ 在這裡' + (waited !== null ? '（' + waited + ' 天）' : '') + '</span>' : '<span class="muted">還沒到</span>') + '</td>' +
+          '<td class="small">' + (sg ? esc(scan ? sg.by.replace(/（掃碼）$/, '') : sg.by) + (scan ? ' 📱' : '') : '') + '</td><td class="small" style="white-space:nowrap">' + (sg ? esc(sg.at) : '') + '</td>' +
+          '<td class="small" style="text-align:right">' + (days === null ? '' : (Math.round(days * 10) / 10) + ' 天') + '</td></tr>';
+      }).join('');
+      return '<details class="small" style="margin-top:4px"><summary style="cursor:pointer"><b>📍 ' + esc(a.cat) + '：</b>' + (done ? '<span style="color:var(--ok)">' + esc(now) + '</span>' : '<b style="color:#b54708">' + esc(now) + '</b>（第 ' + (k + 1) + '／' + steps.length + ' 關' + (waited !== null ? '，已 ' + waited + ' 天' : '') + '）') + '　<span class="muted">點開看簽核紀錄</span></summary>' +
+        '<table class="hxt" style="margin-top:4px"><tr><th>關</th><th>處室／關卡</th><th>狀態</th><th>誰確認</th><th>時間</th><th style="text-align:right">停留</th></tr>' + rows + '</table></details>';
+    }).join('');
+  }
   // 核銷編號（給人看的短號碼）：HX20261110081234xx → 1110-0812
   function hxNo(id) { var m = String(id || '').match(/^HX\d{4}(\d{4})(\d{4})/); return m ? m[1] + '-' + m[2] : String(id || ''); }
   // 📜 簽核紀錄：所有關卡的每一次確認（誰、什麼時候、用系統還是掃碼／LINE），可以篩選、下載
@@ -3513,9 +3534,9 @@
     (hx.invoices || []).forEach(function (inv) {
       (inv.allocs || []).forEach(function (a) {
         if (a.status === '已核銷') return;
-        var steps = a.steps && a.steps.length ? a.steps : [{ label: '經手人', who: [] }], signs = a.signs || [], st = steps[Math.min(signs.length, steps.length - 1)];
+        var steps = a.steps && a.steps.length ? a.steps : [{ label: '餐飲科行政助理', who: [] }], signs = a.signs || [], st = steps[Math.min(signs.length, steps.length - 1)];
         var last = signs.length ? signs[signs.length - 1].at : inv.created, days = hxDaysSince(last);
-        var nm = st.label === '經手人' ? '經手人' + (st.who && st.who.length ? '（' + st.who.join('、') + '）' : '') : st.label;
+        var nm = st.label;
         var r = { inv: inv, a: a, step: nm, k: signs.length, n: steps.length, days: days, since: last };
         rows.push(r); if (!by[nm]) { by[nm] = []; order.push(nm); } by[nm].push(r);
       });
