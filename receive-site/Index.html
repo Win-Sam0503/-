@@ -3493,9 +3493,11 @@
     var head = r.tokenSet
       ? '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><span class="badge ok">✓ 已連接核銷用官方帳號' + (r.bot ? '：' + esc(r.bot) : '') + '</span><button type="button" class="btn ghost small" id="slTokChg">更換 token</button><button type="button" class="btn ghost small" id="slTokClr" style="color:var(--bad)">中斷連接</button></div>'
       : '<div class="msg info" style="margin:6px 0"><b>第一次設定（只要一次）：</b><ol style="margin:4px 0 0 18px;padding:0">' +
-        '<li>到 LINE Official Account Manager <b>另外申請一個官方帳號</b>（免費，名稱例如「三信餐飲科核銷」），<b>不要用訂貨系統那個</b>。</li>' +
-        '<li>在 LINE Developers 找到這個帳號的 Messaging API，發一組「Channel access token（長期）」，貼到下面按「連接」。</li>' +
-        '<li>同一頁的 <b>Webhook URL</b> 填：<div style="word-break:break-all;background:#fff;padding:4px 6px;border-radius:6px;margin:3px 0"><code>' + esc(r.webhook || '') + '</code></div>打開「Use webhook」；官方帳號後台把「自動回應訊息」關掉。</li></ol></div>';
+        '<li>到「LINE 官方帳號管理後台」<b>另外建立一個官方帳號</b>（免費，名稱例如「三信餐飲科核銷」），<b>不要用訂貨系統那個</b>。</li>' +
+        '<li>在新帳號的「設定 → Messaging API」按「啟用 Messaging API」。</li>' +
+        '<li>到 LINE Developers 找到這個頻道 →「Messaging API設定」分頁，最下面「頻道存取權杖（長期）」按「發行」，複製貼到下面，按「連接」。</li>' +
+        '<li>同一頁的「Webhook設定」→「Webhook URL」按編輯，貼上：<div style="word-break:break-all;background:#fff;padding:4px 6px;border-radius:6px;margin:3px 0"><code>' + esc(r.webhook || '') + '</code></div>再把「使用Webhook」打開。</li>' +
+        '<li>回官方帳號管理後台「設定 → 回應設定」：「自動回應訊息」關閉、「Webhook」開啟。</li></ol></div>';
     var tokBox = !r.tokenSet || r.showTok ? '<div class="row" style="margin-bottom:8px"><input id="slTok" type="password" autocomplete="off" placeholder="貼上核銷用官方帳號的 Channel access token" style="flex:1;min-width:240px"><button type="button" class="btn small" id="slTokSave">連接</button></div>' : '';
     el.innerHTML = (note ? '<div class="msg ok" style="margin:6px 0">' + note + '</div>' : '') + head + tokBox + (!r.tokenSet ? '' : list.length ? '<table class="hxt"><tr><th>關卡</th><th>LINE</th><th title="輪到他簽時主動傳 LINE（會用掉免費則數）；不勾的話，他自己傳「待簽」查，不花則數">主動通知</th><th></th></tr>' + list.map(function (x) {
       return '<tr><td><b>' + esc(x.role) + '</b></td><td>' + (x.bound ? '<span class="badge ok">✓ 已綁定</span> <span class="muted small">' + esc(x.at) + '</span>' : x.code ? '<span class="badge warn">等待綁定：簽核 ' + esc(x.code) + '</span>' : '<span class="muted">還沒綁定</span>') + '</td>' +
