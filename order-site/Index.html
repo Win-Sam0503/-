@@ -2526,7 +2526,7 @@
         '<button type="button" class="btn ghost small" data-swap title="選錯食材？換成別的，數量、單位、備註保留" style="padding:1px 8px;margin-left:2px">換</button>' +
         '<div class="muted small">' + esc(dispVendor(c.vendor)) + '</div><div class="small c-price" style="color:#475467">' + priceText(c) + '</div><div class="small c-jin" style="color:var(--info);font-weight:600">' + jinCart(c) + '</div>' + secSel + '</div>' +
       '<div class="c-q">' + qtyCell(c, c.name) + '</div>' +
-      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '</div>' +
+      '<div class="c-u">' + unitInput(c.unit, c.name + ' 單位', true) + '<div class="small c-uw">' + unitWarnHtml(c) + '</div></div>' +
       '<div class="c-n"><input type="text" maxlength="100" data-f="note" placeholder="備註（選填）" value="' + esc(c.note) + '" aria-label="' + esc(c.name) + ' 備註"></div>' +
       '<div class="c-s">' + (c.vendor === data.selfVendor ? '<span class="muted small" title="學校自備，不跟廠商叫貨，但會印在請料單上">自備</span>'
         : '<label class="stock" title="勾選後不會跟廠商叫貨"><input type="checkbox" data-f="noOrder"' + (c.noOrder ? ' checked' : '') + '> 有貨</label>') + '</div>' +
@@ -2640,7 +2640,28 @@
     $('cartCost').innerHTML = any ? '預估約 $' + money0(sum) + (none ? '<span class="muted" style="font-weight:400">（' + none + ' 項沒有單價，沒算進去）</span>' : '') : '';
   }
   function jinCart(c) { var j = jinOf(c.qty, c.unit, c.vendor, c.name); return j ? '＝ 約 ' + esc(j) + '（菜商、肉商用斤兩送）' : ''; }
+  // 單位跟平常不一樣（小黃瓜 3 片，平常是條）：提醒，一鍵改
+  function unitKey(u) { u = String(u || '').trim(); return GRAMS[u] && u !== 'T' && u !== 't' ? '#重量' : su(u); }
+  function unitOdd(c) {
+    if (c.isNew || !c.id || !String(c.unit || '').trim()) return null;
+    var h = (data.unitHist || {})[c.id]; if (!h) return null;
+    var by = {}, raw = {}, tot = 0;
+    Object.keys(h).forEach(function (u) { var k = unitKey(u); by[k] = (by[k] || 0) + h[u]; tot += h[u]; if (!raw[k] || h[u] > h[raw[k]]) raw[k] = u; });
+    if (tot < 3) return null;   // 訂過的次數太少，不判斷
+    var ok = Object.keys(by).filter(function (k) { return by[k] >= 2 && by[k] / tot >= 0.1; });
+    var it = itemById[c.id]; if (it && it.unit) { var dk = unitKey(it.unit); if (ok.indexOf(dk) < 0) { ok.push(dk); raw[dk] = raw[dk] || it.unit; } }
+    if (!ok.length || ok.indexOf(unitKey(c.unit)) >= 0) return null;
+    ok.sort(function (a, b) { return (by[b] || 0) - (by[a] || 0); });
+    return ok.map(function (k) { return raw[k]; });
+  }
+  function unitWarnHtml(c) {
+    var us = unitOdd(c); if (!us) return '';
+    return '<span style="color:#b54708">⚠ 平常用「' + esc(us.join('、')) + '」訂，確定是「' + esc(c.unit) + '」？</span>' +
+      us.map(function (u) { return ' <button type="button" class="btn ghost small" data-uset="' + esc(u) + '" style="padding:0 6px">改成' + esc(u) + '</button>'; }).join('');
+  }
   function updateRowCost(row, c) {
+    var uw = row && row.querySelector('.c-uw');
+    if (uw) uw.innerHTML = unitWarnHtml(c);
     var el = row && row.querySelector('.c-price');
     if (el) el.innerHTML = priceText(c);
     var jn = row && row.querySelector('.c-jin');
@@ -2686,6 +2707,14 @@
     });
     $('cart').innerHTML = html;
   }
+  $('cart').addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-uset]'); if (!b) return;
+    var row = b.closest('.cart-row'), key = row.getAttribute('data-key');
+    var c = draft.cart.find(function (x) { return x.key === key; }); if (!c) return;
+    c.unit = b.getAttribute('data-uset');
+    var inp = row.querySelector('[data-f="unit"]'); if (inp) { inp.value = c.unit; inp.classList.remove('invalid'); }
+    saveDraft(); updateRowCost(row, c);
+  });
   $('cart').addEventListener('input', function (e) {
     var f = e.target.getAttribute('data-f');
     if (!f) return;
@@ -2788,6 +2817,7 @@
   // ------------------------------------------------------------------
   // 送出訂單
   // ------------------------------------------------------------------
+  var unitOkOnce = false;
   $('submitBtn').addEventListener('click', function () {
     msg('lastBox', '', '');
     readInfo();
@@ -2838,6 +2868,16 @@
       return;
     }
 
+    // 單位跟平常不一樣的：送出前再確認一次（打錯單位，廠商會送錯、成本也會算錯）
+    var odd = draft.cart.map(function (c) { var us = unitOdd(c); return us ? '・' + c.name + ' ' + c.qty + ' ' + c.unit + '（平常用 ' + us.join('、') + '）' : ''; }).filter(Boolean);
+    if (odd.length && !unitOkOnce) {
+      ask('這幾樣的單位跟平常不一樣，請確認沒有打錯：\n' + odd.join('\n'), '沒錯，送出', { noText: '回去改' }).then(function (ok) {
+        if (!ok) { var r0 = document.querySelector('#cart .c-uw span'); if (r0) r0.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+        unitOkOnce = true; $('submitBtn').click();
+      });
+      return;
+    }
+    unitOkOnce = false;
     var payload = {
       useDate: i.useDate, dept: i.dept, classTime: i.classTime, room: i.room, groups: i.groups ? Number(i.groups) : '',
       className: i.className, project: i.project, onBehalfOf: i.onBehalfOf,

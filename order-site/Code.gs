@@ -393,6 +393,7 @@ function bootStatic_() {
     prices: orderPrices_(),
     classSizes: readClassSizes_(),
     unitConv: readUnitConv_(),
+    unitHist: itemUnitHist_(),
   };
   try { const j = JSON.stringify(st); if (j.length < 90000) cache.put(BOOT_CACHE_KEY, j, 300); } catch (e) {}
   return st;
@@ -471,6 +472,7 @@ function getBootstrap(token) {
     placeEnabled: placeEnabled_(),
     classSizes: st.classSizes || {},
     unitConv: st.unitConv || {},
+    unitHist: st.unitHist || {},
   };
 }
 
@@ -779,6 +781,26 @@ function adminSetItemsActive(token, ids, on) {
 }
 function clearItemsCache_() {
   CacheService.getScriptCache().remove('items:n');
+}
+
+/**
+ * 每樣食材老師平常用什麼單位訂：{ 食材ID: { 單位: 次數 } }（訂單總表＋歷史訂單，取消的不算）。
+ * 訂貨畫面用來提醒打錯單位（小黃瓜 3 片 → 平常是條）
+ */
+function itemUnitHist_() {
+  const out = {};
+  try {
+    [SHEET.orders, SHEET.history].forEach(function (name) {
+      if (!ss_().getSheetByName(name)) return;
+      readTable_(name, ['食材ID', '單位']).rows.forEach(function (r) {
+        const id = String(r['食材ID'] || '').trim(), u = String(r['單位'] || '').trim();
+        if (!id || !u || String(r['狀態'] || '').trim() === '已取消') return;
+        const h = out[id] = out[id] || {};
+        h[u] = (h[u] || 0) + 1;
+      });
+    });
+  } catch (e) { console.error('itemUnitHist_ ' + e.message); }
+  return out;
 }
 
 function readItems_() {
