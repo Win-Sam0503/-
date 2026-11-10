@@ -1380,11 +1380,15 @@ function attachSlipPrices_(list) {
       if (r.c) it.sp.c = r.c;
       // 菜商用台斤算、老師用條／隻／盒訂：照那週銷貨單分攤出來的「1 條 ≈ 幾斤」
       const c = ac[r.k], gu = UNIT_G_[r.u];
-      if (c && gu && !UNIT_G_[String(it.unit || '').trim()] && c[String(it.unit || '').trim()]) it.sp.ac = { u: String(it.unit).trim(), n: c[String(it.unit).trim()] / gu };
+      const iu = unitSyn_(it.unit);
+      if (c && gu && !UNIT_G_[iu] && c[iu]) it.sp.ac = { u: String(it.unit).trim(), n: c[iu] / gu };
     });
   });
 }
 
+/** 同義的個數單位當成同一種（算成本用）：個、粒、顆 → 顆；支、根、隻、尾、條 → 條 */
+const UNIT_SYN_ = { '個': '顆', '粒': '顆', '顆': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條', '條': '條' };
+function unitSyn_(u) { u = String(u || '').trim(); return UNIT_SYN_[u] || u; }
 const UNIT_G_ = { 'g': 1, '公克': 1, '克': 1, '公斤': 1000, 'kg': 1000, 'KG': 1000, 'Kg': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
 
 /** 找訂單品項對到哪一樣銷貨單品項：回傳 { k: 「週|廠商|銷貨單品名」, u, p, via } 或 { np: 單價空白的說明 } 或 null */
@@ -1449,15 +1453,15 @@ function autoUnitConv_(weeks, match, slipG, mon) {
     name = String(name || '');
     const m = name.match(/1\s*([^\d\s=＝()（）]+?)\s*[=＝]\s*([\d.]+)\s*([^\d\s()（）]+)/);
     if (m && m[1] === u && Number(m[2]) > 0) return { b: m[3], f: Number(m[2]) };
-    const c = (uc[name.trim()] || []).filter(function (x) { return x.u === u && !UNIT_G_[x.u2]; })[0];
-    return c ? { b: c.u2, f: c.q } : { b: u, f: 1 };
+    const c = (uc[name.trim()] || []).filter(function (x) { return unitSyn_(x.u) === u && !UNIT_G_[x.u2]; })[0];
+    return c ? { b: unitSyn_(c.u2), f: c.q } : { b: u, f: 1 };
   };
   readTable_(SHEET.orders, ['使用日期', '食材名稱', '廠商', '數量', '單位']).rows.forEach(function (r) {
     const d = r['使用日期'] instanceof Date ? toDate_(r['使用日期']) : parseDate_(String(r['使用日期'] || ''));
     const wk = mon(d);
     if (!weeks[wk]) return;
     if (/取消|退/.test(String(r['狀態'] || '')) || String(r['不叫貨'] || '').trim()) return;
-    const q = Number(r['數量']), u = String(r['單位'] || '').trim();
+    const q = Number(r['數量']), u = unitSyn_(r['單位']);
     if (!(q > 0) || !u) return;
     const m = match(wk, String(r['廠商'] || '').trim(), r['食材名稱']);
     if (!m || m.np || !slipG[m.k]) return;
@@ -1615,7 +1619,7 @@ function slipPriceMap_(weeks, noPrice, grams) {
     if (!(p > 0)) { if (noPrice) noPrice[key] = true; return; }   // 有這一樣、單價沒填
     const amt = Number(r['金額']);
     const pw = Number(r['每單位重量']), pwu = String(r['重量單位'] || '').trim();
-    (rows[key] = rows[key] || []).push({ u: String(r['單位'] || '').trim(), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0),
+    (rows[key] = rows[key] || []).push({ u: unitSyn_(r['單位']), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0),
       c: pw > 0 && UNIT_G_[pwu] && !UNIT_G_[String(r['單位'] || '').trim()] ? { u: pwu, q: pw } : null });   // 1 罐＝100 g（銷貨單填的規格），老師用 g 訂也算得到
   });
   // 同一週同一樣常常有好幾筆（每班一筆、有的單價是金額÷數量算的有小數）：

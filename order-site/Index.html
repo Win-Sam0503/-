@@ -2548,23 +2548,23 @@
     var n = qtyInPrice(q, unit, x);
     if (n !== null || !name) return n;
     var all = (data.unitConv || {})[name] || [];
-    var cv = all.filter(function (c) { return c.u === unit; });
+    var cv = all.filter(function (c) { return su(c.u) === su(unit); });
     for (var i = 0; i < cv.length; i++) { var m = qtyInPrice(q * cv[i].q, cv[i].u2, x); if (m !== null) return m; }
     // 反過來的換算：「1 箱（銷貨單的單位）＝ 10 公斤／30 顆」
-    var rv = all.filter(function (c) { return c.u === x.u; });
+    var rv = all.filter(function (c) { return su(c.u) === su(x.u); });
     for (var j = 0; j < rv.length; j++) {
       var c = rv[j];
-      if (c.u2 === unit) return q / c.q;
+      if (su(c.u2) === su(unit)) return q / c.q;
       if (GRAMS[c.u2] && GRAMS[unit]) return q * GRAMS[unit] / (c.q * GRAMS[c.u2]);
     }
     return null;
   }
   function qtyInPrice(q, unit, x) {
     if (!unit) return null;
-    if (unit === x.u) return q;
+    if (su(unit) === su(x.u)) return q;
     if (GRAMS[unit] && GRAMS[x.u]) return q * GRAMS[unit] / GRAMS[x.u];
     if (x.c) {
-      if (unit === x.c.u) return q / x.c.q;
+      if (su(unit) === su(x.c.u)) return q / x.c.q;
       if (GRAMS[unit] && GRAMS[x.c.u]) return q * GRAMS[unit] / GRAMS[x.c.u] / x.c.q;
     }
     return null;
@@ -2577,7 +2577,10 @@
   }
   function money0(n) { return Math.round(n).toLocaleString('en-US'); }
   // 料單成本：優先用那一週、那家廠商銷貨單上的單價（it.sp，驗收網站填的），沒有才用單價表最新的估
-  function convFor(name, u) { var x = ((data.prices || {})[name] || []).filter(function (y) { return y.u === u && y.c; })[0]; return x ? x.c : null; }
+  function convFor(name, u) { var x = ((data.prices || {})[name] || []).filter(function (y) { return su(y.u) === su(u) && y.c; })[0]; return x ? x.c : null; }
+  // 同義的個數單位當成同一種（算成本用）：個、粒、顆 → 顆；支、根、隻、尾、條 → 條
+  var UNIT_SYN = { '個': '顆', '粒': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條' };
+  function su(u) { u = String(u || '').trim(); return UNIT_SYN[u] || u; }
   function itemCost(it) {
     if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return null;
     var q = toNum(it.qty);
@@ -2585,7 +2588,7 @@
     if (it.sp) {
       var x = { u: it.sp.u, p: it.sp.p, c: it.sp.c || convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name), share = '';   // it.sp.c：銷貨單填的規格（1 罐＝100 g）
       // 單位換不過去（老師訂條、菜商用台斤）：用那週銷貨單分攤出來的「1 條 ≈ 幾斤」
-      if (n === null && it.sp.ac && it.sp.ac.u === it.unit) { n = q * it.sp.ac.n; share = '照那週分攤：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; }
+      if (n === null && it.sp.ac && su(it.sp.ac.u) === su(it.unit)) { n = q * it.sp.ac.n; share = '照那週分攤：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; }
       if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share, src: it.sp.src || null };
     }
     var e = estCost(it), px = priceOf(it);
@@ -3359,7 +3362,7 @@
         if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
         var c = itemCost(it);
         if (c && c.real) return;
-        var k = it.name + '|' + (it.unit || '') + '|' + (c ? (c.manual ? 'h' : 'e') : 'n');
+        var k = it.name + '|' + su(it.unit) + '|' + (c ? (c.manual ? 'h' : 'e') : 'n');
         if (!m[k]) { m[k] = { it: it, n: 0, est: !!c, man: !!(c && c.manual), c: c }; keys.push(k); }
         m[k].n++;
       });
@@ -3429,7 +3432,7 @@
         var c = itemCost(it); if (!c) return;
         var why = [];
         if (c.amt > 3000) why.push('這一項 $' + money0(c.amt) + ' 很貴');
-        if (it.sp && it.sp.ac && it.sp.ac.u === it.unit) {
+        if (it.sp && it.sp.ac && su(it.sp.ac.u) === su(it.unit)) {
           var g = it.sp.ac.n * (GRAMS[it.sp.u] || 0);   // 1 條幾公克
           if (g && (g > 3000 || g < 3)) why.push('分攤出來 1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + it.sp.u + '，不太合理（那週銷貨單數量或老師的單位可能填錯）');
         }
