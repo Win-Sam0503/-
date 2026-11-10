@@ -201,6 +201,7 @@
   <label for="rPw">密碼</label><input id="rPw" type="password" autocomplete="current-password">
   <button type="button" class="btn" id="rGo" style="width:100%">登入</button>
   <div id="rMsg" style="margin-top:8px"></div>
+  <div class="copyright" style="padding:16px 0 0;text-align:left;border-top:1px solid var(--line);margin-top:16px">© 2026 翁煒程 版權所有。<br>本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。<br>未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，亦不得提供予校外人士使用。<br>違者將依法追究相關法律責任。</div>
 </div></div>
 <main>
   <!-- 選週、選一張叫貨單 -->
@@ -3582,7 +3583,7 @@
         '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><b style="font-size:22px">核銷送簽單　<span style="border:2px solid #1c1917;border-radius:6px;padding:0 8px">核銷編號 ' + esc(v.hxno || hxNo(v.id)) + '</span></b><span style="font-size:20px"><b>$' + money(v.amount) + '</b></span></div>' +
         '<div style="font-size:16px;margin:4px 0 8px">' + esc(v.vendor) + (v.co ? '（' + esc(v.co) + '）' : '') + (v.no ? '　發票 ' + esc(v.no) : '') + (v.date ? '　' + esc(v.date) : '') + '　<b>' + esc(v.cat) + '</b></div>' +
         '<table class="hxt" style="width:100%"><tr><th>關</th><th>關卡</th><th>簽完掃這裡</th><th>備註</th></tr>' + rows + '</table>' +
-        '<div class="small" style="margin-top:6px;color:#57534e">掃描後打開的頁面只能確認這一筆的這一關。紙本簽名仍是正式憑證。</div></div>';
+        '<div class="small" style="margin-top:6px;color:#57534e">掃描後打開的頁面只能確認這一筆的這一關。紙本簽名仍是正式憑證。</div><div style="margin-top:4px;font-size:10px;color:#78716c">© 2026 翁煒程 版權所有｜三信家商餐飲科核銷送簽系統，僅供校內使用</div></div>';
       window.scrollTo(0, 0);
     }).catch(function (e) { msg('hxMsg', 'error', e.message); });
   }

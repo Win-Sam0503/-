@@ -2339,7 +2339,8 @@ function signPageHtml_(tok) {
   const css = '<style>body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;margin:0;background:#f5f5f4;color:#1c1917}.c{max-width:460px;margin:24px auto;background:#fff;border-radius:16px;padding:20px 18px;box-shadow:0 2px 10px #0001}' +
     'h1{font-size:20px;margin:0 0 12px}.big{font-size:26px;font-weight:700}.m{color:#78716c;font-size:14px}.st{margin:14px 0;padding:12px;border-radius:12px;font-size:17px}.ok{background:#ecfdf3;color:#067647}.wait{background:#fffaeb;color:#b54708}.bad{background:#fef3f2;color:#b42318}' +
     'button{width:100%;font-size:20px;padding:16px;border:0;border-radius:12px;background:#8b1a1a;color:#fff;font-weight:700;margin-top:10px}button:disabled{opacity:.5}ol{padding-left:22px;margin:8px 0}li{margin:3px 0}.done{color:#067647}.now{font-weight:700;color:#8b1a1a}</style>';
-  if (!v.ok) return css + '<div class="c"><h1>核銷送簽</h1><div class="st bad">' + signEsc_(v.error) + '</div></div>';
+  const foot = '<div style="text-align:center;color:#a8a29e;font-size:12px;line-height:1.7;padding:4px 16px 20px">© 2026 翁煒程 版權所有<br>僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</div>';
+  if (!v.ok) return css + '<div class="c"><h1>核銷送簽</h1><div class="st bad">' + signEsc_(v.error) + '</div></div>' + foot;
   const list = '<ol>' + v.steps.map(function (lb, i) {
     const sg = v.signs[i];
     return '<li class="' + (sg ? 'done' : i === v.signs.length ? 'now' : '') + '">' + signEsc_(lb) + (sg ? ' ✓ <span class="m">' + signEsc_(sg.at) + '</span>' : i === v.signs.length ? '　← 現在在這裡' : '') + '</li>';
@@ -2350,13 +2351,13 @@ function signPageHtml_(tok) {
   if (v.status === 'ready') body = '<div class="st wait">這一關：<b>' + signEsc_(v.label) + '</b>（第 ' + (v.step + 1) + '／' + v.total + ' 關）<br>紙本簽好後，按下面的按鈕。</div>' +
     '<button id="go">✓ ' + signEsc_(v.label) + ' 已簽好</button><div id="msg" class="m" style="margin-top:8px"></div>' +
     '<script>document.getElementById("go").onclick=function(){var b=this;b.disabled=true;b.textContent="記錄中…";google.script.run.withSuccessHandler(function(r){' +
-    'if(r&&r.ok&&(r.status==="done"||r.status==="finished")){document.body.innerHTML=' + JSON.stringify(css) + '+"<div class=\\"c\\"><h1>✓ 已記錄</h1><div class=\\"st ok\\">"+(r.status==="finished"?"全部關卡都簽好了，這筆核銷完成。":"已記錄，下一關是「"+r.waitFor.replace(/[<>&]/g,"")+"」，請把文件送過去。")+"</div></div>";}' +
+    'if(r&&r.ok&&(r.status==="done"||r.status==="finished")){document.body.innerHTML=' + JSON.stringify(css) + '+"<div class=\\"c\\"><h1>✓ 已記錄</h1><div class=\\"st ok\\">"+(r.status==="finished"?"全部關卡都簽好了，這筆核銷完成。":"已記錄，下一關是「"+r.waitFor.replace(/[<>&]/g,"")+"」，請把文件送過去。")+"</div></div>"+' + JSON.stringify(foot) + ';}' +
     'else{b.disabled=false;b.textContent="再試一次";document.getElementById("msg").textContent=(r&&r.error)||"沒有記錄成功，可能前一關還沒簽，請重新整理看看。";}' +
     '}).withFailureHandler(function(){b.disabled=false;b.textContent="再試一次";document.getElementById("msg").textContent="網路不穩，請再按一次。";}).signByToken(' + JSON.stringify(tok) + ',true);};<\/script>';
   else if (v.status === 'done') body = '<div class="st ok">「' + signEsc_(v.label) + '」已經確認過了' + (v.mine ? '（' + signEsc_(v.mine.at) + '）' : '') + '。' + (v.waitFor ? '<br>現在在「' + signEsc_(v.waitFor) + '」。' : '') + '</div>';
   else if (v.status === 'finished') body = '<div class="st ok">這筆核銷已經全部簽好了。</div>';
   else body = '<div class="st wait">還沒輪到「' + signEsc_(v.label) + '」：文件現在在「' + signEsc_(v.waitFor) + '」，等前面簽好再按。</div>';
-  return css + '<div class="c">' + head + body + list + '</div>';
+  return css + '<div class="c">' + head + body + list + '</div>' + foot;
 }
 /** 下一關要簽了：那一關有綁定 LINE、而且打開「主動通知」才推播（算則數）；平常在 LINE 傳「待簽」查（免費） */
 function signEnqueue_(id, cat, step, label, amount) {
@@ -2436,7 +2437,7 @@ function signLineBind_(code, userId) {
     return '綁定完成！您是「' + String(r['關卡']).trim() + '」。\n之後按下方選單「📋 我的待簽」（或傳「待簽」），就會列出輪到您簽的文件，每一份都有「已簽好」的連結。';
   } finally { lock.releaseLock(); }
 }
-const SIGN_HELP_TEXT = '【核銷送簽 使用說明】\n1. 文件送到您這裡時，先在紙本上簽名。\n2. 按下方「📋 我的待簽」，找到那一份，按「簽好後按」的連結，再按「✓ 已簽好」。\n   （也可以用手機相機掃送簽單上您那一關的 QR code）\n3. 把文件送到下一關。\n\n・「✅ 我簽過的」：看最近 30 天您確認過的文件。\n・按錯了請找承辦人退回。';
+const SIGN_HELP_TEXT = '【核銷送簽 使用說明】\n1. 文件送到您這裡時，先在紙本上簽名。\n2. 按下方「📋 我的待簽」，找到那一份，按「簽好後按」的連結，再按「✓ 已簽好」。\n   （也可以用手機相機掃送簽單上您那一關的 QR code）\n3. 把文件送到下一關。\n\n・「✅ 我簽過的」：看最近 30 天您確認過的文件。\n・按錯了請找承辦人退回。\n\n© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用';
 const SIGN_ADMIN_HELP = '\n\n【管理者】\n・「📊 核銷進度」：全部還沒核銷完的，現在在哪一關、等了幾天。\n・「⏰ 卡住的」：超過 7 天沒動的。';
 /** 「管理者」開頭的關卡＝管理者：LINE 可以看全部進度 */
 function signIsAdmin_(role) { return /^管理者/.test(String(role || '')); }
