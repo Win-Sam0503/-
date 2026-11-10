@@ -3591,7 +3591,7 @@
     var el = $('signLine'); if (!el) return;
     var list = r.list || [];
     var head = r.tokenSet
-      ? '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><span class="badge ok">✓ 已連接核銷用官方帳號' + (r.bot ? '：' + esc(r.bot) : '') + '</span><button type="button" class="btn ghost small" id="slMenu" title="在 LINE 聊天室下面放一排按鈕：我的待簽、我簽過的、使用說明">' + (r.menu ? '🔁 重建選單按鈕' : '📱 建立 LINE 選單按鈕') + '</button><button type="button" class="btn ghost small" id="slTokChg">更換 token</button><button type="button" class="btn ghost small" id="slTokClr" style="color:var(--bad)">中斷連接</button></div>'
+      ? '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><span class="badge ok">✓ 已連接核銷用官方帳號' + (r.bot ? '：' + esc(r.bot) : '') + '</span><button type="button" class="btn ghost small" id="slMenu" title="在 LINE 聊天室下面放一排按鈕：我的待簽、我簽過的、使用說明">' + (r.menu ? '🔁 重建選單按鈕' : '📱 建立 LINE 選單按鈕') + '</button><button type="button" class="btn ghost small" id="slAdminAdd" title="綁定後在 LINE 可以看全部核銷進度、卡住的文件">👑 加管理者</button><button type="button" class="btn ghost small" id="slTokChg">更換 token</button><button type="button" class="btn ghost small" id="slTokClr" style="color:var(--bad)">中斷連接</button></div>'
       : '<div class="msg info" style="margin:6px 0"><b>第一次設定（只要一次）：</b><ol style="margin:4px 0 0 18px;padding:0">' +
         '<li>到「LINE 官方帳號管理後台」<b>另外建立一個官方帳號</b>（免費，名稱例如「三信餐飲科核銷」），<b>不要用訂貨系統那個</b>。</li>' +
         '<li>在新帳號的「設定 → Messaging API」按「啟用 Messaging API」。</li>' +
@@ -3600,25 +3600,27 @@
         '<li>回官方帳號管理後台「設定 → 回應設定」：「自動回應訊息」關閉、「Webhook」開啟。</li></ol></div>';
     var tokBox = !r.tokenSet || r.showTok ? '<div class="row" style="margin-bottom:8px"><input id="slTok" type="password" autocomplete="off" placeholder="貼上核銷用官方帳號的 Channel access token" style="flex:1;min-width:240px"><button type="button" class="btn small" id="slTokSave">連接</button></div>' : '';
     el.innerHTML = (note ? '<div class="msg ok" style="margin:6px 0">' + note + '</div>' : '') + head + tokBox + (!r.tokenSet ? '' : list.length ? '<table class="hxt"><tr><th>關卡</th><th>LINE</th><th title="輪到他簽時主動傳 LINE（會用掉免費則數）；不勾的話，他自己傳「待簽」查，不花則數">主動通知</th><th></th></tr>' + list.map(function (x) {
-      return '<tr><td><b>' + esc(x.role) + '</b></td><td>' + (x.bound ? '<span class="badge ok">✓ 已綁定</span> <span class="muted small">' + esc(x.at) + '</span>' : x.code ? '<span class="badge warn">等待綁定：簽核 ' + esc(x.code) + '</span>' : '<span class="muted">還沒綁定</span>') + '</td>' +
-        '<td style="text-align:center">' + (x.bound ? '<input type="checkbox" data-slpush="' + esc(x.role) + '"' + (x.push ? ' checked' : '') + ' style="width:auto">' : '') + '</td>' +
+      return '<tr><td><b>' + (x.admin ? '👑 ' : '') + esc(x.role) + '</b>' + (x.admin ? '<div class="muted small">LINE 看全部進度</div>' : '') + '</td><td>' + (x.bound ? '<span class="badge ok">✓ 已綁定</span> <span class="muted small">' + esc(x.at) + '</span>' : x.code ? '<span class="badge warn">等待綁定：簽核 ' + esc(x.code) + '</span>' : '<span class="muted">還沒綁定</span>') + '</td>' +
+        '<td style="text-align:center">' + (x.bound && !x.admin ? '<input type="checkbox" data-slpush="' + esc(x.role) + '"' + (x.push ? ' checked' : '') + ' style="width:auto">' : '') + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="btn ghost small" data-slcode="' + esc(x.role) + '">' + (x.bound ? '重新綁定' : '產生綁定碼') + '</button>' + (x.bound ? ' <button type="button" class="btn ghost small" data-slun="' + esc(x.role) + '" style="color:var(--bad)">解除</button>' : '') + '</td></tr>';
     }).join('') + '</table>' : '<div class="muted small">上面「再確認」還沒填任何關卡。</div>');
     signLineLast = r;
   }
   var signLineLast = null;
   // LINE 圖文選單的圖片：2500×843，一排三格，在瀏覽器畫好再傳上去
-  function signMenuPng() {
-    var W = 2500, H = 843, cw = Math.floor(W / 3), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var g = cv.getContext('2d'), items = [['📋', '我的待簽', '輪到我簽的文件', '#8b1a1a'], ['✅', '我簽過的', '最近 30 天', '#067647'], ['❓', '使用說明', '怎麼確認已簽好', '#475467']];
+  function signMenuPng(admin) {
+    var W = 2500, rows = admin ? 2 : 1, H = admin ? 1686 : 843, cols = admin ? 2 : 3, cw = Math.floor(W / cols), rh = Math.floor(H / rows), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d'), items = admin
+      ? [['📊', '核銷進度', '全部送簽中的在哪一關', '#1d4ed8'], ['⏰', '卡住的', '超過 7 天沒動', '#b54708'], ['📋', '我的待簽', '輪到我簽的文件', '#8b1a1a'], ['❓', '使用說明', '怎麼用', '#475467']]
+      : [['📋', '我的待簽', '輪到我簽的文件', '#8b1a1a'], ['✅', '我簽過的', '最近 30 天', '#067647'], ['❓', '使用說明', '怎麼確認已簽好', '#475467']];
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     items.forEach(function (it, i) {
-      var x = i * cw, w = i === 2 ? W - 2 * cw : cw;
-      g.fillStyle = it[3]; g.fillRect(x + 18, 18, w - 36, H - 36);
+      var c = i % cols, r = Math.floor(i / cols), x = c * cw, y = r * rh, w = c === cols - 1 ? W - x : cw, h = r === rows - 1 ? H - y : rh;
+      g.fillStyle = it[3]; g.fillRect(x + 18, y + 18, w - 36, h - 36);
       g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.font = '230px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillText(it[0], x + w / 2, 270);
-      g.font = 'bold 150px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(it[1], x + w / 2, 540);
-      g.font = '80px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(it[2], x + w / 2, 700);
+      g.font = '230px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillText(it[0], x + w / 2, y + 270);
+      g.font = 'bold 150px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(it[1], x + w / 2, y + 540);
+      g.font = '80px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(it[2], x + w / 2, y + 700);
     });
     return cv.toDataURL('image/png');
   }
@@ -3632,8 +3634,17 @@
     var t = e.target;
     if (t.id === 'slMenu') {
       t.disabled = true; t.textContent = '建立中…';
-      call('signLineMenu', signMenuPng()).then(function (l) { signLineRender(l, '✓ 選單按鈕建好了。主任們打開核銷官方帳號的聊天室，下面就會有「📋 我的待簽、✅ 我簽過的、❓ 使用說明」三個按鈕（沒出現的話關掉聊天室再打開）。'); })
+      call('signLineMenu', signMenuPng(false), signMenuPng(true)).then(function (l) { signLineRender(l, '✓ 選單按鈕建好了。主任們打開核銷官方帳號的聊天室，下面就會有「📋 我的待簽、✅ 我簽過的、❓ 使用說明」三個按鈕；👑 管理者看到的是「📊 核銷進度、⏰ 卡住的、📋 我的待簽、❓ 使用說明」（沒出現的話關掉聊天室再打開）。'); })
         .catch(function (er) { msg('hxMsg', 'error', er.message); t.disabled = false; t.textContent = '📱 建立 LINE 選單按鈕'; });
+      return;
+    }
+    if (t.id === 'slAdminAdd') {
+      var nm = window.prompt('管理者的名字（例如：翁煒程）', ''); if (nm === null) return;
+      nm = String(nm).trim();
+      var role = '管理者' + (nm ? '（' + nm + '）' : '');
+      call('signLineCode', role).then(function (r) {
+        signLineLoad('請「<b>' + esc(r.role) + '</b>」用手機 LINE 加入核銷官方帳號好友，傳（' + r.minutes + ' 分鐘內）：<div style="font-size:26px;font-weight:700;margin:6px 0">簽核 ' + esc(r.code) + '</div>綁定後，LINE 選單會換成管理者版：「📊 核銷進度」看全部送簽中的文件在哪一關、「⏰ 卡住的」看超過 7 天沒動的。' + (signLineLast && signLineLast.adminMenu ? '' : '<br><b>記得再按一次「🔁 重建選單按鈕」</b>，管理者選單才會建好。'));
+      }).catch(function (er) { msg('hxMsg', 'error', er.message); });
       return;
     }
     if (t.id === 'slTokChg' && signLineLast) { signLineLast.showTok = true; signLineRender(signLineLast); return; }

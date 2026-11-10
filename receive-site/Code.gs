@@ -2409,8 +2409,9 @@ function doPost(e) {
       if (src.type !== 'user' || !src.userId) return;   // 群組裡不回
       const m = text.match(/^簽核\s*(\d{6})$/);
       if (m) { signLineReply_(ev.replyToken, signLineBind_(m[1], src.userId)); return; }
+      if (/^(進度|核銷進度|全部進度|卡住|卡住的)$/.test(text)) { signLineReply_(ev.replyToken, signRolesOf_(src.userId).some(signIsAdmin_) ? signProgressText_(/卡住/.test(text)) : '這個功能只有管理者可以用。'); return; }
       if (/^(已簽|已簽紀錄|我簽過的)$/.test(text)) { signLineReply_(ev.replyToken, signDoneText_(src.userId)); return; }
-      if (/^(說明|使用說明|怎麼用)$/.test(text)) { signLineReply_(ev.replyToken, SIGN_HELP_TEXT); return; }
+      if (/^(說明|使用說明|怎麼用)$/.test(text)) { signLineReply_(ev.replyToken, SIGN_HELP_TEXT + (signRolesOf_(src.userId).some(signIsAdmin_) ? SIGN_ADMIN_HELP : '')); return; }
       if (/待簽|簽核|核銷|清單/.test(text) && text.length <= 10) { signLineReply_(ev.replyToken, signPendingText_(src.userId)); return; }
       signLineReply_(ev.replyToken, '傳「待簽」可以看輪到您簽的文件。\n第一次使用請傳「簽核 綁定碼」（綁定碼請找承辦人拿）。');
     });
@@ -2431,10 +2432,44 @@ function signLineBind_(code, userId) {
     setCell_(t, r._row, '綁定時間', new Date());
     setCell_(t, r._row, '綁定碼', '');
     setCell_(t, r._row, '綁定碼期限', '');
+    if (signIsAdmin_(r['關卡'])) { signLinkAdminMenu_(userId); return '綁定完成！您是「' + String(r['關卡']).trim() + '」。\n下方選單的「📊 核銷進度」可以看全部送簽中的文件在哪一關、「⏰ 卡住的」看超過 7 天沒動的（選單沒換的話，關掉聊天室再打開）。'; }
     return '綁定完成！您是「' + String(r['關卡']).trim() + '」。\n之後按下方選單「📋 我的待簽」（或傳「待簽」），就會列出輪到您簽的文件，每一份都有「已簽好」的連結。';
   } finally { lock.releaseLock(); }
 }
 const SIGN_HELP_TEXT = '【核銷送簽 使用說明】\n1. 文件送到您這裡時，先在紙本上簽名。\n2. 按下方「📋 我的待簽」，找到那一份，按「簽好後按」的連結，再按「✓ 已簽好」。\n   （也可以用手機相機掃送簽單上您那一關的 QR code）\n3. 把文件送到下一關。\n\n・「✅ 我簽過的」：看最近 30 天您確認過的文件。\n・按錯了請找承辦人退回。';
+const SIGN_ADMIN_HELP = '\n\n【管理者】\n・「📊 核銷進度」：全部還沒核銷完的，現在在哪一關、等了幾天。\n・「⏰ 卡住的」：超過 7 天沒動的。';
+/** 「管理者」開頭的關卡＝管理者：LINE 可以看全部進度 */
+function signIsAdmin_(role) { return /^管理者/.test(String(role || '')); }
+/** 管理者在 LINE 看全部進度（stuckOnly：只看超過 7 天沒動的） */
+function signProgressText_(stuckOnly) {
+  if (!ss_().getSheetByName('核銷分配')) return '目前沒有核銷資料。';
+  const mp = hxStepMaps_(), inv = {}, list = [], now = Date.now();
+  if (ss_().getSheetByName('核銷發票')) readTable_('核銷發票', ['發票編號']).rows.forEach(function (x) { inv[String(x['發票編號']).trim()] = x; });
+  const ts = function (v) { if (v instanceof Date) return v.getTime(); const m = String(v || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/); return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : null; };
+  readTable_('核銷分配', ['發票編號', '類別']).rows.forEach(function (r) {
+    if (String(r['狀態']) === '已核銷') return;
+    const id = String(r['發票編號']).trim(), cat = hxCat_(r['類別']);
+    if (!id || !inv[id]) return;
+    const codes = String(r['經費編號'] || '').split(/[、,，\n]+/).map(function (x) { const m = x.trim().match(/^([A-Za-z0-9-]+)=([\d.]+)$/); return m ? { code: m[1], amount: Number(m[2]) } : null; }).filter(Boolean);
+    const steps = hxSteps_({ cat: cat, handler: String(r['經手人'] || ''), codes: codes }, mp.cat, mp.code), signs = hxSigns_(r['簽核紀錄']), k = signs.length;
+    if (k >= steps.length) return;
+    const t0 = ts(k ? signs[k - 1].at : inv[id]['建立時間']), days = t0 === null ? null : Math.floor((now - t0) / 864e5);
+    if (stuckOnly && !(days > 7)) return;
+    const v = String(inv[id]['廠商'] || '');
+    list.push({ hxno: hxNo_(id), co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: cat, at: steps[k].label, k: k + 1, n: steps.length, days: days });
+  });
+  if (!list.length) return stuckOnly ? '✓ 沒有超過 7 天沒動的文件。' : '✓ 全部都核銷完了，沒有送簽中的文件。';
+  const by = {}, order = [];
+  list.forEach(function (x) { if (!by[x.at]) { by[x.at] = 0; order.push(x.at); } by[x.at]++; });
+  order.sort(function (a, b) { return by[b] - by[a]; });
+  list.sort(function (a, b) { return (b.days || 0) - (a.days || 0); });
+  const total = list.reduce(function (t, x) { return t + x.amount; }, 0);
+  return (stuckOnly ? '⏰ 超過 7 天沒動的有 ' : '📊 送簽中的有 ') + list.length + ' 筆，共 $' + total.toLocaleString('en-US') + '\n' +
+    '\n【現在在哪裡】\n' + order.map(function (a) { return '・' + a + '：' + by[a] + ' 筆'; }).join('\n') +
+    '\n\n【明細，等最久的在前面】\n' + list.slice(0, 20).map(function (x) {
+      return (x.days > 7 ? '🔴' : '・') + '【' + x.hxno + '】' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）\n   在「' + x.at + '」第 ' + x.k + '／' + x.n + ' 關' + (x.days === null ? '' : '，' + x.days + ' 天');
+    }).join('\n') + (list.length > 20 ? '\n…還有 ' + (list.length - 20) + ' 筆，請到系統「送簽進度」看。' : '');
+}
 function signRolesOf_(userId) {
   const roles = [];
   if (ss_().getSheetByName('簽核LINE')) readTable_('簽核LINE', ['關卡']).rows.forEach(function (x) { if (String(x['LINE ID'] || '').trim() === userId) roles.push(String(x['關卡']).trim()); });
@@ -2459,28 +2494,46 @@ function signDoneText_(userId) {
     return '・' + x.at.slice(5, 16) + ' 【' + x.hxno + '】' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.done ? ' ✓已核銷' : '');
   }).join('\n');
 }
-/** 管理者：建立核銷官方帳號的圖文選單（一排 3 個按鈕），圖片在瀏覽器畫好傳上來 */
-function signLineMenu_(pngBase64) {
-  if (!signLineToken_()) throw new Error('請先連接核銷用官方帳號。');
-  const b64 = String(pngBase64 || '').replace(/^data:image\/png;base64,/, '');
+/** 建一個圖文選單（圖片在瀏覽器畫好傳上來）。回傳 richMenuId */
+function signMakeMenu_(name, png, rows, items) {
+  const b64 = String(png || '').replace(/^data:image\/png;base64,/, '');
   if (b64.length < 1000 || b64.length > 1300000) throw new Error('選單圖片不正確，請再按一次。');
-  const w = 2500, h = 843, cw = Math.floor(w / 3);
-  const areas = [{ text: '待簽', label: '我的待簽' }, { text: '已簽', label: '我簽過的' }, { text: '說明', label: '使用說明' }].map(function (a, i) {
-    return { bounds: { x: i * cw, y: 0, width: i === 2 ? w - 2 * cw : cw, height: h }, action: { type: 'message', label: a.label, text: a.text } };
+  const w = 2500, h = rows === 2 ? 1686 : 843, cols = Math.ceil(items.length / rows), cw = Math.floor(w / cols), rh = Math.floor(h / rows);
+  const areas = items.map(function (a, i) {
+    const c = i % cols, r = Math.floor(i / cols);
+    return { bounds: { x: c * cw, y: r * rh, width: c === cols - 1 ? w - c * cw : cw, height: r === rows - 1 ? h - r * rh : rh }, action: { type: 'message', label: a.label, text: a.text } };
   });
   const auth = { Authorization: 'Bearer ' + signLineToken_() };
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
-    payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '核銷送簽選單', chatBarText: '核銷選單', areas: areas }) });
+    payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: name, chatBarText: '核銷選單', areas: areas }) });
   if (res.getResponseCode() !== 200) throw new Error('建立選單失敗：' + res.getContentText().slice(0, 200));
   const id = JSON.parse(res.getContentText()).richMenuId;
   const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: 'image/png', muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
   if (up.getResponseCode() !== 200) throw new Error('上傳選單圖片失敗：' + up.getContentText().slice(0, 200));
+  return id;
+}
+/** 管理者：建立核銷官方帳號的圖文選單：一般（一排 3 個）＋管理者（2×2，多了核銷進度、卡住的） */
+function signLineMenu_(png, pngAdmin) {
+  if (!signLineToken_()) throw new Error('請先連接核銷用官方帳號。');
+  const auth = { Authorization: 'Bearer ' + signLineToken_() }, p = PropertiesService.getScriptProperties();
+  const id = signMakeMenu_('核銷送簽選單', png, 1, [{ text: '待簽', label: '我的待簽' }, { text: '已簽', label: '我簽過的' }, { text: '說明', label: '使用說明' }]);
   const def = UrlFetchApp.fetch('https://api.line.me/v2/bot/user/all/richmenu/' + id, { method: 'post', muteHttpExceptions: true, headers: auth });
   if (def.getResponseCode() !== 200) throw new Error('設定預設選單失敗：' + def.getContentText().slice(0, 200));
-  const p = PropertiesService.getScriptProperties(), old = p.getProperty('SIGN_RICH_MENU_ID');
-  if (old && old !== id) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
-  p.setProperty('SIGN_RICH_MENU_ID', id);
+  let aid = '';
+  if (pngAdmin) aid = signMakeMenu_('核銷管理者選單', pngAdmin, 2, [{ text: '進度', label: '核銷進度' }, { text: '卡住', label: '卡住的' }, { text: '待簽', label: '我的待簽' }, { text: '說明', label: '使用說明' }]);
+  [['SIGN_RICH_MENU_ID', id], ['SIGN_RICH_MENU_ADMIN_ID', aid]].forEach(function (x) {
+    const old = p.getProperty(x[0]);
+    if (old && old !== x[1]) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
+    if (x[1]) p.setProperty(x[0], x[1]); else p.deleteProperty(x[0]);
+  });
+  if (aid && ss_().getSheetByName('簽核LINE')) readTable_('簽核LINE', ['關卡']).rows.forEach(function (x) { const u = String(x['LINE ID'] || '').trim(); if (u && signIsAdmin_(x['關卡'])) signLinkAdminMenu_(u); });
   return signLineList_();
+}
+/** 管理者的 LINE 換成管理者選單 */
+function signLinkAdminMenu_(userId) {
+  const aid = PropertiesService.getScriptProperties().getProperty('SIGN_RICH_MENU_ADMIN_ID');
+  if (!aid || !userId) return;
+  try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + userId + '/richmenu/' + aid, { method: 'post', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + signLineToken_() } }); } catch (e) {}
 }
 /** 傳「待簽」的回覆：這個 LINE 綁定的關卡，現在輪到他的文件 */
 function signPendingText_(userId) {
@@ -2529,9 +2582,9 @@ function signLineList_() {
     bound[k] = { bound: !!String(x['LINE ID'] || '').trim(), push: String(x['主動通知'] || '').trim() === '是', at: fmtDateTime_(x['綁定時間']), code: String(x['綁定碼'] || '').replace(/^'/, ''), until: x['綁定碼期限'] instanceof Date ? x['綁定碼期限'].getTime() : 0 };
     if (roles.indexOf(k) < 0) roles.push(k);
   });
-  const list = roles.map(function (k) { const b = bound[k] || {}; return { role: k, bound: !!b.bound, push: !!b.push, at: b.at || '', code: b.until > Date.now() ? b.code : '' }; });
+  const list = roles.map(function (k) { const b = bound[k] || {}; return { role: k, admin: signIsAdmin_(k), bound: !!b.bound, push: !!b.push, at: b.at || '', code: b.until > Date.now() ? b.code : '' }; });
   const p = PropertiesService.getScriptProperties();
-  return { list: list, tokenSet: !!signLineToken_(), bot: p.getProperty('SIGN_LINE_BOT') || '', webhook: ScriptApp.getService().getUrl(), menu: !!p.getProperty('SIGN_RICH_MENU_ID') };
+  return { list: list, tokenSet: !!signLineToken_(), bot: p.getProperty('SIGN_LINE_BOT') || '', webhook: ScriptApp.getService().getUrl(), menu: !!p.getProperty('SIGN_RICH_MENU_ID'), adminMenu: !!p.getProperty('SIGN_RICH_MENU_ADMIN_ID') };
 }
 /** 某一關要不要主動推播（算 LINE 則數） */
 function signLineSetPush_(role, on) {
@@ -2562,7 +2615,11 @@ function signLineUnbind_(role) {
   role = clean_(role, 40);
   if (!ss_().getSheetByName('簽核LINE')) return signLineList_();
   const t = readTable_('簽核LINE', ['關卡']);
-  t.rows.filter(function (x) { return String(x['關卡']).trim() === role; }).forEach(function (r) { setCell_(t, r._row, 'LINE ID', ''); setCell_(t, r._row, '綁定時間', ''); });
+  t.rows.filter(function (x) { return String(x['關卡']).trim() === role; }).forEach(function (r) {
+    const u = String(r['LINE ID'] || '').trim();
+    if (u && signIsAdmin_(role) && signLineToken_()) { try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + u + '/richmenu', { method: 'delete', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + signLineToken_() } }); } catch (e) {} }   // 換回一般選單
+    setCell_(t, r._row, 'LINE ID', ''); setCell_(t, r._row, '綁定時間', '');
+  });
   return signLineList_();
 }
 
