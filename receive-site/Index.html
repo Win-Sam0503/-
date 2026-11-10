@@ -156,6 +156,13 @@
   .paper { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-top: 10px; background: #fcfcfd; }
   .paper .slipt td input[data-pf="name"] { min-width: 140px; }
   .paper.gear { background: #fffaeb; border-color: #fec84b; }
+  .paper { border-width: 2px; border-left: 6px solid var(--brand); }
+  .paper.gear { border-left-color: #f79009; }
+  /* 一張一張銷貨單之間的分隔線 */
+  .paper-sep { display: flex; align-items: center; gap: 10px; margin: 22px 0 4px; color: var(--brand); font-weight: 700; font-size: 14px; }
+  .paper-sep::before, .paper-sep::after { content: ''; flex: 1; border-top: 3px dashed var(--brand); opacity: .6; }
+  .paper-sep + .paper { margin-top: 4px; }
+  @media print { .paper-sep { color: #000; } .paper-sep::before, .paper-sep::after { border-top-color: #000; } }
   .kindsw { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .kindsw button { border: 0; background: #fff; padding: 4px 10px; font: inherit; font-size: 14px; cursor: pointer; color: inherit; }
   .kindsw button.on { background: var(--brand); color: #fff; }
@@ -1597,7 +1604,8 @@
       '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     var showWt = wtVendor() || sl.papers.some(function (pp) { return pp.rows.some(function (r) { return numv(r.wt) !== null; }); });
     html += sl.papers.map(function (pp, i) {
-      return '<div class="paper' + (pp.kind === '器材' ? ' gear' : '') + '"><div class="row" style="align-items:center"><b>📄 第 ' + (i + 1) + ' 張</b>' +
+      return (i ? '<div class="paper-sep"><span>✂ 第 ' + (i + 1) + ' 張銷貨單</span></div>' : '') +
+        '<div class="paper' + (pp.kind === '器材' ? ' gear' : '') + '"><div class="row" style="align-items:center"><b>📄 第 ' + (i + 1) + ' 張</b>' +
         '<span class="kindsw"><button type="button" data-pk="' + i + '" data-k="食材" class="' + (pp.kind !== '器材' ? 'on' : '') + '">🥬 食材</button><button type="button" data-pk="' + i + '" data-k="器材" class="' + (pp.kind === '器材' ? 'on' : '') + '">🔧 器材</button></span><label class="small">日期 <input type="date" data-pd="' + i + '" value="' + esc(pp.date || '') + '" style="width:auto"></label>' +
         '<span style="flex:1"></span><span class="small">小計 <b data-psub="' + i + '"></b></span>' + (sl.papers.length > 1 ? '<button type="button" class="btn ghost small" data-pdel="' + i + '" title="刪掉這一張">🗑</button>' : '') + '</div>' +
         '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>數量</th><th>單位</th>' + (showWt ? '<th title="1 罐／1 包／1 條的重量（規格）">每單位重量</th>' : '') + '<th>單價</th><th>金額</th><th></th></tr>' +
