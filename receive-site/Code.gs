@@ -447,7 +447,7 @@ function saveSlip_(p) {
   const photos = (p.photos || []).filter(function (u) { return /^https:\/\/(drive|docs)\.google\.com\//.test(String(u)); }).slice(0, 30);
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
     const q4 = num_(x.qty) === '' ? '' : Math.round(Number(String(x.qty).replace(/[,，\s]/g, '')) * 10000) / 10000;   // 斤兩換成斤會有 4 位小數（3 兩＝0.1875 斤）
-    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: q4, unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
+    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: q4, unit: clean_(x.unit, 10), price: num_(x.price), amount: amt0_(x.amount),
       code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice, sheet: Number(x.sheet) || '', date: parseDate_(x.date) ? dateStr_(parseDate_(x.date)) : '', kind: x.kind === '器材' ? '器材' : '食材',
       pcs: num_(x.pcs), pcsUnit: clean_(x.pcsUnit, 10), pw: num_(x.pw), pwu: clean_(x.pwu, 10) };
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
@@ -636,7 +636,7 @@ function saveCheck_(p) {
   if (p.signature) sigUrl = saveImage_(p.signature, 'image/png', from, vendor, '驗收簽名' + (signer ? ' ' + signer : ''), 'png').url;
   if (!sigUrl && !allStopped) throw new Error('請在「驗收人簽名」簽名。');   // 整張停送（沒有貨）不用簽
   const slip = (p.slip && p.slip.rows || []).map(function (x) {
-    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: num_(x.amount),
+    return { name: clean_(x.name, 40), slipName: clean_(x.slipName, 60), qty: num_(x.qty), unit: clean_(x.unit, 10), price: num_(x.price), amount: amt0_(x.amount),
       code: normCode_(clean_(x.code, 20)), noPrice: !!x.noPrice };   // noPrice：這一行含別的品項（廠商開在一起），單價不準，不進單價表
   }).filter(function (x) { return (x.name || x.slipName) && (x.qty !== '' || x.price !== '' || x.amount !== ''); });
   const slipSum = slip.reduce(function (a, x) { return a + (Number(x.amount) || 0); }, 0);
@@ -1166,6 +1166,8 @@ function num_(v) {
   if (!isFinite(n) || n < 0) throw new Error('金額或數量「' + v + '」不是數字。');
   return round2_(n);
 }
+/** 銷貨單金額：四捨五入到整數 */
+function amt0_(v) { const n = num_(v); return n === '' ? '' : Math.round(Math.round(n * 1000) / 1000); }
 function round2_(n) { return Math.round(Number(n) * 100) / 100; }
 
 // ---------------------------------------------------------------------

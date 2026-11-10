@@ -1362,6 +1362,8 @@
   function money(n) { return (Math.round(Number(n) * 100) / 100).toLocaleString('en-US'); }
   function numv(v) { var s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, ''); return s === '' || isNaN(Number(s)) ? null : Number(s); }
   function r2(n) { return Math.round(n * 100) / 100; }
+  // 金額四捨五入到整數（9.25 斤 × $83 ＝ 767.75 → 768）；先修掉 0.1+0.2 這種小數誤差再進位
+  function amt0(n) { return Math.round(Math.round(n * 1000) / 1000); }
   // ---- 斤兩：數量可以打「1斤3兩」「1斤半」「3兩」；打小數就是小數（1.6 斤 × 200 ＝ 320）----
   function isJin(u) { return /^(台?斤|兩)$/.test(String(u || '').trim()); }
   function jinRow(o) { return isJin(o.unit) || /[斤兩半]/.test(String(o.qty || '')); }
@@ -1818,9 +1820,9 @@
     var price = p ? p.price : '';
     if (unit === '斤' && t && W[t.unit] && qty !== '') {   // 斤：數量顯示成「1斤3兩」，金額用精確的斤數算
       var j = t.qty * W[t.unit] / 600;
-      return { slipName: '', qty: jinText(j), unit: unit, price: price, amount: price !== '' ? r2(j * price) : '', sure: true, pre: true };
+      return { slipName: '', qty: jinText(j), unit: unit, price: price, amount: price !== '' ? amt0(j * price) : '', sure: true, pre: true };
     }
-    return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? r2(qty * price) : '', sure: true, pre: true };
+    return { slipName: '', qty: qty, unit: unit, price: price, amount: qty !== '' && price !== '' ? amt0(qty * price) : '', sure: true, pre: true };
   }
   // 切換「一張一張打」／「舊版表格（照叫貨單品項）」：兩種存法不一樣，有打東西時先問
   function slipHasData() {
@@ -1968,7 +1970,7 @@
     var qty = $('qkQty').value.trim(), pr = $('qkP').value.trim(), am = $('qkA').value.trim(), unit = $('qkU').value.trim(), pu = $('qkPu').value;
     if (!unit && /[斤兩]/.test(qty)) unit = '斤';
     var row = { qty: qty, unit: unit, price: pr, pu: pu }, qn = slipQty(row), pn = slipPrice(row), an = numv(am), mul = jinRow(row) && pu === '兩' ? 16 : 1;
-    if (an === null && qn !== null && pn !== null) { an = r2(qn * pn); am = String(an); }
+    if (an === null && qn !== null && pn !== null) { an = amt0(qn * pn); am = String(an); }
     if (an === null) { $('qkA').focus(); $('qkA').placeholder = '請填金額'; return; }
     if (qn) pr = String(r2(an / qn / mul));
     if (qkCur === '+extra') {
@@ -2011,13 +2013,13 @@
     var row = { qty: $('qkQty').value, unit: $('qkU').value, price: $('qkP').value, pu: $('qkPu').value };
     $('qkPu').style.display = jinRow(row) ? '' : 'none';
     var q = slipQty(row), p = slipPrice(row);
-    if (q !== null && p !== null) $('qkA').value = r2(q * p);
+    if (q !== null && p !== null) $('qkA').value = amt0(q * p);
   });
   $('qk').addEventListener('change', function (e) {
     if (e.target.id === 'qkU') { $('qkPu').style.display = jinRow({ qty: $('qkQty').value, unit: $('qkU').value }) ? '' : 'none'; }
     if (e.target.id !== 'qkPu' && e.target.id !== 'qkU') return;
     var row = { qty: $('qkQty').value, unit: $('qkU').value, price: $('qkP').value, pu: $('qkPu').value }, q = slipQty(row), p = slipPrice(row);
-    if (q !== null && p !== null) $('qkA').value = r2(q * p);
+    if (q !== null && p !== null) $('qkA').value = amt0(q * p);
   });
   // 🤖 AI 讀取：設了金鑰，「🔎 自動讀」就改用 AI 看照片；金鑰只存在伺服器，畫面上只顯示最後 4 碼
   var aiSt = null;
@@ -2110,6 +2112,15 @@
       .then(function () { btn.disabled = false; });
   });
   $('slipBox').addEventListener('input', slipInput);
+  // 金額打完（離開那一格）有小數：四捨五入成整數，再照一般輸入重算
+  $('slipBox').addEventListener('change', function (e) {
+    var t = e.target, f = t.getAttribute && (t.getAttribute('data-pf') || t.getAttribute('data-f'));
+    if (f !== 'amount') return;
+    var v = numv(t.value);
+    if (v === null || v === amt0(v)) return;
+    t.value = String(amt0(v));
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   // 電腦打字快：Enter 往下一格（數量 → 單價 → 金額 → 下一行數量；單位已經帶好，跳過，要改用 Tab 或點它）
   $('slipBox').addEventListener('keydown', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-f');
@@ -2152,7 +2163,7 @@
       if (bd <= Math.max(1, a * 0.02)) { o.pb = best; pbRefresh(o, sib); return; }
     }
     var q = priceQty(o), pr = hasW ? numv(o.price) : slipPrice(o), mul = !hasW && jinRow(o) && o.pu === '兩' ? 16 : 1;
-    if ((f === 'qty' || f === 'price' || f === 'pu' || f === 'unit' || f === 'wt' || f === 'pb') && q !== null && pr !== null) { o.amount = r2(q * pr); if (sib('amount')) sib('amount').value = o.amount; }
+    if ((f === 'qty' || f === 'price' || f === 'pu' || f === 'unit' || f === 'wt' || f === 'pb') && q !== null && pr !== null) { o.amount = amt0(q * pr); if (sib('amount')) sib('amount').value = o.amount; }
     else if (f === 'amount' && q && a !== null) { o.price = r2(a / q / mul); if (sib('price')) sib('price').value = o.price; }
   }
   $('slipBox').addEventListener('change', function (e) {
