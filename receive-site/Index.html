@@ -3487,23 +3487,48 @@
     }).catch(function (e) { msg('hxMsg', 'error', e.message); });
   }
   // 📱 LINE 通知下一關：各關卡綁定 LINE（學校官方帳號）
-  function signLineRender(list, note) {
+  function signLineRender(r, note) {
     var el = $('signLine'); if (!el) return;
-    el.innerHTML = (note ? '<div class="msg ok" style="margin:6px 0">' + note + '</div>' : '') + (list.length ? '<table class="hxt"><tr><th>關卡</th><th>LINE</th><th></th></tr>' + list.map(function (x) {
+    var list = r.list || [];
+    var head = r.tokenSet
+      ? '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px"><span class="badge ok">✓ 已連接核銷用官方帳號' + (r.bot ? '：' + esc(r.bot) : '') + '</span><button type="button" class="btn ghost small" id="slTokChg">更換 token</button><button type="button" class="btn ghost small" id="slTokClr" style="color:var(--bad)">中斷連接</button></div>'
+      : '<div class="msg info" style="margin:6px 0"><b>第一次設定（只要一次）：</b><ol style="margin:4px 0 0 18px;padding:0">' +
+        '<li>到 LINE Official Account Manager <b>另外申請一個官方帳號</b>（免費，名稱例如「三信餐飲科核銷」），<b>不要用訂貨系統那個</b>。</li>' +
+        '<li>在 LINE Developers 找到這個帳號的 Messaging API，發一組「Channel access token（長期）」，貼到下面按「連接」。</li>' +
+        '<li>同一頁的 <b>Webhook URL</b> 填：<div style="word-break:break-all;background:#fff;padding:4px 6px;border-radius:6px;margin:3px 0"><code>' + esc(r.webhook || '') + '</code></div>打開「Use webhook」；官方帳號後台把「自動回應訊息」關掉。</li></ol></div>';
+    var tokBox = !r.tokenSet || r.showTok ? '<div class="row" style="margin-bottom:8px"><input id="slTok" type="password" autocomplete="off" placeholder="貼上核銷用官方帳號的 Channel access token" style="flex:1;min-width:240px"><button type="button" class="btn small" id="slTokSave">連接</button></div>' : '';
+    el.innerHTML = (note ? '<div class="msg ok" style="margin:6px 0">' + note + '</div>' : '') + head + tokBox + (!r.tokenSet ? '' : list.length ? '<table class="hxt"><tr><th>關卡</th><th>LINE</th><th title="輪到他簽時主動傳 LINE（會用掉免費則數）；不勾的話，他自己傳「待簽」查，不花則數">主動通知</th><th></th></tr>' + list.map(function (x) {
       return '<tr><td><b>' + esc(x.role) + '</b></td><td>' + (x.bound ? '<span class="badge ok">✓ 已綁定</span> <span class="muted small">' + esc(x.at) + '</span>' : x.code ? '<span class="badge warn">等待綁定：簽核 ' + esc(x.code) + '</span>' : '<span class="muted">還沒綁定</span>') + '</td>' +
+        '<td style="text-align:center">' + (x.bound ? '<input type="checkbox" data-slpush="' + esc(x.role) + '"' + (x.push ? ' checked' : '') + ' style="width:auto">' : '') + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="btn ghost small" data-slcode="' + esc(x.role) + '">' + (x.bound ? '重新綁定' : '產生綁定碼') + '</button>' + (x.bound ? ' <button type="button" class="btn ghost small" data-slun="' + esc(x.role) + '" style="color:var(--bad)">解除</button>' : '') + '</td></tr>';
     }).join('') + '</table>' : '<div class="muted small">上面「再確認」還沒填任何關卡。</div>');
+    signLineLast = r;
   }
+  var signLineLast = null;
   function signLineLoad(note) { call('signLineList').then(function (l) { signLineRender(l, note); }).catch(function (e) { var el = $('signLine'); if (el) el.innerHTML = '<div class="msg error">' + esc(e.message) + '</div>'; }); }
+  $('hxBox').addEventListener('change', function (e) {
+    var c = e.target; if (!c.hasAttribute || !c.hasAttribute('data-slpush')) return;
+    var role = c.getAttribute('data-slpush');
+    call('signLineSetPush', role, c.checked).then(function (l) { signLineRender(l, c.checked ? '「' + esc(role) + '」輪到時會主動收到 LINE（會用掉免費則數）。' : '「' + esc(role) + '」不主動通知了，他傳「待簽」就查得到（不花則數）。'); }).catch(function (er) { msg('hxMsg', 'error', er.message); });
+  });
   $('hxBox').addEventListener('click', function (e) {
-    var b = e.target.closest && e.target.closest('[data-slcode],[data-slun]'); if (!b) return;
+    var t = e.target;
+    if (t.id === 'slTokChg' && signLineLast) { signLineLast.showTok = true; signLineRender(signLineLast); return; }
+    if (t.id === 'slTokClr') { if (!window.confirm('中斷核銷用官方帳號？綁定的人會保留，重新連接後就能用。')) return; call('signLineSetToken', '').then(function (l) { signLineRender(l, '已中斷連接。'); }).catch(function (er) { msg('hxMsg', 'error', er.message); }); return; }
+    if (t.id === 'slTokSave') {
+      var v = $('slTok').value.trim(); if (!v) { $('slTok').focus(); return; }
+      t.disabled = true;
+      call('signLineSetToken', v).then(function (l) { signLineRender(l, '✓ 已連接' + (l.bot ? '「' + esc(l.bot) + '」' : '') + '。接著幫每一關「產生綁定碼」。'); }).catch(function (er) { msg('hxMsg', 'error', er.message); t.disabled = false; });
+      return;
+    }
+    var b = t.closest && t.closest('[data-slcode],[data-slun]'); if (!b) return;
     if (b.hasAttribute('data-slun')) {
-      var r0 = b.getAttribute('data-slun'); if (!window.confirm('解除「' + r0 + '」的 LINE 通知？')) return;
+      var r0 = b.getAttribute('data-slun'); if (!window.confirm('解除「' + r0 + '」的 LINE？')) return;
       call('signLineUnbind', r0).then(function (l) { signLineRender(l, '已解除「' + esc(r0) + '」。'); }).catch(function (er) { msg('hxMsg', 'error', er.message); }); return;
     }
     var role = b.getAttribute('data-slcode'); b.disabled = true;
     call('signLineCode', role).then(function (r) {
-      signLineLoad('請「<b>' + esc(r.role) + '</b>」用手機 LINE，傳這句話給學校的官方帳號（' + r.minutes + ' 分鐘內）：<div style="font-size:26px;font-weight:700;margin:6px 0">簽核 ' + esc(r.code) + '</div>官方帳號回「綁定完成」就好了。之後有文件輪到他簽，會收到 LINE，裡面有「已簽好」的連結。');
+      signLineLoad('請「<b>' + esc(r.role) + '</b>」用手機 LINE 加入<b>核銷用的官方帳號</b>好友，傳這句話（' + r.minutes + ' 分鐘內）：<div style="font-size:26px;font-weight:700;margin:6px 0">簽核 ' + esc(r.code) + '</div>官方帳號回「綁定完成」就好了。之後他傳「<b>待簽</b>」，就會列出輪到他簽的文件，每份都有「已簽好」的連結（不花則數）。');
     }).catch(function (er) { msg('hxMsg', 'error', er.message); b.disabled = false; });
   });
   function hxCatsView() {
@@ -3512,7 +3537,7 @@
       '<div class="row" style="margin:6px 0;align-items:center"><b class="small">全部類別一樣的送簽流程：</b><input id="hxRouteAll" placeholder="例如 組長、主任、總務處、會計室、校長" style="width:320px"><button type="button" class="btn ghost small" id="hxRouteApply">套用到下面每一類</button><span class="muted small">套用後還可以個別改，按「💾 儲存」才會存</span></div>' +
       '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>經手人</th><th>再確認（照順序）</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler, c.review); }).join('') + '</table>' +
       '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>' +
-      '<div class="panel"><h2 style="margin-top:0">📱 LINE 通知下一關</h2><div class="muted small">每一關綁定一次 LINE（用訂貨系統的學校官方帳號）。文件輪到那一關時，系統大約 10 分鐘內傳 LINE 給他，裡面有「已簽好」的連結，按一下就記錄，不用進系統。<b>沒綁定的關卡不會通知</b>，照樣可以掃送簽單或在這裡按確認。LINE 免費方案每月則數有限，快用完時會先停止通知。</div><div id="signLine" style="margin-top:8px">讀取中…</div></div>';
+      '<div class="panel"><h2 style="margin-top:0">📱 LINE 查待簽</h2><div class="muted small">用一個<b>核銷專用的 LINE 官方帳號</b>（跟訂貨系統分開，老師看不到）。每一關綁定一次後，主任、會計在 LINE 傳「<b>待簽</b>」，就會列出輪到他簽的文件，每份附「已簽好」的連結，按一下就記錄。<b>這種回覆不花 LINE 則數。</b>「主動通知」預設關閉；打勾的關卡輪到時會主動收到 LINE（會用掉免費則數，每月約 200 則，快用完會自動停）。</div><div id="signLine" style="margin-top:8px">讀取中…</div></div>';
     hxCatNum();
     signLineLoad();
   }
