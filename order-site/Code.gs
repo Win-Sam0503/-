@@ -281,6 +281,20 @@ function lineLoginLink_(account, page) {
   const u = lineUrl_(page || '');
   return u ? u + '&lt=' + code : '';
 }
+/** 驗收系統的一次性登入碼：兩個網站是不同的程式，透過試算表「LINE登入碼」分頁交給驗收系統（10 分鐘、用一次） */
+function rcvLoginCode_(account) {
+  const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_('LINE登入碼', ['碼', '帳號', '系統', '期限']);
+    const t = readTable_('LINE登入碼', ['碼', '期限']), now = Date.now();
+    const old = t.rows.filter(function (r) { return !(r['期限'] instanceof Date) || r['期限'].getTime() < now; }).map(function (r) { return r._row; });
+    if (old.length) deleteRows_(sh, old);   // 過期的順便清掉
+    appendRows_('LINE登入碼', [{ '碼': code, '帳號': account, '系統': '驗收', '期限': new Date(now + LINE_LOGIN_MINUTES * 60000) }]);
+    SpreadsheetApp.flush();
+  } finally { lock.releaseLock(); }
+  return code;
+}
 function loginByLink(code) {
   code = String(code || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
   const cache = CacheService.getScriptCache(), account = code ? cache.get('llink:' + code) : null;
@@ -6093,7 +6107,7 @@ function lineSetupAdminMenu_(png) {
   const areas = [
     { action: { type: 'message', label: '補訂貨', text: '補訂貨' } },
     { action: { type: 'message', label: '訂貨系統', text: '訂貨系統' } },
-    props.getProperty('RECEIVE_URL') ? { action: { type: 'uri', label: '驗收系統', uri: props.getProperty('RECEIVE_URL') + '?openExternalBrowser=1' } } : { action: { type: 'message', label: '驗收系統', text: '驗收系統' } },
+    { action: { type: 'message', label: '驗收系統', text: '驗收系統' } },
     { action: { type: 'message', label: '查看課表', text: '課表' } },
     { action: { type: 'message', label: '查看料單', text: '料單' } },
     { action: { type: 'message', label: '查看叫貨單', text: '叫貨單' } },
@@ -6147,7 +6161,14 @@ function lineAdminReply_(text, userId) {
   const t = String(text || '').trim();
   const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單|叫貨單)\s*(.{0,20})$/);
   const help = /^管理者說明$/.test(t), go = /^(補訂貨|訂貨系統)$/.test(t);
-  if (t === '驗收系統' && isAdmin_(lineAccountOf_(userId))) { const ru = PropertiesService.getScriptProperties().getProperty('RECEIVE_URL'); return [{ type: 'text', text: ru ? '進貨驗收網站：' + ru + '?openExternalBrowser=1' : '進貨驗收網站還沒部署（到訂貨網「⟳ 更新程式」按「更新進貨驗收」）。' }]; }
+  if (t === '驗收系統' && isAdmin_(lineAccountOf_(userId))) {
+    const ru = PropertiesService.getScriptProperties().getProperty('RECEIVE_URL'), acc = lineAccountOf_(userId);
+    if (!ru) return [{ type: 'text', text: '進貨驗收網站還沒部署（到訂貨網「⟳ 更新程式」按「更新進貨驗收」）。' }];
+    const code = rcvLoginCode_(acc);
+    return [fxFlexMsg_('驗收系統：按按鈕直接登入', [fxB_('✅ 驗收系統', '不用打帳號密碼，直接登入成「' + acc + '」',
+      [fxT_('打開後就是登入好的進貨驗收（驗收、銷貨單、核銷）。', { size: 'sm' }), fxT_('⚠ 這個連結 ' + LINE_LOGIN_MINUTES + ' 分鐘內有效、只能用一次，不要轉傳給別人。', { size: 'xs', color: FX_BAD })],
+      [{ type: 'button', style: 'primary', color: '#475467', action: { type: 'uri', label: '打開（直接登入）', uri: ru + '?openExternalBrowser=1&lt=' + code } }])])];
+  }
   if (!m && !help && !go) return null;
   const account = lineAccountOf_(userId);
   if (!account || !isAdmin_(account)) return m || go && t === '補訂貨' ? [{ type: 'text', text: '這個功能只有管理者可以用。' }] : null;
@@ -6159,7 +6180,7 @@ function lineAdminReply_(text, userId) {
         fxT_('⚠ 這個連結 ' + LINE_LOGIN_MINUTES + ' 分鐘內有效、只能用一次，不要轉傳給別人。', { size: 'xs', color: FX_BAD })],
       [{ type: 'button', style: 'primary', color: FX_BRAND, action: { type: 'uri', label: '打開（直接登入）', uri: link } }])])];
   }
-  if (help) return [{ type: 'text', text: '【管理者 LINE 功能】\n・補訂貨、訂貨系統：回一個登入連結，按了直接登入（10 分鐘內、用一次）。\n・驗收系統：打開進貨驗收網站。\n・叫貨單：今天送貨的各廠商叫貨內容，也可以傳「叫貨單 11/12」。\n・今天課表／明天課表：每堂課哪位老師、哪一班、叫料了沒。也可以傳「課表 11/12」查某一天。\n・今天料單／明天料單：每張料單的食材和數量，左右滑動看。也可以傳「料單 11/12」或「料單 王小明」（那位老師接下來 7 天的）。\n・補訂貨：直接打開訂貨網站下單（代訂、補訂）。\n這些都是回覆，不花 LINE 則數。' }];
+  if (help) return [{ type: 'text', text: '【管理者 LINE 功能】\n・補訂貨、訂貨系統：回一個登入連結，按了直接登入（10 分鐘內、用一次）。\n・驗收系統：一樣回一個登入連結，按了直接登入進貨驗收。\n・叫貨單：今天送貨的各廠商叫貨內容，也可以傳「叫貨單 11/12」。\n・今天課表／明天課表：每堂課哪位老師、哪一班、叫料了沒。也可以傳「課表 11/12」查某一天。\n・今天料單／明天料單：每張料單的食材和數量，左右滑動看。也可以傳「料單 11/12」或「料單 王小明」（那位老師接下來 7 天的）。\n・補訂貨：直接打開訂貨網站下單（代訂、補訂）。\n這些都是回覆，不花 LINE 則數。' }];
   const arg = (m[3] || '').trim();
   if (m[2] === '課表') {
     const d = lineDateArg_(m[1] || arg);

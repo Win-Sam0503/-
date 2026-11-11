@@ -57,6 +57,28 @@ function rcvLogin(account, password) {
   cache.put('rsess:' + token, account, Math.min(RCV_SESSION_HOURS * 3600, 21600));   // Google 暫存最多 6 小時；有在用會一直延長（api）
   return { token: token, account: account };
 }
+/** 從訂貨系統 LINE 管理者選單「驗收系統」來的一次性登入碼（試算表「LINE登入碼」，10 分鐘、用一次）：不用打密碼 */
+function rcvLoginByLink(code) {
+  code = String(code || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
+  if (!code || !ss_().getSheetByName('LINE登入碼')) throw new Error('這個登入連結已經過期或用過了，請在 LINE 再按一次，或用帳號密碼登入。');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  let account = '';
+  try {
+    const sh = ss_().getSheetByName('LINE登入碼'), t = readTableNow_('LINE登入碼', ['碼', '帳號', '期限']);
+    const r = t.rows.filter(function (x) { return String(x['碼']).trim() === code && String(x['系統'] || '').trim() === '驗收'; })[0];
+    if (r) { sh.deleteRows(r._row, 1); SpreadsheetApp.flush(); }   // 用過就刪掉
+    if (r && r['期限'] instanceof Date && r['期限'].getTime() > Date.now()) account = String(r['帳號']).trim();
+  } finally { lock.releaseLock(); }
+  if (!account) throw new Error('這個登入連結已經過期或用過了，請在 LINE 再按一次，或用帳號密碼登入。');
+  const t2 = readTable_('帳號設定', ['帳號', '啟用']);
+  const acc = t2.rows.find(function (x) { return String(x['帳號']).trim() === account; });
+  const admin = acc && isTrue_(acc['啟用']) && (ADMIN_ACCOUNTS.indexOf(account) >= 0 || (t2.cols['管理者'] !== undefined && isTrue_(acc['管理者'])));
+  if (!admin) throw new Error('驗收系統只有管理者可以登入。');
+  rcvLog_(account, '成功（驗收系統・LINE 連結）');
+  const token = Utilities.getUuid();
+  CacheService.getScriptCache().put('rsess:' + token, account, Math.min(RCV_SESSION_HOURS * 3600, 21600));
+  return { token: token, account: account };
+}
 function rcvLogout(token) { CacheService.getScriptCache().remove('rsess:' + String(token || '')); return true; }
 function rcvLog_(account, result) {
   try { appendRows_('登入資訊', [{ '登入時間': new Date(), '帳號': account, '結果': result }]); } catch (e) { console.error(e.message); }

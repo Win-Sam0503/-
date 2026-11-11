@@ -3948,7 +3948,27 @@
     refreshIssueCount();
     call('whoAmI').then(function (e) { wmWho = e || ''; drawWatermark(); }).catch(function () {});
   }
-  if (rToken) start(); else showLogin('');
+  // 訂貨系統 LINE 管理者選單「驗收系統」的一次性登入連結（?lt=…）：直接登入，不用打密碼
+  (function boot() {
+    var go = function () { if (rToken) start(); else showLogin(''); };
+    try {
+      if (!(window.google && google.script && google.script.url)) { go(); return; }
+      google.script.url.getLocation(function (loc) {
+        var lt = loc && loc.parameter && loc.parameter.lt;
+        if (!lt) { go(); return; }
+        google.script.run.withSuccessHandler(function (r) {
+          rToken = r.token;
+          try { localStorage.setItem('rcvToken', r.token); localStorage.setItem('rcvAcc', r.account); } catch (e) {}
+          $('rLogin').classList.add('hidden');
+          start();
+        }).withFailureHandler(function (e) {
+          if (rToken) { go(); return; }   // 這台已經登入過：照常用
+          showLogin('');
+          $('rMsg').innerHTML = '<div class="msg error">' + esc(String(e && e.message || e).replace(/^(Error|Exception):\s*/, '')) + '</div>';
+        }).rcvLoginByLink(lt);
+      });
+    } catch (e) { go(); }
+  })();
 })();
 </script>
 </body>
