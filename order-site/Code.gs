@@ -712,6 +712,63 @@ function readVendorContacts_() {
   return out;
 }
 
+/**
+ * ➕ 快速補訂貨（LINE 管理者選單打開的小網頁）：某一天送貨多叫一兩樣，加到那天那家廠商的叫貨單（類型「補庫存」，不算哪位老師）。
+ * rows: [{ id, name, vendor, qty, unit, note }]。那天那家已經「確定叫貨」的，補的也直接是已確定（叫貨單看得到，要另外通知廠商）；
+ * 還沒確定的存成草稿，跟著「② 訂貨單」一起確定。回傳每家廠商補了什麼、要不要打電話。
+ */
+function adminQuickPurchase(token, date, rows) {
+  const admin = auth_(token, true);
+  const d = parseDate_(date);
+  if (!d) throw new Error('請選送貨日期。');
+  if (d < addDays_(today_(), -1) || d > addDays_(today_(), 60)) throw new Error('送貨日期只能選今天起兩個月內。');
+  if (d.getDay() === 0 || d.getDay() === 6) throw new Error('送貨日期是週末，廠商不送貨。');
+  const ds = dateStr_(d);
+  if (!Array.isArray(rows) || !rows.length) throw new Error('請至少填一樣。');
+  if (rows.length > 30) throw new Error('一次最多 30 樣。');
+  const items = {};
+  readItems_().forEach(function (it) { items[it.id] = it; });
+  const okVendors = orderVendors_().concat(Object.keys(VENDOR_SPLIT).reduce(function (a, k) { return a.concat([VENDOR_SPLIT[k].baking, VENDOR_SPLIT[k].other]); }, []));
+  const list = rows.map(function (x, i) {
+    const it = items[String(x && x.id || '').trim()];
+    const name = it ? it.name : clean_(x && x.name, 40);
+    if (!name) throw new Error('第 ' + (i + 1) + ' 行沒有選食材。');
+    let vendor = clean_(x.vendor, 30) || (it ? it.vendor : '');
+    if (VENDOR_SPLIT[vendor]) throw new Error('「' + name + '」要選跟哪一家叫（' + VENDOR_SPLIT[vendor].other + '／' + VENDOR_SPLIT[vendor].baking + '）。');
+    if (!vendor || okVendors.indexOf(vendor) < 0) throw new Error('「' + name + '」的廠商不正確。');
+    const qty = Number(x.qty);
+    if (!(qty > 0 && qty <= 99999)) throw new Error('「' + name + '」的數量不正確。');
+    const unit = clean_(x.unit, 10);
+    if (!unit) throw new Error('「' + name + '」沒有填單位。');
+    return { id: it ? it.id : '', name: name, vendor: vendor, qty: Math.round(qty * 100) / 100, unit: unit, note: clean_(x.note, 40) };
+  });
+  const vg = readVendorGroups_(), contacts = readVendorContacts_(), now = new Date(), out = {};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(SHEET.purchase, PURCHASE_HEADERS);
+    const have = {};
+    readTable_(SHEET.purchase, ['送貨日期', '廠商']).rows.forEach(function (r) {
+      if (purchaseDate_(r['送貨日期']) !== ds) return;
+      const v = String(r['廠商'] || '').trim(), st = String(r['狀態'] || '').trim() === '草稿' ? '草稿' : '已確定';
+      if (!have[v] || st === '已確定') have[v] = st;
+    });
+    const add = list.map(function (x) {
+      const st = have[x.vendor] === '已確定' ? '已確定' : '草稿';
+      const o = out[x.vendor] = out[x.vendor] || { vendor: x.vendor, status: st, phone: (contacts[x.vendor] || {}).phone || '', items: [] };
+      o.items.push(x.name + ' ' + x.qty + ' ' + x.unit);
+      return { '送貨日期': ds, '送貨組別': deliveryGroup_(x.vendor, d.getDay(), vg), '廠商': x.vendor, '訂單編號': '', '上課班級': '', '老師': '',
+        '食材名稱': x.name, '食材ID': x.id, '需求量': '', '需求單位': '', '叫貨量': x.qty, '叫貨單位': x.unit, '類型': '補庫存',
+        '備註': ('補訂貨' + (x.note ? '：' + x.note : '')).slice(0, 60), '狀態': st, '確定時間': now, '確認人': admin };
+    });
+    appendRows_(SHEET.purchase, add);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { date: ds, vendors: Object.keys(out).map(function (k) { return out[k]; }) };
+}
+
 /** 管理者儲存一家廠商的傳真、電話、聯絡人、備註，回傳全部廠商的聯絡資料 */
 function adminSaveVendorContact(token, vendor, f) {
   auth_(token, true);
@@ -6173,10 +6230,10 @@ function lineAdminReply_(text, userId) {
   const account = lineAccountOf_(userId);
   if (!account || !isAdmin_(account)) return m || go && t === '補訂貨' ? [{ type: 'text', text: '這個功能只有管理者可以用。' }] : null;
   if (go) {
-    const link = lineLoginLink_(account, '');
+    const link = lineLoginLink_(account, t === '補訂貨' ? 'quick' : '');
     if (!link) return [{ type: 'text', text: '訂貨網站還沒部署。' }];
     return [fxFlexMsg_(t + '：按按鈕直接登入', [fxB_(t === '補訂貨' ? '➕ 補訂貨' : '🛒 訂貨系統', '不用打帳號密碼，直接登入成「' + account + '」',
-      [fxT_(t === '補訂貨' ? '打開後在「訂貨」頁選上課日期、班級，上面「代訂老師」選要幫誰訂，選好食材送出。' : '打開後就是登入好的訂貨系統。', { size: 'sm' }),
+      [fxT_(t === '補訂貨' ? '打開是很簡單的補訂貨頁：選送貨日期、打食材、數量，按送出，就加到那天那家廠商的叫貨單。' : '打開後就是登入好的訂貨系統。', { size: 'sm' }),
         fxT_('⚠ 這個連結 ' + LINE_LOGIN_MINUTES + ' 分鐘內有效、只能用一次，不要轉傳給別人。', { size: 'xs', color: FX_BAD })],
       [{ type: 'button', style: 'primary', color: FX_BRAND, action: { type: 'uri', label: '打開（直接登入）', uri: link } }])])];
   }

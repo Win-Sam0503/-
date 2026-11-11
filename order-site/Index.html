@@ -1037,6 +1037,18 @@
     </section>
 
     <!-- 管理者：廠商訂貨單 -->
+    <section id="viewQuick" class="hidden">
+      <div class="panel" style="max-width:640px">
+        <h2 style="margin-top:0">➕ 快速補訂貨</h2>
+        <div class="muted small" style="margin-bottom:8px">某一天送貨要多叫一兩樣（庫存不夠、忘了叫）：選日期、打食材和數量，按送出，就加到那天那家廠商的叫貨單（不算哪位老師的料單）。</div>
+        <label for="qkDate">送貨日期</label><input id="qkDate" type="date" style="max-width:200px">
+        <div id="qkRows" style="margin-top:10px"></div>
+        <button type="button" class="btn ghost small" id="qkAdd" style="margin-top:6px">＋ 再加一樣</button>
+        <button type="button" class="btn" id="qkGo" style="width:100%;margin-top:12px;font-size:18px;padding:12px">送出補訂貨</button>
+        <div id="qkMsg" style="margin-top:10px"></div>
+        <datalist id="qkUnits"></datalist>
+      </div>
+    </section>
     <section id="viewVendor" class="hidden">
       <div class="panel noprint">
         <h2>廠商訂貨單 <details class="vhelp"><summary>？說明</summary><div class="muted small">流程：① 產生「扣貨單」給學生扣庫存 → ② 學生交回後產生「訂貨單」，改實際叫貨量（可以改各班，也可以直接「改合計」），每家廠商可以先儲存（草稿）或確定叫貨 → ③ 產生「叫貨單」列印或複製文字給廠商；④ 跨教室領料單：只有另一科廠商有賣的，貼在那間教室讓學生去拿。⑤ 分班標籤：每班每一樣東西印一張貼紙（班級、科別、品名、數量、老師），分貨時貼上，避免拿錯。<br>每家廠商分成「食材合計」（重量換算成同一種單位）和「各班明細」，用「列印設定」選只印合計、只印明細，或分開兩頁都印。不含已取消、勾選「有貨」的品項，也不含器具。<br>產生後，下面的廠商按鈕（A菜商、B肉商…）可以只看某一家（列印也只印那一家）；每家右上角「收合」可以先收起來。</div></details></h2>
@@ -1870,15 +1882,71 @@
     renderResults();
     renderCart();
     updateDateHint();
+    if (startPage === 'quick' && data.isAdmin) { quickOpen(); startPage = ''; return; }
     show(startPage === 'lessons' ? 'viewLessons' : startPage === 'mine' ? 'viewMine' : 'viewOrder');
     if (startPage !== 'lessons') refreshLessonCount();
     startPage = '';
     if (data.isAdmin) refreshPendingCount();
   }
 
+  // ➕ 快速補訂貨（LINE 管理者選單打開）：日期＋食材＋數量，加到那天廠商的叫貨單
+  var qkSeq = 0;
+  function qkNextDay() { var d = new Date(); d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function qkItem(v) { var id = String(v || '').trim().split(/\s+/)[0]; return itemById[id] || data.items.filter(function (it) { return it.name === String(v || '').trim(); })[0] || null; }
+  function qkRowHtml() {
+    var k = ++qkSeq;
+    return '<div class="qkrow" data-qk="' + k + '" style="border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:6px">' +
+      '<div class="row" style="gap:6px;align-items:center"><input data-q="item" list="itemList" placeholder="食材（打字找，例如 洋蔥）" style="flex:1;min-width:160px">' +
+      '<button type="button" class="btn ghost small" data-qdel title="刪掉這一行" style="padding:2px 10px">✕</button></div>' +
+      '<div class="row" style="gap:6px;margin-top:6px;align-items:center"><input data-q="qty" inputmode="decimal" placeholder="數量" style="width:90px"><input data-q="unit" list="qkUnits" placeholder="單位" style="width:90px">' +
+      '<input data-q="note" placeholder="備註（選填）" style="flex:1;min-width:100px"></div><div class="small muted" data-q="info" style="margin-top:4px"></div></div>';
+  }
+  function quickOpen() {
+    show('viewQuick');
+    $('qkDate').value = $('qkDate').value || qkNextDay();
+    $('qkUnits').innerHTML = (data.orderUnits || []).map(function (u) { return '<option value="' + esc(u) + '">'; }).join('');
+    if (!$('qkRows').children.length) $('qkRows').innerHTML = qkRowHtml();
+    msg('qkMsg', '', '');
+  }
+  $('qkAdd').addEventListener('click', function () { $('qkRows').insertAdjacentHTML('beforeend', qkRowHtml()); var r = $('qkRows').lastElementChild; r.querySelector('[data-q="item"]').focus(); });
+  $('qkRows').addEventListener('click', function (e) { var b = e.target.closest('[data-qdel]'); if (!b) return; b.closest('.qkrow').remove(); if (!$('qkRows').children.length) $('qkRows').innerHTML = qkRowHtml(); });
+  $('qkRows').addEventListener('input', function (e) {
+    var row = e.target.closest('.qkrow'); if (!row || e.target.getAttribute('data-q') !== 'item') return;
+    var it = qkItem(e.target.value), info = row.querySelector('[data-q="info"]');
+    if (!it) { info.innerHTML = e.target.value.trim() ? '<span style="color:var(--warn)">食材總表沒有這個，請從下拉選單選</span>' : ''; return; }
+    var sp = (data.vendorSplit || {})[it.vendor];
+    info.innerHTML = '跟 ' + (sp ? '<select data-q="vendor" style="width:auto;display:inline-block;padding:2px 4px"><option value="' + esc(sp.other) + '">' + esc(sp.other) + '</option><option value="' + esc(sp.baking) + '">' + esc(sp.baking) + '</option></select>' : '<b>' + esc(it.vendor) + '</b>') + ' 叫';
+    var u = row.querySelector('[data-q="unit"]'); if (!u.value && it.unit) u.value = it.unit;
+  });
+  $('qkGo').addEventListener('click', function () {
+    var b = this, rows = [], bad = '';
+    Array.prototype.forEach.call(document.querySelectorAll('#qkRows .qkrow'), function (row) {
+      var g = function (k) { var el = row.querySelector('[data-q="' + k + '"]'); return el ? el.value.trim() : ''; };
+      var iv = g('item'); if (!iv && !g('qty')) return;
+      var it = qkItem(iv);
+      if (!it) { bad = bad || '「' + (iv || '（空白）') + '」不在食材總表，請從下拉選單選。'; return; }
+      if (!(toNum(g('qty')) > 0)) { bad = bad || '請填「' + it.name + '」的數量。'; return; }
+      if (!g('unit')) { bad = bad || '請填「' + it.name + '」的單位。'; return; }
+      rows.push({ id: it.id, name: it.name, vendor: g('vendor') || it.vendor, qty: toNum(g('qty')), unit: g('unit'), note: g('note') });
+    });
+    if (!$('qkDate').value) bad = '請選送貨日期。';
+    if (!bad && !rows.length) bad = '請至少填一樣。';
+    if (bad) { msg('qkMsg', 'error', bad); return; }
+    setBusy(b, true, '送出中…');
+    call('adminQuickPurchase', token, $('qkDate').value, rows).then(function (r) {
+      var html = '<b>✓ 已補到 ' + esc(shortDate(r.date)) + ' 的叫貨單：</b>' + r.vendors.map(function (v) {
+        return '<div style="margin-top:6px"><b>' + esc(v.vendor) + '</b>：' + esc(v.items.join('、')) + '<br>' + (v.status === '已確定'
+          ? '<span style="color:var(--bad)">⚠ 這家這天的叫貨單已經確定了，<b>請另外通知廠商</b>' + (v.phone ? '（電話 <a href="tel:' + esc(v.phone) + '">' + esc(v.phone) + '</a>）' : '') + '。</span>'
+          : '<span class="muted">這家這天的叫貨單還沒確定，補的會跟著「廠商訂貨單 → ② 訂貨單」一起確定。</span>') + '</div>';
+      }).join('');
+      $('qkMsg').innerHTML = '<div class="msg ok">' + html + '</div>';
+      $('qkRows').innerHTML = qkRowHtml();
+    }).catch(function (e) { msg('qkMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewPrint', 'viewEditReport', 'viewPassword'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
