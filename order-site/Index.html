@@ -7718,14 +7718,14 @@
   });
 
   $('aRichMenu').addEventListener('click', function () {
-    if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n管理者另外有管理者版選單（今天／明天課表、今天／明天料單、補訂貨）。\n這個不會用到則數。')) return;
-    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：今天／明天課表、今天／明天料單、補訂貨。'; }, adminMenuPng());
+    if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n管理者另外有管理者版選單（補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單）。\n這個不會用到則數。')) return;
+    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng());
   });
   // 管理者版 LINE 選單圖片（2×3）：在瀏覽器畫好傳上去
   function adminMenuPng() {
     var W = 2500, H = 1686, cw = Math.floor(W / 3), rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var g = cv.getContext('2d'), items = [['👩‍🍳', '今天課表', '誰上課、叫料了沒', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、叫料了沒', '#3b5bdb'], ['➕', '補訂貨', '打開訂貨網站', '#8a2b1a'],
-      ['📋', '今天料單', '每張料單的食材', '#067647'], ['📋', '明天料單', '每張料單的食材', '#0e9f6e'], ['❓', '管理者說明', '還可以怎麼查', '#475467']];
+    var g = cv.getContext('2d'), items = [['➕', '補訂貨', '不用登入，直接下單', '#8a2b1a'], ['🛒', '訂貨系統', '不用登入，直接打開', '#b45309'], ['✅', '驗收系統', '進貨驗收、核銷', '#475467'],
+      ['👩‍🍳', '查看課表', '誰上課、叫料了沒', '#1d4ed8'], ['📋', '查看料單', '每張料單的食材', '#067647'], ['🚚', '查看叫貨單', '各廠商要送什麼', '#7c3aed']];
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     items.forEach(function (it, i) {
       var c = i % 3, r = Math.floor(i / 3), x = c * cw, y = r * rh, w = c === 2 ? W - x : cw;
@@ -9629,7 +9629,22 @@
   // 啟動
   // ------------------------------------------------------------------
   try { $('lAccount').value = localStorage.getItem('ckOrder.lastAccount') || ''; } catch (e) {}
-  if (token) start(); else showLogin('');
+  // LINE 管理者選單「補訂貨」「訂貨系統」的一次性登入連結（?lt=…）：直接登入，不用打密碼
+  (function boot() {
+    var go = function () { if (token) start(); else showLogin(''); };
+    try {
+      if (!(window.google && google.script && google.script.url)) { go(); return; }
+      google.script.url.getLocation(function (loc) {
+        var lt = loc && loc.parameter && loc.parameter.lt;
+        if (!lt) { go(); return; }
+        call('loginByLink', lt).then(function (res) {
+          token = res.token;
+          try { sessionStorage.setItem(TOKEN_KEY, token); localStorage.setItem('ckOrder.lastAccount', res.account); } catch (e) {}
+          return start(res.data);
+        }).catch(function (err) { showLogin(''); msg('loginMsg', 'error', err.message); });
+      });
+    } catch (e) { go(); }
+  })();
 })();
 </script>
 <button type="button" id="toTop" class="off noprint" aria-label="回到最上面" title="回到最上面">🔝</button>

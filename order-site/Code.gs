@@ -270,6 +270,29 @@ function loginAndLoad(account, password) {
   return res;
 }
 
+/**
+ * LINE 管理者選單的「補訂貨」「訂貨系統」：官方帳號回一個一次性的登入連結（10 分鐘內、只能用一次），
+ * 打開就直接登入，不用打帳號密碼。連結只會傳給綁定 LINE 的管理者。
+ */
+const LINE_LOGIN_MINUTES = 10;
+function lineLoginLink_(account, page) {
+  const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  CacheService.getScriptCache().put('llink:' + code, account, LINE_LOGIN_MINUTES * 60);
+  const u = lineUrl_(page || '');
+  return u ? u + '&lt=' + code : '';
+}
+function loginByLink(code) {
+  code = String(code || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
+  const cache = CacheService.getScriptCache(), account = code ? cache.get('llink:' + code) : null;
+  if (!account) throw new Error('這個登入連結已經過期或用過了，請在 LINE 再按一次，或用帳號密碼登入。');
+  cache.remove('llink:' + code);
+  if (!isAdmin_(account)) throw new Error('只有管理者可以用 LINE 連結登入。');
+  const token = Utilities.getUuid();
+  cache.put('session:' + token, account, SESSION_HOURS * 3600);
+  try { logLogin_(account, '成功（LINE 連結）'); } catch (e) {}
+  return { token: token, account: account, isAdmin: true, mustChange: false, data: getBootstrap(token) };
+}
+
 function logout(token) {
   CacheService.getScriptCache().remove('session:' + token);
   return true;
@@ -3783,7 +3806,7 @@ function doPost(e) {
         props.setProperty('LU:' + teacher, userId);
         props.setProperty('LA:' + userId, teacher);
         cache.remove('tbind:' + m[2]);
-        if (isAdmin_(teacher)) { lineLinkAdminMenu_(userId); lineReply_(ev.replyToken, teacher + '，綁定完成！您是管理者，下方選單會換成管理者版：今天／明天課表、今天／明天料單、補訂貨（選單沒換的話，關掉聊天室再打開）。'); return; }
+        if (isAdmin_(teacher)) { lineLinkAdminMenu_(userId); lineReply_(ev.replyToken, teacher + '，綁定完成！您是管理者，下方選單會換成管理者版：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單（選單沒換的話，關掉聊天室再打開）。'); return; }
         lineReply_(ev.replyToken, teacher + ' 老師，綁定完成！之後有課還沒訂貨時，會在截止前提醒您。\n點下方選單「我的未訂貨課程」隨時可以查詢。');
         return;
       }
@@ -6060,7 +6083,7 @@ function adminSetupRichMenu(token, adminPng) {
   if (adminPng) lineSetupAdminMenu_(adminPng);
   return automationStatus_();
 }
-/** 管理者專用選單（2×3）：今天課表、明天課表、補訂貨／今天料單、明天料單、打開訂貨網站。圖片在瀏覽器畫好傳上來 */
+/** 管理者專用選單（2×3）：補訂貨、訂貨系統、驗收系統／查看課表、查看料單、查看叫貨單。圖片在瀏覽器畫好傳上來 */
 function lineSetupAdminMenu_(png) {
   const props = PropertiesService.getScriptProperties(), lineToken = props.getProperty('LINE_TOKEN');
   const b64 = String(png || '').replace(/^data:image\/png;base64,/, '');
@@ -6068,12 +6091,12 @@ function lineSetupAdminMenu_(png) {
   const auth = { Authorization: 'Bearer ' + lineToken };
   const w = 2500, h = 1686, cw = Math.floor(w / 3), rh = h / 2;
   const areas = [
-    { action: { type: 'message', label: '今天課表', text: '今天課表' } },
-    { action: { type: 'message', label: '明天課表', text: '明天課表' } },
-    { action: { type: 'uri', label: '補訂貨', uri: lineUrl_('') } },
-    { action: { type: 'message', label: '今天料單', text: '今天料單' } },
-    { action: { type: 'message', label: '明天料單', text: '明天料單' } },
-    { action: { type: 'message', label: '管理者功能說明', text: '管理者說明' } },
+    { action: { type: 'message', label: '補訂貨', text: '補訂貨' } },
+    { action: { type: 'message', label: '訂貨系統', text: '訂貨系統' } },
+    props.getProperty('RECEIVE_URL') ? { action: { type: 'uri', label: '驗收系統', uri: props.getProperty('RECEIVE_URL') + '?openExternalBrowser=1' } } : { action: { type: 'message', label: '驗收系統', text: '驗收系統' } },
+    { action: { type: 'message', label: '查看課表', text: '課表' } },
+    { action: { type: 'message', label: '查看料單', text: '料單' } },
+    { action: { type: 'message', label: '查看叫貨單', text: '叫貨單' } },
   ].map(function (a, i) { const c = i % 3, r = Math.floor(i / 3); a.bounds = { x: c * cw, y: r * rh, width: c === 2 ? w - 2 * cw : cw, height: rh }; return a; });
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
     payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統管理者選單', chatBarText: '管理者選單', areas: areas }) });
@@ -6122,17 +6145,31 @@ function lineDateArg_(s) {
 }
 function lineAdminReply_(text, userId) {
   const t = String(text || '').trim();
-  const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單)\s*(.{0,20})$/);
-  const help = /^管理者說明$/.test(t);
-  if (!m && !help) return null;
+  const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單|叫貨單)\s*(.{0,20})$/);
+  const help = /^管理者說明$/.test(t), go = /^(補訂貨|訂貨系統)$/.test(t);
+  if (t === '驗收系統' && isAdmin_(lineAccountOf_(userId))) { const ru = PropertiesService.getScriptProperties().getProperty('RECEIVE_URL'); return [{ type: 'text', text: ru ? '進貨驗收網站：' + ru + '?openExternalBrowser=1' : '進貨驗收網站還沒部署（到訂貨網「⟳ 更新程式」按「更新進貨驗收」）。' }]; }
+  if (!m && !help && !go) return null;
   const account = lineAccountOf_(userId);
-  if (!account || !isAdmin_(account)) return m ? [{ type: 'text', text: '這個功能只有管理者可以用。' }] : null;
-  if (help) return [{ type: 'text', text: '【管理者 LINE 功能】\n・今天課表／明天課表：每堂課哪位老師、哪一班、叫料了沒。也可以傳「課表 11/12」查某一天。\n・今天料單／明天料單：每張料單的食材和數量，左右滑動看。也可以傳「料單 11/12」或「料單 王小明」（那位老師接下來 7 天的）。\n・補訂貨：直接打開訂貨網站下單（代訂、補訂）。\n這些都是回覆，不花 LINE 則數。' }];
+  if (!account || !isAdmin_(account)) return m || go && t === '補訂貨' ? [{ type: 'text', text: '這個功能只有管理者可以用。' }] : null;
+  if (go) {
+    const link = lineLoginLink_(account, '');
+    if (!link) return [{ type: 'text', text: '訂貨網站還沒部署。' }];
+    return [fxFlexMsg_(t + '：按按鈕直接登入', [fxB_(t === '補訂貨' ? '➕ 補訂貨' : '🛒 訂貨系統', '不用打帳號密碼，直接登入成「' + account + '」',
+      [fxT_(t === '補訂貨' ? '打開後在「訂貨」頁選上課日期、班級，上面「代訂老師」選要幫誰訂，選好食材送出。' : '打開後就是登入好的訂貨系統。', { size: 'sm' }),
+        fxT_('⚠ 這個連結 ' + LINE_LOGIN_MINUTES + ' 分鐘內有效、只能用一次，不要轉傳給別人。', { size: 'xs', color: FX_BAD })],
+      [{ type: 'button', style: 'primary', color: FX_BRAND, action: { type: 'uri', label: '打開（直接登入）', uri: link } }])])];
+  }
+  if (help) return [{ type: 'text', text: '【管理者 LINE 功能】\n・補訂貨、訂貨系統：回一個登入連結，按了直接登入（10 分鐘內、用一次）。\n・驗收系統：打開進貨驗收網站。\n・叫貨單：今天送貨的各廠商叫貨內容，也可以傳「叫貨單 11/12」。\n・今天課表／明天課表：每堂課哪位老師、哪一班、叫料了沒。也可以傳「課表 11/12」查某一天。\n・今天料單／明天料單：每張料單的食材和數量，左右滑動看。也可以傳「料單 11/12」或「料單 王小明」（那位老師接下來 7 天的）。\n・補訂貨：直接打開訂貨網站下單（代訂、補訂）。\n這些都是回覆，不花 LINE 則數。' }];
   const arg = (m[3] || '').trim();
   if (m[2] === '課表') {
     const d = lineDateArg_(m[1] || arg);
     if (!d) return [{ type: 'text', text: '日期看不懂，請傳「課表 11/12」這樣的格式。' }];
     return lineLessonsMsgs_(d);
+  }
+  if (m[2] === '叫貨單') {
+    const dd = lineDateArg_(m[1] || arg);
+    if (!dd) return [{ type: 'text', text: '日期看不懂，請傳「叫貨單 11/12」這樣的格式。' }];
+    return linePurchaseMsgs_(dd);
   }
   const d = lineDateArg_(m[1] || arg);
   if (d) return lineOrdersMsgs_(d, d, '');
@@ -6177,8 +6214,37 @@ function lineOrdersMsgs_(from, to, teacher) {
     return fxB_((o.onBehalfOf || o.teacher) + '　' + o.className, (one ? '' : shortDateTw_(parseDate_(o.useDate)) + ' ') + (o.classTime === '晚上' ? '夜間' : o.classTime) + '・' + (o.project || '（沒填實作項目）') + (o.groups ? '・' + o.groups + ' 組' : '') + '・' + o.status,
       [fxT_(its.length + ' 項食材', { size: 'xs', color: FX_MUTED })].concat(rows));
   });
+  const ds0 = dateStr_(from);
+  const qr = one ? { items: [['◀ 前一天', '料單 ' + dateStr_(addDays_(from, -1))], ['後一天 ▶', '料單 ' + dateStr_(addDays_(from, 1))], ['這天課表', '課表 ' + ds0], ['這天叫貨單', '叫貨單 ' + ds0]].map(function (x) { return { type: 'action', action: { type: 'message', label: x[0], text: x[1] } }; }) } : null;
   const msgs = [{ type: 'text', text: title.replace(/^📋 /, '') + '：共 ' + orders.length + ' 張' + (orders.length > 1 ? '，左右滑動看每一張' : '') + (orders.length > 12 ? '（先列 12 張，其他請到網站「訂單彙整」看）' : '') }, fxFlexMsg_(title, bubbles)];
+  if (qr) msgs[msgs.length - 1].quickReply = qr;
   return msgs;
+}
+/** 叫貨單：那一天送貨的，每家廠商一張卡片（同一樣食材加總） */
+function linePurchaseMsgs_(d) {
+  const ds = dateStr_(d);
+  const qr = { items: [['◀ 前一天', '叫貨單 ' + dateStr_(addDays_(d, -1))], ['後一天 ▶', '叫貨單 ' + dateStr_(addDays_(d, 1))], ['這天料單', '料單 ' + ds], ['這天課表', '課表 ' + ds]].map(function (x) { return { type: 'action', action: { type: 'message', label: x[0], text: x[1] } }; }) };
+  let rows = [];
+  try { if (ss_().getSheetByName(SHEET.purchase)) rows = readTable_(SHEET.purchase, ['送貨日期', '廠商', '食材名稱']).rows; } catch (e) { rows = []; }
+  rows = rows.filter(function (r) { const x = r['送貨日期'] instanceof Date ? r['送貨日期'] : parseDate_(String(r['送貨日期'] || '').replace(/^'/, '')); return x && dateStr_(x) === ds && Number(r['叫貨量']) > 0; });
+  if (!rows.length) return [Object.assign({ type: 'text', text: shortDateTw_(d) + ' 沒有要送貨的叫貨單（或還沒產生／還沒確定）。' }, { quickReply: qr })];
+  const by = {}, order = [];
+  rows.forEach(function (r) {
+    const v = String(r['廠商'] || '').trim(), k = String(r['食材名稱'] || '').trim() + '|' + String(r['叫貨單位'] || '').trim();
+    const g = by[v] = by[v] || (order.push(v), { items: {}, keys: [], draft: false, groups: {} });
+    if (!g.items[k]) { g.items[k] = 0; g.keys.push(k); }
+    g.items[k] += Number(r['叫貨量']) || 0;
+    if (/草稿/.test(String(r['狀態'] || ''))) g.draft = true;
+    if (String(r['送貨組別'] || '').trim()) g.groups[String(r['送貨組別']).trim()] = true;
+  });
+  order.sort();
+  const bubbles = order.map(function (v) {
+    const g = by[v];
+    const items = g.keys.map(function (k) { const p = k.split('|'); return { type: 'box', layout: 'horizontal', contents: [fxT_(p[0], { size: 'sm', flex: 6 }), fxT_((Math.round(g.items[k] * 100) / 100) + ' ' + p[1], { size: 'sm', align: 'end', flex: 3 })] }; });
+    if (items.length > 30) { items.length = 30; items.push(fxT_('…還有 ' + (g.keys.length - 30) + ' 樣，請到網站「廠商訂貨單」看。', { size: 'xs', color: FX_MUTED })); }
+    return fxB_('🚚 ' + v, shortDateTw_(d) + ' 送貨・' + g.keys.length + ' 樣' + (Object.keys(g.groups).length ? '・組別 ' + Object.keys(g.groups).join('、') : '') + (g.draft ? '・⚠ 還是草稿' : ''), items);
+  });
+  return [Object.assign({ type: 'text', text: shortDateTw_(d) + ' 叫貨單：' + order.length + ' 家廠商' + (order.length > 1 ? '，左右滑動看每一家' : '') }, {}), Object.assign(fxFlexMsg_(shortDateTw_(d) + ' 叫貨單', bubbles.slice(0, 12)), { quickReply: qr })];
 }
 
 /** 只傳 LINE（沒綁定就不傳）。 */
