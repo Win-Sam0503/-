@@ -1040,7 +1040,7 @@
     <section id="viewQuick" class="hidden">
       <div class="panel" style="max-width:640px">
         <h2 style="margin-top:0">➕ 快速補訂貨</h2>
-        <div class="muted small" style="margin-bottom:8px">某一天送貨要多叫一兩樣（庫存不夠、忘了叫）：選日期、打食材和數量，按送出，就加到那天那家廠商的叫貨單（不算哪位老師的料單）。</div>
+        <div class="muted small" style="margin-bottom:8px">某一天送貨要多叫一兩樣（庫存不夠、忘了叫）：選日期、打食材和數量、選廠商，按送出，就加到那天那家廠商的叫貨單（不算哪位老師的料單）。食材總表沒有的也可以直接打名字。</div>
         <label for="qkDate">送貨日期</label><input id="qkDate" type="date" style="max-width:200px">
         <div id="qkRows" style="margin-top:10px"></div>
         <button type="button" class="btn ghost small" id="qkAdd" style="margin-top:6px">＋ 再加一樣</button>
@@ -1899,8 +1899,20 @@
       '<div class="row" style="gap:6px;align-items:center"><input data-q="item" list="itemList" placeholder="食材（打字找，例如 洋蔥）" style="flex:1;min-width:160px">' +
       '<button type="button" class="btn ghost small" data-qdel title="刪掉這一行" style="padding:2px 10px">✕</button></div>' +
       '<div class="row" style="gap:6px;margin-top:6px;align-items:center"><input data-q="qty" inputmode="decimal" placeholder="數量" style="width:90px"><input data-q="unit" list="qkUnits" placeholder="單位" style="width:90px">' +
-      '<input data-q="note" placeholder="備註（選填）" style="flex:1;min-width:100px"></div><div class="small muted" data-q="info" style="margin-top:4px"></div></div>';
+      '<input data-q="note" placeholder="備註（選填）" style="flex:1;min-width:100px"></div>' +
+      '<div class="row small" style="gap:6px;margin-top:6px;align-items:center">跟 <select data-q="vendor" style="width:auto;display:inline-block;padding:2px 4px">' + qkVendorOpts('') + '</select> 叫</div>' +
+      '<div class="small muted" data-q="info" style="margin-top:4px"></div></div>';
   }
+  // 廠商選單：全部廠商（乾貨、蛋分烘焙／中餐兩家），不含自備
+  function qkVendorList() {
+    var vs = [];
+    (data.vendors || []).forEach(function (v) {
+      var sp = (data.vendorSplit || {})[v];
+      (sp ? [sp.other, sp.baking] : [v]).forEach(function (x) { if (x && x !== data.selfVendor && vs.indexOf(x) < 0) vs.push(x); });
+    });
+    return vs.sort();
+  }
+  function qkVendorOpts(sel) { return '<option value="">（選廠商）</option>' + qkVendorList().map(function (v) { return '<option' + (v === sel ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join(''); }
   function quickOpen() {
     show('viewQuick');
     $('qkDate').value = $('qkDate').value || qkNextDay();
@@ -1912,10 +1924,15 @@
   $('qkRows').addEventListener('click', function (e) { var b = e.target.closest('[data-qdel]'); if (!b) return; b.closest('.qkrow').remove(); if (!$('qkRows').children.length) $('qkRows').innerHTML = qkRowHtml(); });
   $('qkRows').addEventListener('input', function (e) {
     var row = e.target.closest('.qkrow'); if (!row || e.target.getAttribute('data-q') !== 'item') return;
-    var it = qkItem(e.target.value), info = row.querySelector('[data-q="info"]');
-    if (!it) { info.innerHTML = e.target.value.trim() ? '<span style="color:var(--warn)">食材總表沒有這個，請從下拉選單選</span>' : ''; return; }
+    var it = qkItem(e.target.value), info = row.querySelector('[data-q="info"]'), vs = row.querySelector('[data-q="vendor"]'), nm = e.target.value.trim();
+    if (!it) {
+      // 食材總表沒有：照打的名字叫貨，要自己選廠商；可以順便加到食材總表
+      info.innerHTML = nm ? '<span style="color:var(--warn)">食材總表沒有「' + esc(nm) + '」，會照這個名字叫貨，請選廠商。</span><label style="display:flex;gap:6px;align-items:center;margin-top:4px"><input type="checkbox" data-q="additem" style="width:auto"> 也加到食材總表（以後老師可以直接選）</label>' : '';
+      return;
+    }
     var sp = (data.vendorSplit || {})[it.vendor];
-    info.innerHTML = '跟 ' + (sp ? '<select data-q="vendor" style="width:auto;display:inline-block;padding:2px 4px"><option value="' + esc(sp.other) + '">' + esc(sp.other) + '</option><option value="' + esc(sp.baking) + '">' + esc(sp.baking) + '</option></select>' : '<b>' + esc(it.vendor) + '</b>') + ' 叫';
+    vs.innerHTML = qkVendorOpts(sp ? sp.other : it.vendor);
+    info.innerHTML = sp ? '這樣兩家都有（' + esc(sp.other) + '／' + esc(sp.baking) + '），請確認上面選的是哪一家。' : '平常跟 ' + esc(it.vendor) + ' 叫，要換別家可以改上面的廠商。';
     var u = row.querySelector('[data-q="unit"]'); if (!u.value && it.unit) u.value = it.unit;
   });
   $('qkGo').addEventListener('click', function () {
@@ -1923,11 +1940,13 @@
     Array.prototype.forEach.call(document.querySelectorAll('#qkRows .qkrow'), function (row) {
       var g = function (k) { var el = row.querySelector('[data-q="' + k + '"]'); return el ? el.value.trim() : ''; };
       var iv = g('item'); if (!iv && !g('qty')) return;
-      var it = qkItem(iv);
-      if (!it) { bad = bad || '「' + (iv || '（空白）') + '」不在食材總表，請從下拉選單選。'; return; }
-      if (!(toNum(g('qty')) > 0)) { bad = bad || '請填「' + it.name + '」的數量。'; return; }
-      if (!g('unit')) { bad = bad || '請填「' + it.name + '」的單位。'; return; }
-      rows.push({ id: it.id, name: it.name, vendor: g('vendor') || it.vendor, qty: toNum(g('qty')), unit: g('unit'), note: g('note') });
+      var it = qkItem(iv), name = it ? it.name : iv.replace(/^I\d+\s+/, '');
+      if (!name) { bad = bad || '請填食材。'; return; }
+      if (!(toNum(g('qty')) > 0)) { bad = bad || '請填「' + name + '」的數量。'; return; }
+      if (!g('unit')) { bad = bad || '請填「' + name + '」的單位。'; return; }
+      if (!g('vendor')) { bad = bad || '請選「' + name + '」跟哪一家廠商叫。'; return; }
+      var ad = row.querySelector('[data-q="additem"]');
+      rows.push({ id: it ? it.id : '', name: name, vendor: g('vendor'), qty: toNum(g('qty')), unit: g('unit'), note: g('note'), addItem: !it && !!(ad && ad.checked) });
     });
     if (!$('qkDate').value) bad = '請選送貨日期。';
     if (!bad && !rows.length) bad = '請至少填一樣。';
@@ -1940,6 +1959,7 @@
           : '<span class="muted">這家這天的叫貨單還沒確定，補的會跟著「廠商訂貨單 → ② 訂貨單」一起確定。</span>') + '</div>';
       }).join('');
       $('qkMsg').innerHTML = '<div class="msg ok">' + html + '</div>';
+      if (rows.some(function (x) { return x.addItem; })) call('getBootstrap', token).then(function (d) { if (d && d.items) { data.items = d.items; itemById = {}; data.items.forEach(function (it) { itemById[it.id] = it; }); $('itemList').innerHTML = data.items.map(function (it) { return '<option value="' + esc(it.id + ' ' + it.name) + '">'; }).join(''); } }).catch(function () {});
       $('qkRows').innerHTML = qkRowHtml();
     }).catch(function (e) { msg('qkMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
   });

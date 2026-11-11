@@ -740,13 +740,18 @@ function adminQuickPurchase(token, date, rows) {
     if (!(qty > 0 && qty <= 99999)) throw new Error('「' + name + '」的數量不正確。');
     const unit = clean_(x.unit, 10);
     if (!unit) throw new Error('「' + name + '」沒有填單位。');
-    return { id: it ? it.id : '', name: name, vendor: vendor, qty: Math.round(qty * 100) / 100, unit: unit, note: clean_(x.note, 40) };
+    return { id: it ? it.id : '', name: name, vendor: vendor, qty: Math.round(qty * 100) / 100, unit: unit, note: clean_(x.note, 40), addItem: !it && !!x.addItem };
   });
   const vg = readVendorGroups_(), contacts = readVendorContacts_(), now = new Date(), out = {};
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.purchase, PURCHASE_HEADERS);
+    // 食材總表沒有的：勾了「也加到食材總表」就新增（以後可以直接選）
+    list.forEach(function (x) {
+      if (!x.addItem) return;
+      try { x.id = createItem_({ name: x.name, vendor: x.vendor, unit: x.unit }); x.added = true; } catch (e) { x.addErr = e.message; }
+    });
     const have = {};
     readTable_(SHEET.purchase, ['送貨日期', '廠商']).rows.forEach(function (r) {
       if (purchaseDate_(r['送貨日期']) !== ds) return;
@@ -756,7 +761,7 @@ function adminQuickPurchase(token, date, rows) {
     const add = list.map(function (x) {
       const st = have[x.vendor] === '已確定' ? '已確定' : '草稿';
       const o = out[x.vendor] = out[x.vendor] || { vendor: x.vendor, status: st, phone: (contacts[x.vendor] || {}).phone || '', items: [] };
-      o.items.push(x.name + ' ' + x.qty + ' ' + x.unit);
+      o.items.push(x.name + ' ' + x.qty + ' ' + x.unit + (x.added ? '（已加到食材總表）' : x.addErr ? '（' + x.addErr + '）' : ''));
       return { '送貨日期': ds, '送貨組別': deliveryGroup_(x.vendor, d.getDay(), vg), '廠商': x.vendor, '訂單編號': '', '上課班級': '', '老師': '',
         '食材名稱': x.name, '食材ID': x.id, '需求量': '', '需求單位': '', '叫貨量': x.qty, '叫貨單位': x.unit, '類型': '補庫存',
         '備註': ('補訂貨' + (x.note ? '：' + x.note : '')).slice(0, 60), '狀態': st, '確定時間': now, '確認人': admin };
