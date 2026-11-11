@@ -2378,7 +2378,14 @@ function signLineApi_(path, payload) {
   return UrlFetchApp.fetch('https://api.line.me/v2/bot/' + path, opt);
 }
 function signLinePush_(to, text) { try { return signLineApi_('message/push', { to: to, messages: [{ type: 'text', text: String(text).slice(0, 4900) }] }).getResponseCode() === 200; } catch (e) { return false; } }
-function signLineReply_(tok, text) { try { signLineApi_('message/reply', { replyToken: tok, messages: [{ type: 'text', text: String(text).slice(0, 4900) }] }); } catch (e) {} }
+function signLineReply_(tok, text) { signLineReplyMsgs_(tok, [{ type: 'text', text: String(text).slice(0, 4900) }]); }
+/** 回覆（可以是文字或卡片），回覆不算則數；最多 5 則 */
+function signLineReplyMsgs_(tok, msgs) {
+  try {
+    const res = signLineApi_('message/reply', { replyToken: tok, messages: msgs.slice(0, 5) });
+    if (res.getResponseCode() !== 200) console.error('reply ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 300));
+  } catch (e) { console.error('reply ' + e.message); }
+}
 function signLineQuota_() {
   try {
     const a = signLineApi_('message/quota'), b = signLineApi_('message/quota/consumption');
@@ -2410,10 +2417,15 @@ function doPost(e) {
       if (src.type !== 'user' || !src.userId) return;   // 群組裡不回
       const m = text.match(/^簽核\s*(\d{6})$/);
       if (m) { signLineReply_(ev.replyToken, signLineBind_(m[1], src.userId)); return; }
-      if (/^(進度|核銷進度|全部進度|卡住|卡住的)$/.test(text)) { signLineReply_(ev.replyToken, signRolesOf_(src.userId).some(signIsAdmin_) ? signProgressText_(/卡住/.test(text)) : '這個功能只有管理者可以用。'); return; }
+      const pm = text.match(/^(進度|核銷進度|全部進度|卡住|卡住的)(?:\s+(.{1,40}))?$/);
+      if (pm) {
+        if (!signRolesOf_(src.userId).some(signIsAdmin_)) { signLineReply_(ev.replyToken, '這個功能只有管理者可以用。'); return; }
+        signLineReplyMsgs_(ev.replyToken, signProgressMsgs_(/卡住/.test(pm[1]), (pm[2] || '').trim()));
+        return;
+      }
       if (/^(已簽|已簽紀錄|我簽過的)$/.test(text)) { signLineReply_(ev.replyToken, signDoneText_(src.userId)); return; }
       if (/^(說明|使用說明|怎麼用)$/.test(text)) { signLineReply_(ev.replyToken, SIGN_HELP_TEXT + (signRolesOf_(src.userId).some(signIsAdmin_) ? SIGN_ADMIN_HELP : '')); return; }
-      if (/待簽|簽核|核銷|清單/.test(text) && text.length <= 10) { signLineReply_(ev.replyToken, signPendingText_(src.userId)); return; }
+      if (/待簽|簽核|核銷|清單/.test(text) && text.length <= 10) { signLineReplyMsgs_(ev.replyToken, signPendingMsgs_(src.userId)); return; }
       signLineReply_(ev.replyToken, '傳「待簽」可以看輪到您簽的文件。\n第一次使用請傳「簽核 綁定碼」（綁定碼請找承辦人拿）。');
     });
   } catch (err) { console.error('doPost ' + err.message); }
@@ -2442,8 +2454,8 @@ const SIGN_ADMIN_HELP = '\n\n【管理者】\n・「📊 核銷進度」：全�
 /** 「管理者」開頭的關卡＝管理者：LINE 可以看全部進度 */
 function signIsAdmin_(role) { return /^管理者/.test(String(role || '')); }
 /** 管理者在 LINE 看全部進度（stuckOnly：只看超過 7 天沒動的） */
-function signProgressText_(stuckOnly) {
-  if (!ss_().getSheetByName('核銷分配')) return '目前沒有核銷資料。';
+function signProgressList_(stuckOnly) {
+  if (!ss_().getSheetByName('核銷分配')) return [];
   const mp = hxStepMaps_(), inv = {}, list = [], now = Date.now();
   if (ss_().getSheetByName('核銷發票')) readTable_('核銷發票', ['發票編號']).rows.forEach(function (x) { inv[String(x['發票編號']).trim()] = x; });
   const ts = function (v) { if (v instanceof Date) return v.getTime(); const m = String(v || '').match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/); return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : null; };
@@ -2459,17 +2471,87 @@ function signProgressText_(stuckOnly) {
     const v = String(inv[id]['廠商'] || '');
     list.push({ hxno: hxNo_(id), co: SIGN_VCO[v] || v, amount: Number(r['金額']) || 0, cat: cat, at: steps[k].label, k: k + 1, n: steps.length, days: days });
   });
-  if (!list.length) return stuckOnly ? '✓ 沒有超過 7 天沒動的文件。' : '✓ 全部都核銷完了，沒有送簽中的文件。';
+  return list.sort(function (a, b) { return (b.days || 0) - (a.days || 0); });
+}
+// ---- LINE 卡片（Flex Message）：比一大段文字好讀，回覆一樣不算則數 ----
+const FX_RED = '#8b1a1a', FX_GRAY = '#78716c', FX_WARN = '#b42318';
+function fxText_(t, o) { return Object.assign({ type: 'text', text: String(t == null || t === '' ? ' ' : t).slice(0, 2000), wrap: true }, o || {}); }
+function fxMoney_(n) { return '$' + (Number(n) || 0).toLocaleString('en-US'); }
+function fxBubble_(title, sub, rows, footer, color) {
+  const b = { type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', backgroundColor: color || FX_RED, paddingAll: '14px', contents: [fxText_(title, { color: '#ffffff', weight: 'bold', size: 'lg' })].concat(sub ? [fxText_(sub, { color: '#ffffffcc', size: 'sm', margin: 'xs' })] : []) },
+    body: { type: 'box', layout: 'vertical', spacing: 'md', paddingAll: '14px', contents: rows.length ? rows : [fxText_('（沒有）', { color: FX_GRAY })] } };
+  if (footer && footer.length) b.footer = { type: 'box', layout: 'vertical', spacing: 'xs', paddingAll: '10px', contents: footer };
+  return b;
+}
+function fxFlex_(alt, bubbles) {
+  return { type: 'flex', altText: String(alt).slice(0, 380), contents: bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles.slice(0, 12) } };
+}
+/** 一筆文件的一列：編號＋廠商＋金額，下面一行小字（類別、第幾關、幾天） */
+function fxDocRow_(x, line2, warn) {
+  return { type: 'box', layout: 'vertical', spacing: 'xs', contents: [
+    { type: 'box', layout: 'horizontal', contents: [fxText_(x.hxno + '　' + x.co, { weight: 'bold', size: 'sm', flex: 5 }), fxText_(fxMoney_(x.amount), { size: 'sm', align: 'end', flex: 3, weight: 'bold' })] },
+    fxText_(line2, { size: 'xs', color: warn ? FX_WARN : FX_GRAY })] };
+}
+function fxShortCat_(c) { return String(c || '').replace(/國中技藝班（(.+)）/, '技藝$1').replace(/國中生涯實作（(.+)）/, '生涯$1'); }
+/** 管理者：全部進度（一張總覽卡＋按關卡看明細），或某一關的明細，或卡住的 */
+function signProgressMsgs_(stuckOnly, station) {
+  const all = signProgressList_(stuckOnly);
+  if (!all.length) return [{ type: 'text', text: stuckOnly ? '✓ 沒有超過 7 天沒動的文件。' : '✓ 全部都核銷完了，沒有送簽中的文件。' }];
+  const total = all.reduce(function (t, x) { return t + x.amount; }, 0);
+  const detail = function (list, title, color) {
+    const bubbles = [], per = 10;
+    for (let i = 0; i < list.length && bubbles.length < 10; i += per) {
+      const part = list.slice(i, i + per);
+      bubbles.push(fxBubble_(title, list.length > per ? (i + 1) + '～' + (i + part.length) + '／共 ' + list.length + ' 筆' : '共 ' + list.length + ' 筆・' + fxMoney_(list.reduce(function (t, x) { return t + x.amount; }, 0)),
+        part.map(function (x) { return fxDocRow_(x, fxShortCat_(x.cat) + '・' + (station ? '' : '在「' + x.at + '」') + '第 ' + x.k + '／' + x.n + ' 關' + (x.days === null ? '' : '・' + x.days + ' 天'), x.days > 7); }), null, color));
+    }
+    const more = list.length > 100 ? [{ type: 'text', text: '還有 ' + (list.length - 100) + ' 筆，請到系統「送簽進度」看。' }] : [];
+    return [fxFlex_(title + '：' + list.length + ' 筆', bubbles)].concat(more);
+  };
+  if (stuckOnly) return detail(all, '⏰ 卡住的（超過 7 天）', '#b54708');
+  if (station) {
+    const list = all.filter(function (x) { return x.at === station; });
+    if (!list.length) return [{ type: 'text', text: '「' + station + '」現在沒有文件。' }];
+    return detail(list, '📍 ' + station, FX_RED);
+  }
+  // 總覽：每一關幾筆、多少錢、最久幾天；下面按鈕看那一關的明細
   const by = {}, order = [];
-  list.forEach(function (x) { if (!by[x.at]) { by[x.at] = 0; order.push(x.at); } by[x.at]++; });
-  order.sort(function (a, b) { return by[b] - by[a]; });
-  list.sort(function (a, b) { return (b.days || 0) - (a.days || 0); });
-  const total = list.reduce(function (t, x) { return t + x.amount; }, 0);
-  return (stuckOnly ? '⏰ 超過 7 天沒動的有 ' : '📊 送簽中的有 ') + list.length + ' 筆，共 $' + total.toLocaleString('en-US') + '\n' +
-    '\n【現在在哪裡】\n' + order.map(function (a) { return '・' + a + '：' + by[a] + ' 筆'; }).join('\n') +
-    '\n\n【明細，等最久的在前面】\n' + list.slice(0, 20).map(function (x) {
-      return (x.days > 7 ? '🔴' : '・') + '【' + x.hxno + '】' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）\n   在「' + x.at + '」第 ' + x.k + '／' + x.n + ' 關' + (x.days === null ? '' : '，' + x.days + ' 天');
-    }).join('\n') + (list.length > 20 ? '\n…還有 ' + (list.length - 20) + ' 筆，請到系統「送簽進度」看。' : '');
+  all.forEach(function (x) { const g = by[x.at] = by[x.at] || (order.push(x.at), { n: 0, amt: 0, max: 0 }); g.n++; g.amt += x.amount; g.max = Math.max(g.max, x.days || 0); });
+  order.sort(function (a, b) { return by[b].n - by[a].n; });
+  const stuck = all.filter(function (x) { return x.days > 7; }).length;
+  const rows = [{ type: 'box', layout: 'horizontal', contents: [fxText_('在哪一關', { size: 'xs', color: FX_GRAY, flex: 5 }), fxText_('筆數', { size: 'xs', color: FX_GRAY, align: 'end', flex: 2 }), fxText_('最久', { size: 'xs', color: FX_GRAY, align: 'end', flex: 2 })] }, { type: 'separator' }]
+    .concat(order.map(function (a) {
+      const g = by[a];
+      return { type: 'box', layout: 'horizontal', contents: [
+        { type: 'box', layout: 'vertical', flex: 5, contents: [fxText_(a, { size: 'sm', weight: 'bold' }), fxText_(fxMoney_(g.amt), { size: 'xs', color: FX_GRAY })] },
+        fxText_(g.n + ' 筆', { size: 'sm', align: 'end', flex: 2, gravity: 'center' }),
+        fxText_(g.max + ' 天', { size: 'sm', align: 'end', flex: 2, gravity: 'center', color: g.max > 7 ? FX_WARN : '#111111', weight: g.max > 7 ? 'bold' : 'regular' })] };
+    }));
+  if (stuck) rows.push({ type: 'separator' }, fxText_('🔴 超過 7 天沒動：' + stuck + ' 筆', { size: 'sm', color: FX_WARN, weight: 'bold' }));
+  const buttons = order.slice(0, 5).map(function (a) {
+    return { type: 'button', style: 'link', height: 'sm', action: { type: 'message', label: ('看「' + a + '」' + by[a].n + ' 筆').slice(0, 20), text: '進度 ' + a } };
+  });
+  if (stuck) buttons.push({ type: 'button', style: 'link', height: 'sm', color: FX_WARN, action: { type: 'message', label: ('看卡住的 ' + stuck + ' 筆').slice(0, 20), text: '卡住' } });
+  return [fxFlex_('📊 送簽中 ' + all.length + ' 筆，共 ' + fxMoney_(total), [fxBubble_('📊 核銷進度', '送簽中 ' + all.length + ' 筆・' + fxMoney_(total), rows, buttons, FX_RED)])];
+}
+/** 「待簽」：輪到他的文件，一份一張卡片，按鈕直接打開「已簽好」頁 */
+function signPendingMsgs_(userId) {
+  const roles = signRolesOf_(userId);
+  if (!roles.length) return [{ type: 'text', text: '您還沒綁定。請找承辦人拿綁定碼，傳「簽核 123456」（換成您的綁定碼）。' }];
+  const list = signPendingFor_(roles);
+  if (!list.length) return [{ type: 'text', text: '✓ 目前沒有文件等「' + roles.join('、') + '」簽。' }];
+  const bubbles = list.slice(0, 12).map(function (x) {
+    return fxBubble_(x.hxno + '　' + x.co, fxShortCat_(x.cat), [
+      fxText_(fxMoney_(x.amount), { size: 'xxl', weight: 'bold' }),
+      { type: 'box', layout: 'vertical', spacing: 'xs', contents: [
+        fxText_('第 ' + x.k + '／' + x.n + ' 關' + (x.since ? '・' + x.since.slice(5, 10) + ' 送到' : ''), { size: 'sm', color: FX_GRAY }),
+        fxText_(x.no ? '發票 ' + x.no : ' ', { size: 'sm', color: FX_GRAY })] },
+      fxText_('紙本簽好後，按下面的按鈕。', { size: 'xs', color: FX_GRAY })],
+      [{ type: 'button', style: 'primary', color: FX_RED, action: { type: 'uri', label: '✓ 簽好了，按這裡', uri: x.url } }]);
+  });
+  return [{ type: 'text', text: '輪到「' + roles.join('、') + '」簽的有 ' + list.length + ' 份' + (list.length > 1 ? '，左右滑動看每一份' : '') + '：' },
+    fxFlex_('輪到您簽的有 ' + list.length + ' 份', bubbles)].concat(list.length > 12 ? [{ type: 'text', text: '還有 ' + (list.length - 12) + ' 份，簽完這些再按一次「我的待簽」。' }] : []);
 }
 function signRolesOf_(userId) {
   const roles = [];
@@ -2537,16 +2619,6 @@ function signLinkAdminMenu_(userId) {
   try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + userId + '/richmenu/' + aid, { method: 'post', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + signLineToken_() } }); } catch (e) {}
 }
 /** 傳「待簽」的回覆：這個 LINE 綁定的關卡，現在輪到他的文件 */
-function signPendingText_(userId) {
-  const roles = signRolesOf_(userId);
-  if (!roles.length) return '您還沒綁定。請找承辦人拿綁定碼，傳「簽核 123456」（換成您的綁定碼）。';
-  const list = signPendingFor_(roles);
-  if (!list.length) return '✓ 目前沒有文件等「' + roles.join('、') + '」簽。';
-  return '輪到「' + roles.join('、') + '」簽的文件有 ' + list.length + ' 份：\n' + list.slice(0, 15).map(function (x, i) {
-    return '\n' + (i + 1) + '. 【' + x.hxno + '】' + x.co + ' $' + x.amount.toLocaleString('en-US') + '（' + x.cat + '）' + (x.no ? '\n   發票 ' + x.no : '') + '\n   第 ' + x.k + '／' + x.n + ' 關，' + (x.since ? x.since.slice(5, 10).replace('/', '/') + ' 起' : '') +
-      '\n   簽好後按：' + x.url;
-  }).join('\n') + (list.length > 15 ? '\n\n還有 ' + (list.length - 15) + ' 份，簽完這些再傳一次「待簽」。' : '') + '\n\n（紙本仍要簽名；按連結只是記錄這一關好了）';
-}
 function signPendingFor_(roles) {
   if (!ss_().getSheetByName('核銷分配')) return [];
   const mp = hxStepMaps_(), inv = {}, out = [];
