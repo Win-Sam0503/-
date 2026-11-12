@@ -1169,6 +1169,7 @@
           <button type="button" class="btn ghost small" id="aLineBind">產生綁定碼</button>
           <button type="button" class="btn ghost small" id="aRichMenu">設定官方帳號選單</button>
         </div>
+        <div class="row" style="margin-top:6px;gap:6px;align-items:center"><button type="button" class="btn ghost small" id="aCrewCode" title="校隊同學加官方 LINE 後傳這個碼，就能看料單和課表（不能訂貨）">🏅 產生校隊綁定碼</button><button type="button" class="btn ghost small" id="aCrewClear" style="color:var(--bad)">清除全部校隊 LINE</button><span id="aCrewInfo" class="small muted"></span></div>
         <div id="aBindInfo" class="small" style="margin-top:8px"></div>
       </div>
       <div class="panel noprint" id="speedPanel">
@@ -7388,6 +7389,7 @@
       '每週' + st.remindDay + ' ' + st.remindHour + ':00 用 LINE 私訊提醒還沒訂貨的老師：' + yes(st.remindTrigger, '已啟用', '未啟用') +
         '（課表 ' + st.scheduleCount + ' 堂課）' +
         (st.lastRemindTime ? '　上次提醒：' + esc(st.lastRemindTime) : '') + '<br>' +
+      '🏅 校隊：已綁定 ' + (ln.crewBound || 0) + ' 人' + (ln.crewCode ? '，校隊綁定碼 <b style="font-size:16px">校隊 ' + esc(ln.crewCode.code) + '</b>（到 ' + esc(ln.crewCode.until) + '）' : '') + '<br>' +
       '已綁定 LINE 的老師（' + ln.teachersBound.length + ' 位）：' + esc(ln.teachersBound.join('、') || '（還沒有）') + '<br>' +
       '本月 LINE 則數：' + (ln.quota ? (ln.quota.limit ? '已用 ' + ln.quota.used + '／' + ln.quota.limit + ' 則' +
         (ln.quota.limit - ln.quota.used < 40 ? ' <b style="color:var(--bad)">快用完了</b>' : '') + '（剩不到 ' + st.lineReserve + ' 則時自動停止私訊老師）' : '已用 ' + ln.quota.used + ' 則（無上限）') : '查不到（Token 未設定）') + '<br>' +
@@ -7807,8 +7809,33 @@
 
   $('aRichMenu').addEventListener('click', function () {
     if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n管理者另外有管理者版選單（補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單）。\n這個不會用到則數。')) return;
-    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng());
+    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng(), crewMenuPng());
   });
+  $('aCrewCode').addEventListener('click', function () {
+    autoCall(this, 'adminCrewLineCode', function (st) {
+      var c = st && st.line && st.line.crewCode;
+      return c ? '校隊綁定碼：「校隊 ' + c.code + '」（到 ' + c.until + '，全部校隊同學用同一個）。請同學加官方 LINE 好友，傳這句話就好。看到的選單只有料單、課表，不能訂貨。' : '已產生。';
+    });
+  });
+  $('aCrewClear').addEventListener('click', function () {
+    if (!safeConfirm('清除全部校隊的 LINE？（換屆、畢業時用）\n之後要看的同學要重新傳新的綁定碼。')) return;
+    autoCall(this, 'adminCrewLineClear', function () { return '已清除全部校隊的 LINE，綁定碼也作廢了。'; });
+  });
+  // 校隊版 LINE 選單圖片（2×2）
+  function crewMenuPng() {
+    var W = 2500, H = 1686, cw = W / 2, rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d'), items = [['📋', '今天料單', '每張料單的食材', '#067647'], ['📋', '明天料單', '每張料單的食材', '#0e9f6e'], ['👩‍🍳', '今天課表', '誰上課、哪一班', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、哪一班', '#3b5bdb']];
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    items.forEach(function (it, i) {
+      var c = i % 2, r = Math.floor(i / 2), x = c * cw, y = r * rh;
+      g.fillStyle = it[3]; g.fillRect(x + 16, y + 16, cw - 32, rh - 32);
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = '230px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillText(it[0], x + cw / 2, y + 260);
+      g.font = 'bold 150px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(it[1], x + cw / 2, y + 540);
+      g.font = '80px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(it[2], x + cw / 2, y + 700);
+    });
+    return cv.toDataURL('image/png');
+  }
   // 管理者版 LINE 選單圖片（2×3）：在瀏覽器畫好傳上去
   function adminMenuPng() {
     var W = 2500, H = 1686, cw = Math.floor(W / 3), rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;

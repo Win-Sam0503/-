@@ -3859,6 +3859,8 @@ function doPost(e) {
         const codeAns = updateCodeReply_(ev, props);
         if (codeAns) { lineReply_(ev.replyToken, codeAns); return; }
       }
+      const cm = String(ev.message.text).trim().match(/^校隊\s*(\d{6})$/);
+      if (cm) { lineReply_(ev.replyToken, lineCrewBind_(cm[1], ev.source)); return; }
       const m = String(ev.message.text).trim().match(/^綁定\s*(群組)?\s*(\d{6})$/);
       if (!m) {
         // 選單按鈕（我的未訂貨課程、我的訂單、截止時間說明）：免費回覆；群組裡不回
@@ -6074,7 +6076,9 @@ function myLineUnbind(token) {
 function lineStatus_() {
   const props = PropertiesService.getScriptProperties().getProperties();
   const bound = Object.keys(props).filter(function (k) { return k.indexOf('LU:') === 0; }).map(function (k) { return k.slice(3); }).sort();
-  return { teachersBound: bound, quota: lineQuota_(), richMenu: props.RICH_MENU_ID || '' };
+  let cc = null; try { cc = JSON.parse(props.CREW_CODE || 'null'); } catch (e) {}
+  return { teachersBound: bound, quota: lineQuota_(), richMenu: props.RICH_MENU_ID || '',
+    crewBound: Object.keys(props).filter(function (k) { return k.indexOf('CL:') === 0; }).length, crewCode: cc && cc.until > Date.now() ? { code: cc.code, until: Utilities.formatDate(new Date(cc.until), tz_(), 'MM/dd HH:mm') } : null };
 }
 
 /** 老師在官方帳號按選單（或打字）時的免費回覆 */
@@ -6118,7 +6122,7 @@ function lineAutoReply_(text, userId) {
 }
 
 /** 管理者：建立官方帳號圖文選單（6 個按鈕，上下兩排）並設為預設 */
-function adminSetupRichMenu(token, adminPng) {
+function adminSetupRichMenu(token, adminPng, crewPng) {
   auth_(token, true);
   const props = PropertiesService.getScriptProperties();
   const lineToken = props.getProperty('LINE_TOKEN');
@@ -6157,7 +6161,67 @@ function adminSetupRichMenu(token, adminPng) {
   if (old && old !== id) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
   props.setProperty('RICH_MENU_ID', id);
   if (adminPng) lineSetupAdminMenu_(adminPng);
+  if (crewPng) lineSetupCrewMenu_(crewPng);
   return automationStatus_();
+}
+// ---- 校隊：加官方 LINE、傳「校隊 綁定碼」，選單只有看料單、看課表（唯讀，不能訂貨）----
+/** 管理者：產生校隊綁定碼（7 天內有效，全部校隊同學用同一個） */
+function adminCrewLineCode(token) {
+  auth_(token, true);
+  if (!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN')) throw new Error('請先設定 LINE 官方帳號。');
+  const code = String(Math.floor(100000 + Math.random() * 900000)), until = Date.now() + 7 * 86400000;
+  PropertiesService.getScriptProperties().setProperty('CREW_CODE', JSON.stringify({ code: code, until: until }));
+  return automationStatus_();
+}
+/** 管理者：清掉全部校隊的 LINE（換屆、畢業）。選單換回一般版 */
+function adminCrewLineClear(token) {
+  auth_(token, true);
+  const props = PropertiesService.getScriptProperties(), all = props.getProperties(), lineToken = props.getProperty('LINE_TOKEN');
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('CL:') !== 0) return;
+    if (lineToken) { try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + k.slice(3) + '/richmenu', { method: 'delete', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + lineToken } }); } catch (e) {} }
+    props.deleteProperty(k);
+  });
+  props.deleteProperty('CREW_CODE');
+  return automationStatus_();
+}
+function lineCrewBind_(code, src) {
+  if (!src || src.type !== 'user' || !src.userId) return '請用個人聊天室（不是群組）傳「校隊 綁定碼」。';
+  const props = PropertiesService.getScriptProperties();
+  let c = null; try { c = JSON.parse(props.getProperty('CREW_CODE') || 'null'); } catch (e) {}
+  if (!c || c.code !== code || !(c.until > Date.now())) return '校隊綁定碼不正確或已過期，請找管理者拿新的。';
+  props.setProperty('CL:' + src.userId, Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm'));
+  lineLinkMenu_(src.userId, 'CREW_RICH_MENU_ID');
+  return '校隊綁定完成！下方選單可以看今天／明天的料單和課表（選單沒換的話，關掉聊天室再打開）。\n也可以傳「料單 11/12」「課表 11/12」查某一天。';
+}
+function lineIsCrew_(userId) { return !!(userId && PropertiesService.getScriptProperties().getProperty('CL:' + userId)); }
+function lineLinkMenu_(userId, key) {
+  const props = PropertiesService.getScriptProperties(), id = props.getProperty(key), lineToken = props.getProperty('LINE_TOKEN');
+  if (!id || !lineToken || !userId) return;
+  try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + userId + '/richmenu/' + id, { method: 'post', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + lineToken } }); } catch (e) {}
+}
+/** 校隊選單（2×2）：今天料單、明天料單、今天課表、明天課表 */
+function lineSetupCrewMenu_(png) {
+  const props = PropertiesService.getScriptProperties(), lineToken = props.getProperty('LINE_TOKEN');
+  const b64 = String(png || '').replace(/^data:image\/png;base64,/, '');
+  if (!lineToken || b64.length < 1000 || b64.length > 1300000) return;
+  const auth = { Authorization: 'Bearer ' + lineToken };
+  const w = 2500, h = 1686, cw = w / 2, rh = h / 2;
+  const areas = [['今天料單', '今天料單'], ['明天料單', '明天料單'], ['今天課表', '今天課表'], ['明天課表', '明天課表']].map(function (a, i) {
+    const c = i % 2, r = Math.floor(i / 2);
+    return { bounds: { x: c * cw, y: r * rh, width: cw, height: rh }, action: { type: 'message', label: a[0], text: a[1] } };
+  });
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
+    payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統校隊選單', chatBarText: '校隊選單', areas: areas }) });
+  if (res.getResponseCode() !== 200) throw new Error('建立校隊選單失敗：' + res.getContentText().slice(0, 200));
+  const id = JSON.parse(res.getContentText()).richMenuId;
+  const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: 'image/png', muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
+  if (up.getResponseCode() !== 200) throw new Error('上傳校隊選單圖片失敗：' + up.getContentText().slice(0, 200));
+  const old = props.getProperty('CREW_RICH_MENU_ID');
+  if (old && old !== id) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
+  props.setProperty('CREW_RICH_MENU_ID', id);
+  const all = props.getProperties();
+  Object.keys(all).forEach(function (k) { if (k.indexOf('CL:') === 0) lineLinkMenu_(k.slice(3), 'CREW_RICH_MENU_ID'); });
 }
 /** 管理者專用選單（2×3）：補訂貨、訂貨系統、驗收系統／查看課表、查看料單、查看叫貨單。圖片在瀏覽器畫好傳上來 */
 function lineSetupAdminMenu_(png) {
@@ -6219,6 +6283,7 @@ function lineDateArg_(s) {
   if (m) { const d = new Date(t.getFullYear(), m[1] - 1, +m[2]); return d < addDays_(t, -180) ? new Date(t.getFullYear() + 1, m[1] - 1, +m[2]) : d; }
   return null;
 }
+let LINE_VIEW_CREW_ = false;   // 這次回覆是給校隊看（快速按鈕不放叫貨單）
 function lineAdminReply_(text, userId) {
   const t = String(text || '').trim();
   const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單|叫貨單)\s*(.{0,20})$/);
@@ -6233,7 +6298,10 @@ function lineAdminReply_(text, userId) {
   }
   if (!m && !help && !go) return null;
   const account = lineAccountOf_(userId);
-  if (!account || !isAdmin_(account)) return m || go && t === '補訂貨' ? [{ type: 'text', text: '這個功能只有管理者可以用。' }] : null;
+  // 校隊：只能看料單、課表（唯讀）
+  if ((!account || !isAdmin_(account)) && lineIsCrew_(userId) && m && (m[2] === '課表' || m[2] === '料單')) LINE_VIEW_CREW_ = true;
+  else if (!account || !isAdmin_(account)) return m || go && t === '補訂貨' ? [{ type: 'text', text: '這個功能只有管理者可以用。' }] : null;
+  else LINE_VIEW_CREW_ = false;
   if (go) {
     const link = lineLoginLink_(account, t === '補訂貨' ? 'quick' : '');
     if (!link) return [{ type: 'text', text: '訂貨網站還沒部署。' }];
@@ -6298,7 +6366,7 @@ function lineOrdersMsgs_(from, to, teacher) {
       [fxT_(its.length + ' 項食材', { size: 'xs', color: FX_MUTED })].concat(rows));
   });
   const ds0 = dateStr_(from);
-  const qr = one ? { items: [['◀ 前一天', '料單 ' + dateStr_(addDays_(from, -1))], ['後一天 ▶', '料單 ' + dateStr_(addDays_(from, 1))], ['這天課表', '課表 ' + ds0], ['這天叫貨單', '叫貨單 ' + ds0]].map(function (x) { return { type: 'action', action: { type: 'message', label: x[0], text: x[1] } }; }) } : null;
+  const qr = one ? { items: [['◀ 前一天', '料單 ' + dateStr_(addDays_(from, -1))], ['後一天 ▶', '料單 ' + dateStr_(addDays_(from, 1))], ['這天課表', '課表 ' + ds0]].concat(LINE_VIEW_CREW_ ? [] : [['這天叫貨單', '叫貨單 ' + ds0]]).map(function (x) { return { type: 'action', action: { type: 'message', label: x[0], text: x[1] } }; }) } : null;
   const msgs = [{ type: 'text', text: title.replace(/^📋 /, '') + '：共 ' + orders.length + ' 張' + (orders.length > 1 ? '，左右滑動看每一張' : '') + (orders.length > 12 ? '（先列 12 張，其他請到網站「訂單彙整」看）' : '') }, fxFlexMsg_(title, bubbles)];
   if (qr) msgs[msgs.length - 1].quickReply = qr;
   return msgs;
