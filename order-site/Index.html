@@ -758,7 +758,13 @@
         <div class="tpl-row">
           <label class="btn secondary small file-btn" for="impFile">選擇檔案／拍照</label>
           <input id="impFile" type="file" accept=".xlsx,.xls,.xlsm,.csv,.ods,.docx,.doc,.odt,.txt,image/*,.pdf" class="file-hidden">
+          <button type="button" class="btn secondary small" id="impTypeBtn">✍ 打字輸入</button>
           <span class="muted small">系統會讀出食材、數量、單位和上課資訊，確認後才會加入訂購清單。</span>
+        </div>
+        <div id="impTypeBox" class="hidden" style="margin-top:8px">
+          <div class="muted small" style="margin-bottom:4px">一行一樣：<b>食材 數量 單位</b>（空白可以省略）。也可以從 LINE、記事本、Word 直接複製貼上整份配方。上面加一行上課資訊會一起帶入，例如「11/20 上午 301 宮保雞丁 6組」。</div>
+          <textarea id="impTypeText" rows="8" style="width:100%;font-size:16px" placeholder="例如：&#10;11/20 上午 301 宮保雞丁 6組&#10;雞胸肉 4付&#10;乾辣椒 20g&#10;蒜頭 3顆&#10;花生 100g&#10;醬油 2大匙"></textarea>
+          <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="impTypeGo">讀取</button><button type="button" class="btn ghost small" id="impTypeClear">清除</button><span class="muted small">打錯沒關係，下一步會列出來讓你確認、修改。</span></div>
         </div>
         <div id="impMsg" style="margin-top:8px"></div>
         <div id="impReview"></div>
@@ -8133,6 +8139,42 @@
       renderImport();
     }).catch(function (e) { msg('impMsg', 'error', '讀取失敗：' + e.message); });
   });
+  // ✍ 打字輸入：一行一樣（食材 數量 單位），跟讀檔案一樣比對食材總表，確認後加入訂購清單
+  $('impTypeBtn').addEventListener('click', function () {
+    var box = $('impTypeBox'); box.classList.toggle('hidden');
+    if (!box.classList.contains('hidden')) {
+      try { if (!$('impTypeText').value) $('impTypeText').value = localStorage.getItem('ckOrder.typed') || ''; } catch (e) {}
+      $('impTypeText').focus();
+    }
+  });
+  $('impTypeText').addEventListener('input', function () { try { localStorage.setItem('ckOrder.typed', this.value); } catch (e) {} });   // 打到一半關掉不會不見
+  $('impTypeClear').addEventListener('click', function () { $('impTypeText').value = ''; try { localStorage.removeItem('ckOrder.typed'); } catch (e) {} $('impTypeText').focus(); });
+  $('impTypeGo').addEventListener('click', function () {
+    var t = $('impTypeText').value.replace(/\r/g, '').trim();
+    if (!t) { $('impTypeText').focus(); msg('impMsg', 'error', '請先打食材，一行一樣，例如「洋蔥 2 顆」。'); return; }
+    // 一行打好幾樣（用、，；分開）也拆成一樣一行
+    var lines = t.split('\n').reduce(function (a, l) { return a.concat(/\d/.test(l) && /[、，,；;]/.test(l) && !/[組班]/.test(l) ? l.split(/[、，,；;]+/) : [l]); }, []).map(function (l) { return l.trim(); }).filter(Boolean);
+    msg('impMsg', '', '');
+    // 前幾行如果是上課資訊（「11/20 上午 301 宮保雞丁 6組」），拆出日期、時段、班級、組數、實作項目
+    var head = null;
+    for (var hi = 0; hi < Math.min(3, lines.length); hi++) {
+      var hl = halfWidth(lines[hi]);
+      if (/\d{1,2}\s*[\/月]\s*\d{1,2}|上午|下午|晚上|夜間|\d\s*組/.test(hl) && !/\d\s*(g|公克|克|公斤|kg|斤|兩|顆|個|包|罐|瓶|支|條|片|付|盒|大匙|小匙|T|t|ml|cc)\b/i.test(hl)) { head = hl; lines.splice(hi, 1); break; }
+    }
+    imp = { fileName: '打字輸入', kind: 'text', res: { kind: 'text', text: lines.join('\n'), tables: [] }, sheet: -1 };
+    parseImport();
+    if (head) {
+      var dm = head.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})日?/), cm = head.match(/(?:^|\s)((?:夜|國技|輪調)?\d{3}(?:\/\d{3})?|[一-龥]{1,4}\d{1,3}班?)(?=\s|$)/), gm = head.match(/(\d{1,2})\s*組/);
+      var lab = (dm ? '日期 ' + dm[1] + '/' + dm[2] + '\n' : '') + (head.match(/上午|下午|晚上|夜間/) || [''])[0] + '\n' + (cm ? '班級 ' + cm[1] + '\n' : '') + (gm ? '共 ' + gm[1] + ' 組\n' : '');
+      var hInfo = parseInfo(lab, []);
+      var proj = head.replace(/(\d{1,2})\s*[\/月]\s*(\d{1,2})日?/, ' ').replace(/上午|下午|晚上|夜間/, ' ').replace(/(\d{1,2})\s*組/, ' ').replace(cm ? cm[1] : '\u0000', ' ').replace(/\s+/g, ' ').trim();
+      if (proj && /[一-龥A-Za-z]/.test(proj)) hInfo.project = proj;
+      if (cm) hInfo.className = cm[1];
+      Object.keys(hInfo).forEach(function (k) { if (hInfo[k] && !imp.info[k]) imp.info[k] = hInfo[k]; });
+    }
+    if (!imp.rows.length) { msg('impMsg', 'error', '看不出食材，請一行一樣，例如「洋蔥 2 顆」「高筋麵粉 500g」。'); return; }
+    renderImport();
+  });
   // 一個 Excel 有很多工作表（每個實習項目一張）時，先選看起來是請料單的第一張
   function pickSheet(tables) {
     if (tables.length <= 1) return -1;
@@ -8704,6 +8746,7 @@
     var outDate = fileDate && $('fDate').value !== fileDate;
     saveDraft(); renderCart(); renderResults();
     var nFood = picked.filter(function (r) { return !r.tool; }).length, nTool = picked.length - nFood;
+    if (imp.kind === 'text') { $('impTypeText').value = ''; $('impTypeBox').classList.add('hidden'); try { localStorage.removeItem('ckOrder.typed'); } catch (e) {} }
     imp = null; renderImport();
     msg('impMsg', 'ok', '已' + (act === 'replace' ? '帶入' : '加入') + ' ' + nFood + ' 項食材' + (nTool ? '、' + nTool + ' 項器具' : '') + '。請檢查訂購清單和上課資訊後再送出。' +
       (newUnits.length ? '（新單位「' + newUnits.join('、') + '」會送管理者審核）' : '') +
