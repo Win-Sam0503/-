@@ -3042,7 +3042,32 @@
   // ------------------------------------------------------------------
   // 送出訂單
   // ------------------------------------------------------------------
-  var unitOkOnce = false;
+  var unitOkOnce = false, toolOkOnce = false;
+  // 器具名稱是不是食材：跟食材總表的名稱、別名一樣，或含有兩個字以上的食材名稱（「雞蛋 10 顆」）
+  function toolFoodMatch(name) {
+    var q = normName(name); if (!q) return null;
+    var hit = data.items.filter(function (it) { return normName(it.name) === q || String(it.alias || '').split(/[,，、]+/).some(function (a) { return a && normName(a) === q; }); })[0];
+    if (hit) return hit;
+    var part = data.items.filter(function (it) { var n = normName(it.name); return n.length >= 2 && q.indexOf(n) >= 0; }).sort(function (a, b) { return b.name.length - a.name.length; });
+    return part[0] || null;
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest || !e.target.closest('#toolToFood')) return;
+    var moved = [];
+    draft.tools = draft.tools.filter(function (t) {
+      var it = String(t.name || '').trim() && toolFoodMatch(t.name);
+      if (!it) return true;
+      // 「雞蛋 10顆」：名稱裡的數量、單位帶過去；備註只寫單位（g）也當單位
+      var m = String(t.name).match(/([\d.]+)\s*([^\d\s.]{1,3})\s*$/), u = m && validUnit(m[2]) ? m[2] : validUnit(String(t.note || '').trim()) ? String(t.note).trim() : '';
+      draft.cart.push({ key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: m && validUnit(m[2]) ? m[1] : (t.qty || ''),
+        unit: validUnit(u) || validUnit(it.unit) || '', note: u === String(t.note || '').trim() ? '' : (t.note || ''), isNew: false, noOrder: false, section: draft.activeSection });
+      moved.push(it.name);
+      return false;
+    });
+    saveDraft(); renderCart(); renderResults();
+    var no = $('askNo'); if (no) no.click();   // 關掉確認視窗
+    setTimeout(function () { notice('已移到食材：' + moved.join('、') + '。\n請檢查數量、選好單位，再按「送出訂單」。'); var c0 = $('cart'); if (c0) c0.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 200);
+  });
   $('submitBtn').addEventListener('click', function () {
     msg('lastBox', '', '');
     readInfo();
@@ -3103,6 +3128,21 @@
       return;
     }
     unitOkOnce = false;
+    // 器具：送出前列出來給老師確認（常常把食材訂到器具）；名字跟食材總表一樣的標紅，可以一鍵移到食材
+    if (tools.length && !toolOkOnce) {
+      var tf = tools.map(function (t) { return { t: t, it: toolFoodMatch(t.name) }; }), nf = tf.filter(function (x) { return x.it; }).length;
+      ask('', nf ? '都是器具，繼續送出' : '確定，繼續送出', { noText: '回去修改', html: '<div class="info-check"><h3>' + (nf ? '<span style="color:var(--bad)">⚠ 有 ' + nf + ' 樣看起來是食材</span>' : '請確認器具內容') + '</h3>' +
+        '<div class="muted small" style="margin-bottom:6px">下面這些會當成「器具」送出（<b>不會跟廠商叫食材</b>）。食材請放在上面的訂購清單。</div>' +
+        '<div class="tablewrap"><table class="small"><tbody>' + tf.map(function (x) {
+          return '<tr' + (x.it ? ' style="background:#fef3f2"' : '') + '><td>🔧 <b>' + esc(x.t.name) + '</b>' + (x.t.note ? '<div class="muted">' + esc(x.t.note) + '</div>' : '') + (x.it ? '<div style="color:var(--bad)">食材總表有「' + esc(x.it.name) + '」（' + esc(x.it.vendor) + '），是不是食材？</div>' : '') + '</td><td class="num" style="white-space:nowrap">' + esc(String(x.t.qty)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (nf ? '<button type="button" class="btn danger small" id="toolToFood" style="margin-top:8px">把標紅的 ' + nf + ' 樣移到食材</button><div class="muted small">移過去後要選單位，再按一次送出。</div>' : '') + '</div>' }).then(function (ok) {
+        if (!ok) { var t0 = $('tools'); if (t0) t0.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+        toolOkOnce = true; $('submitBtn').click();
+      });
+      return;
+    }
+    toolOkOnce = false;
     var payload = {
       useDate: i.useDate, dept: i.dept, classTime: i.classTime, room: i.room, groups: i.groups ? Number(i.groups) : '',
       className: i.className, project: i.project, onBehalfOf: i.onBehalfOf,
