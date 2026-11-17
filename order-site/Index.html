@@ -939,6 +939,18 @@
       </div>
       <div id="pendUnits"></div>
       <div id="pendList"></div>
+      <details class="panel" id="iuPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">📏 每樣食材的單位</h2> <span class="muted small" style="font-weight:normal">每樣只開 1～3 個單位，老師訂貨時只能選這幾個（單位不會亂、成本好算）</span></summary>
+        <div class="muted small" style="margin:6px 0">按「照過去訂單自動建議」，系統把每樣食材以前最常用的單位挑出來（同義的已合併：個、粒→顆；根、支→條）。看一下、要改就直接改（用「、」隔開），勾好按「套用勾的」。空白＝不限制。老師列印的料單照老師選的單位；給廠商的單子重量一律換算（乾貨、飲調換成克）。</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button type="button" class="btn secondary small" id="iuLoad">照過去訂單自動建議</button>
+          <input id="iuQ" type="search" placeholder="🔍 找食材、廠商" autocomplete="off" style="max-width:200px">
+          <select id="iuS" style="width:auto"><option value="">全部</option><option value="diff">建議跟目前不一樣的</option><option value="none">還沒設定的</option><option value="set">已經設定的</option></select>
+          <span style="flex:1"></span>
+          <button type="button" class="btn small" id="iuApply">套用勾的</button>
+        </div>
+        <div id="iuMsg"></div><div id="iuList" class="small" style="margin-top:6px"></div>
+      </details>
       <div class="panel" id="dryPanel">
         <h2>乾貨進貨科別 <span class="muted small" style="font-weight:normal">有些乾貨只有一科在進（例如乳酪絲只跟烘焙乾貨叫）</span></h2>
         <div class="muted small">「兩科都進」：照訂單科別分開跟烘焙乾貨、中餐乾貨叫。「只有烘焙進」：中餐課訂的也跟烘焙乾貨叫、送到烘焙教室，印「④ 跨教室領料單」給學生去拿；「只有中餐進」反過來。
@@ -2406,7 +2418,7 @@
   function addExisting(it, qty, unit) {
     it = deptSub(it);
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: qty || '',
-      unit: validUnit(unit) || validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
+      unit: (function () { var al = it.units && it.units.length ? it.units : null, u0 = validUnit(unit) || validUnit(it.unit); return al ? (al.indexOf(u0) >= 0 ? u0 : al[0]) : u0; })(), note: '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
@@ -2510,7 +2522,8 @@
 
   // 單位選單
   function normUnit(u) {
-    var SYN = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'cc', '毫升': 'ml', 'L': '公升' };
+    var SYN = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'ml', 'cc': 'ml', '毫升': 'ml', 'L': '公升',
+      '個': '顆', '粒': '顆', '根': '條', '支': '條', '附': '付', '副': '付' };   // 同義的合併（跟伺服器 UNIT_SYNONYMS 一樣）
     u = String(u == null ? '' : u).trim();
     return SYN[u] || u;
   }
@@ -2530,11 +2543,18 @@
   }
 
   // 單位搜尋選單：可以用中文輸入法打字搜尋（下拉選單在 Windows 會強制切成英文輸入法）
-  var UNIT_HINT = { 'g': '公克、克', '公斤': 'kg、千克', '斤': '台斤', 'T': '大匙、湯匙', 't': '小匙、茶匙', 'ml': '毫升', 'cc': 'CC', '公升': 'L、升' };
+  var UNIT_HINT = { 'g': '公克、克', '公斤': 'kg、千克', '斤': '台斤', 'T': '大匙、湯匙', 't': '小匙、茶匙', 'ml': '毫升、cc', '公升': 'L、升', '顆': '個、粒', '條': '根、支', '付': '副' };
   var unitPop = $('unitPop'), unitTarget = null, unitHi = 0, unitList = [];
-  function unitMatches(q) {
+  // 這一列的食材有設「可用單位」：選單只列那幾個
+  function rowAllowedUnits(input) {
+    var row = input && input.closest && input.closest('.cart-row'), key = row && row.getAttribute('data-key');
+    var c = key && draft && draft.cart.find(function (x) { return x.key === key; }), it = c && c.id && itemById[c.id];
+    return it && it.units && it.units.length ? it.units : null;
+  }
+  function itemAllowed(c) { var it = c && c.id && itemById[c.id]; return it && it.units && it.units.length ? it.units : null; }
+  function unitMatches(q, allowed) {
     q = String(q || '').trim().toLowerCase();
-    var all = data.orderUnits.map(function (u) { return { u: u, g: '叫貨單位' }; })
+    var all = allowed ? allowed.map(function (u) { return { u: u, g: '這樣食材可以用的單位' }; }) : data.orderUnits.map(function (u) { return { u: u, g: '叫貨單位' }; })
       .concat(data.recipeUnits.map(function (u) { return { u: u, g: '配方單位' }; }))
       .concat(pendingUnits().map(function (u) { return { u: u, g: '新增的單位（審核中）' }; }));
     if (!q) return all;
@@ -2549,7 +2569,8 @@
   function openUnitPop(input, typing) {
     unitTarget = input;
     var cur = validUnit(input.value);
-    unitList = unitMatches(typing || !cur ? input.value : '');
+    var allowed = rowAllowedUnits(input);
+    unitList = unitMatches(typing || !cur ? input.value : '', allowed);
     unitHi = 0;
     if (!typing && cur) unitList.forEach(function (x, i) { if (x.u === cur) unitHi = i; });
     var html = '', g = null;
@@ -2560,12 +2581,12 @@
     });
     // 打了清單沒有的字：可以新增單位（送管理者審核）
     var typed = String(input.value || '').trim();
-    var canAdd = typing && input.getAttribute('data-new') && typed && !validUnit(typed) && !/[0-9０-９]/.test(typed) && typed.length <= 10;
+    var canAdd = !allowed && typing && input.getAttribute('data-new') && typed && !validUnit(typed) && !/[0-9０-９]/.test(typed) && typed.length <= 10;
     if (canAdd) {
       unitList.push({ u: typed, add: true });
       html += '<div class="opt add' + (unitList.length - 1 === unitHi ? ' hi' : '') + '" data-i="' + (unitList.length - 1) + '" role="option">＋ 新增單位「' + esc(typed) + '」<small>送管理者審核</small></div>';
     }
-    unitPop.innerHTML = html || '<div class="none">沒有符合的單位，請換個字搜尋</div>';
+    unitPop.innerHTML = (html || '<div class="none">沒有符合的單位，請換個字搜尋</div>') + (allowed ? '<div class="none" style="font-size:12px">這樣食材只能用上面這幾個單位（管理者設定的）</div>' : '');
     var r = input.getBoundingClientRect();
     unitPop.style.left = (window.scrollX + r.left) + 'px';
     unitPop.style.top = (window.scrollY + r.bottom + 4) + 'px';
@@ -2817,7 +2838,7 @@
   // 料單成本：優先用那一週、那家廠商銷貨單上的單價（it.sp，驗收網站填的），沒有才用單價表最新的估
   function convFor(name, u) { var x = ((data.prices || {})[name] || []).filter(function (y) { return su(y.u) === su(u) && y.c; })[0]; return x ? x.c : null; }
   // 同義的個數單位當成同一種（算成本用）：個、粒、顆 → 顆；支、根、隻、尾、條 → 條
-  var UNIT_SYN = { '個': '顆', '粒': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條' };
+  var UNIT_SYN = { '個': '顆', '粒': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條', '附': '付', '副': '付', 'cc': 'ml', 'CC': 'ml' };
   function su(u) { u = String(u || '').trim(); return UNIT_SYN[u] || u; }
   function itemCost(it) {
     if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return null;
@@ -3111,6 +3132,8 @@
         var c = draft.cart[k];
         if (!(toNum(c.qty) > 0)) { err = '請填寫「' + c.name + '」' + (perMode ? '一組' : '') + '的數量（數字，例如 2、0.5、半）。'; focusCartRow(c.key); break; }
         if (!validUnit(c.unit)) { err = '請選擇「' + c.name + '」的單位。'; break; }
+        var al = itemAllowed(c);
+        if (al && al.indexOf(validUnit(c.unit)) < 0) { err = '「' + c.name + '」只能用這些單位：' + al.join('、') + '，請改一下單位。'; focusCartRow(c.key); break; }
       }
     }
     // 器具：名稱和數量都空白的列直接略過
@@ -5025,7 +5048,7 @@
     }).catch(function () { notice('請長按選取下面的文字複製：\n\n' + text); });
   });
   // 大T（大匙）、小T（小匙）換成克：1 大T＝15 g、1 小T＝5 g（要改數字改這裡，Code.gs 的 GRAMS_ 和進貨驗收的 GRAMS 也要一起改）
-  var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 15, 't': 5, '台斤': 600, '公克': 1, '克': 1, 'kg': 1000, 'KG': 1000, 'Kg': 1000 };   // 菜商銷貨單常寫「台斤」
+  var GRAMS = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 15, 't': 5, '杯': 240, 'ml': 1, 'cc': 1, '台斤': 600, '公克': 1, '克': 1, 'kg': 1000, 'KG': 1000, 'Kg': 1000 };   // 菜商銷貨單常寫「台斤」
   // 食材排序（「名稱|單位」）：訂單彙整、① 扣貨單、② 訂貨單、③ 叫貨單都用同一種順序（中文筆畫），找起來位置一樣
   function byItemKey(a, b) { return String(a).localeCompare(String(b), 'zh-Hant'); }
   // 合計時：計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）；老師訂單上的單位不變
@@ -5532,6 +5555,57 @@
   });
   var DRY_VENDOR_LABEL = { 'E烘焙乾貨': '只跟旺來興（烘焙）E烘焙乾貨', 'E中餐乾貨': '只跟銘哲（中餐）E中餐乾貨', 'E乾貨': '兩家都叫（各科跟自己教室的）E乾貨' };
   // light：審核完一筆只重讀待審核清單（別名有變才重讀別名），其他面板不用每次都重讀
+  // 📏 每樣食材的單位
+  var iuData = null;
+  function iuRender() {
+    if (!iuData) return;
+    var q = $('iuQ').value.trim().toLowerCase(), st = $('iuS').value;
+    var list = iuData.filter(function (x) {
+      var cur = x.current.join('、'), sug = x.suggest.join('、');
+      if (st === 'diff' && cur === sug) return false;
+      if (st === 'none' && x.current.length) return false;
+      if (st === 'set' && !x.current.length) return false;
+      return !q || (x.name + ' ' + x.vendor).toLowerCase().indexOf(q) >= 0;
+    });
+    $('iuList').innerHTML = '<div class="muted" style="margin-bottom:4px">共 ' + iuData.length + ' 樣，已設定 ' + iuData.filter(function (x) { return x.current.length; }).length + ' 樣；下面列 ' + Math.min(list.length, 300) + ' 樣（用得多的排前面）</div>' +
+      '<div class="tablewrap"><table><tr><th><input type="checkbox" id="iuAll" title="全選"></th><th>食材</th><th>以前用過（次數）</th><th>目前</th><th>可用單位（、隔開）</th></tr>' +
+      list.slice(0, 300).map(function (x) {
+        var cur = x.current.join('、'), sug = x.suggest.join('、'), diff = cur !== sug;
+        return '<tr><td><input type="checkbox" data-iuid="' + esc(x.id) + '"' + (diff && !x.current.length && sug ? ' checked' : '') + '></td><td><b>' + esc(x.name) + '</b><div class="muted">' + esc(x.vendor) + '</div></td>' +
+          '<td class="muted">' + (x.hist.length ? x.hist.slice(0, 6).map(function (h) { return esc(h[0]) + ' ' + h[1]; }).join('、') : '（沒訂過）') + '</td>' +
+          '<td>' + (cur ? esc(cur) : '<span class="muted">不限制</span>') + '</td>' +
+          '<td><input data-iuv="' + esc(x.id) + '" value="' + esc(x.current.length ? cur : sug) + '" style="width:130px;padding:3px 6px"></td></tr>';
+      }).join('') + '</table></div>';
+  }
+  $('iuLoad').addEventListener('click', function () {
+    var b = this; setBusy(b, true, '分析中…');
+    call('adminSuggestItemUnits', token).then(function (r) { iuData = r; iuRender(); msg('iuMsg', 'info', '已照過去訂單挑好建議。還沒設定的、有建議的已經先勾好；看一下再按「套用勾的」。'); })
+      .catch(function (e) { msg('iuMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('iuQ').addEventListener('input', function (e) { if (!e.isComposing) iuRender(); });
+  $('iuQ').addEventListener('compositionend', iuRender);
+  $('iuS').addEventListener('change', iuRender);
+  $('iuList').addEventListener('change', function (e) {
+    if (e.target.id === 'iuAll') Array.prototype.forEach.call($('iuList').querySelectorAll('[data-iuid]'), function (c) { c.checked = e.target.checked; });
+    if (e.target.hasAttribute('data-iuv')) { var c = $('iuList').querySelector('[data-iuid="' + e.target.getAttribute('data-iuv') + '"]'); if (c) c.checked = true; }
+  });
+  $('iuApply').addEventListener('click', function () {
+    var b = this, ch = Array.prototype.filter.call($('iuList').querySelectorAll('[data-iuid]'), function (c) { return c.checked; }).map(function (c) {
+      var id = c.getAttribute('data-iuid'), v = $('iuList').querySelector('[data-iuv="' + id + '"]').value.trim();
+      return { id: id, units: v };
+    });
+    if (!ch.length) { msg('iuMsg', 'error', '請先勾要套用的食材。'); return; }
+    setBusy(b, true, '套用中…');
+    call('adminSetItemUnits', token, ch).then(function (r) {
+      ch.forEach(function (c) {
+        var x = iuData.find(function (y) { return y.id === c.id; }), us = c.units.split(/[、,，\/\s]+/).map(normUnit).filter(Boolean);
+        if (x) x.current = us;
+        var it = itemById[c.id]; if (it) it.units = us;
+      });
+      iuRender(); msg('iuMsg', 'ok', '已設定 ' + r.saved + ' 樣食材的可用單位，老師重新整理後就只能選這些單位。');
+      toast('✓ 已設定 ' + r.saved + ' 樣食材的可用單位', true);
+    }).catch(function (e) { msg('iuMsg', 'error', e.message); notice(e.message); }).then(function () { setBusy(b, false); });
+  });
   function itemsOpen() { fillAddItemForm(); loadUnitPanel(); loadAliases(); loadDry(); loadSubs(); }
   function loadPending(note, light) {
     msg('pendMsg', 'info', '載入中…');

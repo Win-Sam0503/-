@@ -57,9 +57,11 @@ const MIN_PASSWORD_LENGTH = 4;                  // 連續輸錯幾次就暫停�
 const LOCK_MINUTES = 10;
 const ORDER_STATUSES = ['待處理', '已審核', '已叫貨', '已到貨', '已取消'];
 // 單位選單：叫貨單位、配方單位。老師只能從這些單位選，避免同一個單位有好幾種寫法。
-const ORDER_UNITS = ['斤', '兩', '公斤', 'g', '顆', '個', '粒', '條', '根', '把', '支', '朵', '片', '塊', '隻', '尾', '付', '打', '包', '袋', '盒', '罐', '瓶', '桶', '箱', '公升'];
-const RECIPE_UNITS = ['T', 't', '杯', 'ml', 'cc'];
-const UNIT_SYNONYMS = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'cc', '毫升': 'ml', 'L': '公升' };
+// 同義的單位合併成一種（個、粒→顆；根、支→條；附→付；cc→ml），選單只列合併後的
+const ORDER_UNITS = ['斤', '兩', '公斤', 'g', '顆', '條', '把', '朵', '片', '塊', '隻', '尾', '付', '打', '包', '袋', '盒', '罐', '瓶', '桶', '箱', '公升'];
+const RECIPE_UNITS = ['T', 't', '杯', 'ml'];
+const UNIT_SYNONYMS = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'ml', 'cc': 'ml', '毫升': 'ml', 'L': '公升',
+  '個': '顆', '粒': '顆', '根': '條', '支': '條', '附': '付', '副': '付' };
 const MAX_GROUPS = 99;
 
 // ---- 自動化（排程）----
@@ -931,6 +933,60 @@ function clearItemsCache_() {
  * 每樣食材老師平常用什麼單位訂：{ 食材ID: { 單位: 次數 } }（訂單總表＋歷史訂單，取消的不算）。
  * 訂貨畫面用來提醒打錯單位（小黃瓜 3 片 → 平常是條）
  */
+/**
+ * 管理者：每樣食材的單位建議。照訂單（含歷史）用過的單位（同義的合併），挑最常用的 1～3 個：
+ * 用過 2 次以上、而且佔這樣食材 10% 以上的；預設單位一定放進去。回傳 [{ id, name, vendor, current, hist: [[單位, 次數]], suggest }]
+ */
+function adminSuggestItemUnits(token) {
+  auth_(token, true);
+  const hist = {};
+  [SHEET.orders, SHEET.history].forEach(function (name) {
+    if (!ss_().getSheetByName(name)) return;
+    readTable_(name, ['食材ID', '單位']).rows.forEach(function (r) {
+      const id = String(r['食材ID'] || '').trim(), u = normUnit_(r['單位']);
+      if (!id || !u || String(r['狀態'] || '').trim() === '已取消') return;
+      const h = hist[id] = hist[id] || {};
+      h[u] = (h[u] || 0) + 1;
+    });
+  });
+  return readTable_(SHEET.items, ['食材ID', '食材名稱']).rows.filter(function (r) {
+    return String(r['食材ID']).trim() && (r['啟用'] === undefined || isTrue_(r['啟用']));
+  }).map(function (r) {
+    const id = String(r['食材ID']).trim(), h = hist[id] || {}, total = Object.keys(h).reduce(function (t, u) { return t + h[u]; }, 0);
+    const list = Object.keys(h).map(function (u) { return [u, h[u]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    const def = normUnit_(r['單位']);
+    let sug = list.filter(function (x) { return x[1] >= 2 && x[1] >= total * 0.1; }).slice(0, 3).map(function (x) { return x[0]; });
+    if (def && sug.indexOf(def) < 0) sug = [def].concat(sug).slice(0, 3);
+    if (!sug.length && list.length) sug = [list[0][0]];
+    return { id: id, name: String(r['食材名稱']).trim(), vendor: String(r['廠商'] || '').trim(), current: itemUnits_(r['可用單位']), hist: list, total: total, suggest: sug };
+  }).sort(function (a, b) { return b.total - a.total || a.name.localeCompare(b.name, 'zh-Hant'); });
+}
+/** 管理者：存「可用單位」changes: [{ id, units: '顆、斤' }]（空白＝不限制） */
+function adminSetItemUnits(token, changes) {
+  auth_(token, true);
+  const ok = unitLists_().all, want = {};
+  (changes || []).forEach(function (c) {
+    const id = String(c && c.id || '').trim(); if (!id) return;
+    const us = itemUnits_(c.units);
+    us.forEach(function (u) { if (ok.indexOf(u) < 0) throw new Error('沒有「' + u + '」這個單位（先到單位管理新增）。'); });
+    want[id] = us.join('、');
+  });
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  let n = 0;
+  try {
+    ensureHeaders_(sheet_(SHEET.items), ['可用單位']);
+    const t = readTable_(SHEET.items, ['食材ID', '可用單位']);
+    const col = t.cols['可用單位'], range = t.sheet.getRange(2, col, Math.max(t.sheet.getLastRow() - 1, 1), 1), vals = range.getValues();
+    t.rows.forEach(function (r) {
+      const id = String(r['食材ID']).trim();
+      if (!(id in want) || String(r['可用單位'] || '') === want[id]) return;
+      vals[r._row - 2][0] = want[id]; n++;
+    });
+    if (n) { range.setValues(vals); clearItemsCache_(); }
+  } finally { lock.releaseLock(); }
+  return { saved: n };
+}
+
 function itemUnitHist_() {
   const out = {};
   try {
@@ -960,6 +1016,7 @@ function readItems_() {
         vendor: String(r['廠商'] || '').trim(),
         dept: String(r['科別'] || '通用').trim() || '通用',
         unit: String(r['單位'] || '').trim(),
+        units: itemUnits_(r['可用單位']),
         group: String(r['適用組別'] || '全部').trim() || '全部',
         code: String(r['舊編號'] || '').trim(),
       };
@@ -1212,7 +1269,7 @@ function validateOrder_(p, account, isAdmin) {
     const vendor = String(r['廠商']).trim();
     lines.push({
       id: id, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
-      qty: qty_(it.qty, name), unit: unit_(it.unit, r['單位'], name, newUnits), note: clean_(it.note, 100),
+      qty: qty_(it.qty, name), unit: allowUnit_(r, unit_(it.unit, r['單位'], name, newUnits), name), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder || vendor === SELF_VENDOR, section: clean_(it.section, 20),
     });
@@ -1230,7 +1287,7 @@ function validateOrder_(p, account, isAdmin) {
       if (learnKey_(name) !== learnKey_(realName)) learned.push({ from: name, to: realName });
       lines.push({
         id: hit, name: realName, vendor: orderVendor_(realVendor, dept), catVendor: realVendor,
-        qty: qty_(it.qty, realName), unit: unit_(it.unit, r['單位'], realName, newUnits), note: clean_(it.note, 100),
+        qty: qty_(it.qty, realName), unit: allowUnit_(r, unit_(it.unit, r['單位'], realName, newUnits), realName), note: clean_(it.note, 100),
         group: deliveryGroup_(realVendor, dow, vendorGroups),
         noOrder: !!it.noOrder || realVendor === SELF_VENDOR, section: clean_(it.section, 20),
       });
@@ -1291,6 +1348,18 @@ function normUnit_(u) {
   return UNIT_SYNONYMS[u] || u;
 }
 
+/** 食材總表「可用單位」（、隔開，空白＝不限制）→ 合併同義後的陣列 */
+function itemUnits_(v) {
+  const out = [];
+  String(v || '').split(/[、,，\/\s]+/).forEach(function (u) { u = normUnit_(u); if (u && out.indexOf(u) < 0) out.push(u); });
+  return out;
+}
+/** 這樣食材有設「可用單位」：單位要在裡面 */
+function allowUnit_(r, unit, name) {
+  const ok = itemUnits_(r && r['可用單位']);
+  if (ok.length && ok.indexOf(unit) < 0) throw new Error('「' + name + '」只能用這些單位：' + ok.join('、') + '（管理者在「🥕 食材管理 → 每樣食材的單位」設定）。');
+  return unit;
+}
 function unit_(v, fallback, name, extra) {
   const u = normUnit_(clean_(v, 10)) || normUnit_(fallback);
   if (!u) throw new Error('請選擇「' + name + '」的單位。');
@@ -1587,7 +1656,7 @@ function attachSlipPrices_(list) {
 }
 
 /** 同義的個數單位當成同一種（算成本用）：個、粒、顆 → 顆；支、根、隻、尾、條 → 條 */
-const UNIT_SYN_ = { '個': '顆', '粒': '顆', '顆': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條', '條': '條' };
+const UNIT_SYN_ = { '個': '顆', '粒': '顆', '顆': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條', '條': '條', '附': '付', '副': '付', 'cc': 'ml', 'CC': 'ml' };
 function unitSyn_(u) { u = String(u || '').trim(); return UNIT_SYN_[u] || u; }
 const UNIT_G_ = { 'g': 1, '公克': 1, '克': 1, '公斤': 1000, 'kg': 1000, 'KG': 1000, 'Kg': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
 
@@ -6915,7 +6984,8 @@ function nextWeekRange_() {
   return { from: monday, to: addDays_(monday, 4) };
 }
 
-const GRAMS_ = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 15, 't': 5 };   // 1 大T＝15 g、1 小T＝5 g（跟網頁的 GRAMS 一樣）
+// 1 大T＝15 g、1 小T＝5 g、1 杯＝240 g、1 ml≈1 g（配方單位給廠商時換成重量；老師的料單照原本的單位）（跟網頁的 GRAMS 一樣）
+const GRAMS_ = { 'g': 1, '公斤': 1000, '斤': 600, '兩': 37.5, 'T': 15, 't': 5, '杯': 240, 'ml': 1, 'cc': 1 };
 // 合計時計數單位同一種的算在一起（個／顆／粒→顆，根／支／條→條）
 const COUNT_UNITS_ = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '支': '條', '條': '條' };
 // 給廠商的合計：菜商、肉商的重量用「兩」加總、顯示成「1 斤 4 兩」；雞蛋用克訂的換成顆（1 顆 50 克）；其他廠商換成公斤
@@ -6924,7 +6994,7 @@ function isEgg_(name) { return String(name || '').trim() === '雞蛋'; }
 function convertUnit_(qty, unit, vendor, name) {
   if (GRAMS_[unit] && isEgg_(name)) return { qty: Math.round(qty * GRAMS_[unit] / EGG_GRAMS_ * 100) / 100, unit: '顆' };
   if (!GRAMS_[unit]) return { qty: qty, unit: COUNT_UNITS_[unit] || unit };
-  const target = /^[AB]/.test(vendor || '') ? '兩' : '公斤';
+  const target = /^[AB]/.test(vendor || '') ? '兩' : /^[EF]/.test(vendor || '') ? 'g' : '公斤';   // 乾貨、飲調換成克（跟網頁一樣）
   return { qty: Math.round(qty * GRAMS_[unit] / GRAMS_[target] * 100) / 100, unit: target };
 }
 /** 給廠商的明細（單筆）：菜商、肉商的重量換成斤兩、雞蛋的克換成顆，其他照老師原本的單位 */
