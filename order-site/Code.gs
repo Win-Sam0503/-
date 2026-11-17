@@ -589,6 +589,30 @@ function adminSaveUnitConv(token, name, unit, q, unit2) {
   return readUnitConv_();
 }
 
+/** 管理者：一次存好幾筆單位換算 list: [{ name, unit, q, unit2 }] */
+function adminSaveUnitConvs(token, list) {
+  const admin = auth_(token, true);
+  list = (list || []).map(function (x) { return { n: clean_(x && x.name, 40), u: clean_(x && x.unit, 10), q: Number(x && x.q), u2: clean_(x && x.unit2, 10) }; })
+    .filter(function (x) { return x.n && x.u && x.u2 && x.q > 0 && x.q < 100000; });
+  if (!list.length) throw new Error('沒有要存的換算（數字要大於 0）。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(UNIT_CONV_SHEET, UNIT_CONV_HEADERS);
+    const t = readTable_(UNIT_CONV_SHEET, ['食材名稱', '單位']);
+    const want = {}; list.forEach(function (x) { want[x.n + '|' + x.u + '|' + x.u2] = true; });
+    const old = t.rows.filter(function (r) { return want[String(r['食材名稱']).trim() + '|' + String(r['單位']).trim() + '|' + String(r['換算單位'] || '').trim()]; }).map(function (r) { return r._row; });
+    if (old.length) deleteRows_(sh, old);
+    const now = new Date();
+    appendRows_(UNIT_CONV_SHEET, list.map(function (x) { return { '食材名稱': x.n, '單位': x.u, '等於': x.q, '換算單位': x.u2, '更新時間': now, '更新人': admin }; }), { '更新時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+    bootDirty_(UNIT_CONV_SHEET);
+  } finally {
+    lock.releaseLock();
+  }
+  return readUnitConv_();
+}
+
 // ---- 班級人數：管理者設定，老師在我的課、訂貨頁、料單看得到（不能改） ----
 const CLASS_SIZE_SHEET = '班級人數', CLASS_SIZE_HEADERS = ['班級', '人數', '備註', '更新時間', '更新人', '隱藏', '課程'];   // 隱藏：管理者刪掉的班級；課程：選修課同一班不同課程人數不同（空白＝整班）
 
@@ -1508,12 +1532,23 @@ function attachSlipPrices_(list) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   const weeks = {};
   list.forEach(function (o) { weeks[mon(parseDate_(o.useDate))] = true; });
-  const np = {}, slipG = {}, map = slipPriceMap_(weeks, np, slipG), match = slipMatcher_(map, np, readCostMap_());
+  const np = {}, slipG = {}, last = {}, cmap = readCostMap_(), map = slipPriceMap_(weeks, np, slipG, last), match = slipMatcher_(map, np, cmap);
   const ac = autoUnitConv_(weeks, match, slipG, mon);
+  // 別週算得出來的「1 條 ≈ 幾公克」：同一家、同一樣，好幾週平均（那週分攤不出來時用）
+  const acHist = {};
+  Object.keys(ac).forEach(function (k) {
+    const vk = k.split('|').slice(1).join('|');
+    Object.keys(ac[k]).forEach(function (u) { const h = (acHist[vk] = acHist[vk] || {}); h[u] = h[u] || { g: 0, n: 0 }; h[u].g += ac[k][u]; h[u].n++; });
+  });
   list.forEach(function (o) {
     const wk = mon(parseDate_(o.useDate));
     (o.items || []).forEach(function (it) {
       const r = match(wk, it.vendor, it.name);
+      if (!r || r.np || r.sug) {
+        const sub = cmap[String(it.vendor || '').trim() + '|' + it.name] || cmap['|' + it.name] || '';
+        const lp = last[String(it.name || '').trim()] || (sub && sub !== '✗' ? last[sub] : null);
+        if (lp) it.lp = lp;
+      }
       if (!r) return;
       if (r.np) { it.spNP = r.np; return; }
       if (r.sug) { it.spSug = r.sug; return; }
@@ -1525,6 +1560,10 @@ function attachSlipPrices_(list) {
       const c = ac[r.k], gu = UNIT_G_[r.u];
       const iu = unitSyn_(it.unit);
       if (c && gu && !UNIT_G_[iu] && c[iu]) it.sp.ac = { u: String(it.unit).trim(), n: c[iu] / gu };
+      else if (gu && !UNIT_G_[iu]) {
+        const h = (acHist[r.k.split('|').slice(1).join('|')] || {})[iu];
+        if (h && h.n) it.sp.ac = { u: String(it.unit).trim(), n: h.g / h.n / gu, hist: h.n };
+      }
     });
   });
 }
@@ -1575,7 +1614,9 @@ function slipMatcher_(map, np, cmap) {
     // 名稱相近的（叫「蔥」、銷貨單是「青蔥」）只當「建議」，管理者按 ✓ 才算成本，免得對錯
     if (!r && !noAuto) {
       for (let i = 0; i < vs.length; i++) {
-        const nm = guessSlipName_(name, byVend[wk + '|' + vs[i]] || []);
+        const info = {}, nm = guessSlipName_(name, byVend[wk + '|' + vs[i]] || [], info);
+        // 有把握的（同義詞、只差括號）直接算，標「自動相近」讓管理者核對；沒把握的才當建議
+        if (nm && info.sure) { r = hit(wk + '|' + vs[i] + '|' + nm, '自動相近：' + nm); break; }
         if (nm) { const x = map[wk + '|' + vs[i] + '|' + nm]; r = { sug: { to: nm, sv: vs[i], u: x.u, p: x.p } }; break; }
       }
     }
@@ -1640,15 +1681,17 @@ const COST_SYN = {
   '核桃': ['核桃仁', '碎核桃'], '胡桃仁': ['核桃仁'], '雞粉': ['康寶雞粉'], '味醂': ['味之琳', '味霖'], '奶水': ['三花奶水'], '粗柴魚片': ['粗柴魚'], '咖哩塊': ['日本咖喱片']
 };
 /** 自動對應：在同一週、同一家廠商銷貨單的品名裡，找跟老師叫的名稱最像、而且只有一個的；找不到回傳 '' */
-function guessSlipName_(name, cands) {
+function guessSlipName_(name, cands, info) {
+  info = info || {};
+  info.sure = false;
   if (!cands.length) return '';
   const core = function (t) { return learnKey_(String(t || '').replace(/[(（\[【][^)）\]】]*[)）\]】]/g, '')); };
   const o = core(name);
   if (!o) return '';
   const syn = (COST_SYN[o] || []);
-  for (let i = 0; i < syn.length; i++) { const hit = cands.filter(function (c) { return core(c) === syn[i]; }); if (hit.length) return hit[0]; }
+  for (let i = 0; i < syn.length; i++) { const hit = cands.filter(function (c) { return core(c) === syn[i]; }); if (hit.length) { info.sure = true; return hit[0]; } }
   const same = cands.filter(function (c) { return core(c) === o; });   // 只差括號、空白（無鹽奶油(安佳) ↔ 無鹽奶油）
-  if (same.length === 1) return same[0];
+  if (same.length === 1) { info.sure = true; return same[0]; }
   if (same.length) return '';
   const near = cands.filter(function (c) { const k = core(c); return k && (k.indexOf(o) >= 0 || o.indexOf(k) >= 0) && Math.min(k.length, o.length) >= 2; });
   return near.length === 1 ? near[0] : '';
@@ -1683,6 +1726,27 @@ function adminSaveCostMap(token, vendor, orderName, slipName) {
     lock.releaseLock();
   }
   return adminGetCostMap(token);
+}
+/** 管理者：一次存好幾筆成本對應 list: [{ vendor, order, slip }]（slip＝'✗' 代表不要自動對應） */
+function adminSaveCostMaps(token, list) {
+  const admin = auth_(token, true);
+  list = (list || []).map(function (x) { return { v: clean_(x && x.vendor, 30), o: clean_(x && x.order, 40), s: clean_(x && x.slip, 40) }; }).filter(function (x) { return x.o && x.s; });
+  if (!list.length) throw new Error('沒有要存的對應。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_(COST_MAP_SHEET, COST_MAP_HEADERS);
+    const t = readTable_(COST_MAP_SHEET, ['訂的品項']);
+    const want = {}; list.forEach(function (x) { want[x.v + '|' + x.o] = true; });
+    const old = t.rows.filter(function (r) { return want[String(r['廠商'] || '').trim() + '|' + String(r['訂的品項']).trim()]; }).map(function (r) { return r._row; });
+    if (old.length) deleteRows_(sh, old);
+    const now = new Date();
+    appendRows_(COST_MAP_SHEET, list.map(function (x) { return { '廠商': x.v, '訂的品項': x.o, '銷貨單品項': x.s, '更新時間': now, '更新人': admin }; }), { '更新時間': 'yyyy/mm/dd hh:mm' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { saved: list.length };
 }
 function adminGetCostMap(token) {
   auth_(token, true);
@@ -1733,7 +1797,7 @@ function adminSlipTotals(token, from, to) {
 }
 
 /** 銷貨單的單價：{ 「週一|廠商|品名（換成食材總表正式名稱）」: { u, p } }，只讀 weeks 裡的週 */
-function slipPriceMap_(weeks, noPrice, grams) {
+function slipPriceMap_(weeks, noPrice, grams, last) {
   const mon = function (d) { return d ? dateStr_(addDays_(d, -((d.getDay() + 6) % 7))) : ''; };
   // 銷貨單上的品名（廠商的叫法，例如「大骨高湯罐」）用食材總表的別名換成正式名稱（高湯罐），才對得到老師的訂單
   const official = {}, itemRows = readTable_(SHEET.items, ['食材名稱']).rows;
@@ -1755,6 +1819,11 @@ function slipPriceMap_(weeks, noPrice, grams) {
     const sd = r['銷貨單日期'] instanceof Date ? toDate_(r['銷貨單日期']) : parseDate_(String(r['銷貨單日期'] || '').replace(/^'/, '')), d0 = toDate_(r['送貨日期（起）']);
     // 算成本照「這批貨是哪一週的課用的」：叫貨單的銷貨單（R 開頭）照叫貨那週（週五先送下週的貨也算下週）；臨時銷貨單照銷貨單日期
     const wk = /^R\d{8}-/.test(String(r['驗收編號'] || '')) && d0 ? mon(d0) : mon(sd || d0);
+    // 最近一次的單價（任何一週、任何一家）：那週銷貨單沒有這一樣時拿來估
+    if (last && p > 0 && wk) {
+      const lp = last[name];
+      if (!lp || wk >= lp.wk) last[name] = { p: p, u: unitSyn_(r['單位']), wk: wk, v: String(r['廠商']).trim() };
+    }
     if (!weeks[wk]) return;
     const key = wk + '|' + String(r['廠商']).trim() + '|' + name;
     const sq = Number(r['數量']), sg = UNIT_G_[String(r['單位'] || '').trim()];

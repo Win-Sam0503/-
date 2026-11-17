@@ -1009,7 +1009,7 @@
     <!-- 修改密碼 -->
     <section id="viewCost" class="hidden">
       <div class="panel">
-        <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div>料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）。<br>名稱不一樣的（紅K＝紅蘿蔔、子薑＝嫩薑…）系統會列在「② 建議對應」，按 ✓ 才會算成本，以後每週固定這樣對；不對的按 ✗。<br>老師用條、隻、盒訂，菜商用台斤算的，照那週銷貨單的總重分攤。<br>還沒對到的在「待處理」，每一行都可以直接處理。</div></details></h2>
+        <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div>料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）。<br>每週看最上面的「⚡ 一次整理」就好：名字不一樣、單位不一樣的，系統先猜好打勾，按一次全部存好，以後每週都照這樣算。名字幾乎一樣的（只差括號）系統直接算，列在「🤖 系統自動對應」給你核對。<br>老師用條、隻、盒訂，菜商用台斤算的：先照那週銷貨單的總重分攤，分不出來用過去幾週推算，再不行用內建常見重量（洋蔥 1 顆約 250 g）估。<br>那週銷貨單沒有的，用最近一次銷貨單的單價估。<br>還是算不出來的在「待處理」，每一行都可以直接處理。</div></details></h2>
         <div class="grid2">
           <div><label for="cFrom">上課日期（起）</label><input id="cFrom" type="date"></div>
           <div><label for="cTo">上課日期（迄）</label><input id="cTo" type="date"></div>
@@ -2657,7 +2657,38 @@
   }
   // q 個 unit 換成單價的單位：同單位、重量互換、或用換算（1 K＝190 顆、1 袋＝22000 g）
   // 再試管理者設的單位換算（1 把 ＝ 0.3 斤）：先把老師的單位換掉，再換成單價的單位
-  function qtyInPriceN(q, unit, x, name) {
+  // 內建常見重量（大約值，算成本估用）：[名稱, 單位, 公克]；名稱照最長的先比（牛番茄比番茄先）
+  var BUILTIN_G = [['洋蔥','顆',250],['紫洋蔥','顆',250],['馬鈴薯','顆',200],['番茄','顆',180],['牛番茄','顆',200],['小番茄','顆',15],['聖女番茄','顆',15],['蘋果','顆',250],['檸檬','顆',100],['柳丁','顆',200],['柳橙','顆',200],['奇異果','顆',100],['雞蛋','顆',55],['鴨蛋','顆',70],['鹹蛋','顆',70],['皮蛋','顆',60],['鵪鶉蛋','顆',10],
+    ['蒜頭','顆',40],['大蒜','顆',40],['蒜仁','顆',5],['高麗菜','顆',1200],['大白菜','顆',1500],['娃娃菜','顆',150],['青花菜','顆',400],['花椰菜','顆',500],['白花椰','顆',500],['美生菜','顆',400],['萵苣','顆',400],['蘿蔓','顆',300],['青椒','顆',150],['甜椒','顆',200],['紅甜椒','顆',200],['黃甜椒','顆',200],
+    ['南瓜','顆',1500],['芋頭','顆',1000],['酪梨','顆',250],['鳳梨','顆',1500],['芒果','顆',400],['木瓜','顆',800],['葡萄柚','顆',350],['香吉士','顆',200],['百香果','顆',60],['紅蔥頭','顆',10],['香菇','顆',15],['洋菇','顆',15],['蛤蜊','顆',10],['干貝','顆',20],
+    ['紅蘿蔔','條',250],['白蘿蔔','條',1000],['小黃瓜','條',120],['大黃瓜','條',700],['茄子','條',200],['絲瓜','條',500],['苦瓜','條',400],['櫛瓜','條',250],['地瓜','條',250],['山藥','條',500],['玉米','條',300],['玉米筍','條',10],['辣椒','條',10],['朝天椒','條',3],['香蕉','條',120],
+    ['青蔥','條',30],['蔥','條',30],['蒜苗','條',40],['芹菜','條',40],['西洋芹','條',80],['杏鮑菇','條',80],['筊白筍','條',100],['蘆筍','條',20],['秋葵','條',12],['竹筍','條',500],['牛蒡','條',300],['香腸','條',50],['熱狗','條',40],['德式香腸','條',70],
+    ['雞腿','條',300],['棒棒腿','條',120],['雞翅','條',90],['二節翅','條',60],['雞爪','條',35],['全雞','條',1800],['土雞','條',1800],['鴨','條',2500],['蝦','條',25],['草蝦','條',30],['白蝦','條',20],['明蝦','條',60],['吳郭魚','條',600],['鱸魚','條',600],['虱目魚','條',500],['秋刀魚','條',150],['鯖魚','條',300],['透抽','條',300],['中卷','條',200],['小卷','條',40],['花枝','條',400],
+    ['青蔥','把',150],['蔥','把',150],['韭菜','把',300],['九層塔','把',50],['香菜','把',50],['芹菜','把',300],['菠菜','把',300],['空心菜','把',300],['小白菜','把',300],['青江菜','把',300],['地瓜葉','把',300],['A菜','把',300],['油菜','把',300],['茼蒿','把',300],['薄荷','把',30],['迷迭香','把',20],['巴西里','把',50],
+    ['雞胸肉','片',250],['雞胸','片',250],['去骨雞腿','片',250],['鯛魚片','片',150],['鯛魚','片',150],['鮭魚','片',200],['里肌','片',100],['豬排','片',120],['培根','片',20],['火腿','片',15],['起司','片',20],['吐司','片',40],['海苔','片',3],['薑','片',5],['檸檬','片',8],
+    ['薑','塊',100],['老薑','塊',100],['嫩薑','塊',80],['豆腐','塊',300],['板豆腐','塊',300],['嫩豆腐','塊',300],['豆干','塊',40],['奶油','塊',454],
+    ['豆腐','盒',300],['嫩豆腐','盒',300],['雞蛋豆腐','盒',300],['鴻喜菇','包',150],['雪白菇','包',150],['金針菇','包',200],['豆芽菜','包',300],['蓮藕','節',300]];
+  var builtinIdx = null;
+  function builtinG(name, unit) {
+    if (!builtinIdx) { builtinIdx = {}; BUILTIN_G.forEach(function (r) { (builtinIdx[su(r[1])] = builtinIdx[su(r[1])] || []).push(r); }); Object.keys(builtinIdx).forEach(function (k) { builtinIdx[k].sort(function (a, b) { return b[0].length - a[0].length; }); }); }
+    var n = String(name || '').replace(/[(（\[【][^)）\]】]*[)）\]】]/g, '').replace(/\s/g, ''), list = builtinIdx[su(unit)] || [];
+    for (var i = 0; i < list.length; i++) if (n === list[i][0]) return list[i][2];
+    for (var j = 0; j < list.length; j++) if (list[j][0].length >= 2 && n.indexOf(list[j][0]) >= 0) return list[j][2];   // 一個字的（蔥）只比完全一樣，免得洋蔥被當成蔥
+    return 0;
+  }
+  // 用內建重量換：老師訂顆、單價用斤（或反過來）。回傳單價單位的數量或 null
+  function builtinQty(q, unit, x, name) {
+    var g = builtinG(name, unit);
+    if (g && GRAMS[x.u] && !GRAMS[unit]) return q * g / GRAMS[x.u];
+    var g2 = builtinG(name, x.u);
+    if (g2 && GRAMS[unit] && !GRAMS[x.u]) return q * GRAMS[unit] / g2;
+    return null;
+  }
+  function qtyInPriceN(q, unit, x, name, noBuiltin) {
+    var n = qtyInPriceN0(q, unit, x, name);
+    return n !== null || noBuiltin || !name ? n : builtinQty(q, unit, x, name);
+  }
+  function qtyInPriceN0(q, unit, x, name) {
     var n = qtyInPrice(q, unit, x);
     if (n !== null || !name) return n;
     var all = (data.unitConv || {})[name] || [];
@@ -2699,18 +2730,25 @@
     var q = toNum(it.qty);
     if (!(q > 0)) return null;
     if (it.sp) {
-      var x = { u: it.sp.u, p: it.sp.p, c: it.sp.c || convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name), share = '';   // it.sp.c：銷貨單填的規格（1 罐＝100 g）
-      // 單位換不過去（老師訂條、菜商用台斤）：用那週銷貨單分攤出來的「1 條 ≈ 幾斤」
-      if (n === null && it.sp.ac && su(it.sp.ac.u) === su(it.unit)) { n = q * it.sp.ac.n; share = '照那週分攤：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; }
-      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share, src: it.sp.src || null };
+      var x = { u: it.sp.u, p: it.sp.p, c: it.sp.c || convFor(it.name, it.sp.u) }, n = qtyInPriceN(q, it.unit, x, it.name, true), share = '', conv = null;   // it.sp.c：銷貨單填的規格（1 罐＝100 g）
+      // 單位換不過去（老師訂條、菜商用台斤）：用那週銷貨單分攤出來的「1 條 ≈ 幾斤」（那週分不出來就用別週平均）
+      if (n === null && it.sp.ac && su(it.sp.ac.u) === su(it.unit)) { n = q * it.sp.ac.n; share = (it.sp.ac.hist ? '照過去 ' + it.sp.ac.hist + ' 週銷貨單推算' : '照那週分攤') + '：1 ' + it.unit + ' ≈ ' + fmtQty(Math.round(it.sp.ac.n * 100) / 100) + ' ' + x.u; if (it.sp.ac.hist) conv = { src: 'hist', g: it.sp.ac.n * GRAMS[x.u] }; }
+      // 還是換不過去：用內建的常見重量估（洋蔥 1 顆 ≈ 250 g），一次整理時確認
+      if (n === null) { n = builtinQty(q, it.unit, x, it.name); if (n !== null) { share = '內建重量估'; conv = { src: 'builtin' }; } }
+      if (n !== null) return { amt: Math.round(n * x.p), p: x.p, u: x.u, real: true, via: it.sp.via || '', share: share, src: it.sp.src || null, conv: conv };
     }
     var e = estCost(it), px = priceOf(it);
+    // 那週銷貨單沒有：手填的單價優先，再來是最近一次銷貨單的單價，最後才是單價表
+    if (it.lp && !(px && px.m)) {
+      var ln = qtyInPriceN(q, it.unit, it.lp, it.name);
+      if (ln !== null) return { amt: Math.round(ln * it.lp.p), p: it.lp.p, u: it.lp.u, real: false, last: it.lp };
+    }
     return e === null ? null : { amt: e, p: px.p, u: px.u, real: false, manual: !!px.m };
   }
   // 沒有成本的原因：給成本細項顯示，順便給「單位換不過去」一個換算輸入
   function costWhy(it) {
     if (it.spNP && !it.sp) { var np = String(it.spNP).split('｜'); return { text: '那週（' + shortDate(np[1]) + ' 起）' + np[0] + ' 的銷貨單有「' + it.name + '」，但單價空白：到驗收核銷的銷貨單補上單價就有成本' }; }
-    if (it.spSug && !it.sp) return { text: '名稱不一樣：可能是 ' + it.spSug.sv + ' 銷貨單上的「' + it.spSug.to + '」（$' + fmtQty(it.spSug.p) + '／' + it.spSug.u + '）。對的話到「💰 成本」② 按 ✓，不是的話按 ✗ 再選正確的' };
+    if (it.spSug && !it.sp) return { text: '名稱不一樣：可能是 ' + it.spSug.sv + ' 銷貨單上的「' + it.spSug.to + '」（$' + fmtQty(it.spSug.p) + '／' + it.spSug.u + '）。對的話在上面「⚡ 一次整理」打勾套用；不是的話在下面選正確的' };
     var x = it.sp ? { u: it.sp.u, p: it.sp.p } : priceOf(it);
     if (!x) return { text: '銷貨單、單價表都沒有「' + it.name + '」：那週銷貨單要有這一樣；廠商叫法不一樣的，在下面選銷貨單上的品項' };
     var t = '單位換不過去：訂 ' + fmtQty(it.qty) + ' ' + (it.unit || '') + '，單價是 $' + fmtQty(x.p) + '／' + x.u;
@@ -3528,6 +3566,92 @@
     if (e.key !== 'Enter' || !e.target.hasAttribute || !e.target.hasAttribute('data-cm-f') || e.isComposing) return;
     e.preventDefault(); var sel = e.target.parentNode.querySelector('select[data-cm-v]'); if (sel) sel.focus();
   });
+  // ⚡ 一次整理：名稱建議、單位換算（系統猜好、預設打勾），一次套用；系統自動相近對應的列出來核對
+  var qfData = null;
+  function quickFixHtml(list) {
+    var names = {}, nk = [], convs = {}, ck = [], autos = {}, ak = [];
+    list.forEach(function (o) {
+      if (o.status === '已取消') return;
+      (o.items || []).forEach(function (it) {
+        if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return;
+        var c = itemCost(it);
+        if (it.spSug && !it.sp) {
+          var k = (it.vendor || '') + '|' + it.name;
+          if (!names[k]) { names[k] = { v: it.vendor || '', n: it.name, to: it.spSug.to, sv: it.spSug.sv, p: it.spSug.p, u: it.spSug.u, cnt: 0 }; nk.push(k); }
+          names[k].cnt++;
+        }
+        if (it.sp && /^自動相近：/.test(it.sp.via || '')) {
+          var a = (it.vendor || '') + '|' + it.name;
+          if (!autos[a]) { autos[a] = { v: it.vendor || '', n: it.name, to: it.sp.via.replace(/^自動相近：/, ''), p: it.sp.p, u: it.sp.u, cnt: 0 }; ak.push(a); }
+          autos[a].cnt++;
+        }
+        // 單位換算：內建重量估的、過去推算的、換不過去的
+        var cv = null;
+        if (c && c.real && c.conv) {
+          var gu = GRAMS[c.u] && !GRAMS[it.unit] ? it.unit : c.u;   // 「1 顆 ＝ ? g」或「1 箱 ＝ ? g」
+          var g = c.conv.src === 'hist' ? c.conv.g : builtinG(it.name, gu);
+          cv = { name: it.name, u: gu, u2: 'g', val: g ? Math.round(g) + '' : '', src: c.conv.src === 'hist' ? '過去銷貨單推算' : '內建常見重量' };
+        } else if (!c || !c.real) {
+          var w = costWhy(it);
+          if (w.conv && w.conv.u) {
+            var g0 = GRAMS[w.conv.u2] ? builtinG(w.conv.name, w.conv.u) : 0;
+            cv = { name: w.conv.name, u: w.conv.u, u2: g0 ? 'g' : w.conv.u2, val: g0 ? g0 + '' : '', src: g0 ? '內建常見重量' : '' };
+          }
+        }
+        if (cv) { var kk = cv.name + '|' + cv.u; if (!convs[kk]) { cv.cnt = 0; convs[kk] = cv; ck.push(kk); } convs[kk].cnt++; }
+      });
+    });
+    qfData = { names: names, convs: convs };
+    if (!nk.length && !ck.length && !ak.length) return '';
+    var sortZh = function (a, b) { return a.localeCompare(b, 'zh-Hant'); };
+    nk.sort(sortZh); ck.sort(sortZh); ak.sort(sortZh);
+    var h = '<div class="panel noprint" id="qfBox" style="padding:12px 16px;border:2px solid var(--brand)"><h3 style="margin:0 0 4px">⚡ 一次整理</h3><div class="muted small">系統先猜好、預設打勾，看一下不對的取消勾，按一次就全部存好；存過以後每週都會照這樣算，不用再處理。</div>';
+    if (nk.length) h += '<h4 style="margin:12px 0 4px">🔤 名字不一樣（' + nk.length + ' 樣）</h4><div class="tablewrap"><table class="small"><tr><th><input type="checkbox" data-qfall="n" checked title="全選"></th><th>老師訂的</th><th>廠商送的應該是</th><th>單價</th><th>次數</th></tr>' +
+      nk.map(function (k) { var x = names[k]; return '<tr><td><input type="checkbox" data-qfn="' + esc(k) + '" checked></td><td><b>' + esc(x.n) + '</b><div class="muted">' + esc(vco(x.v)) + '</div></td><td>' + esc(x.to) + (x.sv !== x.v ? '<div class="muted">' + esc(vco(x.sv)) + '</div>' : '') + '</td><td class="num">$' + esc(fmtQty(x.p)) + '／' + esc(x.u) + '</td><td class="num">' + x.cnt + '</td></tr>'; }).join('') +
+      '</table></div><button type="button" class="btn small" id="qfNameGo" style="margin-top:6px">✓ 套用勾的對應</button> <span class="muted small">沒勾的會留在下面「待處理」，可以自己選</span>';
+    if (ck.length) h += '<h4 style="margin:14px 0 4px">⚖ 單位不一樣（' + ck.length + ' 樣）</h4><div class="muted small">老師訂顆、條、把，廠商用斤算：填 1 個大約幾克（可以直接打 250、250g、0.4斤、2兩）。空白的系統猜不到，自己填。</div><div class="tablewrap"><table class="small"><tr><th><input type="checkbox" data-qfall="c" checked title="全選"></th><th>食材</th><th>換算</th><th>從哪來</th><th>次數</th></tr>' +
+      ck.map(function (k) { var x = convs[k]; return '<tr><td><input type="checkbox" data-qfc="' + esc(k) + '"' + (x.val ? ' checked' : '') + '></td><td><b>' + esc(x.name) + '</b></td><td style="white-space:nowrap">1 ' + esc(x.u) + ' ＝ <input data-qfv="' + esc(k) + '" value="' + esc(x.val) + '" placeholder="?" style="width:80px;display:inline-block;padding:2px 4px"> ' + esc(x.u2) + '</td><td class="muted">' + esc(x.src || '—') + '</td><td class="num">' + x.cnt + '</td></tr>'; }).join('') +
+      '</table></div><button type="button" class="btn small" id="qfConvGo" style="margin-top:6px">💾 存勾的換算</button>';
+    if (ak.length) h += '<details style="margin-top:14px"><summary style="cursor:pointer"><b>🤖 系統自動對應了 ' + ak.length + ' 樣</b> <span class="muted small">名字幾乎一樣的已經直接算成本，點開核對；不對的按 ✗</span></summary><div class="tablewrap"><table class="small"><tr><th>老師訂的</th><th>對到銷貨單的</th><th>單價</th><th>次數</th><th></th></tr>' +
+      ak.map(function (k) { var x = autos[k], d = esc(x.v) + '|' + esc(x.n) + '|' + esc(x.to); return '<tr><td><b>' + esc(x.n) + '</b><div class="muted">' + esc(vco(x.v)) + '</div></td><td>' + esc(x.to) + '</td><td class="num">$' + esc(fmtQty(x.p)) + '／' + esc(x.u) + '</td><td class="num">' + x.cnt + '</td><td><button type="button" class="btn ghost small" data-arno="' + d + '" style="color:var(--bad)">✗ 不對</button></td></tr>'; }).join('') + '</table></div></details>';
+    return h + '<div id="qfMsg" style="margin-top:6px"></div></div>';
+  }
+  document.addEventListener('change', function (e) {
+    var a = e.target.getAttribute && e.target.getAttribute('data-qfall');
+    if (a) Array.prototype.forEach.call(document.querySelectorAll('#qfBox [data-qf' + a + ']'), function (c) { c.checked = e.target.checked; });
+  });
+  document.addEventListener('input', function (e) {   // 填了數字就自動打勾
+    var k = e.target.getAttribute && e.target.getAttribute('data-qfv'); if (!k) return;
+    var cb = Array.prototype.filter.call(document.querySelectorAll('#qfBox [data-qfc]'), function (c) { return c.getAttribute('data-qfc') === k; })[0];
+    if (cb) cb.checked = !!e.target.value.trim();
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#qfNameGo, #qfConvGo');
+    if (!b || !qfData) return;
+    var pick = function (attr) { return Array.prototype.filter.call(document.querySelectorAll('#qfBox [' + attr + ']'), function (c) { return c.checked; }).map(function (c) { return c.getAttribute(attr); }); };
+    if (b.id === 'qfNameGo') {
+      var ks = pick('data-qfn');
+      if (!ks.length) { msg('qfMsg', 'error', '請先勾要套用的對應。'); return; }
+      setBusy(b, true, '存檔中…');
+      call('adminSaveCostMaps', token, ks.map(function (k) { var x = qfData.names[k]; return { vendor: x.v, order: x.n, slip: x.to }; })).then(function (r) {
+        costMsg('ok', '已套用 ' + r.saved + ' 樣對應，以後每週都會這樣算。'); costOpen = true; costReload();
+      }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
+      return;
+    }
+    var bad = [], rows = pick('data-qfc').map(function (k) {
+      var x = qfData.convs[k], inp = Array.prototype.filter.call(document.querySelectorAll('#qfBox [data-qfv]'), function (i) { return i.getAttribute('data-qfv') === k; })[0];
+      var pq = parseConvQty(inp ? inp.value : '', x.u2);
+      if (!pq) { bad.push(x.name); return null; }
+      return { name: x.name, unit: x.u, q: pq.q, unit2: pq.u2 };
+    }).filter(Boolean);
+    if (bad.length) { msg('qfMsg', 'error', '這些的數字看不懂，請改成像 250、250g、0.4斤：' + bad.join('、')); return; }
+    if (!rows.length) { msg('qfMsg', 'error', '請先勾要存的換算。'); return; }
+    setBusy(b, true, '存檔中…');
+    call('adminSaveUnitConvs', token, rows).then(function (r) {
+      data.unitConv = r; costOpen = true; costRerender();
+      costMsg('ok', '已存 ' + rows.length + ' 樣單位換算，以後每週都會用這個算成本。');
+    }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
+  });
   // ① 待處理的搜尋（重新算成本後保留）
   var costMissQ = '', costMissS = '';
   function costMissFilter() {
@@ -3560,7 +3684,7 @@
     // 沒有成本的排前面，再照廠商、品名
     keys.sort(function (a, b) { var x = m[a], y = m[b]; return (x.man - y.man) || (x.est - y.est) || String(x.it.vendor || '').localeCompare(String(y.it.vendor || ''), 'zh-Hant') || x.it.name.localeCompare(y.it.name, 'zh-Hant'); });
     var nNone = keys.filter(function (k) { return !m[k].est; }).length, nMan = keys.filter(function (k) { return m[k].man; }).length, nEst = keys.length - nNone - nMan;
-    var whyOf = function (x) { return x.man ? { text: '用你自己填的單價（$' + fmtQty(x.c.p) + '／' + x.c.u + '）；之後那家的銷貨單有這一樣，會自動改用銷貨單的單價' } : x.est ? { text: (x.it.spSug || x.it.spNP) && !x.it.sp ? costWhy(x.it).text + '（現在先用單價表的上次單價估）' : '那週銷貨單沒對到「' + x.it.name + '」，先用單價表的上次單價估；廠商叫法不一樣的，在下面選對應' } : costWhy(x.it); };
+    var whyOf = function (x) { if (x.c && x.c.last) return { text: '那週銷貨單沒有「' + x.it.name + '」，先用最近一次（' + shortDate(x.c.last.wk).replace(/（.*$/, '') + ' 那週 ' + vco(x.c.last.v) + '）的單價 $' + fmtQty(x.c.last.p) + '／' + x.c.last.u + ' 估' }; return x.man ? { text: '用你自己填的單價（$' + fmtQty(x.c.p) + '／' + x.c.u + '）；之後那家的銷貨單有這一樣，會自動改用銷貨單的單價' } : x.est ? { text: (x.it.spSug || x.it.spNP) && !x.it.sp ? costWhy(x.it).text + '（現在先用單價表的上次單價估）' : '那週銷貨單沒對到「' + x.it.name + '」，先用單價表的上次單價估；廠商叫法不一樣的，在下面選對應' } : costWhy(x.it); };
     lastMissRows = keys.map(function (k) { var x = m[k]; return [x.it.name, x.it.vendor || '', x.it.unit || '', x.n, x.man ? '手填單價' : x.est ? '用上次單價估' : '沒有成本', whyOf(x).text]; });
     if (slipItemsCache.key !== costRange().join('|')) setTimeout(loadSlipItems, 0);
     return '<details id="costMiss"' + (costMissOpen ? ' open' : '') + ' style="margin:6px 0 8px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 沒對到銷貨單：' + (nNone ? nNone + ' 樣沒有成本' : '') + (nNone && nEst ? '、' : '') + (nEst ? nEst + ' 樣用上次單價估' : '') + (!nNone && !nEst ? '都處理好了' : '') + '</b>' + (nMan ? '<span class="muted">（' + nMan + ' 樣用手填單價）</span>' : '') + '（點開看清單、原因、填換算、填單價）</summary>' +
@@ -3723,7 +3847,8 @@
     var miss = missingCostHtml(list);
     $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
     costMissFilter();
-    $('costAuto').innerHTML = suspectHtml(list) + spreadHtml(list) + autoReviewHtml(list);
+    $('costAuto').innerHTML = suspectHtml(list) + spreadHtml(list);
+    $('costTodo').insertAdjacentHTML('afterbegin', quickFixHtml(list));
     costOpen = true;
     $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計（依品項算）</b>') + allocHtml();
   }
