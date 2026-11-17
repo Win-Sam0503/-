@@ -1160,7 +1160,7 @@
         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input id="psQ" type="search" placeholder="例如：洋蔥、奶油、雞胸" autocomplete="off" style="max-width:260px;flex:1"><button type="button" class="btn small" id="psGo">查詢</button></div>
         <div id="psOut"></div></details>
       <div class="panel">
-        <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div>料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）。<br>每週看最上面的「⚡ 一次整理」就好：名字不一樣、單位不一樣的，系統先猜好打勾，按一次全部存好，以後每週都照這樣算。名字幾乎一樣的（只差括號）系統直接算，列在「🤖 系統自動對應」給你核對。<br>老師用條、隻、盒訂，菜商用台斤算的：先照那週銷貨單的總重分攤，分不出來用過去幾週推算，再不行用內建常見重量（洋蔥 1 顆約 250 g）估。<br>那週銷貨單沒有的，用最近一次銷貨單的單價估。<br>還是算不出來的在「待處理」，每一行都可以直接處理。</div></details></h2>
+        <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div><b>正式成本＝「實際成本（依銷貨單分攤）」</b>：每週每家廠商銷貨單上真的花的錢，照每張料單的比例分下去，加起來一定等於銷貨單金額；個別品項算錯也不會影響總額。<br>「逐項估算」＝老師訂的數量 × 那一週那家廠商銷貨單上的單價，只拿來決定比例和找問題。<br><br>每週看最上面的「⚡ 一次整理」就好：名字不一樣、單位不一樣的，系統先猜好打勾，按一次全部存好，以後每週都照這樣算。名字幾乎一樣的（只差括號）系統直接算，列在「🤖 系統自動對應」給你核對。<br>老師用條、隻、盒訂，菜商用台斤算的：先照那週銷貨單的總重分攤，分不出來用過去幾週推算，再不行用內建常見重量（洋蔥 1 顆約 250 g）估。<br>那週銷貨單沒有的，用最近一次銷貨單的單價估。<br>還是算不出來的在「待處理」，每一行都可以直接處理。</div></details></h2>
         <div class="grid2">
           <div><label for="cFrom">上課日期（起）</label><input id="cFrom" type="date"></div>
           <div><label for="cTo">上課日期（迄）</label><input id="cTo" type="date"></div>
@@ -4041,8 +4041,12 @@
     var pct = t.sum ? Math.round(t.real / t.sum * 100) : 0;
     var card = function (lab, val, sub, color) { return '<div style="flex:1;min-width:130px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div class="muted small">' + lab + '</div><div style="font-size:22px;font-weight:700' + (color ? ';color:' + color : '') + '">' + val + '</div>' + (sub ? '<div class="muted small">' + sub + '</div>' : '') + '</div>'; };
     $('costTop').innerHTML = !list.length ? '<div class="panel muted">這段期間沒有料單。</div>' : '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">' +
-      card('料單', t.n + ' 張', t.items + ' 個品項') + card('成本合計', '$' + money0(t.sum), '含估算') +
-      card('照銷貨單', '$' + money0(t.real), '佔 ' + pct + '%', 'var(--ok)') + card('用上次單價估', '$' + money0(t.est), '', t.est ? '#b54708' : '') +
+      card('料單', t.n + ' 張', t.items + ' 個品項') + (function () {
+        // 正式成本：依銷貨單總額分攤（等於實際花的錢）；逐項算的當參考
+        var A = allocCompute(), al = 0, miss = 0; list.forEach(function (o) { al += A.per[o.orderNo] || 0; if (A.noSlip[o.orderNo]) miss++; });
+        return card('💰 實際成本（依銷貨單分攤）', '$' + money0(al), miss ? miss + ' 張料單有廠商那週還沒銷貨單' : '加起來＝銷貨單金額', 'var(--brand)') +
+          card('逐項估算（參考）', '$' + money0(t.sum), '照銷貨單 $' + money0(t.real) + '（' + pct + '%）');
+      })() + card('用上次單價估', '$' + money0(t.est), '', t.est ? '#b54708' : '') +
       card('沒有成本', t.none + ' 項', t.none ? '下面「待處理」' : '都算得出來', t.none ? 'var(--warn)' : 'var(--ok)') + '</div>';
     if (!list.length) { $('costTodo').innerHTML = $('costAuto').innerHTML = $('costBox').innerHTML = ''; return; }
     var miss = missingCostHtml(list);
@@ -4060,7 +4064,7 @@
         return '<li style="margin:2px 0"><span class="muted small">' + esc(x.time) + '</span> ' + esc(x.text) + d + '</li>';
       }).join('') + '</ul></div>');
     costOpen = true;
-    $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計（依品項算）</b>') + allocHtml();
+    $('costBox').innerHTML = allocHtml() + costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>④ 逐項估算（參考）</b>');
   }
   // ---------- ④ 依銷貨單總額分攤 ----------
   // 每週每家廠商「銷貨單的食材金額」（真的花的錢）照那週料單「依品項算」的比例分給每張料單：加起來一定等於銷貨單
@@ -4101,7 +4105,7 @@
     rows.sort(function (a, b) { return a.wk < b.wk ? -1 : a.wk > b.wk ? 1 : a.g.localeCompare(b.g, 'zh-Hant'); });
     return { per: per, noSlip: noSlip, rows: rows, orphan: orphan };
   }
-  var allocOpen = false;
+  var allocOpen = true;   // 實際成本（依銷貨單分攤）是正式的，預設打開
   document.addEventListener('toggle', function (e) { if (e.target.id === 'costAlloc') allocOpen = e.target.open; }, true);
   function allocHtml() {
     if (!costCache.length) return '';
@@ -4115,7 +4119,7 @@
     order.sort(function (a, b) { return costBy === 'week' ? (a < b ? -1 : 1) : g[b].alloc - g[a].alloc; });
     var lab = function (k) { return costBy === 'week' ? shortDate(k) + ' 那週' : k; };
     var pct = function (a, b) { if (!b) return ''; var d = Math.round((a - b) / b * 100); return '<span class="' + (Math.abs(d) > 20 ? '' : 'muted') + '" style="' + (Math.abs(d) > 20 ? 'color:var(--warn)' : '') + '">' + (d > 0 ? '+' : '') + d + '%</span>'; };
-    return '<details class="panel" id="costAlloc"' + (allocOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>④ 依銷貨單總額分攤</b>　<span class="small muted">' + tot.n + ' 張料單分攤 <b>$' + money0(tot.alloc) + '</b>（依品項算 $' + money0(tot.item) + '）</span></summary>' +
+    return '<details class="panel" id="costAlloc"' + (allocOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>③ 實際成本（依銷貨單總額分攤）</b>　<span class="small muted">' + tot.n + ' 張料單分攤 <b>$' + money0(tot.alloc) + '</b>（依品項算 $' + money0(tot.item) + '）</span></summary>' +
       '<div class="muted small" style="margin:6px 0">每週每家廠商銷貨單的<b>食材金額（真的花的錢）</b>，照那週每張料單「依品項算」的比例分下去，所以加起來一定等於銷貨單。名稱、單位對不到（沒成本）的品項，用同一週同一家其他品項的平均當比重，錢不會不見，只是比例差一點。器材、自備、有貨不算。E中餐乾貨（銘哲）、E烘焙乾貨（旺來興）分開算，訂單上「E乾貨」的照單價是哪家來的（沒有就照科別）；蛋商烘焙、中餐合在一起（開勛蛋行）。分組照上面 ③ 選的（依老師、班級…）。</div>' +
       '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">依品項算</th><th style="text-align:right">依銷貨單分攤</th></tr>' +
       order.map(function (k) { var x = g[k];
@@ -4174,7 +4178,7 @@
   $('cCsvOrders').addEventListener('click', function () {
     if (!costCache.length) { msg('costMsg', 'error', '先查詢。'); return; }
     var A = allocCompute();
-    var rows = [['上課日期', '班級', '實作項目', '老師', '科別', '訂單編號', '品項數', '照銷貨單', '用上次單價估', '合計（依品項算）', '依銷貨單總額分攤', '沒有成本的品項']];
+    var rows = [['上課日期', '班級', '實作項目', '老師', '科別', '訂單編號', '品項數', '實際成本（依銷貨單分攤）', '逐項估算合計（參考）', '照銷貨單', '用上次單價估', '沒有成本的品項']];
     costCache.slice().sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : 0; }).forEach(function (o) {
       var real = 0, est = 0, none = [], n = 0;
       (o.items || []).forEach(function (it) {
@@ -4182,7 +4186,7 @@
         n++; var c = itemCost(it);
         if (!c) none.push(it.name); else if (c.real) real += c.amt; else est += c.amt;
       });
-      rows.push([o.useDate, o.className || '', o.project || '', o.onBehalfOf || o.teacher, o.dept || '', o.orderNo, n, real, est, real + est, Math.round(A.per[o.orderNo] || 0), none.join('、')]);
+      rows.push([o.useDate, o.className || '', o.project || '', o.onBehalfOf || o.teacher, o.dept || '', o.orderNo, n, Math.round(A.per[o.orderNo] || 0), real + est, real, est, none.join('、')]);
     });
     downloadCsv('料單成本 ' + costFileTail(), rows);
   });
