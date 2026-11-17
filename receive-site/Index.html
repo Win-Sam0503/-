@@ -208,7 +208,7 @@
   <section id="vCheck">
     <div class="panel">
       <div class="row">
-        <b id="weekFor">✅ 驗收的週：</b><button type="button" class="chip" data-w="-1">上週</button><button type="button" class="chip" data-w="0">本週</button><button type="button" class="chip" data-w="1">下週</button>
+        <b id="weekFor">✅ 驗收的週：</b><button type="button" class="chip slip-only hidden" data-w="-3">上上上週</button><button type="button" class="chip slip-only hidden" data-w="-2">上上週</button><button type="button" class="chip" data-w="-1">上週</button><button type="button" class="chip" data-w="0">本週</button><button type="button" class="chip" data-w="1">下週</button>
         <input id="weekDate" type="date" aria-label="哪一週">
         <span id="weekText" class="muted"></span>
       </div>
@@ -474,7 +474,11 @@
   // 驗收、銷貨單各記各的週：在銷貨單換到上週補單，回驗收還是原來那週（反過來也一樣）
   var weekSel = { check: null, slip: null };
   function weekChips(offset) { Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) { b.classList.toggle('on', offset !== null && Number(b.getAttribute('data-w')) === offset); }); }
-  function weekLabel() { $('weekFor').textContent = listMode === 'slip' ? '💰 銷貨單的週：' : '✅ 驗收的週：'; }
+  function weekLabel() {
+    $('weekFor').textContent = listMode === 'slip' ? '💰 銷貨單的週：' : '✅ 驗收的週：';
+    // 銷貨單常常要補前幾週的：多「上上週」「上上上週」
+    Array.prototype.forEach.call(document.querySelectorAll('.slip-only[data-w]'), function (b) { b.classList.toggle('hidden', listMode !== 'slip'); });
+  }
   function switchMode(mode) {
     if (mode === listMode) return;
     weekSel[listMode] = { d: $('weekDate').value, off: weekOffset() };
