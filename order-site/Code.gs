@@ -3949,6 +3949,11 @@ function doPost(e) {
       if (/^驗證碼$/.test(String(ev.message.text).trim())) {
         const codeAns = updateCodeReply_(ev, props);
         if (codeAns) { lineReply_(ev.replyToken, codeAns); return; }
+        // 不是綁定管理者通知的聊天室：告訴他要去哪裡傳（不回驗證碼）
+        const to = String(props.getProperty('LINE_TO') || '');
+        lineReply_(ev.replyToken, !to ? '還沒有綁定管理者通知的聊天室，收不到驗證碼。請到訂貨網「系統設定 → LINE 官方帳號通知」按「產生綁定碼」，在要收通知的聊天室傳「綁定 ○○○○○○」。'
+          : '驗證碼只會回覆在「綁定管理者通知」的那個' + (/^[CR]/.test(to) ? '群組' : '個人聊天室') + '，這裡不會回。請到那裡傳「驗證碼」；或在網站按「收不到？改用推播傳送」。');
+        return;
       }
       const cm = String(ev.message.text).trim().match(/^校隊\s*(\d{6})$/);
       if (cm) { lineReply_(ev.replyToken, lineCrewBind_(cm[1], ev.source)); return; }
