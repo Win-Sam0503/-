@@ -487,6 +487,7 @@ function bootDirty_(name) {
 }
 
 function getBootstrap(token) {
+  fastReads_();
   const account = auth_(token, false, false, true);
   if (!isAdmin_(account) && isCrew_(account) && !crewCanOrder_(account)) return { account: account, isCrew: true, isAdmin: false, items: [], today: dateStr_(today_()), placeEnabled: placeEnabled_() };
   const items = cachedItems_();
@@ -2006,6 +2007,7 @@ function cancelOrder(token, orderNo, reason) {
  * 資料來源：登入資訊、錯誤紀錄、訂單總表＋歷史訂單、修改紀錄、老師刪除（都是系統自動寫的，老師改不到）。
  */
 function adminTeacherTrail(token, teacher, from, to) {
+  fastReads_();
   auth_(token, true);
   teacher = clean_(teacher, 30);
   if (!teacher) throw new Error('請選老師。');
@@ -2066,6 +2068,7 @@ function adminTeacherTrail(token, teacher, from, to) {
  * 每筆：{ id, time, type, orderNo, useDate, className, project, teacher, who, note, done }
  */
 function adminGetIssues(token, from, to, countOnly) {
+  fastReads_();
   auth_(token, true);
   // 用「上課日期」篩（找不到訂單的才用發生時間）；沒給日期＝前後 30 天
   const start = parseDate_(from) || addDays_(today_(), -30), end = addDays_(parseDate_(to) || addDays_(today_(), 30), 1);
@@ -2272,6 +2275,7 @@ function cancelOrderChecked_(account, isAdmin, orderNo) {
 /** 指定上課日期的所有訂單。 */
 /** lite：廠商訂貨單（①②③④）用，不需要課表比對、修改紀錄、列印紀錄，少讀幾個分頁比較快 */
 function adminGetOrders(token, from, to, lite) {
+  fastReads_();
   auth_(token, true);
   let start = parseDate_(from);
   let end = parseDate_(to) || start;
@@ -4947,6 +4951,12 @@ function historyRowsSince_(sh, since) {
 
 /** 目前的訂單再加上「歷史訂單」裡上課日期在 since 之後的列（標記 _archived）。 */
 function withHistory_(rows, since) {
+  // 要查的日期都還在訂單總表裡（比總表最早的上課日期晚）：不用讀歷史訂單（省 1～3 秒）
+  if (since) {
+    let min = null;
+    rows.forEach(function (r) { const d = toDate_(r['使用日期']); if (d && (!min || d < min)) min = d; });
+    if (min && since > min) return rows;
+  }
   const sh = ss_().getSheetByName(SHEET.history);
   if (!sh || sh.getLastRow() < 2) return rows;
   const current = {};
@@ -5114,6 +5124,7 @@ function scheduleKind_(v) {
 /** 自動建立需要的分頁（第一次使用時） */
 /** 分頁缺少的標題補在最右邊（舊版建立的分頁也能存新欄位） */
 function ensureHeaders_(sh, headers) {
+  memoClear_();
   const lastCol = Math.max(sh.getLastColumn(), 1);
   const have = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
   const missing = headers.filter(function (h) { return have.indexOf(h) < 0; });
@@ -5598,6 +5609,7 @@ function lessonAccount_(token, as) {
 }
 
 function getMyLessons(token, as) {
+  fastReads_();
   const account = lessonAccount_(token, as);
   const now = new Date();
   const from = earliestClassDate_(now);
@@ -6016,6 +6028,7 @@ function adminUpdateSchedule(token, row, expect, action, fields, as) {
 
 /** 管理者：總課表（「課表」分頁全部的課，含已取消的），依教室 × 星期 × 時段排成格子 */
 function adminGetSchedule(token, weekOf) {
+  fastReads_();
   auth_(token, true);
   const sh = ss_().getSheetByName(SHEET.schedule);
   const rows = !sh || sh.getLastRow() < 2 ? [] : readTable_(SHEET.schedule, ['星期', '時段', '老師']).rows.map(scheduleRowOut_);
@@ -6657,6 +6670,7 @@ function crewViewer_(token) {
  * 只能看，不回傳成本、單價。
  */
 function crewWeek(token, mon, to) {
+  fastReads_();
   const who = crewViewer_(token);
   let m = parseDate_(mon) || today_(), fri;
   const t2 = parseDate_(to);
@@ -7322,13 +7336,18 @@ function sheet_(name) {
 // 課表、老師課表、國技排班：同一次執行讀一次就好（「我的課」一次要用好幾遍）；網站寫入任何分頁時清掉
 let MEMO_ = {};
 function memo_(key, fn) { return MEMO_.hasOwnProperty(key) ? MEMO_[key] : (MEMO_[key] = fn()); }
-function memoClear_() { MEMO_ = {}; }
+function memoClear_() { MEMO_ = {}; TABLE_RAW_ = {}; }
+// 只讀的查詢（訂單彙整、我的課、總課表、基本資料…）：同一次執行裡同一張表只跟 Google 讀一次（每讀一次整張表要 1～3 秒）。
+// 寫入的工具（appendRows_、setCell_、deleteRows_…）都會 memoClear_() 清掉，所以不會讀到舊的
+var TABLE_RAW_ = {}, TABLE_MEMO_ON_ = false;
+function fastReads_() { TABLE_MEMO_ON_ = true; }
 
 /** 讀整張表，回傳 { sheet, cols: {標題: 欄號(1起)}, rows: [{標題: 值, _row: 列號}] } */
 function readTable_(name, required) {
   const sh = sheet_(name);
   // 一次讀完（以前是先問最後一列、最後一欄再讀，要連 Google 三次）
-  const values = retry_(function () { return sh.getDataRange().getValues(); });
+  const values = (TABLE_MEMO_ON_ && TABLE_RAW_[name]) || retry_(function () { return sh.getDataRange().getValues(); });
+  if (TABLE_MEMO_ON_) TABLE_RAW_[name] = values;
   const cols = {};
   values[0].forEach(function (h, i) {
     const k = String(h).trim();
