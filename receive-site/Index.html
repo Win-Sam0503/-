@@ -578,13 +578,15 @@
           w.batches.map(slipCard).join('') + (w.extras || []).map(extraCard).join('');
         return;
       }
-      if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '')); return; }
+      var em = w.earlyMoved && w.earlyMoved.length ? '這週一二用的（' + w.earlyMoved.join('、') + '）上週四五就送到了，列在「上週」驗收。' : '';
+      if (!w.batches.length) { msg('listMsg', 'info', '這週還沒有確定叫貨的叫貨單。' + (w.drafts.length ? '（' + w.drafts.join('、') + ' 還是草稿）' : '') + em); return; }
+      if (em) msg('listMsg', 'info', em);
       $('cards').innerHTML = w.batches.map(function (b, i) {
         var c = b.check, n = b.lines.length;
         var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
         var st = stopAll ? '<span class="badge none">⛔ 停送</span>' : b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
         return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) +
-          (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
+          (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
           '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
       }).join('');
     }).catch(function (e) { msg('listMsg', 'error', '載入失敗：' + e.message); });
@@ -740,7 +742,7 @@
     var stop = slipStopped(b), wp = listMode === 'slip' ? slipWeekPart(b) : null;
     var st = wp && wp.part ? '<span class="badge ok">💰 這週 $' + money(wp.amt) + '</span> <span class="muted small">整張 $' + money(sl.amount) + '</span>' : sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
     return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) + codeTag(sl) +
-      (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
+      (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       (b.otherWeek ? '<div class="small" style="color:var(--warn)">📅 ' + esc(md(b.from)) + ' 那週叫的貨</div>' : '') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
       ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span>' +

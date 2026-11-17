@@ -156,6 +156,14 @@ function getWeek_(monday, mode) {
   const recs = readSlipRecs_(), prices = readPrices_();
   const out = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), prices, recs);
   out.batches.forEach(function (b) { b.from = f; });
+  // 照「實際送到的日子」列：送貨組別從星期一開始的（一二組），廠商前一週的星期四、五就送到 →
+  // 這週的一二組移到上一週列；下週的一二組拉到這週列（標「下週一二用」）。驗收、銷貨單都一樣
+  const early = function (b) { return !!b.group && b.group.charAt(0) === '一'; };
+  out.earlyMoved = out.batches.filter(early).map(function (b) { return b.vendor + '（' + b.group + '）'; });
+  out.batches = out.batches.filter(function (b) { return !early(b); });
+  const nf = dateStr_(addDays_(from, 7)), nt = dateStr_(addDays_(from, 11));
+  const nx = weekBatches_(purchaseRows_(nf, nt), nf, readChecks_(nf), prices, recs);
+  nx.batches.filter(early).forEach(function (b) { b.from = nf; b.early = true; out.batches.push(b); });
   if (mode === 'slip') slipWeekView_(out, f, recs, prices);
   else out.extras = extraSlips_(recs, f, t);
   out.lastUnits = lastUnits_();
