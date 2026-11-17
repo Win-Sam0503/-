@@ -1725,7 +1725,11 @@
     var miss = names.filter(function (n) { return !by[n]; });
     var html = order.length || miss.length ? '<details style="margin-top:8px"' + (order.length ? ' open' : '') + '><summary style="cursor:pointer"><b>品項合計</b>（同一個品項好幾行會加在一起，跟叫貨量對照）</summary><div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>叫貨</th><th>單上</th><th>金額</th></tr>' +
       order.map(function (n) { var b0 = by[n]; return '<tr><td><b>' + esc(n) + '</b>' + (names.indexOf(n) < 0 && names.length ? ' <span class="badge none">叫貨單沒有</span>' : '') + '</td><td class="small">' + esc((expect[n] || []).join('＋') || '—') + '</td><td class="small">' + esc(b0.q.join('＋') || '—') + (b0.lines > 1 ? '（' + b0.lines + ' 行）' : '') + '</td><td>$' + money(r2(b0.amt)) + '</td></tr>'; }).join('') +
-      miss.map(function (n) { return '<tr class="muted"><td>' + esc(n) + '</td><td class="small">' + esc(expect[n].join('＋')) + '</td><td class="small">單上沒有</td><td>—</td></tr>'; }).join('') + '</table></div></details>' : '';
+      '</table></div>' +
+      // 叫貨單有、這張單上沒有的：收成一行（常常是分好幾張送、或還沒打完），要對再點開
+      (miss.length ? '<details style="margin-top:6px"' + (order.length ? '' : ' open') + '><summary class="small" style="cursor:pointer;color:#475467">叫貨單還有 <b>' + miss.length + '</b> 樣這張單上沒有' + (order.length && order.every(function (n) { return names.indexOf(n) < 0; }) ? '（這張單的品項都不在叫貨單上，可能是另外叫的貨，可以不用管）' : '（可能是分好幾張送、或還沒打完；點開對照）') + '</summary>' +
+        '<div class="small muted" style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px">' + miss.map(function (n) { return '<span>' + esc(n) + ' ' + esc(expect[n].join('＋')) + '</span>'; }).join('') + '</div></details>' : '') +
+      '</details>' : '';
     var kt = { 食材: 0, 器材: 0 };
     sl.papers.forEach(function (pp) { pp.rows.forEach(function (r) { var a = numv(r.amount); if (a !== null) kt[pp.kind === '器材' ? '器材' : '食材'] += a; }); });
     if (kt['器材']) html = '<div style="margin-top:8px"><span class="badge ok">🥬 食材 $' + money(r2(kt['食材'])) + '</span> <span class="badge warn">🔧 器材 $' + money(r2(kt['器材'])) + '</span></div>' + html;
