@@ -1946,8 +1946,8 @@ function adminTeacherTrail(token, teacher, from, to) {
   if (has(SHEET.errors)) readTable_(SHEET.errors, ['時間', '帳號']).rows.forEach(function (r) {
     if (!mine(r['帳號'])) return;
     const fn = String(r['功能'] || ''), msg = String(r['訊息'] || '').replace(/^Error:\s*/, '');
-    const send = /送出訂單|submitOrder/.test(fn);
-    add(tm(r['時間']), send ? '⚠ 送出失敗' : '系統訊息', (send ? '' : fn + '：') + msg, { page: String(r['畫面'] || '').split('｜')[0] });
+    const send = /送出訂單|submitOrder/.test(fn), unsent = fn === '料單沒送出';
+    add(tm(r['時間']), unsent ? '📝 填了沒送出' : send ? '⚠ 送出失敗' : '系統訊息', (send || unsent ? '' : fn + '：') + msg, { page: String(r['畫面'] || '').split('｜')[0] });
   });
   // 訂單：送出時間在這段期間的（也列上課日期在這段期間、但比較早送出的，方便對）
   const orders = groupOrders_(withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, addDays_(start, -60)), null)
@@ -1977,7 +1977,7 @@ function adminTeacherTrail(token, teacher, from, to) {
   out.sort(function (a, b) { return a.t - b.t; });
   const n = function (ty) { return out.filter(function (x) { return x.type === ty; }).length; };
   return { teacher: teacher, from: dateStr_(start), to: dateStr_(addDays_(end, -1)), events: out,
-    summary: { logins: n('登入'), sent: n('✅ 送出訂單'), failed: n('⚠ 送出失敗'), edits: n('修改訂單'), cancels: n('取消訂單') + n('刪除訂單') } };
+    summary: { logins: n('登入'), sent: n('✅ 送出訂單'), failed: n('⚠ 送出失敗'), unsent: n('📝 填了沒送出'), edits: n('修改訂單'), cancels: n('取消訂單') + n('刪除訂單') } };
 }
 
 // ---- 異常紀錄：標記異常、老師刪除、退單、修改、取消、抽查異常，集中在一張表 ----
@@ -3916,7 +3916,7 @@ function logClientError(token, fn, message, view) {
   const account = (token && CacheService.getScriptCache().get('session:' + token)) || '（未登入）';
   const msg = String(message || '');
   if (!msg || /SESSION_EXPIRED|MUST_CHANGE_PASSWORD/.test(msg)) return false;
-  logError_(account, String(fn || ''), errorType_(msg), msg, String(view || ''));
+  logError_(account, String(fn || ''), fn === '料單沒送出' ? '操作紀錄' : errorType_(msg), msg, String(view || ''));   // 沒送出的料單不算系統錯誤
   return true;
 }
 

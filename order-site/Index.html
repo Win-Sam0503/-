@@ -847,7 +847,9 @@
         <h2 style="justify-content:center">訂單已送出</h2>
         <div class="muted">訂單編號</div>
         <div class="no" id="doneNo"></div>
+        <div id="doneWhen" style="font-weight:700;margin:4px 0 8px"></div>
         <div id="doneInfo" class="muted"></div>
+        <div class="small" style="margin-top:10px;padding:8px 10px;border:1px dashed var(--ok);border-radius:8px;background:#f0fdf4">📸 這個畫面就是<b>送出收據</b>，可以截圖留存。<b>有訂單編號才代表系統收到料單</b>；之後在「我的訂單」也查得到。</div>
         <div class="actions" style="justify-content:center;margin-top:20px">
           <button type="button" class="btn secondary" id="printNew">列印請料單</button>
           <button type="button" class="btn secondary" data-goto="viewMine">查看我的訂單</button>
@@ -1527,6 +1529,16 @@
   window.addEventListener('error', function (e) {
     reportError('網頁', '網頁錯誤：' + (e.message || '') + (e.lineno ? '（第 ' + e.lineno + ' 行）' : ''));
   });
+  // 料單填了沒送出：離開網頁（關掉、切到別的 App）或下次打開時記一筆，「📜 老師操作紀錄」看得到
+  function draftUnsentText() {
+    if (!data || data.cview || data.isCrew || !draft || !((draft.cart || []).length + (draft.tools || []).length)) return '';
+    var i = draft.info || {};
+    return (draft.editing ? '修改訂單 ' + draft.editing + ' 沒儲存' : '料單填了沒送出') + '：' + [i.useDate ? '上課 ' + shortDate(i.useDate) : '', i.classTime || '', i.className || '', i.project ? '「' + i.project + '」' : ''].filter(Boolean).join(' ') +
+      '，' + (draft.cart || []).length + ' 樣食材' + ((draft.tools || []).length ? '、' + draft.tools.length + ' 樣器具' : '') +
+      '（' + (draft.cart || []).slice(0, 5).map(function (c) { return c.name; }).join('、') + ((draft.cart || []).length > 5 ? '…' : '') + '）';
+  }
+  function reportUnsent(when) { var t = draftUnsentText(); if (t && token) reportError('料單沒送出', t + '［' + when + '］'); }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') reportUnsent('離開網頁時'); });
 
   // ------------------------------------------------------------------
   // 小工具
@@ -1946,6 +1958,10 @@
     }).join('');
 
     loadDraft();
+    if (draftUnsentText()) {   // 上次填了沒送出：提醒＋記錄
+      reportUnsent('打開網頁時');
+      setTimeout(function () { notice('⚠ 你上次填的料單還沒送出：\n' + draftUnsentText().replace(/^[^：]+：/, '') + '\n\n內容都還在「訂貨」頁，檢查後記得按「送出訂單」，看到訂單編號才算送出。'); }, 800);
+    }
     writeInfo();
     renderChips();
     renderResults();
@@ -3160,6 +3176,9 @@
     }).then(function (all) {
       var res = all.res;
       $('doneNo').textContent = res.orderNo + (all.extra.length ? ' ＋ ' + all.extra.length + ' 張' : '');
+      var nw = new Date(), p2 = function (v) { return ('0' + v).slice(-2); };
+      $('doneWhen').textContent = data.account + '　送出時間 ' + nw.getFullYear() + '/' + p2(nw.getMonth() + 1) + '/' + p2(nw.getDate()) + ' ' + p2(nw.getHours()) + ':' + p2(nw.getMinutes()) +
+        '　｜　上課 ' + shortDate(res.useDate) + ' ' + (payload.classTime || '') + ' ' + (payload.className || '') + (payload.project ? '「' + payload.project + '」' : '');
       $('doneInfo').textContent = '上課日期 ' + shortDate(res.useDate) + '，共 ' + res.count + ' 項食材' +
         (res.pending ? '（其中 ' + res.pending + ' 項新食材待管理者審核）' : '') +
         (res.tools ? '、' + res.tools + ' 項器具' : '') +
@@ -4405,7 +4424,7 @@
     show('viewTrail');
   });
   $('trBack').addEventListener('click', function () { show('viewSummary'); });
-  var TR_COLOR = { '✅ 送出訂單': 'var(--ok)', '⚠ 送出失敗': 'var(--bad)', '取消訂單': 'var(--bad)', '刪除訂單': 'var(--bad)', '退單': '#b54708', '修改訂單': '#1d4ed8', '登入失敗': '#b54708' };
+  var TR_COLOR = { '✅ 送出訂單': 'var(--ok)', '⚠ 送出失敗': 'var(--bad)', '📝 填了沒送出': '#b54708', '取消訂單': 'var(--bad)', '刪除訂單': 'var(--bad)', '退單': '#b54708', '修改訂單': '#1d4ed8', '登入失敗': '#b54708' };
   function trRender() {
     var r = trData; if (!r) return;
     var noLogin = $('trNoLogin').checked, ev = r.events.filter(function (x) { return !(noLogin && x.type === '登入'); });
@@ -4413,11 +4432,11 @@
     $('trBody').innerHTML = '<div class="panel" style="padding:12px 16px">' +
       '<h3 style="margin:0 0 4px">老師操作紀錄：' + esc(r.teacher) + '</h3>' +
       '<div class="small">期間：' + esc(shortDate(r.from)) + '～' + esc(shortDate(r.to)) + '　列印人：' + esc(data.account) + '　查詢時間：' + n.getFullYear() + '/' + p2(n.getMonth() + 1) + '/' + p2(n.getDate()) + ' ' + p2(n.getHours()) + ':' + p2(n.getMinutes()) + '</div>' +
-      '<div class="small" style="margin:6px 0">登入 <b>' + s.logins + '</b> 次・送出成功 <b style="color:var(--ok)">' + s.sent + '</b> 張・送出失敗 <b style="color:var(--bad)">' + s.failed + '</b> 次・修改 ' + s.edits + ' 次・取消／刪除 ' + s.cancels + ' 次</div>' +
+      '<div class="small" style="margin:6px 0">登入 <b>' + s.logins + '</b> 次・送出成功 <b style="color:var(--ok)">' + s.sent + '</b> 張・送出失敗 <b style="color:var(--bad)">' + s.failed + '</b> 次・填了沒送出 <b style="color:#b54708">' + (s.unsent || 0) + '</b> 次・修改 ' + s.edits + ' 次・取消／刪除 ' + s.cancels + ' 次</div>' +
       (ev.length ? '<div class="tablewrap"><table class="small"><thead><tr><th style="white-space:nowrap">時間</th><th>做了什麼</th><th>內容</th><th>訂單編號</th></tr></thead><tbody>' + ev.map(function (x) {
         return '<tr><td style="white-space:nowrap">' + esc(x.time) + '</td><td style="white-space:nowrap;color:' + (TR_COLOR[x.type] || 'inherit') + '"><b>' + esc(x.type) + '</b></td><td style="white-space:normal">' + esc(x.text) + '</td><td style="white-space:nowrap">' + esc(x.orderNo || '') + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '<div class="muted">這段期間沒有任何紀錄（沒有登入、也沒有送出）。</div>') +
-      '<div class="muted small" style="margin-top:8px">說明：「✅ 送出訂單」才代表系統收到料單（有訂單編號）。「⚠ 送出失敗」是老師按了送出但沒填完整或發生錯誤，畫面上會跳提示，料單沒有送出去。只有登入、沒有送出紀錄，表示他沒有按送出。</div></div>';
+      '<div class="muted small" style="margin-top:8px">說明：「✅ 送出訂單」才代表系統收到料單（有訂單編號）。「⚠ 送出失敗」是老師按了送出但沒填完整或發生錯誤，畫面上會跳提示，料單沒有送出去。「📝 填了沒送出」是料單填了東西、沒按送出就離開網頁（下次打開時系統也會提醒他）。只有登入、沒有送出紀錄，表示他沒有按送出。</div></div>';
   }
   $('trGo').addEventListener('click', function () {
     var t = $('trTeacher').value.trim(), b = this;
