@@ -507,7 +507,7 @@
   .iss-t tr.done td { opacity: .55; }
   .iss-type { white-space: nowrap; font-weight: 700; }
   .iss-p { display: none; }
-  @media print { #viewSummary.print-iss > :not(#issPanel) { display: none !important; } div.iss-p { display: block; margin: 0 0 6px; font-size: 13px; } td.iss-p, th.iss-p { display: table-cell; white-space: nowrap; } }
+  @media print { #viewTrail.print-iss > :not(#issSlot), #viewTrail.print-iss #trWrap { display: none !important; } div.iss-p { display: block; margin: 0 0 6px; font-size: 13px; } td.iss-p, th.iss-p { display: table-cell; white-space: nowrap; } }
   .place-line { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--info-soft); font-size: 15px; }
   /* 校隊：放置登記 */
   .cr-card .cr-head { font-size: 17px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -721,11 +721,13 @@
         <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
         <button type="button" data-view="viewCost" class="admin-only hidden">💰 成本</button>
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
-        <button type="button" data-view="viewAudit" class="admin-only hidden">抽查</button>
+        <button type="button" data-view="viewAudit" class="admin-only audit-nav hidden">抽查</button>
         <button type="button" data-view="viewCrew" class="admin-only hidden">放置登記</button>
         <button type="button" data-view="viewCrewLook" class="crew-only hidden">🏅 課表料單</button>
         <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
+        <button type="button" data-view="viewItems" class="admin-only hidden">🥕 食材管理</button>
+        <button type="button" data-view="viewTrail" class="admin-only hidden">📜 紀錄</button>
         <button type="button" data-view="viewSettings" class="admin-only hidden">系統設定</button>
         <button type="button" data-view="viewPassword">改密碼</button>
         <button type="button" id="helpBtn" data-help title="怎麼操作？看教學影片">▶ 教學</button>
@@ -909,10 +911,121 @@
     </section>
 
     <!-- 列印 -->
+    <!-- 🥕 食材管理：新增食材、單位、乾貨進貨科別、改名合併、科別替換、叫法、停用／換廠商（偶爾調整的設定，審核食材只留要審的） -->
+    <section id="viewItems" class="hidden">
+      <div class="panel" style="padding:10px 16px"><h2 style="margin:0">🥕 食材管理</h2><div class="muted small">新增食材、單位、換廠商、停用、改名合併、叫法、科別替換都在這裡；每天要處理的「審核食材」只放老師送來的新食材和單位。</div></div>
+      <div class="panel" id="addItemPanel">
+        <h2>新增食材到食材總表 <span class="muted small" style="font-weight:normal">只有管理者看得到</span></h2>
+        <div class="newform">
+          <div><label for="aiName">食材名稱 <span class="req">*</span></label><input id="aiName" type="text" maxlength="40"></div>
+          <div><label for="aiAlias">別名（逗號分隔）</label><input id="aiAlias" type="text" maxlength="100" placeholder="例：番薯粉"></div>
+          <div><label for="aiVendor">廠商 <span class="req">*</span></label><select id="aiVendor"></select></div>
+          <div><label for="aiDept">科別</label><select id="aiDept"></select></div>
+          <div><label for="aiUnit">預設單位</label><input id="aiUnit" type="text" class="unit-input" autocomplete="off" maxlength="10" placeholder="選填"></div>
+          <button type="button" class="btn small" id="aiSave">新增</button>
+        </div>
+        <div id="aiMsg" class="small" style="margin-top:6px"></div>
+      </div>
+      <div class="panel" id="unitPanel">
+        <h2>單位管理 <span class="muted small" style="font-weight:normal">管理者新增的單位不用審核，老師馬上可以用</span></h2>
+        <div class="newform">
+          <div><label for="unNew">新單位</label><input id="unNew" type="text" maxlength="4" placeholder="例：串、捆、份"></div>
+          <div><label for="unType">類型</label><select id="unType"><option value="叫貨">叫貨單位</option><option value="配方">配方單位（T、杯…）</option></select></div>
+          <button type="button" class="btn small" id="unAdd">新增</button>
+        </div>
+        <div id="unMsg" class="small" style="margin-top:6px"></div>
+        <div id="unList" class="small" style="margin-top:8px;line-height:2"></div>
+      </div>
+      <div id="pendUnits"></div>
+      <div id="pendList"></div>
+      <div class="panel" id="dryPanel">
+        <h2>乾貨進貨科別 <span class="muted small" style="font-weight:normal">有些乾貨只有一科在進（例如乳酪絲只跟烘焙乾貨叫）</span></h2>
+        <div class="muted small">「兩科都進」：照訂單科別分開跟烘焙乾貨、中餐乾貨叫。「只有烘焙進」：中餐課訂的也跟烘焙乾貨叫、送到烘焙教室，印「④ 跨教室領料單」給學生去拿；「只有中餐進」反過來。
+          「過去訂過」是訂單裡烘焙課、其他課各訂過幾次，<span class="badge warn">建議</span> 表示過去只有一科訂過，給你參考。改的是食材總表的「廠商」欄（E乾貨／E烘焙乾貨／E中餐乾貨）。</div>
+        <div id="dryMsg"></div>
+        <details id="dryBox" style="margin-top:8px"><summary id="drySum" style="cursor:pointer">展開清單</summary>
+          <div class="status-chips" id="dryFilter" style="margin:8px 0;align-items:center">
+            <input id="dryFind" type="search" placeholder="找食材，例如：起司" style="max-width:220px" autocomplete="off">
+            <button type="button" data-dry="" class="on">全部</button><button type="button" data-dry="baking">只有烘焙進</button><button type="button" data-dry="other">只有中餐進</button><button type="button" data-dry="hint">有建議的</button>
+          </div>
+          <div class="tablewrap"><table class="sum-vt" id="dryTable"></table></div>
+          <div class="actions"><button type="button" class="btn" id="drySave" disabled>儲存變更</button></div>
+        </details>
+        <details id="dryPasteBox" style="margin-top:8px"><summary style="cursor:pointer">📋 貼上清單一次改（從 Excel 複製兩欄：食材名稱、跟哪一家叫）</summary>
+          <div class="muted small" style="margin:6px 0">每一行一個食材，第二欄寫：<b>烘焙乾貨</b>、<b>中餐乾貨</b>、<b>兩邊</b>（兩科都進）、<b>飲調</b>，或直接寫廠商名稱（例如 A菜商）。食材名稱也可以寫別名（例如 蕃茄醬）。
+            先按「預覽」看會改哪些，確定再按「套用」；還沒叫貨的訂單也會跟著改。</div>
+          <textarea id="dryPaste" rows="6" style="width:100%" placeholder="中筋麵粉	兩邊&#10;低筋麵粉	烘焙乾貨&#10;醬油	中餐乾貨"></textarea>
+          <div class="actions"><button type="button" class="btn secondary" id="dryPreview">預覽</button><button type="button" class="btn" id="dryApply" disabled>套用</button></div>
+          <div id="dryPasteOut"></div>
+        </details>
+      </div>
+      <div class="panel" id="renamePanel">
+        <h2>食材改名／合併 <span class="muted small" style="font-weight:normal">不要直接在試算表改名，用這裡改，訂單才會一起改</span></h2>
+        <div class="muted small">改名或合併時，還沒叫貨的訂單（待處理、已審核）、老師的範本、今天以後的叫貨紀錄會一起改，舊名字自動加成別名（老師打舊名字也找得到）。已經叫貨、到貨的訂單不動。</div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="rnFrom">食材</label><input id="rnFrom" type="text" maxlength="40" list="subItems" placeholder="例：盒豆腐" autocomplete="off"></div>
+          <div><label for="rnTo">改名成</label><input id="rnTo" type="text" maxlength="40" placeholder="例：板豆腐" autocomplete="off"></div>
+          <button type="button" class="btn small" id="rnGo">改名</button>
+        </div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="mgFrom">把這項（會停用）</label><input id="mgFrom" type="text" maxlength="40" list="subItems" placeholder="例：盒豆腐" autocomplete="off"></div>
+          <div><label for="mgTo">合併到這項（留下來）</label><input id="mgTo" type="text" maxlength="40" list="subItems" placeholder="例：板豆腐" autocomplete="off"></div>
+          <button type="button" class="btn small secondary" id="mgGo">合併</button>
+        </div>
+        <div id="rnMsg"></div>
+      </div>
+      <div class="panel" id="subPanel">
+        <h2>科別替換 <span class="muted small" style="font-weight:normal">同一個叫法，不同科是不同東西</span></h2>
+        <div class="muted small">例如烘焙課的「牛奶」其實是「保久乳」（跟烘焙乾貨叫），飲調課的「牛奶」是「鮮奶(全)」（跟飲調叫）。設好後，那一科的老師選到「食材」會自動換成「換成」那一項，送出時也會再檢查一次。存在試算表「科別替換」分頁。</div>
+        <div class="newform" style="margin-top:8px">
+          <div><label for="subDept">科別</label><select id="subDept"></select></div>
+          <div><label for="subFrom">老師選的食材</label><input id="subFrom" type="text" maxlength="40" list="subItems" placeholder="例：牛奶" autocomplete="off"></div>
+          <div><label for="subTo">換成</label><input id="subTo" type="text" maxlength="40" list="subItems" placeholder="例：保久乳" autocomplete="off"></div>
+          <button type="button" class="btn small" id="subAdd">新增</button>
+        </div>
+        <datalist id="subItems"></datalist>
+        <div id="subMsg"></div>
+        <div id="subList" class="small" style="margin-top:8px;line-height:2"></div>
+      </div>
+      <div class="panel" id="aliasPanel">
+        <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
+        <div class="muted small">只有「完全一樣」的字才會換；同一個叫法對到兩種以上食材（標 ⚠）就不自動換，讓老師自己選。學錯了按 ✕ 刪掉（存在食材總表的「別名」欄）。</div>
+        <div class="tpl-row" style="margin-top:8px">
+          <div><label for="alName">食材（正式名稱）</label><input id="alName" type="text" list="alItems" autocomplete="off" placeholder="例如：細砂糖"><datalist id="alItems"></datalist></div>
+          <div><label for="alText">老師可能的叫法（可以填好幾個，用逗號分開）</label><input id="alText" type="text" autocomplete="off" placeholder="例如：砂糖, 細糖, 糖"></div>
+          <button type="button" class="btn secondary small" id="alAdd">新增叫法</button>
+        </div>
+        <div id="aliasMsg"></div>
+        <details id="aliasBox" style="margin-top:8px"><summary id="aliasSum" style="cursor:pointer">展開清單</summary>
+          <input id="aliasFind" type="search" placeholder="找食材或叫法，例如：糖" style="margin:8px 0;max-width:280px" autocomplete="off">
+          <div id="aliasList" class="small" style="line-height:2.2"></div></details>
+      </div>
+      <details class="panel" id="actPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">🚫 停用／恢復食材、🔁 換廠商</h2> <span class="muted small" style="font-weight:normal">不再叫的、重複的、寫錯的食材停用，老師就搜不到；舊訂單、成本不受影響，隨時可以恢復。也可以勾好幾樣一次換廠商</span></summary>
+        <div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap;align-items:center">
+          <input id="actQ" type="search" placeholder="找食材，例如：奶油、杏仁" autocomplete="off" style="max-width:240px">
+          <select id="actV" style="width:auto"><option value="">全部廠商</option></select>
+          <select id="actS" style="width:auto"><option value="on">使用中</option><option value="off">已停用</option><option value="">全部</option><option value="idle">使用中、60 天沒人訂</option></select>
+          <span style="flex:1"></span><button type="button" class="btn small" id="actOff" style="background:var(--bad)">🚫 停用勾的</button><button type="button" class="btn secondary small" id="actOn">↩ 恢復勾的</button>
+        </div>
+        <div class="row" style="margin:0 0 8px;gap:6px;flex-wrap:wrap;align-items:center">
+          <span class="small">🔁 勾的食材改跟</span><select id="actMoveV" style="width:auto"><option value="">選新廠商</option></select><span class="small">叫</span>
+          <button type="button" class="btn secondary small" id="actMove">換廠商</button>
+          <span class="muted small">（食材總表改掉，還沒叫貨的訂單也一起換）</span>
+        </div>
+        <div id="actMsg"></div><div id="actList" class="small"></div>
+      </details>
+    </section>
     <!-- 📜 老師操作紀錄 -->
     <section id="viewTrail" class="hidden">
+      <div class="panel noprint" style="padding:10px 16px">
+        <h2 style="margin:0 0 6px">📜 紀錄</h2>
+        <div class="status-chips" id="recTabs" style="margin:0"><button type="button" data-rt="iss">⚠ 異常紀錄</button><button type="button" data-rt="trail">📜 老師操作紀錄</button></div>
+      </div>
+      <div id="issSlot"></div>
+      <div id="trWrap">
       <div class="panel noprint">
-        <h2>📜 老師操作紀錄 <button type="button" class="btn ghost small" id="trBack">返回訂單彙整</button></h2>
+        <h2>📜 老師操作紀錄</h2>
         <div class="muted small">老師說「我有訂」、系統卻沒有料單時用：列出他這段期間什麼時候登入、送出成功（訂單編號）、<b>送出失敗（為什麼沒送出去）</b>、修改、取消、刪除。這些都是系統自動記的，老師改不到，可以列印留存。</div>
         <div class="grid2" style="margin-top:8px">
           <div><label for="trTeacher">老師</label><input id="trTeacher" list="trTeachers" autocomplete="off" placeholder="打名字或從清單選"><datalist id="trTeachers"></datalist></div>
@@ -926,6 +1039,7 @@
         <div id="trMsg"></div>
       </div>
       <div id="trBody"></div>
+      </div>
     </section>
     <section id="viewEditReport" class="hidden">
       <div class="panel noprint">
@@ -1170,6 +1284,7 @@
         </div>
         <h3 style="font-size:16px;margin:18px 0 6px">校隊帳號</h3>
         <div class="muted small">校隊登入後只看得到「放置登記」（登記每班的東西放在哪裡），看不到金額、不能訂貨。新帳號的密碼是 0000，第一次登入要自己改密碼。畢業或不做了就按「停用」。</div>
+        <label class="check" style="margin:8px 0"><input type="checkbox" id="auditOn"> <b>選單顯示「抽查」</b>（今日抽查、指定抽查；目前沒在用先藏起來，要用再打勾）</label>
         <label class="check" style="margin:8px 0"><input type="checkbox" id="placeOn"> <b>開放放置登記</b>（校隊登記冷藏食材放哪個冰箱，老師在「我的訂單」看得到位置）</label>
         <div id="crewAdmList" class="hol-list small"></div>
         <div class="tpl-row" style="margin-top:6px">
@@ -1317,107 +1432,6 @@
         <div class="muted small">核准會把食材加入食材總表並給新的食材 ID；如果其實已有這個食材，請用「對應既有食材」。兩種方式都會更新原訂單的食材資料。</div>
       </div>
       <div id="pendMsg"></div>
-      <div class="panel" id="addItemPanel">
-        <h2>新增食材到食材總表 <span class="muted small" style="font-weight:normal">只有管理者看得到</span></h2>
-        <div class="newform">
-          <div><label for="aiName">食材名稱 <span class="req">*</span></label><input id="aiName" type="text" maxlength="40"></div>
-          <div><label for="aiAlias">別名（逗號分隔）</label><input id="aiAlias" type="text" maxlength="100" placeholder="例：番薯粉"></div>
-          <div><label for="aiVendor">廠商 <span class="req">*</span></label><select id="aiVendor"></select></div>
-          <div><label for="aiDept">科別</label><select id="aiDept"></select></div>
-          <div><label for="aiUnit">預設單位</label><input id="aiUnit" type="text" class="unit-input" autocomplete="off" maxlength="10" placeholder="選填"></div>
-          <button type="button" class="btn small" id="aiSave">新增</button>
-        </div>
-        <div id="aiMsg" class="small" style="margin-top:6px"></div>
-      </div>
-      <div class="panel" id="unitPanel">
-        <h2>單位管理 <span class="muted small" style="font-weight:normal">管理者新增的單位不用審核，老師馬上可以用</span></h2>
-        <div class="newform">
-          <div><label for="unNew">新單位</label><input id="unNew" type="text" maxlength="4" placeholder="例：串、捆、份"></div>
-          <div><label for="unType">類型</label><select id="unType"><option value="叫貨">叫貨單位</option><option value="配方">配方單位（T、杯…）</option></select></div>
-          <button type="button" class="btn small" id="unAdd">新增</button>
-        </div>
-        <div id="unMsg" class="small" style="margin-top:6px"></div>
-        <div id="unList" class="small" style="margin-top:8px;line-height:2"></div>
-      </div>
-      <div id="pendUnits"></div>
-      <div id="pendList"></div>
-      <div class="panel" id="dryPanel">
-        <h2>乾貨進貨科別 <span class="muted small" style="font-weight:normal">有些乾貨只有一科在進（例如乳酪絲只跟烘焙乾貨叫）</span></h2>
-        <div class="muted small">「兩科都進」：照訂單科別分開跟烘焙乾貨、中餐乾貨叫。「只有烘焙進」：中餐課訂的也跟烘焙乾貨叫、送到烘焙教室，印「④ 跨教室領料單」給學生去拿；「只有中餐進」反過來。
-          「過去訂過」是訂單裡烘焙課、其他課各訂過幾次，<span class="badge warn">建議</span> 表示過去只有一科訂過，給你參考。改的是食材總表的「廠商」欄（E乾貨／E烘焙乾貨／E中餐乾貨）。</div>
-        <div id="dryMsg"></div>
-        <details id="dryBox" style="margin-top:8px"><summary id="drySum" style="cursor:pointer">展開清單</summary>
-          <div class="status-chips" id="dryFilter" style="margin:8px 0;align-items:center">
-            <input id="dryFind" type="search" placeholder="找食材，例如：起司" style="max-width:220px" autocomplete="off">
-            <button type="button" data-dry="" class="on">全部</button><button type="button" data-dry="baking">只有烘焙進</button><button type="button" data-dry="other">只有中餐進</button><button type="button" data-dry="hint">有建議的</button>
-          </div>
-          <div class="tablewrap"><table class="sum-vt" id="dryTable"></table></div>
-          <div class="actions"><button type="button" class="btn" id="drySave" disabled>儲存變更</button></div>
-        </details>
-        <details id="dryPasteBox" style="margin-top:8px"><summary style="cursor:pointer">📋 貼上清單一次改（從 Excel 複製兩欄：食材名稱、跟哪一家叫）</summary>
-          <div class="muted small" style="margin:6px 0">每一行一個食材，第二欄寫：<b>烘焙乾貨</b>、<b>中餐乾貨</b>、<b>兩邊</b>（兩科都進）、<b>飲調</b>，或直接寫廠商名稱（例如 A菜商）。食材名稱也可以寫別名（例如 蕃茄醬）。
-            先按「預覽」看會改哪些，確定再按「套用」；還沒叫貨的訂單也會跟著改。</div>
-          <textarea id="dryPaste" rows="6" style="width:100%" placeholder="中筋麵粉	兩邊&#10;低筋麵粉	烘焙乾貨&#10;醬油	中餐乾貨"></textarea>
-          <div class="actions"><button type="button" class="btn secondary" id="dryPreview">預覽</button><button type="button" class="btn" id="dryApply" disabled>套用</button></div>
-          <div id="dryPasteOut"></div>
-        </details>
-      </div>
-      <div class="panel" id="renamePanel">
-        <h2>食材改名／合併 <span class="muted small" style="font-weight:normal">不要直接在試算表改名，用這裡改，訂單才會一起改</span></h2>
-        <div class="muted small">改名或合併時，還沒叫貨的訂單（待處理、已審核）、老師的範本、今天以後的叫貨紀錄會一起改，舊名字自動加成別名（老師打舊名字也找得到）。已經叫貨、到貨的訂單不動。</div>
-        <div class="newform" style="margin-top:8px">
-          <div><label for="rnFrom">食材</label><input id="rnFrom" type="text" maxlength="40" list="subItems" placeholder="例：盒豆腐" autocomplete="off"></div>
-          <div><label for="rnTo">改名成</label><input id="rnTo" type="text" maxlength="40" placeholder="例：板豆腐" autocomplete="off"></div>
-          <button type="button" class="btn small" id="rnGo">改名</button>
-        </div>
-        <div class="newform" style="margin-top:8px">
-          <div><label for="mgFrom">把這項（會停用）</label><input id="mgFrom" type="text" maxlength="40" list="subItems" placeholder="例：盒豆腐" autocomplete="off"></div>
-          <div><label for="mgTo">合併到這項（留下來）</label><input id="mgTo" type="text" maxlength="40" list="subItems" placeholder="例：板豆腐" autocomplete="off"></div>
-          <button type="button" class="btn small secondary" id="mgGo">合併</button>
-        </div>
-        <div id="rnMsg"></div>
-      </div>
-      <div class="panel" id="subPanel">
-        <h2>科別替換 <span class="muted small" style="font-weight:normal">同一個叫法，不同科是不同東西</span></h2>
-        <div class="muted small">例如烘焙課的「牛奶」其實是「保久乳」（跟烘焙乾貨叫），飲調課的「牛奶」是「鮮奶(全)」（跟飲調叫）。設好後，那一科的老師選到「食材」會自動換成「換成」那一項，送出時也會再檢查一次。存在試算表「科別替換」分頁。</div>
-        <div class="newform" style="margin-top:8px">
-          <div><label for="subDept">科別</label><select id="subDept"></select></div>
-          <div><label for="subFrom">老師選的食材</label><input id="subFrom" type="text" maxlength="40" list="subItems" placeholder="例：牛奶" autocomplete="off"></div>
-          <div><label for="subTo">換成</label><input id="subTo" type="text" maxlength="40" list="subItems" placeholder="例：保久乳" autocomplete="off"></div>
-          <button type="button" class="btn small" id="subAdd">新增</button>
-        </div>
-        <datalist id="subItems"></datalist>
-        <div id="subMsg"></div>
-        <div id="subList" class="small" style="margin-top:8px;line-height:2"></div>
-      </div>
-      <div class="panel" id="aliasPanel">
-        <h2>系統學會的叫法 <span class="muted small" style="font-weight:normal">審核時按「對應既有食材」就會記住，下次老師打一樣的字會直接換成正式食材</span></h2>
-        <div class="muted small">只有「完全一樣」的字才會換；同一個叫法對到兩種以上食材（標 ⚠）就不自動換，讓老師自己選。學錯了按 ✕ 刪掉（存在食材總表的「別名」欄）。</div>
-        <div class="tpl-row" style="margin-top:8px">
-          <div><label for="alName">食材（正式名稱）</label><input id="alName" type="text" list="alItems" autocomplete="off" placeholder="例如：細砂糖"><datalist id="alItems"></datalist></div>
-          <div><label for="alText">老師可能的叫法（可以填好幾個，用逗號分開）</label><input id="alText" type="text" autocomplete="off" placeholder="例如：砂糖, 細糖, 糖"></div>
-          <button type="button" class="btn secondary small" id="alAdd">新增叫法</button>
-        </div>
-        <div id="aliasMsg"></div>
-        <details id="aliasBox" style="margin-top:8px"><summary id="aliasSum" style="cursor:pointer">展開清單</summary>
-          <input id="aliasFind" type="search" placeholder="找食材或叫法，例如：糖" style="margin:8px 0;max-width:280px" autocomplete="off">
-          <div id="aliasList" class="small" style="line-height:2.2"></div></details>
-      </div>
-      <details class="panel" id="actPanel">
-        <summary style="cursor:pointer"><h2 style="display:inline">🚫 停用／恢復食材、🔁 換廠商</h2> <span class="muted small" style="font-weight:normal">不再叫的、重複的、寫錯的食材停用，老師就搜不到；舊訂單、成本不受影響，隨時可以恢復。也可以勾好幾樣一次換廠商</span></summary>
-        <div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap;align-items:center">
-          <input id="actQ" type="search" placeholder="找食材，例如：奶油、杏仁" autocomplete="off" style="max-width:240px">
-          <select id="actV" style="width:auto"><option value="">全部廠商</option></select>
-          <select id="actS" style="width:auto"><option value="on">使用中</option><option value="off">已停用</option><option value="">全部</option><option value="idle">使用中、60 天沒人訂</option></select>
-          <span style="flex:1"></span><button type="button" class="btn small" id="actOff" style="background:var(--bad)">🚫 停用勾的</button><button type="button" class="btn secondary small" id="actOn">↩ 恢復勾的</button>
-        </div>
-        <div class="row" style="margin:0 0 8px;gap:6px;flex-wrap:wrap;align-items:center">
-          <span class="small">🔁 勾的食材改跟</span><select id="actMoveV" style="width:auto"><option value="">選新廠商</option></select><span class="small">叫</span>
-          <button type="button" class="btn secondary small" id="actMove">換廠商</button>
-          <span class="muted small">（食材總表改掉，還沒叫貨的訂單也一起換）</span>
-        </div>
-        <div id="actMsg"></div><div id="actList" class="small"></div>
-      </details>
     </section>
   </main>
   <footer class="copyright">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用，禁止重製、散佈程式碼及網址</footer>
@@ -1923,6 +1937,7 @@
       el.classList.toggle('hidden', !data.isAdmin);
     });
     syncPlaceNav();
+    syncAuditNav();
 
     $('fDept').innerHTML = '<option value="">請選擇</option>' + data.departments.map(function (d) {
       return '<option>' + esc(d) + '</option>';
@@ -2051,7 +2066,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewItems', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -2071,12 +2086,14 @@
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
-    if (view === 'viewPending') { fillAddItemForm(); loadPending(note); }
+    if (view === 'viewPending') loadPending(note);
     if (view === 'viewPassword') resetPwForm();
     if (view === 'viewSettings') { loadAuto(); renderSpeed(); loadCrewAdm(); }
     if (view === 'viewAudit') auditOpen();
     if (view === 'viewCrew') crewOpen();
     if (view === 'viewCrewLook') crewLookOpen();
+    if (view === 'viewTrail') recOpen();
+    if (view === 'viewItems') itemsOpen();
     if (view === 'viewVendor' && !$('vFrom').value) setVendorWeek(1);   // 預設：下週一到下週五
   }
 
@@ -2375,7 +2392,7 @@
       return '<button type="button" class="chipbtn" data-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(it.vendor) + '</span></button>';
     }).join('') + '</div>';
   }
-  // 科別替換（管理者在「審核食材 → 科別替換」設定）：例如烘焙課選「牛奶」→ 換成「保久乳」
+  // 科別替換（管理者在「🥕 食材管理 → 科別替換」設定）：例如烘焙課選「牛奶」→ 換成「保久乳」
   function deptSub(it) {
     var m = it && (data.deptSubs || {})[$('fDept').value], to = m && m[normName(it.name)];
     var t = to && data.items.find(function (x) { return x.name === to; });
@@ -4458,12 +4475,7 @@
   }
   // 📜 老師操作紀錄
   var trData = null;
-  $('trOpen').addEventListener('click', function () {
-    $('trTeachers').innerHTML = (data.teachers || []).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('');
-    if (!$('trFrom').value) { var d = new Date(); d.setDate(d.getDate() - 14); $('trFrom').value = isoDate(d); $('trTo').value = isoDate(new Date()); }
-    show('viewTrail');
-  });
-  $('trBack').addEventListener('click', function () { show('viewSummary'); });
+  $('trOpen').addEventListener('click', function () { show('viewTrail'); recOpen('trail'); });
   var TR_COLOR = { '✅ 送出訂單': 'var(--ok)', '⚠ 送出失敗': 'var(--bad)', '📝 填了沒送出': '#b54708', '取消訂單': 'var(--bad)', '刪除訂單': 'var(--bad)', '退單': '#b54708', '修改訂單': '#1d4ed8', '登入失敗': '#b54708' };
   function trRender() {
     var r = trData; if (!r) return;
@@ -4487,13 +4499,25 @@
   });
   $('trNoLogin').addEventListener('change', trRender);
   $('trPrint').addEventListener('click', function () { if (!trData) { msg('trMsg', 'error', '先查詢再列印。'); return; } window.print(); });
-  $('issOpen').addEventListener('click', function () {
-    var open = $('issPanel').classList.toggle('hidden') === false;
-    if (open) { issLoad(); $('issPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-  });
-  $('issClose').addEventListener('click', function () { $('issPanel').classList.add('hidden'); });
-  $('issPrint').addEventListener('click', function () { $('viewSummary').classList.add('print-iss'); doPrint(); });
-  window.addEventListener('afterprint', function () { $('viewSummary').classList.remove('print-iss'); });
+  // 📜 紀錄頁：⚠ 異常紀錄、📜 老師操作紀錄 兩個分頁（訂單彙整的按鈕也是跳到這裡）
+  $('issSlot').appendChild($('issPanel'));
+  var recTab = 'iss', issLoaded = false;
+  function recOpen(tab) {
+    recTab = tab || recTab;
+    Array.prototype.forEach.call(document.querySelectorAll('#recTabs [data-rt]'), function (b) { b.classList.toggle('on', b.getAttribute('data-rt') === recTab); });
+    $('issPanel').classList.toggle('hidden', recTab !== 'iss');
+    $('trWrap').classList.toggle('hidden', recTab !== 'trail');
+    if (recTab === 'iss' && !issLoaded) { issLoaded = true; issLoad(); }
+    if (recTab === 'trail') {
+      $('trTeachers').innerHTML = (data.teachers || []).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('');
+      if (!$('trFrom').value) { var d = new Date(); d.setDate(d.getDate() - 14); $('trFrom').value = isoDate(d); $('trTo').value = isoDate(new Date()); }
+    }
+  }
+  $('recTabs').addEventListener('click', function (e) { var b = e.target.closest('[data-rt]'); if (b) recOpen(b.getAttribute('data-rt')); });
+  $('issOpen').addEventListener('click', function () { show('viewTrail'); recOpen('iss'); });
+  $('issClose').addEventListener('click', function () { show('viewSummary'); });
+  $('issPrint').addEventListener('click', function () { $('viewTrail').classList.add('print-iss'); doPrint(); });
+  window.addEventListener('afterprint', function () { $('viewTrail').classList.remove('print-iss'); });
   ['issFrom', 'issTo'].forEach(function (id) { $(id).addEventListener('change', issLoad); });
   $('issUndone').addEventListener('change', issRender);
   $('issTeacher').addEventListener('change', issRender);
@@ -5493,16 +5517,12 @@
   });
   var DRY_VENDOR_LABEL = { 'E烘焙乾貨': '只跟旺來興（烘焙）E烘焙乾貨', 'E中餐乾貨': '只跟銘哲（中餐）E中餐乾貨', 'E乾貨': '兩家都叫（各科跟自己教室的）E乾貨' };
   // light：審核完一筆只重讀待審核清單（別名有變才重讀別名），其他面板不用每次都重讀
+  function itemsOpen() { fillAddItemForm(); loadUnitPanel(); loadAliases(); loadDry(); loadSubs(); }
   function loadPending(note, light) {
     msg('pendMsg', 'info', '載入中…');
     if (!light) $('pendList').innerHTML = '';
-    if (!light) {
-      loadPendingUnits();
-      loadUnitPanel();
-      loadAliases();
-      loadDry();
-      loadSubs();
-    } else if (light === 'alias') loadAliases();
+    if (!light) loadPendingUnits();
+    else if (light === 'alias') loadAliases();
     return call('adminGetPending', token).then(function (list) {
       refreshPendingCount(list);
       if (note) msg('pendMsg', 'ok', note + (list.length ? '' : '目前沒有其他待審核的食材。'));
@@ -6017,7 +6037,7 @@
       }
       if (kind === 'pickup') {
         $('vendorSheets').innerHTML = pickupBar() + html;
-        msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要跨教室領的食材。只有某一科在進的食材（例如乳酪絲只跟烘焙乾貨叫），請到「審核食材 → 乾貨進貨科別」設成「只有烘焙進」，或在「② 訂貨單」按「換廠商」改跟烘焙乾貨叫，中餐課訂的就會列在這張領料單。系統抓不到的，也可以按「＋ 新增領料」自己加。');
+        msg('vendorMsg', html ? '' : 'info', html ? '' : '這段期間沒有要跨教室領的食材。只有某一科在進的食材（例如乳酪絲只跟烘焙乾貨叫），請到「🥕 食材管理 → 乾貨進貨科別」設成「只有烘焙進」，或在「② 訂貨單」按「換廠商」改跟烘焙乾貨叫，中餐課訂的就會列在這張領料單。系統抓不到的，也可以按「＋ 新增領料」自己加。');
         $('vPrint').disabled = $('vPdf').disabled = !html;
         return;
       }
@@ -6471,6 +6491,12 @@
   var crew = null;   // { date, kind, orders, recent, photos: { orderNo: dataUrl } }
   var crewKind = '';   // ''＝照日期的一般課；'team'＝校隊練習；'holiday'＝假日實習（今天起兩週內）
   // 放置登記沒開放：管理者的選單不顯示；校隊登入只看到「還沒開放」
+  function syncAuditNav() { var b = document.querySelector('#nav button[data-view="viewAudit"]'); if (b && data) b.classList.toggle('hidden', !data.isAdmin || !data.auditEnabled); if ($('auditOn')) $('auditOn').checked = !!(data && data.auditEnabled); }
+  $('auditOn').addEventListener('change', function () {
+    var on = this.checked, box = this; box.disabled = true;
+    call('adminSetAuditEnabled', token, on).then(function (r) { data.auditEnabled = r.auditEnabled; syncAuditNav(); msg('autoMsg', 'ok', on ? '上方選單多了「抽查」。' : '已把「抽查」從選單藏起來（資料保留）。'); })
+      .catch(function (e) { box.checked = !on; msg('autoMsg', 'error', e.message); }).then(function () { box.disabled = false; });
+  });
   function syncPlaceNav() {
     var b = document.querySelector('#nav button[data-view="viewCrew"]');
     if (b && data && !data.isCrew) b.classList.toggle('hidden', !(data.isAdmin || data.crewOrder) || !data.placeEnabled);

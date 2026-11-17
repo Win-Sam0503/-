@@ -522,6 +522,7 @@ function getBootstrap(token) {
     holidays: st.holidays,
     prices: st.prices || {},
     placeEnabled: placeEnabled_(),
+    auditEnabled: PropertiesService.getScriptProperties().getProperty('AUDIT_ENABLED') === '1',
     classSizes: st.classSizes || {},
     unitConv: st.unitConv || {},
     unitHist: st.unitHist || {},
@@ -5169,6 +5170,15 @@ function adminSetPlaceEnabled(token, on) {
   if (on) props.setProperty('PLACE_ENABLED', '1'); else props.deleteProperty('PLACE_ENABLED');
   memoClear_();
   return { placeEnabled: placeEnabled_() };
+}
+
+/** 管理者：選單要不要顯示「抽查」（沒在用就藏起來） */
+function adminSetAuditEnabled(token, on) {
+  auth_(token, true);
+  const props = PropertiesService.getScriptProperties();
+  if (on) props.setProperty('AUDIT_ENABLED', '1'); else props.deleteProperty('AUDIT_ENABLED');
+  try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
+  return { auditEnabled: on ? true : false };
 }
 
 /** 每張訂單最後一次登記的放置位置：{ 訂單編號: { place, photo, by, time } } */
