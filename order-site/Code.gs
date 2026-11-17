@@ -3945,6 +3945,9 @@ function doPost(e) {
     const lineToken = props.getProperty('LINE_TOKEN');
     (body.events || []).forEach(function (ev) {
       if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text' || !lineToken) return;
+      // 全形數字、空白換成半形；常見錯字（榜定、邦定、幫定）當成「綁定」，不然對不到、官方帳號完全不回
+      ev.message.text = String(ev.message.text).replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+        .replace(/\u3000/g, ' ').replace(/^\s*(榜定|邦定|幫定|绑定)/, '綁定');
       const userId = ev.source && ev.source.userId;
       if (/^驗證碼$/.test(String(ev.message.text).trim())) {
         const codeAns = updateCodeReply_(ev, props);
@@ -3965,6 +3968,8 @@ function doPost(e) {
           if (adm) { lineReplyMsgs_(ev.replyToken, adm); return; }
           const ans = lineAutoReply_(ev.message.text, userId);
           if (ans) lineReply_(ev.replyToken, ans);
+          // 看起來是要綁定（有 6 位數字或「綁」字）但格式不對：告訴他怎麼打，不要完全沒反應
+          else if (/\d{6}|綁/.test(ev.message.text)) lineReply_(ev.replyToken, '看不懂這句。要綁定請傳「綁定 123456」（綁定兩個字＋空格＋網站上的 6 位數字）；校隊傳「校隊 123456」。');
         }
         return;
       }
