@@ -4619,6 +4619,24 @@
   // 修改原因／退單原因（會一起用 LINE 告訴老師）
   var EDIT_REASONS = ['單位錯誤，已修正', '數量異常，已修正', '品項錯誤，已修正', '食材和器具放錯，已修正', '上課資訊錯誤，已修正'];
   var RETURN_REASONS = ['數量或單位有誤，請修改', '食材內容有誤，請修改', '上課日期或班級有誤，請修改', '重複訂單', '請改用其他方式處理'];
+  // 常用原因做成按鈕：點一下就選好（可以再點取消），「其他」或補充寫在下面
+  var SKIP_REASONS = ['校外教學／活動', '段考／考試', '改上理論課', '調課（改到別天）', '用上次剩的材料', '學生人數太少', '老師請假'];
+  var CANCEL_REASONS = ['訂錯了，要重新訂', '重複訂單', '調課（改到別天）', '校外教學／活動', '段考／考試', '改上理論課', '老師請假'];
+  function quickReasonHtml(list, label) {
+    return '<div class="qreason" style="margin-top:10px"><div style="font-weight:700;margin-bottom:6px">' + esc(label) + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">' + list.map(function (r) { return '<button type="button" class="btn ghost small" data-qr="' + esc(r) + '" style="border-radius:999px">' + esc(r) + '</button>'; }).join('') + '</div>' +
+      '<input type="text" data-qr-text maxlength="60" placeholder="其他原因或補充（選填）" style="margin-top:6px"></div>';
+  }
+  function readQuickReason(box) {
+    var on = Array.prototype.filter.call(box.querySelectorAll('[data-qr].on'), function () { return true; }).map(function (b) { return b.getAttribute('data-qr'); });
+    var t = (box.querySelector('[data-qr-text]') || { value: '' }).value.trim();
+    return on.concat(t ? [t] : []).join('；');
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.qreason [data-qr]'); if (!b) return;
+    b.classList.toggle('on');
+    b.style.background = b.classList.contains('on') ? 'var(--brand)' : ''; b.style.color = b.classList.contains('on') ? '#fff' : '';
+  });
   function reasonHtml(list, label) {
     return '<div class="reason-box"><label>' + label + '</label><select data-reason><option value="">（不寫原因）</option>' +
       list.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '<option value="其他">其他（自己寫）</option></select>' +
@@ -9531,7 +9549,7 @@
               '<td class="lt-date" style="white-space:nowrap">' + esc(shortDate(x.date)) + ' ' + esc(x.session) + '</td>' +
               '<td class="lt-course"><b>' + esc(x.course) + '</b><div class="muted small">' + esc([x.className, classSizeText(x.className, x.course) ? '👥 ' + classSizeText(x.className, x.course) : '', x.room].filter(Boolean).join('・')) + (x.source === '自訂' ? ' <span class="badge info">自訂</span>' : x.source === '國技' ? ' <span class="badge warn">國技</span>' : '') + '</div>' +
                 (x.orders || []).map(function (o) { return '<div class="small" style="margin-top:2px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b> ' + statusBadge(o.status) + '</div>'; }).join('') + '</td>' +
-              '<td class="lt-status">' + LESSON_STATUS[x.status] + (x.holiday ? '<div class="small" style="color:var(--muted)">' + esc(x.holiday) + '</div>' : '') + '</td>' +
+              '<td class="lt-status">' + LESSON_STATUS[x.status] + (x.skipNote ? '<div class="small muted">' + esc(x.skipNote) + '</div>' : '') + (x.holiday ? '<div class="small" style="color:var(--muted)">' + esc(x.holiday) + '</div>' : '') + '</td>' +
               '<td class="lt-act"><div class="actions" style="margin:0;justify-content:flex-end">' + btns + '</div></td></tr>';
           }).join('') + '</tbody></table></div>' : '') + '</details>';
       }).join('');
@@ -10097,10 +10115,12 @@
       var cno = b.getAttribute('data-no'), cst = b.getAttribute('data-st'), other = viewingOther();
       ask('', '確定取消', { noText: '不要取消', html: '<div class="info-check"><h3 style="color:var(--bad)">⚠ 確定要取消整筆訂單？</h3>' +
         '<div style="margin-bottom:6px"><b>' + esc(shortDate(x.date) + ' ' + x.session + ' ' + (x.className || '') + '「' + (b.getAttribute('data-proj') || x.course) + '」') + '</b><br>' + esc(cno) + (cst ? '・目前狀態：' + esc(cst) : '') + '</div>' +
-        '<div class="muted small">整張訂單的所有品項都會取消，不會跟廠商叫貨。' + (other ? '老師有綁定 LINE 的話會收到取消通知。' : '已經過了訂貨截止或管理者已審核的訂單，不能自己取消，請聯絡管理者。') + '</div></div>' }).then(function (ok) {
+        '<div class="muted small">整張訂單的所有品項都會取消，不會跟廠商叫貨。' + (other ? '老師有綁定 LINE 的話會收到取消通知。' : '已經過了訂貨截止或管理者已審核的訂單，不能自己取消，請聯絡管理者。') + '</div>' + quickReasonHtml(CANCEL_REASONS, '取消原因（必填，點一下就好）') + '</div>' }).then(function (ok) {
         if (!ok) return;
+        var why = readQuickReason($('askText'));
+        if (!why) { notice('請點一個取消原因（或在下面寫原因）。').then(function () { b.click(); }); return; }
         setBusy(b, true, '取消中…');
-        call('cancelOrder', token, cno).then(function () {
+        call('cancelOrder', token, cno, why).then(function () {
           mineCache = [];   // 我的訂單下次重新讀
           loadLessons('訂單 ' + cno + ' 已取消。');
         }).catch(function (err) { msg('lessonsMsg', 'error', '取消失敗：' + err.message); setBusy(b, false); });
@@ -10113,10 +10133,21 @@
       lessonToOrder(x, act === 'orderlast', []);
       return;
     }
-    setBusy(b, true, '處理中…');
-    call('setNoOrder', token, x.date, x.session, x.course, act === 'skip', lessonAs).then(function (r) {
-      renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨。' : '已改回要訂貨。');
-    }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+    var doSkip = function (why) {
+      setBusy(b, true, '處理中…');
+      call('setNoOrder', token, x.date, x.session, x.course, act === 'skip', lessonAs, why || '').then(function (r) {
+        renderLessons(r, act === 'skip' ? '已標記「' + x.course + '」不用訂貨（原因：' + why + '）。' : '已改回要訂貨。');
+      }).catch(function (err) { msg('lessonsMsg', 'error', err.message); setBusy(b, false); });
+    };
+    if (act !== 'skip') { doSkip(''); return; }
+    ask('', '確定不用訂貨', { noText: '取消', html: '<div class="info-check"><h3>這堂課不用訂貨？</h3>' +
+      '<div style="margin-bottom:6px"><b>' + esc(shortDate(x.date) + ' ' + x.session + ' ' + (x.className || '') + ' ' + x.course) + '</b></div>' +
+      '<div class="muted small">標記後這堂課不算未訂貨、也不會再提醒；之後要訂還可以改回來。</div>' + quickReasonHtml(SKIP_REASONS, '原因（必填，點一下就好）') + '</div>' }).then(function (ok) {
+      if (!ok) return;
+      var why = readQuickReason($('askText'));
+      if (!why) { notice('請點一個原因（或在下面寫原因）。').then(function () { b.click(); }); return; }
+      doSkip(why);
+    });
   });
   function lessonOfRow(tr) {
     return { date: tr.getAttribute('data-date'), session: tr.getAttribute('data-session'), course: tr.getAttribute('data-course'), source: tr.getAttribute('data-source') || '', className: tr.getAttribute('data-class'), room: tr.getAttribute('data-room') };

@@ -1901,12 +1901,14 @@ function classKeys_(s) {
     .split(/[\/、,，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
 }
 
-function cancelOrder(token, orderNo) {
+function cancelOrder(token, orderNo, reason) {
   const account = auth_(token);
   const isAdmin = isAdmin_(account);
+  reason = clean_(reason, 80);
   const res = cancelOrderChecked_(account, isAdmin, orderNo);
-  try { logOrderEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']); } catch (e) { console.error(e.message); }
-  if (isAdmin) notifyTeacherOfEdit_(String(orderNo || '').trim(), account, ['取消整張訂單']);
+  const what = ['取消整張訂單' + (reason ? '（原因：' + reason + '）' : '')];
+  try { logOrderEdit_(String(orderNo || '').trim(), account, what); } catch (e) { console.error(e.message); }
+  if (isAdmin) notifyTeacherOfEdit_(String(orderNo || '').trim(), account, what);
   return res;
 }
 
@@ -1955,6 +1957,11 @@ function adminTeacherTrail(token, teacher, from, to) {
     if (!mine(who) && !byNo[no]) return;
     const type = /(^|；)退單/.test(text) ? '退單' : /取消整張訂單|整張取消/.test(text) ? '取消訂單' : /老師刪除訂單/.test(text) ? '刪除訂單' : '修改訂單';
     add(tm(r['時間']), type, (mine(who) ? '' : who + '：') + text, { orderNo: no });
+  });
+  if (has(SHEET.skips)) readTable_(SHEET.skips, ['老師', '日期', '時段']).rows.forEach(function (r) {
+    if (!mine(r['老師']) || String(r['標記'] || '').trim() === '已叫料') return;
+    const by = String(r['標記人'] || '').trim();
+    add(tm(r['標記時間']), '不用訂貨', '上課 ' + shortDateTw_(toDate_(r['日期'])) + ' ' + String(r['時段'] || '') + ' ' + String(r['課程'] || '') + (String(r['備註'] || '').trim() ? '・' + String(r['備註']).trim() : '・（沒寫原因）') + (by && by !== teacher ? '（' + by + ' 標記）' : ''));
   });
   if (has(SHEET.hidden)) readTable_(SHEET.hidden, ['訂單編號']).rows.forEach(function (r) {
     if (mine(r['老師'])) add(tm(r['刪除時間']), '刪除訂單', '老師自己刪除（刪除時狀態：' + String(r['原狀態'] || '') + '）', { orderNo: String(r['訂單編號']).trim() });
@@ -5472,6 +5479,7 @@ function lessonsWithStatus_(from, to, teacher, st0) {
     const k = x.teacher + '|' + x.date + '|' + x.session;
     const hol = holidayOf_(x.date);
     x.status = have[k] || manual[k] ? 'ordered' : skip[k] ? 'skipped' : hol ? 'holiday' : 'todo';
+    if (x.status === 'skipped' && typeof skip[k] === 'string') x.skipNote = skip[k];
     if (have[k]) x.orders = have[k].map(function (o) { return { project: o.project, status: o.status, orderNo: o.orderNo }; });   // 我的課顯示訂了什麼（例如巧克力餅乾）
     if (hol) x.holiday = hol;
     return x;
@@ -5608,8 +5616,9 @@ function fixOrderLesson(token, orderNo, lesson, as) {
 }
 
 /** 標記／取消「不用訂貨」：date = yyyy-mm-dd，session = 上午／下午／晚上 */
-function setNoOrder(token, date, session, course, skip, as) {
-  const account = lessonAccount_(token, as);
+function setNoOrder(token, date, session, course, skip, as, reason) {
+  const account = lessonAccount_(token, as), who = auth_(token);
+  reason = clean_(reason, 80);
   const d = parseDate_(date);
   if (!d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
   const lock = LockService.getScriptLock();
@@ -5622,7 +5631,8 @@ function setNoOrder(token, date, session, course, skip, as) {
       return String(r['老師']).trim() === account && rd && dateStr_(rd) === dateStr_(d) && String(r['時段']).trim() === session;
     });
     if (skip && !same.length) {
-      appendRows_(SHEET.skips, [{ '老師': account, '日期': d, '時段': session, '課程': clean_(course, 40), '標記時間': new Date() }],
+      ensureHeaders_(sh, SKIP_HEADERS);
+      appendRows_(SHEET.skips, [{ '老師': account, '日期': d, '時段': session, '課程': clean_(course, 40), '標記時間': new Date(), '備註': reason ? '不用訂貨原因：' + reason : '', '標記人': who }],
         { '日期': 'yyyy-mm-dd', '標記時間': 'yyyy/mm/dd hh:mm' });
     }
     if (!skip && same.length) deleteRows_(sh, same.map(function (r) { return r._row; }));
@@ -5974,7 +5984,7 @@ function lessonStatusMaps_(from, to) {
       if (!d) return;
       const k = String(r['老師']).trim() + '|' + dateStr_(d) + '|' + String(r['時段']).trim();
       if (String(r['標記'] || '').trim() === '已叫料') manual[k] = { note: String(r['備註'] || '').trim(), by: String(r['標記人'] || '').trim() };
-      else skip[k] = true;
+      else skip[k] = String(r['備註'] || '').replace(/^不用訂貨原因：/, '').trim() || true;   // 有寫原因就帶原因
     });
   }
   return { have: have, skip: skip, manual: manual, list: list };
