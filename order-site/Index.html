@@ -3506,6 +3506,28 @@
       ' <button type="button" class="btn ghost small" data-mpsave data-mp-v="' + esc(it.vendor) + '" data-mp-n="' + esc(it.name) + '" style="padding:1px 8px">存</button>' +
       (cur ? ' <button type="button" class="btn ghost small" data-mpdel data-mp-v="' + esc(it.vendor) + '" data-mp-n="' + esc(it.name) + '" data-mp-ou="' + esc(cur.u) + '" style="padding:1px 8px;color:var(--bad)">刪掉</button>' : '') + '</div>';
   }
+  // 「廠商送的其實是」：銷貨單品項選單，名字有相同字的排前面；打關鍵字只留符合的
+  function cmOptions(opts, q, name) {
+    q = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    var chars = String(name || '').replace(/[\s()（）0-9a-zA-Z]/g, '').split('');
+    var score = function (n) { return chars.filter(function (c) { return n.indexOf(c) >= 0; }).length; };
+    var list = opts.filter(function (y) { var t = (y.n + ' ' + y.u).toLowerCase(); return q.every(function (w) { return t.indexOf(w) >= 0; }); })
+      .map(function (y) { return { y: y, s: score(y.n) }; }).sort(function (a, b) { return b.s - a.s || a.y.n.localeCompare(b.y.n, 'zh-Hant'); });
+    return '<option value="">' + (q.length ? (list.length ? '（符合 ' + list.length + ' 樣，請選）' : '（找不到，換個字）') : '（選銷貨單上的品項）') + '</option>' +
+      list.map(function (z) { return '<option value="' + esc(z.y.n) + '">' + esc(z.y.n + '　$' + fmtQty(z.y.p) + '／' + z.y.u) + '</option>'; }).join('');
+  }
+  function cmFilter(inp) {
+    var sel = inp.parentNode.querySelector('select[data-cm-v]'); if (!sel) return;
+    var opts = (slipItemsCache.data || {})[sel.getAttribute('data-cm-v')] || [];
+    sel.innerHTML = cmOptions(opts, inp.value, sel.getAttribute('data-cm-o'));
+    if (sel.options.length === 2 && inp.value.trim()) sel.selectedIndex = 1;   // 只剩一樣：直接選好
+  }
+  document.addEventListener('input', function (e) { if (e.target.hasAttribute && e.target.hasAttribute('data-cm-f') && !e.isComposing) cmFilter(e.target); });
+  document.addEventListener('compositionend', function (e) { if (e.target.hasAttribute && e.target.hasAttribute('data-cm-f')) cmFilter(e.target); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || !e.target.hasAttribute || !e.target.hasAttribute('data-cm-f') || e.isComposing) return;
+    e.preventDefault(); var sel = e.target.parentNode.querySelector('select[data-cm-v]'); if (sel) sel.focus();
+  });
   // ① 待處理的搜尋（重新算成本後保留）
   var costMissQ = '', costMissS = '';
   function costMissFilter() {
@@ -3549,8 +3571,8 @@
       keys.map(function (k) {
         var x = m[k], w = whyOf(x);
         var sv = slipVendor(x.it.vendor), opts = (slipItemsCache.data || {})[sv] || [];
-        var pick = !w.conv && data.isAdmin ? '<div class="noprint" style="margin-top:3px">' + (slipItemsCache.data ? (opts.length ? '廠商送的其實是：<select data-cm-v="' + esc(sv) + '" data-cm-o="' + esc(x.it.name) + '" style="width:auto;max-width:220px;display:inline-block;padding:2px 4px"><option value="">（選銷貨單上的品項）</option>' +
-          opts.map(function (y) { return '<option value="' + esc(y.n) + '">' + esc(y.n + '　$' + fmtQty(y.p) + '／' + y.u) + '</option>'; }).join('') + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
+        var pick = !w.conv && data.isAdmin ? '<div class="noprint" style="margin-top:3px">' + (slipItemsCache.data ? (opts.length ? '廠商送的其實是：<input type="search" data-cm-f placeholder="🔍 打關鍵字找" autocomplete="off" style="width:120px;display:inline-block;padding:2px 6px"> <select data-cm-v="' + esc(sv) + '" data-cm-o="' + esc(x.it.name) + '" style="width:auto;max-width:220px;display:inline-block;padding:2px 4px">' +
+          cmOptions(opts, '', x.it.name) + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
           : '<span class="muted">這幾週 ' + esc(sv) + ' 的銷貨單還沒填品項</span>') : '<span class="muted">讀取銷貨單品項中…</span>') + '</div>' : '';
         return '<tr data-mq="' + esc((x.it.name + ' ' + (x.it.vendor || '') + ' ' + vco(x.it.vendor || '') + ' ' + (x.it.unit || '') + ' ' + w.text).toLowerCase()) + '" data-ms="' + (x.man ? 'h' : x.est ? 'e' : 'n') + '"><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.man ? '<span style="color:var(--ok)">✏ 手填單價</span>' : x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + (x.man ? '' : pick) + priceInput(x.it, x.man ? x.c : null) +
           (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
