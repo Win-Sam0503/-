@@ -71,6 +71,18 @@
   .hxcard h3 { margin: 0 0 4px; font-size: 18px; }
   .hxt td, .hxt th { padding: 6px; }
   .hxt input { width: 120px; font-size: 16px; padding: 6px; }
+  #hxCt { width: 100%; border-collapse: collapse; }
+  #hxCt input { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; }
+  #hxCt th:nth-child(2) { width: 30%; } #hxCt th:nth-child(3), #hxCt th:nth-child(4) { width: 28%; }
+  #hxCt td:last-child { white-space: nowrap; }
+  @media (max-width: 720px) {
+    #hxCt, #hxCt tbody, #hxCt tr, #hxCt td { display: block; width: auto; }
+    #hxCt tr:has(th) { display: none; }
+    #hxCt tr { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
+    #hxCt td { padding: 3px 0 !important; border: 0 !important; }
+    #hxCt td[data-lb]::before { content: attr(data-lb); display: block; font-size: 13px; color: #666; margin-bottom: 2px; }
+    #hxCt td[data-cnum] { font-weight: 700; color: #333; }
+  }
   .hxform label { display: block; font-weight: 700; margin-top: 8px; }
   .hxform input, .hxform select, .hxform textarea { font-size: 16px; padding: 8px; box-sizing: border-box; }
   .hxcand { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #eaecf0; }
@@ -3682,8 +3694,8 @@
   }
   function hxCatNum() { Array.prototype.forEach.call(document.querySelectorAll('#hxCt [data-cnum]'), function (x, i) { x.textContent = '第 ' + (i + 1) + ' 類'; }); }
   function hxCatRow(n, h, rv) {
-    return '<tr><td data-cnum class="small muted" style="white-space:nowrap"></td><td><input data-cn value="' + esc(n) + '" style="width:220px"></td><td><input data-ch value="' + esc(h) + '" placeholder="例如 王老師、李老師" style="width:160px"></td>' +
-      '<td><input data-crv value="' + esc(rv || '') + '" placeholder="例如 組長、主任" style="width:140px"></td>' +
+    return '<tr><td data-cnum class="small muted" style="white-space:nowrap"></td><td data-lb="類別"><input data-cn value="' + esc(n) + '"></td><td data-lb="餐飲科行政助理"><input data-ch value="' + esc(h) + '" placeholder="例如 王老師、李老師"></td>' +
+      '<td data-lb="再確認（照順序）"><input data-crv value="' + esc(rv || '') + '" placeholder="例如 組長、主任"></td>' +
       '<td><button type="button" class="btn ghost small" data-cup>↑</button><button type="button" class="btn ghost small" data-cdel>刪除</button></td></tr>';
   }
   document.querySelector('.hxtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-hx]'); if (b) hxOpen(b.getAttribute('data-hx')); });
