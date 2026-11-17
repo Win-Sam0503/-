@@ -1346,12 +1346,17 @@
           <div id="aliasList" class="small" style="line-height:2.2"></div></details>
       </div>
       <details class="panel" id="actPanel">
-        <summary style="cursor:pointer"><h2 style="display:inline">🚫 停用／恢復食材</h2> <span class="muted small" style="font-weight:normal">不再叫的、重複的、寫錯的食材停用，老師就搜不到；舊訂單、成本不受影響，隨時可以恢復</span></summary>
+        <summary style="cursor:pointer"><h2 style="display:inline">🚫 停用／恢復食材、🔁 換廠商</h2> <span class="muted small" style="font-weight:normal">不再叫的、重複的、寫錯的食材停用，老師就搜不到；舊訂單、成本不受影響，隨時可以恢復。也可以勾好幾樣一次換廠商</span></summary>
         <div class="row" style="margin:8px 0;gap:6px;flex-wrap:wrap;align-items:center">
           <input id="actQ" type="search" placeholder="找食材，例如：奶油、杏仁" autocomplete="off" style="max-width:240px">
           <select id="actV" style="width:auto"><option value="">全部廠商</option></select>
           <select id="actS" style="width:auto"><option value="on">使用中</option><option value="off">已停用</option><option value="">全部</option><option value="idle">使用中、60 天沒人訂</option></select>
           <span style="flex:1"></span><button type="button" class="btn small" id="actOff" style="background:var(--bad)">🚫 停用勾的</button><button type="button" class="btn secondary small" id="actOn">↩ 恢復勾的</button>
+        </div>
+        <div class="row" style="margin:0 0 8px;gap:6px;flex-wrap:wrap;align-items:center">
+          <span class="small">🔁 勾的食材改跟</span><select id="actMoveV" style="width:auto"><option value="">選新廠商</option></select><span class="small">叫</span>
+          <button type="button" class="btn secondary small" id="actMove">換廠商</button>
+          <span class="muted small">（食材總表改掉，還沒叫貨的訂單也一起換）</span>
         </div>
         <div id="actMsg"></div><div id="actList" class="small"></div>
       </details>
@@ -4802,6 +4807,10 @@
       var vs = r.map(function (x) { return x.vendor; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
       var cur0 = $('actV').value;
       $('actV').innerHTML = '<option value="">全部廠商</option>' + vs.map(function (v) { return '<option' + (v === cur0 ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
+      var mv = moveTargets(''), sp = (data.vendorSplit || {})['E乾貨'];
+      if (sp && mv.indexOf('E乾貨') < 0) mv.push('E乾貨');
+      var vlab = function (v) { return sp && v === 'E乾貨' ? 'E乾貨（兩科都進）' : sp && v === sp.baking ? v + '（只有烘焙進）' : sp && v === sp.other ? v + '（只有中餐進）' : v; };
+      $('actMoveV').innerHTML = '<option value="">選新廠商</option>' + mv.sort().map(function (v) { return '<option value="' + esc(v) + '">' + esc(vlab(v)) + '</option>'; }).join('');
       actRender();
     }).catch(function (e) { $('actList').innerHTML = ''; msg('actMsg', 'error', e.message); });
   }
@@ -4843,6 +4852,23 @@
     }).catch(function (e) { msg('actMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
   }
   $('actOff').addEventListener('click', function () { actSet(false, this); });
+  $('actMove').addEventListener('click', function () {
+    var btn = this, to = $('actMoveV').value;
+    var picked = Array.prototype.filter.call($('actList').querySelectorAll('[data-actid]'), function (c) { return c.checked; }).map(function (c) {
+      var id = c.getAttribute('data-actid'); return actItems.filter(function (y) { return y.id === id; })[0]; }).filter(Boolean);
+    if (!picked.length) { msg('actMsg', 'error', '請先勾要換廠商的食材。'); return; }
+    if (!to) { msg('actMsg', 'error', '請選新廠商。'); $('actMoveV').focus(); return; }
+    var ch = picked.filter(function (x) { return x.vendor !== to; });
+    if (!ch.length) { msg('actMsg', 'info', '勾的食材本來就是跟「' + to + '」叫。'); return; }
+    if (!safeConfirm('把 ' + ch.length + ' 樣食材改跟「' + to + '」叫？\n' + ch.slice(0, 15).map(function (x) { return x.name + '（' + x.vendor + '→' + to + '）'; }).join('\n') + (ch.length > 15 ? '\n…' : '') +
+      '\n\n食材總表的廠商會改掉；今天以後還沒叫貨的訂單（待處理、已審核）也會一起換。已經確定叫貨的不會動，要換請到「② 訂貨單」按「換廠商」。')) return;
+    setBusy(btn, true, '換廠商中…');
+    call('adminSetItemVendors', token, ch.map(function (x) { return { id: x.id, vendor: to }; })).then(function (r) {
+      ch.forEach(function (x) { x.vendor = to; var it = (data.items || []).find(function (y) { return y.id === x.id; }); if (it) it.vendor = to; });
+      actRender();
+      msg('actMsg', 'ok', '已把 ' + r.items + ' 樣食材改跟「' + to + '」叫' + (r.lines ? '，還沒叫貨的訂單也跟著改了 ' + r.lines + ' 筆' : '') + '。老師重新整理後生效。');
+    }).catch(function (e) { msg('actMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  });
   $('actOn').addEventListener('click', function () { actSet(true, this); });
   function loadPendingUnits() {
     return call('adminGetPendingUnits', token).then(function (list) {
