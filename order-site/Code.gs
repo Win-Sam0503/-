@@ -6203,7 +6203,7 @@ function lineCrewBind_(code, src) {
   if (!c || c.code !== code || !(c.until > Date.now())) return '校隊綁定碼不正確或已過期，請找管理者拿新的。';
   props.setProperty('CL:' + src.userId, Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm'));
   lineLinkMenu_(src.userId, 'CREW_RICH_MENU_ID');
-  return '校隊綁定完成！下方選單可以看今天／明天的料單和課表（選單沒換的話，關掉聊天室再打開）。\n也可以傳「料單 11/12」「課表 11/12」查某一天。';
+  return '校隊綁定完成！下方選單可以看今天／明天的料單和課表，「🔍 查老師」可以看某位老師這週和下週有沒有課、有沒有料單（選單沒換的話，關掉聊天室再打開）。\n也可以傳「老師 王小明」「料單 11/12」「課表 11/12」。';
 }
 function lineIsCrew_(userId) { return !!(userId && PropertiesService.getScriptProperties().getProperty('CL:' + userId)); }
 function lineLinkMenu_(userId, key) {
@@ -6217,10 +6217,10 @@ function lineSetupCrewMenu_(png) {
   const b64 = String(png || '').replace(/^data:image\/png;base64,/, '');
   if (!lineToken || b64.length < 1000 || b64.length > 1300000) return;
   const auth = { Authorization: 'Bearer ' + lineToken };
-  const w = 2500, h = 1686, cw = w / 2, rh = h / 2;
-  const areas = [['今天料單', '今天料單'], ['明天料單', '明天料單'], ['今天課表', '今天課表'], ['明天課表', '明天課表']].map(function (a, i) {
-    const c = i % 2, r = Math.floor(i / 2);
-    return { bounds: { x: c * cw, y: r * rh, width: cw, height: rh }, action: { type: 'message', label: a[0], text: a[1] } };
+  const w = 2500, h = 1686, cw = Math.floor(w / 3), rh = h / 2;
+  const areas = [['今天料單', '今天料單'], ['明天料單', '明天料單'], ['查老師', '查老師'], ['今天課表', '今天課表'], ['明天課表', '明天課表'], ['說明', '校隊說明']].map(function (a, i) {
+    const c = i % 3, r = Math.floor(i / 3);
+    return { bounds: { x: c * cw, y: r * rh, width: c === 2 ? w - 2 * cw : cw, height: rh }, action: { type: 'message', label: a[0], text: a[1] } };
   });
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
     payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統校隊選單', chatBarText: '校隊選單', areas: areas }) });
@@ -6295,6 +6295,54 @@ function lineDateArg_(s) {
   return null;
 }
 let LINE_VIEW_CREW_ = false;   // 這次回覆是給校隊看（快速按鈕不放叫貨單）
+/** 老師名單（帳號設定裡啟用的老師，不含管理者、校隊） */
+function lineTeacherNames_() {
+  return readTable_(SHEET.accounts, ['帳號', '啟用']).rows
+    .filter(function (r) { return isTrue_(r['啟用']); })
+    .map(function (r) { return String(r['帳號']).trim(); })
+    .filter(function (a) { return a && ADMIN_ACCOUNTS.indexOf(a) < 0 && crewAccounts_().indexOf(a) < 0; });
+}
+/** 🔍 查老師：這週＋下週每一堂課（叫料了沒、做什麼）；沒打名字就列這兩週有課的老師讓他點 */
+function lineTeacherMsgs_(q) {
+  const t0 = today_(), mon = addDays_(t0, -((t0.getDay() + 6) % 7)), fri2 = addDays_(mon, 11);
+  const all = lessonsWithStatus_(mon, fri2, null);
+  const names = lineTeacherNames_();
+  all.forEach(function (x) { if (x.teacher && names.indexOf(x.teacher) < 0) names.push(x.teacher); });
+  const qr = function (list) { return { items: list.slice(0, 13).map(function (n) { return { type: 'action', action: { type: 'message', label: String(n).slice(0, 20), text: '老師 ' + n } }; }) }; };
+  if (!q) {
+    const busy = {};
+    all.forEach(function (x) { if (x.teacher) busy[x.teacher] = (busy[x.teacher] || 0) + 1; });
+    const list = Object.keys(busy).sort(function (a, b) { return busy[b] - busy[a] || a.localeCompare(b); });
+    if (!list.length) return [{ type: 'text', text: '這週和下週沒有課。' }];
+    return [{ type: 'text', text: '要查哪位老師？點下面的名字，或直接打「老師 王小明」。\n這週和下週有課的老師：' + list.join('、'), quickReply: qr(list) }];
+  }
+  let hit = names.filter(function (n) { return n === q; });
+  if (!hit.length) hit = names.filter(function (n) { return n.indexOf(q) >= 0 || q.indexOf(n) >= 0; });
+  if (!hit.length) return [{ type: 'text', text: '找不到「' + q + '」老師，名字要跟訂貨系統的帳號一樣。打「查老師」可以看名單。' }];
+  if (hit.length > 1) return [{ type: 'text', text: '有好幾位：' + hit.join('、') + '，請點一位。', quickReply: qr(hit) }];
+  const name = hit[0];
+  const list = all.filter(function (x) { return x.teacher === name; })
+    .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : SESSIONS.indexOf(a.session) - SESSIONS.indexOf(b.session); });
+  const ST = { ordered: ['✓ 有料單', FX_OK], skipped: ['不用訂', FX_MUTED], holiday: ['放假', FX_MUTED], todo: ['✗ 還沒訂', FX_BAD] };
+  const nextMon = dateStr_(addDays_(mon, 7));
+  const rows = [];
+  ['這週', '下週'].forEach(function (lab, wi) {
+    const part = list.filter(function (x) { return wi ? x.date >= nextMon : x.date < nextMon; });
+    rows.push(fxT_(lab + '（' + shortDateTw_(addDays_(mon, wi * 7)) + ' 起）', { size: 'xs', color: FX_MUTED, weight: 'bold' }));
+    if (!part.length) { rows.push(fxT_('沒有課', { size: 'sm', color: FX_MUTED })); return; }
+    part.forEach(function (x) {
+      const st = ST[x.status] || ['', FX_MUTED];
+      rows.push({ type: 'box', layout: 'horizontal', contents: [
+        { type: 'box', layout: 'vertical', flex: 6, contents: [fxT_(shortDateTw_(parseDate_(x.date)) + ' ' + (x.session === '晚上' ? '夜間' : x.session) + '　' + (x.className || ''), { size: 'sm', weight: 'bold' }),
+          fxT_(x.course + (x.orders && x.orders.length ? '「' + x.orders.map(function (o) { return o.project; }).join('、') + '」' : '') + (x.holiday ? '（' + x.holiday + '）' : ''), { size: 'xs', color: FX_MUTED })] },
+        fxT_(st[0], { size: 'sm', color: st[1], align: 'end', flex: 3, gravity: 'center', weight: x.status === 'todo' ? 'bold' : 'regular' })] });
+    });
+    if (!wi) rows.push({ type: 'separator' });
+  });
+  const todo = list.filter(function (x) { return x.status === 'todo'; }).length;
+  return [fxFlexMsg_(name + ' 老師：這週和下週 ' + list.length + ' 堂課', [fxB_('👩‍🍳 ' + name + ' 老師', '這週＋下週 ' + list.length + ' 堂課' + (todo ? '・' + todo + ' 堂還沒訂' : ''), rows,
+    [fxBtn_('看他的料單（7 天內）', '料單 ' + name), fxBtn_('查別的老師', '查老師')])])];
+}
 function lineAdminReply_(text, userId) {
   const t = String(text || '').trim();
   const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單|叫貨單)\s*(.{0,20})$/);
@@ -6306,6 +6354,16 @@ function lineAdminReply_(text, userId) {
     return [fxFlexMsg_('驗收系統：按按鈕直接登入', [fxB_('✅ 驗收系統', '不用打帳號密碼，直接登入成「' + acc + '」',
       [fxT_('打開後就是登入好的進貨驗收（驗收、銷貨單、核銷）。', { size: 'sm' }), fxT_('⚠ 這個連結 ' + LINE_LOGIN_MINUTES + ' 分鐘內有效、只能用一次，不要轉傳給別人。', { size: 'xs', color: FX_BAD })],
       [{ type: 'button', style: 'primary', color: '#475467', action: { type: 'uri', label: '打開（直接登入）', uri: ru + '?openExternalBrowser=1&lt=' + code } }])])];
+  }
+  // 🔍 查老師：這週＋下週有沒有課、叫料了沒（校隊、管理者都可以）
+  const tq = t.match(/^(?:🔍\s*)?(?:查老師|查詢老師|找老師|老師)\s*(.{0,12})$/) || t.match(/^(?:查\s*)?([一-鿿]{2,4})\s*老師$/);
+  const crewHelp = /^校隊說明$/.test(t);
+  if (tq || crewHelp) {
+    const acc0 = lineAccountOf_(userId);
+    if (!(acc0 && isAdmin_(acc0)) && !lineIsCrew_(userId)) return tq && /^(查老師|查詢老師|找老師)/.test(t) ? [{ type: 'text', text: '這個功能要先綁定（校隊請找管理者拿「校隊綁定碼」）。' }] : null;
+    if (crewHelp) return [{ type: 'text', text: '【校隊 LINE 功能】\n・🔍 查老師：點老師名字，看他這週和下週每一堂課、叫料了沒、做什麼。也可以直接打「老師 王小明」。\n・今天料單／明天料單：每張料單的食材和數量，左右滑動看。也可以打「料單 11/20」「料單 王小明」。\n・今天課表／明天課表：每堂課哪位老師、哪一班。也可以打「課表 11/20」。\n只能看，不能訂貨。' }];
+    LINE_VIEW_CREW_ = !(acc0 && isAdmin_(acc0));
+    return lineTeacherMsgs_(String(tq[1] || '').replace(/老師$/, '').trim());
   }
   if (!m && !help && !go) return null;
   const account = lineAccountOf_(userId);
