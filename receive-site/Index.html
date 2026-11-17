@@ -1417,9 +1417,9 @@
         var pw = r.pw !== undefined && r.pw !== '' ? r.pw : '', hasPcs = r.pcs !== undefined && r.pcs !== '';
         // 每單位重量用「總重量 ÷ 件數」算回來（存的每單位重量只留兩位小數，1.7 公斤 ÷ 4 片＝0.425 會變 0.43）
         var pwu0 = r.pwu || r.unit, exact = hasPcs && Number(r.pcs) > 0 && numv(r.qty) !== null && WG[r.unit] && WG[pwu0] ? Number(r.qty) * WG[r.unit] / WG[pwu0] / Number(r.pcs) : null;
-        if (hasPcs) pp[k].rows.push({ name: r.name || r.slipName || '', qty: r.pcs, unit: r.pcsUnit || '', wt: exact !== null ? exact : pw !== '' ? pw : (Number(r.pcs) ? r4(Number(r.qty) / Number(r.pcs)) : r.qty), wu: r.pwu || r.unit, pb: WG[r.unit] ? r.unit : 'w', price: r.price, amount: r.amount });
-        else if (pw !== '') pp[k].rows.push({ name: r.name || r.slipName || '', qty: r.qty, unit: r.unit, wt: pw, wu: r.pwu || '公斤', pb: 'u', price: r.price, amount: r.amount });
-        else pp[k].rows.push({ name: r.name || r.slipName || '', qty: q, unit: r.unit, price: r.price, amount: r.amount });
+        if (hasPcs) pp[k].rows.push({ sn: r.name && r.slipName && r.slipName !== r.name ? r.slipName : '', name: r.name || r.slipName || '', qty: r.pcs, unit: r.pcsUnit || '', wt: exact !== null ? exact : pw !== '' ? pw : (Number(r.pcs) ? r4(Number(r.qty) / Number(r.pcs)) : r.qty), wu: r.pwu || r.unit, pb: WG[r.unit] ? r.unit : 'w', price: r.price, amount: r.amount });
+        else if (pw !== '') pp[k].rows.push({ sn: r.name && r.slipName && r.slipName !== r.name ? r.slipName : '', name: r.name || r.slipName || '', qty: r.qty, unit: r.unit, wt: pw, wu: r.pwu || '公斤', pb: 'u', price: r.price, amount: r.amount });
+        else pp[k].rows.push({ sn: r.name && r.slipName && r.slipName !== r.name ? r.slipName : '', name: r.name || r.slipName || '', qty: q, unit: r.unit, price: r.price, amount: r.amount });
       });
       sl.papers = pp.filter(Boolean);
     }
@@ -1824,6 +1824,17 @@
   });
   $('slipBox').addEventListener('change', function (e) {
     var t = e.target;
+    // 品名打的是別名（廠商叫法「紅K」）：換成食材總表的正式名稱，原本的叫法留在「銷貨單品名」
+    if (t.getAttribute && t.getAttribute('data-pf') === 'name' && t.hasAttribute('data-pi')) {
+      var rn = paperRowOf(t), typed = t.value.trim(), off = typed && itemResolve(typed);
+      if (off && off !== typed) {
+        rn.name = off; rn.sn = typed; t.value = off;
+        var nt = t.parentNode.querySelector('.sn-note');
+        if (!nt) { nt = document.createElement('div'); nt.className = 'small muted sn-note'; t.parentNode.insertBefore(nt, t.nextSibling); }
+        nt.textContent = '銷貨單寫「' + typed + '」，已換成「' + off + '」';
+        pmapRefresh(); paperTotals(); saveDraft();
+      }
+    }
     if (t.getAttribute && t.getAttribute('data-pf') === 'pu') { var r = paperRowOf(t), tr = t.closest('tr'); r.pu = t.value; slipCalc(r, 'pu', function (g) { return tr.querySelector('[data-pf="' + g + '"]'); }); paperTotals(); saveDraft(); }
     if (t.getAttribute && (t.getAttribute('data-pf') === 'wu' || t.getAttribute('data-pf') === 'pb')) {
       var r2w = paperRowOf(t), tr2 = t.closest('tr'), sb2 = function (g) { return tr2.querySelector('[data-pf="' + g + '"]'); };
@@ -1918,7 +1929,7 @@
           else if (hasW) c = { qty: r.qty, unit: r.unit || '', price: r.price, pw: wt, pwu: r.wu || wtDefault() };
           else c = jinRow(r) ? { qty: slipQty(r) === null ? r.qty : Math.round(slipQty(r) * 10000) / 10000, unit: '斤', price: slipPrice(r) === null ? r.price : r2(slipPrice(r)) } : { qty: r.qty, unit: r.unit || '', price: r.price };
           c.price = fillPrice(c.price, c.qty, r.amount);
-          rows.push({ name: n, slipName: n, qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: '', sheet: i + 1, date: pp.date || '', kind: pp.kind || '食材', pcs: c.pcs === undefined ? '' : c.pcs, pcsUnit: c.pcsUnit || '', pw: c.pw === undefined ? '' : c.pw, pwu: c.pwu || '' });
+          rows.push({ name: n, slipName: r.sn || n, qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: '', sheet: i + 1, date: pp.date || '', kind: pp.kind || '食材', pcs: c.pcs === undefined ? '' : c.pcs, pcsUnit: c.pcsUnit || '', pw: c.pw === undefined ? '' : c.pw, pwu: c.pwu || '' });
         });
       });
       return { total: sl.total, rows: rows };
