@@ -2054,7 +2054,19 @@
     if (gn) draft.info.groups = gn;
   }
   // 班級人數（管理者在系統設定填，老師只能看）：「213/214」合班自動加總
+  // 好幾班一起上：「308.309.110」「308、309、110」「308 309 110」都統一成「308/309/110」（每段都像班級才合併）
+  function normClassList(s) {
+    s = String(s || '').trim();
+    var parts = s.split(/[\/.．。、,，;；\s+＋&]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (parts.length < 2 || !parts.every(function (x) { return /^[一-鿿]{0,3}\d{2,3}班?$/.test(x); })) return s;
+    return parts.map(function (x) { return x.replace(/班$/, ''); }).join('/');
+  }
+  $('fClass').addEventListener('change', function () {
+    var v = normClassList(this.value);
+    if (v !== this.value) { this.value = v; if (draft) { draft.info.className = v; saveDraft(); } updateClassHint(); }
+  });
   function classSize(cls, course) {
+    cls = normClassList(cls);
     var map = (data && data.classSizes) || {}, cmap = map.__course || {};
     var ck = String(cls || '').replace(/\s+/g, '') + '|' + String(course || '').trim();
     if (course && cmap[ck]) return { n: cmap[ck], partial: false, detail: '', course: course };   // 選修：這門課自己的人數
@@ -8164,12 +8176,12 @@
     imp = { fileName: '打字輸入', kind: 'text', res: { kind: 'text', text: lines.join('\n'), tables: [] }, sheet: -1 };
     parseImport();
     if (head) {
-      var dm = head.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})日?/), cm = head.match(/(?:^|\s)((?:夜|國技|輪調)?\d{3}(?:\/\d{3})?|[一-龥]{1,4}\d{1,3}班?)(?=\s|$)/), gm = head.match(/(\d{1,2})\s*組/);
+      var dm = head.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})日?/), cm = head.match(/(?:^|\s)([一-龥]{0,3}\d{3}(?:\s*[\/.．、,，]\s*[一-龥]{0,3}\d{3})*|[一-龥]{1,4}\d{1,3}班?)(?=\s|$)/), gm = head.match(/(\d{1,2})\s*組/);
       var lab = (dm ? '日期 ' + dm[1] + '/' + dm[2] + '\n' : '') + (head.match(/上午|下午|晚上|夜間/) || [''])[0] + '\n' + (cm ? '班級 ' + cm[1] + '\n' : '') + (gm ? '共 ' + gm[1] + ' 組\n' : '');
       var hInfo = parseInfo(lab, []);
       var proj = head.replace(/(\d{1,2})\s*[\/月]\s*(\d{1,2})日?/, ' ').replace(/上午|下午|晚上|夜間/, ' ').replace(/(\d{1,2})\s*組/, ' ').replace(cm ? cm[1] : '\u0000', ' ').replace(/\s+/g, ' ').trim();
       if (proj && /[一-龥A-Za-z]/.test(proj)) hInfo.project = proj;
-      if (cm) hInfo.className = cm[1];
+      if (cm) hInfo.className = normClassList(cm[1]);
       Object.keys(hInfo).forEach(function (k) { if (hInfo[k] && !imp.info[k]) imp.info[k] = hInfo[k]; });
     }
     if (!imp.rows.length) { msg('impMsg', 'error', '看不出食材，請一行一樣，例如「洋蔥 2 顆」「高筋麵粉 500g」。'); return; }
@@ -8293,8 +8305,8 @@
       if ((c = line.match(/^[ \t]*(\d)[ \t]*年[ \t]*(\d{1,2})[ \t]*班/))) return c[1] + ('0' + c[2]).slice(-2);
       line = line.replace(/共[ \t]*\d{1,2}[ \t]*組/g, ' ').replace(/組\s*數\s*[:：]?[ \t]*\d{1,2}/g, ' ')
         .replace(/(?:指導)?老\s*師.*$|教\s*室.*$|日\s*期.*$|時\s*間.*$/, ' ');
-      if ((c = line.match(/[A-Za-z\u4e00-\u9fff]{0,4}[ \t\u3000]*\d[\d\-]*(?:[ \t]*[\/、,，][ \t]*\d+)*(?:[ \t]*班)?/))) {
-        return c[0].replace(/[\s\u3000]+/g, '').replace(/^(?:年|班)+/, '').replace(/[、,，]/g, '/').replace(/^(\d[\d\-\/]*)班$/, '$1');
+      if ((c = line.match(/[A-Za-z\u4e00-\u9fff]{0,4}[ \t\u3000]*\d[\d\-]*(?:[ \t]*[\/、,，.．][ \t]*\d+)*(?:[ \t]*班)?/))) {
+        return normClassList(c[0].replace(/[\s\u3000]+/g, '').replace(/^(?:年|班)+/, '').replace(/[、,，.．]/g, '/').replace(/^(\d[\d\-\/]*)班$/, '$1'));
       }
     }
     m = t.match(/(?:^|[^\d])(\d{3})\s*班/);

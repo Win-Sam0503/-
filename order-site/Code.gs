@@ -1121,7 +1121,7 @@ function validateOrder_(p, account, isAdmin) {
 
   const dept = clean_(p.dept, 20);
   const classTime = clean_(p.classTime, 12);
-  const className = clean_(p.className, 30);
+  const className = normClassList_(clean_(p.className, 30));
   const project = clean_(p.project, 60);
   if (!dept) throw new Error('請選擇科別。');
   if (!CLASS_TIME_PATTERN.test(classTime)) throw new Error('請選擇上課時間（上午／下午／夜間）。');
@@ -1436,6 +1436,17 @@ function deliveryGroup_(vendor, dow, vendorGroups) {
     if (codes[i].indexOf(ch) >= 0) return codes[i];
   }
   return '';
+}
+
+/**
+ * 好幾班一起上：「308.309.110」「308、309、110」「308 309 110」「308，309」都統一成「308/309/110」。
+ * 每一段都要像班級（3 位數字，前面可以有 夜／國技／輪調… 幾個字）才合併，其他照原樣（例如「國技26」「選手培訓」）。
+ */
+function normClassList_(s) {
+  s = String(s || '').trim();
+  const parts = s.split(/[\/.．。、,，;；\s+＋&]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  if (parts.length < 2 || !parts.every(function (x) { return /^[一-鿿]{0,3}\d{2,3}班?$/.test(x); })) return s;
+  return parts.map(function (x) { return x.replace(/班$/, ''); }).join('/');
 }
 
 function nextOrderNo_() {
