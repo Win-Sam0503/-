@@ -723,6 +723,7 @@
         <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
         <button type="button" data-view="viewAudit" class="admin-only hidden">抽查</button>
         <button type="button" data-view="viewCrew" class="admin-only hidden">放置登記</button>
+        <button type="button" data-view="viewCrewLook" class="crew-only hidden">🏅 課表料單</button>
         <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
         <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSettings" class="admin-only hidden">系統設定</button>
@@ -1179,6 +1180,7 @@
           <button type="button" class="btn ghost small" id="aRichMenu">設定官方帳號選單</button>
         </div>
         <div class="row" style="margin-top:6px;gap:6px;align-items:center"><button type="button" class="btn ghost small" id="aCrewCode" title="校隊同學加官方 LINE 後傳這個碼，就能看料單和課表（不能訂貨）">🏅 產生校隊綁定碼</button><button type="button" class="btn ghost small" id="aCrewClear" style="color:var(--bad)">清除全部校隊 LINE</button><span id="aCrewInfo" class="small muted"></span></div>
+        <div id="aCrewList" class="small" style="margin-top:6px"></div>
         <div id="aBindInfo" class="small" style="margin-top:8px"></div>
       </div>
       <div class="panel noprint" id="speedPanel">
@@ -1241,6 +1243,24 @@
         <div id="auHist" class="small"></div>
       </div>
       <div id="auPrint"></div>
+    </section>
+
+    <!-- 校隊查詢：上週／這週／下週的課表和每張料單（只能看） -->
+    <section id="viewCrewLook" class="hidden">
+      <div class="panel">
+        <h2 style="margin:0 0 4px">🏅 校隊查詢 <span id="clWho" class="muted small" style="font-weight:normal"></span> <button type="button" class="btn ghost small" id="clReload">重新整理</button></h2>
+        <div class="status-chips" id="clWeeks" style="margin:6px 0"><button type="button" data-clw="-1">上週</button><button type="button" data-clw="0">這週</button><button type="button" data-clw="1">下週</button><button type="button" data-clw="2">下下週</button></div>
+        <div id="clRange" style="font-weight:700;margin:2px 0 8px"></div>
+        <div class="status-chips" id="clTabs" style="margin:0 0 8px"><button type="button" data-clt="lessons">📅 課表（誰上課、叫料了沒）</button><button type="button" data-clt="orders">📋 料單（食材、數量）</button></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <input id="clQ" type="search" placeholder="🔍 搜尋老師、班級、菜名、食材" autocomplete="off" style="flex:1;min-width:180px;max-width:320px">
+          <select id="clT" style="width:auto"><option value="">全部老師</option></select>
+          <select id="clD" style="width:auto"><option value="">每一天</option></select>
+          <label class="check small" id="clTodoBox"><input type="checkbox" id="clTodo"> 只看還沒叫料的</label>
+        </div>
+      </div>
+      <div id="clMsg"></div>
+      <div id="clOut"></div>
     </section>
 
     <!-- 校隊（和管理者）：放置登記 -->
@@ -1852,7 +1872,8 @@
   function setupApp() {
     $('who').textContent = data.account + (data.isAdmin ? '（管理者）' : data.crewOrder ? '（校隊・代訂）' : '') + ' 已登入';
     // 同一台裝置之前是校隊登入（只留放置登記）：老師的按鈕要顯示回來
-    Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]:not(.admin-only)'), function (el) { el.classList.remove('hidden'); });
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]:not(.admin-only):not(.crew-only)'), function (el) { el.classList.remove('hidden'); });
+    Array.prototype.forEach.call(document.querySelectorAll('.crew-only'), function (el) { el.classList.toggle('hidden', !data.crewOrder); });
     Array.prototype.forEach.call(document.querySelectorAll('.admin-only'), function (el) {
       el.classList.toggle('hidden', !data.isAdmin);
     });
@@ -1981,7 +2002,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -2006,6 +2027,7 @@
     if (view === 'viewSettings') { loadAuto(); renderSpeed(); loadCrewAdm(); }
     if (view === 'viewAudit') auditOpen();
     if (view === 'viewCrew') crewOpen();
+    if (view === 'viewCrewLook') crewLookOpen();
     if (view === 'viewVendor' && !$('vFrom').value) setVendorWeek(1);   // 預設：下週一到下週五
   }
 
@@ -6316,10 +6338,113 @@
     $('who').textContent = data.account + '（校隊）已登入';
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
       var v = b.getAttribute('data-view');
-      b.classList.toggle('hidden', v !== 'viewCrew' && v !== 'viewPassword');
+      b.classList.toggle('hidden', v !== 'viewCrew' && v !== 'viewCrewLook' && v !== 'viewPassword');
     });
     startWatermark();
     show('viewCrew');
+  }
+  // ------------------------------------------------------------------
+  // 🏅 校隊查詢（LINE「📱 網頁查詢」打開、或校隊帳號登入）：上週／這週／下週的課表和每張料單，只能看
+  // ------------------------------------------------------------------
+  var cl = { off: 0, tab: 'lessons', data: null, open: {} };
+  function clMonday(off) { var t = new Date(); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() - (t.getDay() + 6) % 7 + 7 * off); return isoDate(t); }
+  function crewLookOpen() { if (!cl.data) clLoad(); else clRender(); }
+  function clLoad() {
+    var mon = clMonday(cl.off);
+    Array.prototype.forEach.call(document.querySelectorAll('#clWeeks [data-clw]'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-clw')) === cl.off); });
+    msg('clMsg', 'info', '讀取中…'); $('clOut').innerHTML = '';
+    return call('crewWeek', token, mon).then(function (r) {
+      cl.data = r; msg('clMsg', '', '');
+      $('clWho').textContent = r.who ? '（' + r.who + '）' : '';
+      var ts = [], ds = [];
+      r.lessons.forEach(function (x) { if (x.teacher && ts.indexOf(x.teacher) < 0) ts.push(x.teacher); });
+      r.orders.forEach(function (o) { if (o.teacher && ts.indexOf(o.teacher) < 0) ts.push(o.teacher); });
+      ts.sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+      var cur = $('clT').value;
+      $('clT').innerHTML = '<option value="">全部老師（' + ts.length + '）</option>' + ts.map(function (t) { return '<option' + (t === cur ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
+      for (var i = 0; i < 5; i++) { var d = new Date(r.mon + 'T00:00:00'); d.setDate(d.getDate() + i); ds.push(isoDate(d)); }
+      var cd = $('clD').value;
+      $('clD').innerHTML = '<option value="">每一天</option>' + ds.map(function (d) { return '<option value="' + d + '"' + (d === cd ? ' selected' : '') + '>' + esc(shortDate(d)) + '</option>'; }).join('');
+      clRender();
+    }).catch(function (e) { msg('clMsg', 'error', /SESSION_EXPIRED/.test(e.message) ? '連結過期了，請在 LINE 再按一次「📱 網頁查詢」。' : e.message); });
+  }
+  function clStatus(x) {
+    return x.status === 'ordered' ? '<span class="badge ok">✓ 有料單</span>' : x.status === 'skipped' ? '<span class="badge none">不用訂</span>' : x.status === 'holiday' ? '<span class="badge none">放假' + (x.holiday ? '・' + esc(x.holiday) : '') + '</span>' : '<b style="color:var(--bad)">✗ 還沒叫料</b>';
+  }
+  function clOrderHtml(o, compact) {
+    var food = o.items.filter(function (i) { return !i.tool; }), tools = o.items.filter(function (i) { return i.tool; });
+    var row = function (i) { return '<tr' + (i.noOrder ? ' class="muted"' : '') + '><td>' + esc(i.name) + (i.noOrder ? '（有貨）' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td class="num" style="white-space:nowrap">' + esc(fmtQty(i.qty)) + ' ' + esc(i.unit) + '</td></tr>'; };
+    return '<div class="cl-order" style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:#fff">' +
+      (compact ? '' : '<div><b>' + esc(o.teacher) + '</b>　' + esc(o.className) + '　<span class="muted small">' + esc(shortDate(o.date)) + ' ' + esc(o.session === '晚上' ? '夜間' : o.session) + (o.room ? '・' + esc(o.room) : '') + '</span></div>') +
+      '<div style="margin:2px 0 4px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b>' + (o.groups ? '・' + esc(o.groups) + ' 組' : '') + ' <span class="muted small">' + esc(o.status) + '</span></div>' +
+      '<div class="tablewrap"><table class="small"><tbody>' + food.map(row).join('') + '</tbody></table></div>' +
+      (tools.length ? '<div class="small muted" style="margin-top:4px">器具：' + tools.map(function (i) { return esc(i.name) + ' ' + esc(fmtQty(i.qty)) + esc(i.unit); }).join('、') + '</div>' : '') + '</div>';
+  }
+  function clRender() {
+    var r = cl.data; if (!r) return;
+    Array.prototype.forEach.call(document.querySelectorAll('#clTabs [data-clt]'), function (b) { b.classList.toggle('on', b.getAttribute('data-clt') === cl.tab); });
+    $('clTodoBox').classList.toggle('hidden', cl.tab !== 'lessons');
+    $('clRange').textContent = shortDate(r.mon) + '～' + shortDate(r.fri) + (r.holidays && r.holidays.length ? '　（放假：' + r.holidays.map(function (h) { return h.name; }).join('、') + '）' : '');
+    var q = $('clQ').value.trim().toLowerCase().split(/\s+/).filter(Boolean), tf = $('clT').value, df = $('clD').value, todo = $('clTodo').checked;
+    var byNo = {}; r.orders.forEach(function (o) { byNo[o.orderNo] = o; });
+    var hit = function (txt) { txt = txt.toLowerCase(); return q.every(function (w) { return txt.indexOf(w) >= 0; }); };
+    var days = []; for (var i = 0; i < 5; i++) { var d = new Date(r.mon + 'T00:00:00'); d.setDate(d.getDate() + i); days.push(isoDate(d)); }
+    if (df) days = days.filter(function (d) { return d === df; });
+    var SS = ['上午', '下午', '晚上'], html = '', total = 0;
+    if (cl.tab === 'lessons') {
+      days.forEach(function (d) {
+        var ls = r.lessons.filter(function (x) {
+          if (x.date !== d || (tf && x.teacher !== tf) || (todo && x.status !== 'todo')) return false;
+          var os = x.orders.map(function (n) { return byNo[n]; }).filter(Boolean);
+          return !q.length || hit([x.teacher, x.className, x.course, x.room].concat(os.map(function (o) { return o.project + ' ' + o.items.map(function (i) { return i.name; }).join(' '); })).join(' '));
+        }).sort(function (a, b) { return SS.indexOf(a.session) - SS.indexOf(b.session) || a.teacher.localeCompare(b.teacher, 'zh-Hant'); });
+        // 沒有對到課表的料單（臨時加的課）也列出來
+        var extra = r.orders.filter(function (o) { return o.date === d && !r.lessons.some(function (x) { return x.orders.indexOf(o.orderNo) >= 0; }) && (!tf || o.teacher === tf) && !todo &&
+          (!q.length || hit([o.teacher, o.className, o.project].concat(o.items.map(function (i) { return i.name; })).join(' '))); });
+        if (!ls.length && !extra.length) return;
+        total += ls.length + extra.length;
+        var nTodo = ls.filter(function (x) { return x.status === 'todo'; }).length;
+        html += '<div class="panel" style="padding:10px 12px"><h3 style="margin:0 0 6px">' + esc(shortDate(d)) + (nTodo ? ' <span class="small" style="color:var(--bad);font-weight:normal">' + nTodo + ' 堂還沒叫料</span>' : '') + '</h3>' +
+          ls.map(function (x) {
+            var k = d + '|' + x.teacher + '|' + x.session, os = x.orders.map(function (n) { return byNo[n]; }).filter(Boolean);
+            return '<div style="border-top:1px solid var(--line);padding:8px 0"><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:flex-start">' +
+              '<div><span class="muted small">' + esc(x.session) + '</span> <b>' + esc(x.teacher) + '</b>　' + esc(x.className) + '<div class="small">' + esc(x.course) + (x.room ? ' <span class="muted">' + esc(x.room) + '</span>' : '') + '</div>' +
+              (os.length ? os.map(function (o) { return '<div class="small">📝 ' + esc(o.project || '（沒填實作項目）') + '</div>'; }).join('') : '') + '</div>' +
+              '<div style="text-align:right">' + clStatus(x) + (os.length ? '<div><button type="button" class="btn ghost small" data-clopen="' + esc(k) + '" style="margin-top:4px">' + (cl.open[k] ? '收起料單 ▲' : '看料單 ▼') + '</button></div>' : '') + '</div></div>' +
+              (cl.open[k] ? os.map(function (o) { return clOrderHtml(o, true); }).join('') : '') + '</div>';
+          }).join('') +
+          extra.map(function (o) { return '<div style="border-top:1px solid var(--line);padding:8px 0"><span class="badge warn">課表沒有的課</span>' + clOrderHtml(o, false) + '</div>'; }).join('') + '</div>';
+      });
+      $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || todo || df ? '沒有符合的課。' : '這週沒有課。') + '</div>';
+    } else {
+      days.forEach(function (d) {
+        var os = r.orders.filter(function (o) { return o.date === d && (!tf || o.teacher === tf) && (!q.length || hit([o.teacher, o.className, o.project, o.room].concat(o.items.map(function (i) { return i.name; })).join(' '))); })
+          .sort(function (a, b) { return SS.indexOf(a.session) - SS.indexOf(b.session) || a.teacher.localeCompare(b.teacher, 'zh-Hant'); });
+        if (!os.length) return;
+        total += os.length;
+        html += '<div class="panel" style="padding:10px 12px"><h3 style="margin:0 0 4px">' + esc(shortDate(d)) + ' <span class="muted small" style="font-weight:normal">' + os.length + ' 張料單</span></h3>' + os.map(function (o) { return clOrderHtml(o, false); }).join('') + '</div>';
+      });
+      $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || df ? '沒有符合的料單。' : '這週還沒有料單。') + '</div>';
+    }
+  }
+  $('clWeeks').addEventListener('click', function (e) { var b = e.target.closest('[data-clw]'); if (!b) return; cl.off = Number(b.getAttribute('data-clw')); cl.open = {}; $('clD').value = ''; clLoad(); });
+  $('clTabs').addEventListener('click', function (e) { var b = e.target.closest('[data-clt]'); if (!b) return; cl.tab = b.getAttribute('data-clt'); clRender(); });
+  $('clReload').addEventListener('click', clLoad);
+  $('clQ').addEventListener('input', function (e) { if (!e.isComposing) clRender(); });
+  $('clQ').addEventListener('compositionend', clRender);
+  ['clT', 'clD', 'clTodo'].forEach(function (id) { $(id).addEventListener('change', clRender); });
+  $('clOut').addEventListener('click', function (e) { var b = e.target.closest('[data-clopen]'); if (!b) return; var k = b.getAttribute('data-clopen'); cl.open[k] = !cl.open[k]; clRender(); });
+  // LINE 連結打開（不用帳號密碼）：只有校隊查詢這一頁
+  function startCrewLook(res) {
+    token = res.token;
+    data = { account: res.label, isAdmin: false, cview: true };
+    $('viewLogin').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('who').textContent = res.label + '（LINE 校隊查詢）';
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) { b.classList.toggle('hidden', b.getAttribute('data-view') !== 'viewCrewLook'); });
+    var hb = $('helpBtn'); if (hb) hb.classList.add('hidden');
+    startWatermark();
+    show('viewCrewLook');
   }
   // 星期一～五：接下來的那一天（今天算在內），例如今天週三：三四五是這週、一二是下週
   function crewWeekday(wd) {
@@ -6441,7 +6566,33 @@
       }).catch(function (e) { msg('autoMsg', 'error', e.message); }).then(function () { box.disabled = false; });
     });
   });
+  // 已綁定 LINE 的校隊：照組別列出名字，可以改組別、名字或移除
+  var CREW_TEAMS = ['中餐', '烘焙', '飲調', '西餐'];
+  function renderCrewLine(list) {
+    if (!list.length) { $('aCrewList').innerHTML = '<span class="muted">還沒有校隊綁定 LINE。</span>'; return; }
+    var by = {}; list.forEach(function (c) { (by[c.team || '（沒填組別）'] = by[c.team || '（沒填組別）'] || []).push(c); });
+    $('aCrewList').innerHTML = '<b>已綁定 LINE 的校隊（' + list.length + ' 人）</b>' + Object.keys(by).map(function (t) {
+      return '<div style="margin-top:6px"><b>' + esc(t === '（沒填組別）' ? t : t + '校隊') + '</b>（' + by[t].length + '）' + by[t].map(function (c) {
+        return '<div class="crew-line-row" data-clid="' + esc(c.id) + '" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:3px 0 3px 12px">' +
+          '<select data-clteam style="width:auto;padding:2px 6px"><option value="">組別？</option>' + CREW_TEAMS.map(function (x) { return '<option' + (x === c.team ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
+          '<input data-clname value="' + esc(c.name) + '" placeholder="名字" maxlength="12" style="width:110px;padding:2px 6px">' +
+          '<span class="muted">' + esc(c.t || '') + ' 綁定</span>' +
+          '<button type="button" class="btn ghost small" data-clsave>存</button><button type="button" class="btn ghost small" data-clrm style="color:var(--bad)">移除</button></div>';
+      }).join('') + '</div>';
+    }).join('');
+  }
+  function loadCrewLine() { call('adminCrewLineList', token).then(renderCrewLine).catch(function (e) { $('aCrewList').textContent = '讀取失敗：' + e.message; }); }
+  $('aCrewList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-clsave],[data-clrm]'); if (!b) return;
+    var row = b.closest('[data-clid]'), id = row.getAttribute('data-clid'), rm = b.hasAttribute('data-clrm');
+    var nm = row.querySelector('[data-clname]').value.trim(), tm = row.querySelector('[data-clteam]').value;
+    if (rm && !safeConfirm('移除「' + (tm ? tm + '校隊 ' : '') + (nm || '這位校隊') + '」的 LINE？\n移除後他的 LINE 選單換回一般版，網頁查詢的連結也馬上失效。')) return;
+    setBusy(b, true, '…');
+    call('adminCrewLineEdit', token, id, rm ? 'remove' : 'save', tm, nm).then(function (list) { renderCrewLine(list); msg('autoMsg', 'ok', rm ? '已移除。' : '已存：' + (tm ? tm + '校隊 ' : '') + nm); })
+      .catch(function (err) { setBusy(b, false); notice(err.message); });
+  });
   function loadCrewAdm() {
+    loadCrewLine();
     $('placeOn').checked = !!data.placeEnabled; call('adminListCrew', token).then(renderCrewAdm).catch(function (e) { $('crewAdmList').textContent = '讀取失敗：' + e.message; }); }
   $('crewAdd').addEventListener('click', function () {
     var name = $('crewNew').value.trim(), b = this;
@@ -8078,20 +8229,20 @@
     $('aCrewInfo').innerHTML = '<span class="muted">產生中…</span>';
     autoCall(this, 'adminCrewLineCode', function (st) {
       var c0 = st && st.line && st.line.crewCode;
-      $('aCrewInfo').innerHTML = c0 ? '✅ 請同學在官方 LINE 個人聊天室傳：<b style="font-size:18px;color:var(--brand)">校隊 ' + esc(c0.code) + '</b>（到 ' + esc(c0.until) + '）' : '';
+      $('aCrewInfo').innerHTML = c0 ? '✅ 請同學在官方 LINE 個人聊天室傳：<b style="font-size:18px;color:var(--brand)">校隊 ' + esc(c0.code) + ' 中餐 王同學</b>（換成自己的組別和名字；到 ' + esc(c0.until) + '）' : '';
       var c = st && st.line && st.line.crewCode;
-      return c ? '校隊綁定碼：「校隊 ' + c.code + '」（到 ' + c.until + '，全部校隊同學用同一個）。請同學加官方 LINE 好友，傳這句話就好。看到的選單只有料單、課表，不能訂貨。' : '已產生。';
+      return c ? '校隊綁定碼：「校隊 ' + c.code + ' 中餐 王同學」（到 ' + c.until + '，全部校隊同學用同一個碼，後面換成自己的組別（中餐／烘焙／飲調／西餐）和名字）。請同學加官方 LINE 好友，傳這句話就好。只能看料單、課表，不能訂貨。' : '已產生。';
     });
   });
   $('aCrewClear').addEventListener('click', function () {
     if (!safeConfirm('清除全部校隊的 LINE？（換屆、畢業時用）\n之後要看的同學要重新傳新的綁定碼。')) return;
-    autoCall(this, 'adminCrewLineClear', function () { return '已清除全部校隊的 LINE，綁定碼也作廢了。'; });
+    autoCall(this, 'adminCrewLineClear', function () { loadCrewLine(); return '已清除全部校隊的 LINE，綁定碼也作廢了。'; });
   });
   // 校隊版 LINE 選單圖片（2×2）
   function crewMenuPng() {
     var W = 2500, H = 1686, cw = Math.floor(W / 3), rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var g = cv.getContext('2d'), items = [['📋', '今天料單', '每張料單的食材', '#067647'], ['📋', '明天料單', '每張料單的食材', '#0e9f6e'], ['🔍', '查老師', '這週下週有沒有課', '#8a2b1a'],
-      ['👩‍🍳', '今天課表', '誰上課、哪一班', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、哪一班', '#3b5bdb'], ['❓', '說明', '還可以怎麼查', '#475467']];
+      ['👩‍🍳', '今天課表', '誰上課、哪一班', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、哪一班', '#3b5bdb'], ['📱', '網頁查詢', '上週這週下週料單', '#475467']];
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     items.forEach(function (it, i) {
       var c = i % 3, r = Math.floor(i / 3), x = c * cw, y = r * rh, w = c === 2 ? W - x : cw;
@@ -10054,7 +10205,11 @@
     try {
       if (!(window.google && google.script && google.script.url)) { go(); return; }
       google.script.url.getLocation(function (loc) {
-        var lt = loc && loc.parameter && loc.parameter.lt;
+        var lt = loc && loc.parameter && loc.parameter.lt, cv = loc && loc.parameter && loc.parameter.cv;
+        if (cv) {   // LINE 校隊「📱 網頁查詢」：不用帳號密碼，只能看課表、料單
+          call('crewViewLogin', cv).then(startCrewLook).catch(function (err) { showLogin(''); msg('loginMsg', 'error', err.message); });
+          return;
+        }
         if (!lt) { go(); return; }
         call('loginByLink', lt).then(function (res) {
           token = res.token;
