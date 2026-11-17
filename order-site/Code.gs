@@ -3959,7 +3959,7 @@ function doPost(e) {
         return;
       }
       const cm = String(ev.message.text).trim().match(/^校隊\s*(\d{6})\s*(.{0,30})$/);
-      if (cm) { lineReply_(ev.replyToken, lineCrewBind_(cm[1], ev.source, cm[2])); return; }
+      if (cm) { lineReply_(ev.replyToken, lineCrewBind_(cm[1], ev.source)); return; }
       // 校隊登記名字、組別：「我是 中餐 王同學」
       if (/^我是\s*\S/.test(String(ev.message.text).trim()) && ev.source && ev.source.type === 'user' && lineIsCrew_(userId)) { lineReply_(ev.replyToken, lineCrewName_(String(ev.message.text).trim(), userId)); return; }
       const m = String(ev.message.text).trim().match(/^綁定\s*(群組)?\s*(\d{6})$/);
@@ -6275,10 +6275,7 @@ function adminSetupRichMenu(token, adminPng, crewPng) {
 /** 管理者：產生校隊綁定碼（7 天內有效，全部校隊同學用同一個） */
 function adminCrewLineCode(token) {
   auth_(token, true);
-  if (!PropertiesService.getScriptProperties().getProperty('LINE_TOKEN')) throw new Error('請先設定 LINE 官方帳號。');
-  const code = String(Math.floor(100000 + Math.random() * 900000)), until = Date.now() + 7 * 86400000;
-  PropertiesService.getScriptProperties().setProperty('CREW_CODE', JSON.stringify({ code: code, until: until }));
-  return automationStatus_();
+  throw new Error('校隊綁定已經改成「每人一組碼」：請在下面的校隊名單新增名字，系統會給每個人自己的碼。');
 }
 /** 管理者：清掉全部校隊的 LINE（換屆、畢業）。選單換回一般版 */
 function adminCrewLineClear(token) {
@@ -6290,6 +6287,7 @@ function adminCrewLineClear(token) {
     props.deleteProperty(k);
   });
   props.deleteProperty('CREW_CODE');
+  const list = crewRoster_(); list.forEach(function (x) { x.uid = ''; x.t = ''; }); crewRosterSave_(list);   // 名單留著，要用時再給新的碼
   return automationStatus_();
 }
 const CREW_TEAMS = ['中餐', '烘焙', '飲調', '西餐'];
@@ -6305,28 +6303,102 @@ function crewWho_(s) {
 function crewLineInfo_(userId) {
   const v = userId ? PropertiesService.getScriptProperties().getProperty('CL:' + userId) : null;
   if (!v) return null;
-  try { const o = JSON.parse(v); if (o && typeof o === 'object') return { t: o.t || '', team: o.team || '', name: o.name || '' }; } catch (e) {}
-  return { t: v, team: '', name: '' };
+  try { const o = JSON.parse(v); if (o && typeof o === 'object') return { t: o.t || '', team: o.team || '', name: o.name || '', rid: o.rid || '' }; } catch (e) {}
+  return { t: v, team: '', name: '', rid: '' };
 }
 function crewLineSave_(userId, info) {
   PropertiesService.getScriptProperties().setProperty('CL:' + userId, JSON.stringify({ t: info.t, team: info.team || '', name: info.name || '' }));
 }
-function lineCrewBind_(code, src, who) {
+// ---- 校隊名單：管理者先新增名字，每人一組綁定碼（7 天、用一次），確定是誰綁的 ----
+const CREW_CODE_DAYS = 7;
+function crewRoster_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('CREW_ROSTER') || '[]') || []; } catch (e) { return []; } }
+function crewRosterSave_(list) { PropertiesService.getScriptProperties().setProperty('CREW_ROSTER', JSON.stringify(list)); }
+function crewNewCode_(list) {
+  const used = {}; list.forEach(function (x) { if (x.code) used[x.code] = true; });
+  let c; do { c = String(Math.floor(100000 + Math.random() * 900000)); } while (used[c]);
+  return c;
+}
+function lineCrewBind_(code, src) {
   if (!src || src.type !== 'user' || !src.userId) return '請用個人聊天室（不是群組）傳「校隊 綁定碼」。';
-  const props = PropertiesService.getScriptProperties();
-  let c = null; try { c = JSON.parse(props.getProperty('CREW_CODE') || 'null'); } catch (e) {}
-  if (!c || c.code !== code || !(c.until > Date.now())) return '校隊綁定碼不正確或已過期，請找管理者拿新的。';
-  const w = crewWho_(who), old = crewLineInfo_(src.userId) || {};
-  crewLineSave_(src.userId, { t: Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm'), team: w.team || old.team, name: w.name || old.name });
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const list = crewRoster_(), now = Date.now();
+    const r = list.find(function (x) { return x.code && x.code === code; });
+    if (!r || !(r.until > now)) return '校隊綁定碼不正確或已過期，請找管理者拿新的（每個人的碼都不一樣，不能用別人的）。';
+    // 這支 LINE 之前綁過別人：先解除那個名字
+    list.forEach(function (x) { if (x.uid === src.userId && x.id !== r.id) { x.uid = ''; x.t = ''; } });
+    if (r.uid && r.uid !== src.userId) PropertiesService.getScriptProperties().deleteProperty('CL:' + r.uid);   // 同一個名字換手機
+    r.uid = src.userId; r.t = Utilities.formatDate(new Date(), tz_(), 'yyyy/MM/dd HH:mm'); r.code = ''; r.until = 0;
+    crewRosterSave_(list);
+    PropertiesService.getScriptProperties().setProperty('CL:' + src.userId, JSON.stringify({ t: r.t, team: r.team, name: r.name, rid: r.id }));
+  } finally { lock.releaseLock(); }
   lineLinkMenu_(src.userId, 'CREW_RICH_MENU_ID');
   const me = crewLineInfo_(src.userId);
-  return '校隊綁定完成' + (me.name ? '，' + (me.team ? me.team + '校隊 ' : '') + me.name : '') + '！\n下方選單按「📱 網頁查詢」可以打開網頁，看上週、這週、下週的課表和每張料單；也可以看今天／明天料單、課表、「🔍 查老師」（選單沒換的話，關掉聊天室再打開）。' +
-    (me.name && me.team ? '' : '\n\n⚠ 還沒登記' + (me.name ? '組別' : '名字') + '：請再傳「我是 中餐 王同學」（組別：中餐／烘焙／飲調／西餐）。');
+  return '校隊綁定完成，' + (me.team ? me.team + '校隊 ' : '') + me.name + '！\n下方選單按「📱 網頁查詢」可以打開網頁，看課表和每張料單（今天、明天、這週、下週或指定日期都可以）；也可以看今天／明天料單、課表、「🔍 查老師」（選單沒換的話，關掉聊天室再打開）。';
+}
+/** 管理者：校隊名單（每人狀態：等綁定＋碼／已綁定）＋沒在名單上、以前用共用碼綁的 */
+function adminCrewRoster(token) {
+  auth_(token, true);
+  const now = Date.now(), list = crewRoster_(), props = PropertiesService.getScriptProperties().getProperties();
+  const out = list.map(function (x) {
+    return { id: x.id, team: x.team, name: x.name, bound: !!(x.uid && props['CL:' + x.uid]), t: x.t || '',
+      code: x.code && x.until > now ? x.code : '', until: x.code && x.until > now ? Utilities.formatDate(new Date(x.until), tz_(), 'MM/dd') : '', expired: !!(x.code && !(x.until > now)) };
+  });
+  const inRoster = {}; list.forEach(function (x) { if (x.uid) inRoster[x.uid] = true; });
+  Object.keys(props).forEach(function (k) {
+    if (k.indexOf('CL:') !== 0 || inRoster[k.slice(3)]) return;
+    const me = crewLineInfo_(k.slice(3));
+    out.push({ id: 'L:' + k.slice(3), team: me.team, name: me.name || '（沒有名字）', bound: true, t: me.t, legacy: true });
+  });
+  return out.sort(function (a, b) { return (CREW_TEAMS.indexOf(a.team) + 99 * !a.team) - (CREW_TEAMS.indexOf(b.team) + 99 * !b.team) || a.name.localeCompare(b.name, 'zh-Hant'); });
+}
+/**
+ * 管理者：名單操作。action：'add'（names 可以好幾個，「、」隔開）、'code'（重新產生這個人的碼）、'save'（改組別、名字）、'remove'（移除，LINE 也解除）
+ */
+function adminCrewRosterEdit(token, action, id, team, names) {
+  auth_(token, true);
+  if (CREW_TEAMS.indexOf(String(team || '')) < 0) team = '';
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const list = crewRoster_(), until = Date.now() + CREW_CODE_DAYS * 86400000, props = PropertiesService.getScriptProperties();
+    const unlink = function (uid) {
+      if (!uid) return;
+      const lineToken = props.getProperty('LINE_TOKEN');
+      if (lineToken) { try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + uid + '/richmenu', { method: 'delete', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + lineToken } }); } catch (e) {} }
+      props.deleteProperty('CL:' + uid);
+    };
+    if (action === 'add') {
+      if (!team) throw new Error('請選組別。');
+      const ns = String(names || '').split(/[、,，\s\n]+/).map(function (n) { return clean_(n, 12); }).filter(Boolean);
+      if (!ns.length) throw new Error('請輸入名字。');
+      ns.forEach(function (n) {
+        if (list.some(function (x) { return x.team === team && x.name === n; })) throw new Error(team + '校隊已經有「' + n + '」了。');
+        list.push({ id: Utilities.getUuid().slice(0, 8), team: team, name: n, code: crewNewCode_(list), until: until, uid: '', t: '' });
+      });
+    } else if (String(id || '').indexOf('L:') === 0) {   // 以前用共用碼綁的
+      const uid = String(id).slice(2).replace(/[^A-Za-z0-9]/g, '');
+      if (action === 'remove') unlink(uid);
+      else if (action === 'save') { const me = crewLineInfo_(uid); if (me) crewLineSave_(uid, { t: me.t, team: team, name: clean_(names, 12) }); }
+      else throw new Error('以前用共用碼綁的請先移除，再加到名單、給新的碼。');
+    } else {
+      const r = list.find(function (x) { return x.id === id; });
+      if (!r) throw new Error('找不到這位校隊，請重新整理。');
+      if (action === 'code') { r.code = crewNewCode_(list); r.until = until; }
+      else if (action === 'save') {
+        r.team = team || r.team; r.name = clean_(names, 12) || r.name;
+        if (r.uid && props.getProperty('CL:' + r.uid)) props.setProperty('CL:' + r.uid, JSON.stringify({ t: r.t, team: r.team, name: r.name, rid: r.id }));
+      } else if (action === 'remove') { unlink(r.uid); list.splice(list.indexOf(r), 1); }
+      else throw new Error('動作不正確。');
+    }
+    crewRosterSave_(list);
+  } finally { lock.releaseLock(); }
+  return adminCrewRoster(token);
 }
 /** 校隊改名字、組別：「我是 中餐 王同學」 */
 function lineCrewName_(text, userId) {
   const me = crewLineInfo_(userId);
   if (!me) return null;
+  if (me.rid) return '你是「' + (me.team ? me.team + '校隊 ' : '') + me.name + '」，名字由管理者設定；要改請找管理者。';
   const w = crewWho_(text);
   if (!w.name && !w.team) return '請傳「我是 中餐 王同學」（組別：中餐／烘焙／飲調／西餐）。';
   crewLineSave_(userId, { t: me.t, team: w.team || me.team, name: w.name || me.name });
@@ -6390,30 +6462,6 @@ function crewWeek(token, mon, to) {
       items: o.items.filter(function (i) { return i.status !== '已取消' && i.name; }).map(function (i) { return { name: i.name, qty: Math.round(Number(i.qty) * 100) / 100, unit: i.unit || '', vendor: i.vendor || '', noOrder: !!i.noOrder, tool: i.id === TOOL_ID, note: i.note || '' }; }) };
   });
   return { who: who, mon: dateStr_(m), fri: dateStr_(fri), lessons: lessons, orders: orders, holidays: holidaysBetween_(m, fri) };
-}
-/** 管理者：綁定 LINE 的校隊名單 */
-function adminCrewLineList(token) {
-  auth_(token, true);
-  const all = PropertiesService.getScriptProperties().getProperties();
-  return Object.keys(all).filter(function (k) { return k.indexOf('CL:') === 0; }).map(function (k) {
-    const me = crewLineInfo_(k.slice(3));
-    return { id: k.slice(3), team: me.team, name: me.name, t: me.t };
-  }).sort(function (a, b) { return (CREW_TEAMS.indexOf(a.team) + 99 * !a.team) - (CREW_TEAMS.indexOf(b.team) + 99 * !b.team) || a.name.localeCompare(b.name, 'zh-Hant'); });
-}
-/** 管理者：移除一位校隊的 LINE（換屆、離隊），或改他的組別、名字 */
-function adminCrewLineEdit(token, id, action, team, name) {
-  auth_(token, true);
-  id = String(id || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
-  const me = crewLineInfo_(id);
-  if (!me) throw new Error('找不到這位校隊，請重新整理。');
-  if (action === 'remove') {
-    const lineToken = PropertiesService.getScriptProperties().getProperty('LINE_TOKEN');
-    if (lineToken) { try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + id + '/richmenu', { method: 'delete', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + lineToken } }); } catch (e) {} }
-    PropertiesService.getScriptProperties().deleteProperty('CL:' + id);
-  } else {
-    crewLineSave_(id, { t: me.t, team: CREW_TEAMS.indexOf(String(team || '')) >= 0 ? team : '', name: clean_(name, 12) });
-  }
-  return adminCrewLineList(token);
 }
 function lineIsCrew_(userId) { return !!(userId && PropertiesService.getScriptProperties().getProperty('CL:' + userId)); }
 function lineLinkMenu_(userId, key) {

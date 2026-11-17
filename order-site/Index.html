@@ -1179,8 +1179,18 @@
           <button type="button" class="btn ghost small" id="aLineBind">產生綁定碼</button>
           <button type="button" class="btn ghost small" id="aRichMenu">設定官方帳號選單</button>
         </div>
-        <div class="row" style="margin-top:6px;gap:6px;align-items:center"><button type="button" class="btn ghost small" id="aCrewCode" title="校隊同學加官方 LINE 後傳這個碼，就能看料單和課表（不能訂貨）">🏅 產生校隊綁定碼</button><button type="button" class="btn ghost small" id="aCrewClear" style="color:var(--bad)">清除全部校隊 LINE</button><span id="aCrewInfo" class="small muted"></span></div>
-        <div id="aCrewList" class="small" style="margin-top:6px"></div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)">
+          <b>🏅 校隊 LINE（每人一組綁定碼）</b> <span id="aCrewInfo" class="small muted"></span>
+          <div class="muted small" style="margin:2px 0 6px">先新增名字，系統給每個人自己的 6 位數碼（7 天內有效、用一次）。同學加官方 LINE 後傳「校隊 碼」，就會綁成那個名字；不在名單上的人綁不了。可以一次打好幾個名字，用「、」或空格隔開。</div>
+          <div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap">
+            <div><label for="aCrewTeam" class="small">組別</label><select id="aCrewTeam" style="width:auto"><option value="">請選</option><option>中餐</option><option>烘焙</option><option>飲調</option><option>西餐</option></select></div>
+            <div style="flex:1;min-width:180px"><label for="aCrewNames" class="small">名字</label><input id="aCrewNames" maxlength="200" placeholder="例如：王同學、陳同學"></div>
+            <button type="button" class="btn secondary small" id="aCrewAdd">新增</button>
+            <button type="button" class="btn ghost small" id="aCrewCopy">📋 複製還沒綁定的碼</button>
+            <button type="button" class="btn ghost small" id="aCrewClear" style="color:var(--bad)">清除全部校隊 LINE</button>
+          </div>
+          <div id="aCrewList" class="small" style="margin-top:6px"></div>
+        </div>
         <div id="aBindInfo" class="small" style="margin-top:8px"></div>
       </div>
       <div class="panel noprint" id="speedPanel">
@@ -6596,30 +6606,58 @@
       }).catch(function (e) { msg('autoMsg', 'error', e.message); }).then(function () { box.disabled = false; });
     });
   });
-  // 已綁定 LINE 的校隊：照組別列出名字，可以改組別、名字或移除
-  var CREW_TEAMS = ['中餐', '烘焙', '飲調', '西餐'];
+  // 校隊名單：每人一組綁定碼；照組別列出，可以改組別、名字、重新給碼、移除
+  var CREW_TEAMS = ['中餐', '烘焙', '飲調', '西餐'], crewRoster = [];
   function renderCrewLine(list) {
-    if (!list.length) { $('aCrewList').innerHTML = '<span class="muted">還沒有校隊綁定 LINE。</span>'; return; }
-    var by = {}; list.forEach(function (c) { (by[c.team || '（沒填組別）'] = by[c.team || '（沒填組別）'] || []).push(c); });
-    $('aCrewList').innerHTML = '<b>已綁定 LINE 的校隊（' + list.length + ' 人）</b>' + Object.keys(by).map(function (t) {
-      return '<div style="margin-top:6px"><b>' + esc(t === '（沒填組別）' ? t : t + '校隊') + '</b>（' + by[t].length + '）' + by[t].map(function (c) {
-        return '<div class="crew-line-row" data-clid="' + esc(c.id) + '" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:3px 0 3px 12px">' +
-          '<select data-clteam style="width:auto;padding:2px 6px"><option value="">組別？</option>' + CREW_TEAMS.map(function (x) { return '<option' + (x === c.team ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
-          '<input data-clname value="' + esc(c.name) + '" placeholder="名字" maxlength="12" style="width:110px;padding:2px 6px">' +
-          '<span class="muted">' + esc(c.t || '') + ' 綁定</span>' +
-          '<button type="button" class="btn ghost small" data-clsave>存</button><button type="button" class="btn ghost small" data-clrm style="color:var(--bad)">移除</button></div>';
+    crewRoster = list;
+    if (!list.length) { $('aCrewList').innerHTML = '<span class="muted">名單是空的，先在上面新增校隊的名字。</span>'; return; }
+    var by = {}; list.forEach(function (c) { var t = c.team || '（沒填組別）'; (by[t] = by[t] || []).push(c); });
+    var keys = CREW_TEAMS.filter(function (t) { return by[t]; }).concat(by['（沒填組別）'] ? ['（沒填組別）'] : []);
+    $('aCrewList').innerHTML = keys.map(function (t) {
+      var nb = by[t].filter(function (c) { return c.bound; }).length;
+      return '<div style="margin-top:8px"><b>' + esc(t === '（沒填組別）' ? t : t + '校隊') + '</b> <span class="muted">' + by[t].length + ' 人・已綁定 ' + nb + '</span>' + by[t].map(function (c) {
+        var st = c.bound ? '<span class="badge ok">✓ 已綁定</span> <span class="muted">' + esc(c.t) + '</span>' + (c.legacy ? ' <span class="badge warn">共用碼綁的</span>' : '')
+          : c.code ? '<span>綁定碼 <b style="font-size:16px;color:var(--brand);letter-spacing:1px">' + esc(c.code) + '</b></span> <span class="muted">（' + esc(c.until) + ' 前）</span>'
+          : '<span class="badge warn">碼過期了</span>';
+        return '<div data-crid="' + esc(c.id) + '" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0 4px 12px;padding:4px 0;border-bottom:1px solid var(--line)">' +
+          '<select data-crteam style="width:auto;padding:2px 6px">' + CREW_TEAMS.map(function (x) { return '<option' + (x === c.team ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
+          '<input data-crname value="' + esc(c.name) + '" maxlength="12" style="width:100px;padding:2px 6px">' + st +
+          '<span style="flex:1"></span><button type="button" class="btn ghost small" data-cract2="save">存</button>' +
+          (c.legacy ? '' : '<button type="button" class="btn ghost small" data-cract2="code">' + (c.bound ? '換手機（給新碼）' : '重新給碼') + '</button>') +
+          '<button type="button" class="btn ghost small" data-cract2="remove" style="color:var(--bad)">移除</button></div>';
       }).join('') + '</div>';
     }).join('');
   }
-  function loadCrewLine() { call('adminCrewLineList', token).then(renderCrewLine).catch(function (e) { $('aCrewList').textContent = '讀取失敗：' + e.message; }); }
+  function loadCrewLine() { call('adminCrewRoster', token).then(renderCrewLine).catch(function (e) { $('aCrewList').textContent = '讀取失敗：' + e.message; }); }
+  $('aCrewAdd').addEventListener('click', function () {
+    var b = this, tm = $('aCrewTeam').value, ns = $('aCrewNames').value.trim();
+    if (!tm) { notice('請先選組別。'); return; }
+    if (!ns) { notice('請輸入名字。'); return; }
+    setBusy(b, true, '新增中…');
+    call('adminCrewRosterEdit', token, 'add', '', tm, ns).then(function (list) {
+      renderCrewLine(list); $('aCrewNames').value = '';
+      msg('autoMsg', 'ok', '已新增，每個人的綁定碼在名單上（7 天內有效）。可以按「📋 複製還沒綁定的碼」貼給同學。');
+    }).catch(function (err) { notice(err.message); }).then(function () { setBusy(b, false); });
+  });
+  $('aCrewCopy').addEventListener('click', function () {
+    var rows = crewRoster.filter(function (c) { return !c.bound && c.code; });
+    if (!rows.length) { notice('沒有等綁定的人（或碼都過期了，按「重新給碼」）。'); return; }
+    var txt = '【三信家商訂貨系統・校隊 LINE 綁定】\n加官方 LINE 好友後，在個人聊天室傳自己那一行的「校隊 ○○○○○○」（每個人的碼不一樣，不要用別人的）：\n' +
+      rows.map(function (c) { return (c.team ? c.team + '校隊 ' : '') + c.name + '：校隊 ' + c.code + '（' + c.until + ' 前）'; }).join('\n');
+    var done = function () { msg('autoMsg', 'ok', '已複製 ' + rows.length + ' 人的綁定碼，可以貼到校隊群組或分別傳給同學。'); };
+    try { navigator.clipboard.writeText(txt).then(done, function () { window.prompt('請複製：', txt); }); } catch (e) { window.prompt('請複製：', txt); }
+  });
   $('aCrewList').addEventListener('click', function (e) {
-    var b = e.target.closest('[data-clsave],[data-clrm]'); if (!b) return;
-    var row = b.closest('[data-clid]'), id = row.getAttribute('data-clid'), rm = b.hasAttribute('data-clrm');
-    var nm = row.querySelector('[data-clname]').value.trim(), tm = row.querySelector('[data-clteam]').value;
-    if (rm && !safeConfirm('移除「' + (tm ? tm + '校隊 ' : '') + (nm || '這位校隊') + '」的 LINE？\n移除後他的 LINE 選單換回一般版，網頁查詢的連結也馬上失效。')) return;
+    var b = e.target.closest('[data-cract2]'); if (!b) return;
+    var row = b.closest('[data-crid]'), id = row.getAttribute('data-crid'), act = b.getAttribute('data-cract2');
+    var nm = row.querySelector('[data-crname]').value.trim(), tm = row.querySelector('[data-crteam]').value;
+    if (act === 'remove' && !safeConfirm('移除「' + tm + '校隊 ' + nm + '」？\n他的 LINE 會解除（選單換回一般版、網頁查詢連結馬上失效）。')) return;
+    if (act === 'code' && row.querySelector('.badge.ok') && !safeConfirm('給「' + nm + '」新的綁定碼？\n換手機或 LINE 帳號時用；用新碼綁定後，舊的那支 LINE 會自動解除。')) return;
     setBusy(b, true, '…');
-    call('adminCrewLineEdit', token, id, rm ? 'remove' : 'save', tm, nm).then(function (list) { renderCrewLine(list); msg('autoMsg', 'ok', rm ? '已移除。' : '已存：' + (tm ? tm + '校隊 ' : '') + nm); })
-      .catch(function (err) { setBusy(b, false); notice(err.message); });
+    call('adminCrewRosterEdit', token, act, id, tm, nm).then(function (list) {
+      renderCrewLine(list);
+      msg('autoMsg', 'ok', act === 'remove' ? '已移除「' + nm + '」。' : act === 'code' ? '已給「' + nm + '」新的綁定碼（7 天內有效）。' : '已存：' + tm + '校隊 ' + nm + '。');
+    }).catch(function (err) { setBusy(b, false); notice(err.message); });
   });
   function loadCrewAdm() {
     loadCrewLine();
@@ -7811,7 +7849,7 @@
     autoState = st;
     var ln = st.line || { teachersBound: [], quota: null, richMenu: '' };
     // 校隊綁定碼直接顯示在按鈕旁邊（結果訊息在面板最上面，按了看不到）
-    if ($('aCrewInfo')) $('aCrewInfo').innerHTML = crewErr ? '<span style="color:var(--bad)">' + esc(crewErr) + '</span>' : ln.crewCode ? '目前的碼：<b style="font-size:18px;color:var(--brand)">校隊 ' + esc(ln.crewCode.code) + '</b>（到 ' + esc(ln.crewCode.until) + '）・已綁定 ' + (ln.crewBound || 0) + ' 人' : '已綁定 ' + (ln.crewBound || 0) + ' 人・目前沒有有效的碼，按左邊產生';
+    if ($('aCrewInfo')) $('aCrewInfo').textContent = '（已綁定 ' + (ln.crewBound || 0) + ' 人）';
     var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger && st.remindTrigger;
     var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
     $('autoStatus').innerHTML =
@@ -8025,7 +8063,6 @@
       return loadAuto(true);   // 保留上面的結果訊息
     }).catch(function (e) {
       msg('autoMsg', 'error', e.message);
-      if (btn.id === 'aCrewCode') crewErr = e.message;
       var am = $('autoMsg'), rc = am && am.getBoundingClientRect();
       if (rc && (rc.bottom < 0 || rc.top > window.innerHeight)) am.scrollIntoView({ behavior: 'smooth', block: 'center' });   // 錯誤訊息在畫面外：捲過去
     })
@@ -8253,20 +8290,9 @@
     if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n管理者另外有管理者版選單（補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單）。\n這個不會用到則數。')) return;
     autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng(), crewMenuPng());
   });
-  var crewErr = '';
-  $('aCrewCode').addEventListener('click', function () {
-    crewErr = '';
-    $('aCrewInfo').innerHTML = '<span class="muted">產生中…</span>';
-    autoCall(this, 'adminCrewLineCode', function (st) {
-      var c0 = st && st.line && st.line.crewCode;
-      $('aCrewInfo').innerHTML = c0 ? '✅ 請同學在官方 LINE 個人聊天室傳：<b style="font-size:18px;color:var(--brand)">校隊 ' + esc(c0.code) + ' 中餐 王同學</b>（換成自己的組別和名字；到 ' + esc(c0.until) + '）' : '';
-      var c = st && st.line && st.line.crewCode;
-      return c ? '校隊綁定碼：「校隊 ' + c.code + ' 中餐 王同學」（到 ' + c.until + '，全部校隊同學用同一個碼，後面換成自己的組別（中餐／烘焙／飲調／西餐）和名字）。請同學加官方 LINE 好友，傳這句話就好。只能看料單、課表，不能訂貨。' : '已產生。';
-    });
-  });
   $('aCrewClear').addEventListener('click', function () {
     if (!safeConfirm('清除全部校隊的 LINE？（換屆、畢業時用）\n之後要看的同學要重新傳新的綁定碼。')) return;
-    autoCall(this, 'adminCrewLineClear', function () { loadCrewLine(); return '已清除全部校隊的 LINE，綁定碼也作廢了。'; });
+    autoCall(this, 'adminCrewLineClear', function () { loadCrewLine(); return '已清除全部校隊的 LINE（名單保留，要再用時按每個人的「重新給碼」）。'; });
   });
   // 校隊版 LINE 選單圖片（2×2）
   function crewMenuPng() {
