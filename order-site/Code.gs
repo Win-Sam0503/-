@@ -243,6 +243,7 @@ function accountKey_(name) {
  */
 function changePassword(token, oldPassword, newPassword) {
   const account = auth_(token, false, true, true);
+  if (CUR_STUDENT_) throw new Error('校隊學生用 LINE 登入的不能改組別帳號的密碼，請找管理者。');
   oldPassword = String(oldPassword == null ? '' : oldPassword);
   newPassword = String(newPassword == null ? '' : newPassword);
   if (/\s/.test(newPassword)) throw new Error('新密碼不能有空白。');
@@ -383,10 +384,13 @@ function adminSetAdmin(token, account, on) {
   return out;
 }
 
+// 校隊學生用 LINE 連結登入組別共用帳號（中餐校隊…）時，這次請求是哪個學生（訂單、修改紀錄記名字）
+var CUR_STUDENT_ = '';
 function auth_(token, needAdmin, allowMustChange, allowCrew) {
   const cache = CacheService.getScriptCache();
   const account = token ? cache.get('session:' + token) : null;
   if (!account) throw new Error('SESSION_EXPIRED');
+  CUR_STUDENT_ = cache.get('sessstu:' + token) || '';
   // 還在用預設密碼的，除了改密碼以外什麼都不能做
   if (!allowMustChange && cache.get('mustchange:' + token)) throw new Error('MUST_CHANGE_PASSWORD');
   if (needAdmin && !isAdmin_(account)) throw new Error('只有管理者可以使用這個功能。');
@@ -500,6 +504,7 @@ function getBootstrap(token) {
     account: account,
     isAdmin: isAdmin,
     crewOrder: !isAdmin && crewCanOrder_(account),
+    student: (token && CacheService.getScriptCache().get('sessstu:' + token)) || '',
     isOwner: ADMIN_ACCOUNTS.indexOf(account) >= 0,
     items: items,
     vendors: vendors,
@@ -1072,8 +1077,10 @@ function updateOrder(token, orderNo, payload) {
 
     // 代訂對象老師自己改的時候，保留原本的操作老師和代訂對象
     const p = Object.assign({}, payload);
+    p.keepStudent = String(r0['操作學生'] || '').trim();   // 校隊學生訂的單，管理者改了也保留是誰訂的
     if (operator !== account && !isAdmin) p.onBehalfOf = '';
     const o = validateOrder_(p, operator === account || isAdmin ? account : operator, isAdmin);
+    o.keepStudent = p.keepStudent;
     if (operator !== account && !isAdmin) o.onBehalfOf = forWho;
 
     before = groupOrders_(rows, null)[0];
@@ -1124,6 +1131,8 @@ function writeOrder_(o, orderNo, submittedAt, operator, account, skipPending) {
     '組數': o.groups || '',
     '狀態': '待處理',
   };
+  const student = CUR_STUDENT_ || o.keepStudent || '';
+  if (student) { ensureHeaders_(sheet_(SHEET.orders), ['操作學生']); base['操作學生'] = student; }
   const rows = o.lines.map(function (l) {
     return Object.assign({}, base, {
       '食材ID': l.id, '食材名稱': l.name, '廠商': l.vendor, '送貨組別': l.group,
@@ -1958,7 +1967,7 @@ function adminTeacherTrail(token, teacher, from, to) {
     byNo[o.orderNo] = o;
     const live = o.items.filter(function (i) { return i.status !== '已取消'; }).length;
     const desc = '上課 ' + shortDateTw_(parseDate_(o.useDate)) + ' ' + (o.classTime || '') + '・' + (o.className || '') + '・' + (o.project || '（沒填實作項目）') + '・' + (live || o.items.length) + ' 項・現在狀態：' + o.status +
-      (o.onBehalfOf ? (mine(o.teacher) ? '（幫 ' + o.onBehalfOf + ' 代訂）' : '（' + o.teacher + ' 代訂）') : '');
+      (o.onBehalfOf ? (mine(o.teacher) ? '（幫 ' + o.onBehalfOf + ' 代訂）' : '（' + o.teacher + ' 代訂）') : '') + (o.student ? '・訂的學生：' + o.student : '');
     add(parseDateTime_(o.submitted) || tm(o.submitted), '✅ 送出訂單', desc, { orderNo: o.orderNo });
   });
   if (has(SHEET.edits)) readTable_(SHEET.edits, ['時間', '訂單編號']).rows.forEach(function (r) {
@@ -2490,7 +2499,7 @@ function logOrderEdit_(orderNo, who, changes, reason) {
   if (!changes.length) return;   // 按了儲存但沒改東西，不記
   reason = clean_(reason, 100);
   ensureSheet_(SHEET.edits, EDIT_HEADERS);
-  appendRows_(SHEET.edits, [{ '時間': new Date(), '訂單編號': orderNo, '修改人': who, '內容': (reason ? '原因：' + reason + '；' : '') + changes.join('；') }],
+  appendRows_(SHEET.edits, [{ '時間': new Date(), '訂單編號': orderNo, '修改人': who, '內容': (CUR_STUDENT_ ? '［' + CUR_STUDENT_ + '］' : '') + (reason ? '原因：' + reason + '；' : '') + changes.join('；') }],
     { '時間': 'yyyy/mm/dd hh:mm:ss' });
 }
 
@@ -3917,7 +3926,8 @@ function logClientError(token, fn, message, view) {
   const account = (token && CacheService.getScriptCache().get('session:' + token)) || '（未登入）';
   const msg = String(message || '');
   if (!msg || /SESSION_EXPIRED|MUST_CHANGE_PASSWORD/.test(msg)) return false;
-  logError_(account, String(fn || ''), fn === '料單沒送出' ? '操作紀錄' : errorType_(msg), msg, String(view || ''));   // 沒送出的料單不算系統錯誤
+  const stu = token ? CacheService.getScriptCache().get('sessstu:' + token) : '';
+  logError_(account, String(fn || ''), fn === '料單沒送出' ? '操作紀錄' : errorType_(msg), (stu ? '［' + stu + '］' : '') + msg, String(view || ''));   // 沒送出的料單不算系統錯誤
   return true;
 }
 
@@ -6429,12 +6439,51 @@ function lineCrewBind_(code, src) {
   const me = crewLineInfo_(src.userId);
   return '校隊綁定完成，' + (me.team ? me.team + '校隊 ' : '') + me.name + '！\n下方選單按「📱 網頁查詢」可以打開網頁，看課表和每張料單（今天、明天、這週、下週或指定日期都可以）；也可以看今天／明天料單、課表、「🔍 查老師」（選單沒換的話，關掉聊天室再打開）。';
 }
+/** 組別的共用訂貨帳號：「中餐校隊」「烘焙校隊」…（帳號設定裡有、而且啟用才算） */
+function crewTeamAccount_(team) {
+  if (!team) return '';
+  const name = team + '校隊';
+  const r = readTable_(SHEET.accounts, ['帳號', '啟用']).rows.find(function (x) { return String(x['帳號']).trim() === name && isTrue_(x['啟用']); });
+  return r ? name : '';
+}
+/** 名單上這位（LINE userId）能不能用組別帳號訂貨：{ account, label } 或 null */
+function crewOrderOf_(uid) {
+  const me = crewLineInfo_(uid);
+  if (!me || !me.rid) return null;
+  const r = crewRoster_().find(function (x) { return x.id === me.rid && x.uid === uid; });
+  if (!r || !r.canOrder) return null;
+  const acc = crewTeamAccount_(r.team);
+  return acc ? { account: acc, label: r.team + '校隊 ' + r.name, name: r.name } : null;
+}
+/** LINE 校隊訂貨連結（10 分鐘、用一次）：打開就登入組別共用帳號，訂單記學生名字 */
+function crewOrderLink_(uid) {
+  const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  CacheService.getScriptCache().put('colink:' + code, uid, LINE_LOGIN_MINUTES * 60);
+  const u = lineUrl_('');
+  return u ? u + '&co=' + code : '';
+}
+function loginByCrewLink(code) {
+  code = String(code || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
+  const cache = CacheService.getScriptCache(), uid = code ? cache.get('colink:' + code) : null;
+  if (!uid) throw new Error('這個訂貨連結已經過期或用過了，請在 LINE 再按一次「🛒 校隊訂貨」。');
+  cache.remove('colink:' + code);
+  const c = crewOrderOf_(uid);
+  if (!c) throw new Error('你沒有訂貨權限（或組別帳號停用了），請找管理者。');
+  const token = Utilities.getUuid();
+  cache.put('session:' + token, c.account, SESSION_HOURS * 3600);
+  cache.put('sessstu:' + token, c.name, SESSION_HOURS * 3600);
+  try { logLogin_(c.account, '成功（LINE 校隊：' + c.label + '）'); } catch (e) {}
+  CUR_STUDENT_ = c.name;
+  const data = getBootstrap(token);
+  data.student = c.name;
+  return { token: token, account: c.account, isAdmin: false, mustChange: false, data: data };
+}
 /** 管理者：校隊名單（每人狀態：等綁定＋碼／已綁定）＋沒在名單上、以前用共用碼綁的 */
 function adminCrewRoster(token) {
   auth_(token, true);
   const now = Date.now(), list = crewRoster_(), props = PropertiesService.getScriptProperties().getProperties();
   const out = list.map(function (x) {
-    return { id: x.id, team: x.team, name: x.name, bound: !!(x.uid && props['CL:' + x.uid]), t: x.t || '',
+    return { id: x.id, team: x.team, name: x.name, bound: !!(x.uid && props['CL:' + x.uid]), t: x.t || '', canOrder: !!x.canOrder,
       code: x.code && x.until > now ? x.code : '', until: x.code && x.until > now ? Utilities.formatDate(new Date(x.until), tz_(), 'MM/dd') : '', expired: !!(x.code && !(x.until > now)) };
   });
   const inRoster = {}; list.forEach(function (x) { if (x.uid) inRoster[x.uid] = true; });
@@ -6477,6 +6526,10 @@ function adminCrewRosterEdit(token, action, id, team, names) {
       const r = list.find(function (x) { return x.id === id; });
       if (!r) throw new Error('找不到這位校隊，請重新整理。');
       if (action === 'code') { r.code = crewNewCode_(list); r.until = until; }
+      else if (action === 'order-on' || action === 'order-off') {
+        if (action === 'order-on' && !crewTeamAccount_(r.team)) throw new Error('帳號設定裡沒有「' + r.team + '校隊」這個帳號（或停用了），請先建立，校隊才能用它訂貨。');
+        r.canOrder = action === 'order-on';
+      }
       else if (action === 'save') {
         r.team = team || r.team; r.name = clean_(names, 12) || r.name;
         if (r.uid && props.getProperty('CL:' + r.uid)) props.setProperty('CL:' + r.uid, JSON.stringify({ t: r.t, team: r.team, name: r.name, rid: r.id }));
@@ -6718,7 +6771,18 @@ function lineAdminReply_(text, userId) {
     return [fxFlexMsg_('校隊查詢網頁', [fxB_('📱 校隊查詢', (me.team ? me.team + '校隊 ' : '') + (me.name || ''),
       [fxT_('看上週、這週、下週每位老師的課、有沒有叫料，和每張料單的食材、數量。可以搜尋老師、班級、菜名、食材。', { size: 'sm', wrap: true }),
        fxT_('連結 ' + CREW_VIEW_HOURS + ' 小時內有效，過了再按一次選單就好。只能看，不能訂貨。', { size: 'xs', color: FX_MUTED, wrap: true })].concat(me.name && me.team ? [] : [fxT_('⚠ 還沒登記名字或組別：請傳「我是 中餐 王同學」。', { size: 'xs', color: FX_BAD, wrap: true })]),
-      [{ type: 'button', style: 'primary', color: '#8a2b1a', action: { type: 'uri', label: '打開查詢網頁', uri: link } }])])];
+      [{ type: 'button', style: 'primary', color: '#8a2b1a', action: { type: 'uri', label: '打開查詢網頁', uri: link } }].concat(crewOrderOf_(userId) ? [{ type: 'button', style: 'secondary', action: { type: 'message', label: '🛒 校隊訂貨', text: '校隊訂貨' } }] : []))])];
+  }
+  // 🛒 校隊訂貨：名單上打勾的學生，用組別共用帳號訂貨（訂單記學生名字）
+  if (/^(🛒\s*)?校隊訂貨$/.test(t)) {
+    if (!lineIsCrew_(userId)) return null;
+    const c = crewOrderOf_(userId);
+    if (!c) return [{ type: 'text', text: '你沒有訂貨權限，要訂貨請找管理者在校隊名單幫你打勾。' }];
+    const link = crewOrderLink_(userId);
+    if (!link) return [{ type: 'text', text: '訂貨網站還沒部署。' }];
+    return [fxFlexMsg_('校隊訂貨', [fxB_('🛒 校隊訂貨', c.label, [fxT_('打開後直接登入「' + c.account + '」，送出的訂單會記上你的名字（' + c.name + '）。', { size: 'sm', wrap: true }),
+      fxT_('⚠ 連結 ' + LINE_LOGIN_MINUTES + ' 分鐘內有效、只能用一次，不要轉傳給別人。', { size: 'xs', color: FX_BAD, wrap: true })],
+      [{ type: 'button', style: 'primary', color: '#b45309', action: { type: 'uri', label: '打開訂貨網（直接登入）', uri: link } }])])];
   }
   if (tq || crewHelp) {
     const acc0 = lineAccountOf_(userId);
@@ -7088,6 +7152,7 @@ function groupOrders_(rows, account) {
         project: String(r['實作項目'] || ''),
         groups: r['組數'] === '' || r['組數'] === undefined ? '' : Number(r['組數']) || '',
         reviewer: String(r['審核人'] || ''),
+        student: String(r['操作學生'] || '').trim(),
         items: [],
       };
       list.push(map[no]);
