@@ -6369,11 +6369,18 @@ function crewViewer_(token) {
  * 校隊查詢：一週（週一～週五）每堂課、叫料了沒、每張料單的食材。mon：那週的週一 'yyyy-MM-dd'
  * 只能看，不回傳成本、單價。
  */
-function crewWeek(token, mon) {
+function crewWeek(token, mon, to) {
   const who = crewViewer_(token);
-  let m = parseDate_(mon) || today_();
-  m = addDays_(m, -((m.getDay() + 6) % 7));
-  const fri = addDays_(m, 4);
+  let m = parseDate_(mon) || today_(), fri;
+  const t2 = parseDate_(to);
+  if (t2) {   // 指定日期：從 mon 到 to（最多 31 天）
+    if (t2 < m) throw new Error('結束日期要在開始日期之後。');
+    if ((t2 - m) / 86400000 > 31) throw new Error('一次最多查 31 天，請把日期縮短一點。');
+    fri = t2;
+  } else {
+    m = addDays_(m, -((m.getDay() + 6) % 7));
+    fri = addDays_(m, 4);
+  }
   const lessons = lessonsWithStatus_(m, fri, null).map(function (x) {
     return { date: x.date, session: x.session, teacher: x.teacher, className: x.className || '', course: x.course || '', room: x.room || '', status: x.status, holiday: x.holiday || '',
       orders: (x.orders || []).map(function (o) { return o.orderNo; }) };

@@ -1249,7 +1249,12 @@
     <section id="viewCrewLook" class="hidden">
       <div class="panel">
         <h2 style="margin:0 0 4px">🏅 校隊查詢 <span id="clWho" class="muted small" style="font-weight:normal"></span> <button type="button" class="btn ghost small" id="clReload">重新整理</button></h2>
-        <div class="status-chips" id="clWeeks" style="margin:6px 0"><button type="button" data-clw="-1">上週</button><button type="button" data-clw="0">這週</button><button type="button" data-clw="1">下週</button><button type="button" data-clw="2">下下週</button></div>
+        <div class="status-chips" id="clWeeks" style="margin:6px 0"><button type="button" data-cld="0">今天</button><button type="button" data-cld="1">明天</button><button type="button" data-clw="-1">上週</button><button type="button" data-clw="0">這週</button><button type="button" data-clw="1">下週</button><button type="button" data-clw="2">下下週</button></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin:0 0 6px">
+          <div><label for="clFrom" class="small">指定日期（起）</label><input id="clFrom" type="date" style="width:auto"></div>
+          <div><label for="clTo" class="small">（迄，一天就不用填）</label><input id="clTo" type="date" style="width:auto"></div>
+          <button type="button" class="btn small" id="clGo">查詢</button>
+        </div>
         <div id="clRange" style="font-weight:700;margin:2px 0 8px"></div>
         <div class="status-chips" id="clTabs" style="margin:0 0 8px"><button type="button" data-clt="lessons">📅 課表（誰上課、叫料了沒）</button><button type="button" data-clt="orders">📋 料單（食材、數量）</button></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -6346,14 +6351,16 @@
   // ------------------------------------------------------------------
   // 🏅 校隊查詢（LINE「📱 網頁查詢」打開、或校隊帳號登入）：上週／這週／下週的課表和每張料單，只能看
   // ------------------------------------------------------------------
-  var cl = { off: 0, tab: 'lessons', data: null, open: {} };
+  var cl = { off: 0, from: '', to: '', tab: 'lessons', data: null, open: {} };   // off：第幾週（指定日期時 from／to 有值）
   function clMonday(off) { var t = new Date(); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() - (t.getDay() + 6) % 7 + 7 * off); return isoDate(t); }
   function crewLookOpen() { if (!cl.data) clLoad(); else clRender(); }
   function clLoad() {
-    var mon = clMonday(cl.off);
-    Array.prototype.forEach.call(document.querySelectorAll('#clWeeks [data-clw]'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-clw')) === cl.off); });
+    var mon = cl.from || clMonday(cl.off);
+    var today = isoDate(new Date()), tmr = (function () { var d = new Date(); d.setDate(d.getDate() + 1); return isoDate(d); })();
+    Array.prototype.forEach.call(document.querySelectorAll('#clWeeks [data-clw]'), function (b) { b.classList.toggle('on', !cl.from && Number(b.getAttribute('data-clw')) === cl.off); });
+    Array.prototype.forEach.call(document.querySelectorAll('#clWeeks [data-cld]'), function (b) { var d = b.getAttribute('data-cld') === '0' ? today : tmr; b.classList.toggle('on', cl.from === d && cl.to === d); });
     msg('clMsg', 'info', '讀取中…'); $('clOut').innerHTML = '';
-    return call('crewWeek', token, mon).then(function (r) {
+    return call('crewWeek', token, mon, cl.to || '').then(function (r) {
       cl.data = r; msg('clMsg', '', '');
       $('clWho').textContent = r.who ? '（' + r.who + '）' : '';
       var ts = [], ds = [];
@@ -6362,11 +6369,20 @@
       ts.sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
       var cur = $('clT').value;
       $('clT').innerHTML = '<option value="">全部老師（' + ts.length + '）</option>' + ts.map(function (t) { return '<option' + (t === cur ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
-      for (var i = 0; i < 5; i++) { var d = new Date(r.mon + 'T00:00:00'); d.setDate(d.getDate() + i); ds.push(isoDate(d)); }
+      ds = clDays(r);
       var cd = $('clD').value;
       $('clD').innerHTML = '<option value="">每一天</option>' + ds.map(function (d) { return '<option value="' + d + '"' + (d === cd ? ' selected' : '') + '>' + esc(shortDate(d)) + '</option>'; }).join('');
       clRender();
     }).catch(function (e) { msg('clMsg', 'error', /SESSION_EXPIRED/.test(e.message) ? '連結過期了，請在 LINE 再按一次「📱 網頁查詢」。' : e.message); });
+  }
+  // 這次查的每一天（週末沒有課也沒有料單就不列）
+  function clDays(r) {
+    var out = [], d = new Date(r.mon + 'T00:00:00'), end = new Date(r.fri + 'T00:00:00');
+    for (; d <= end; d.setDate(d.getDate() + 1)) {
+      var s = isoDate(d), we = d.getDay() === 0 || d.getDay() === 6;
+      if (!we || r.lessons.some(function (x) { return x.date === s; }) || r.orders.some(function (o) { return o.date === s; })) out.push(s);
+    }
+    return out;
   }
   function clStatus(x) {
     return x.status === 'ordered' ? '<span class="badge ok">✓ 有料單</span>' : x.status === 'skipped' ? '<span class="badge none">不用訂</span>' : x.status === 'holiday' ? '<span class="badge none">放假' + (x.holiday ? '・' + esc(x.holiday) : '') + '</span>' : '<b style="color:var(--bad)">✗ 還沒叫料</b>';
@@ -6384,11 +6400,11 @@
     var r = cl.data; if (!r) return;
     Array.prototype.forEach.call(document.querySelectorAll('#clTabs [data-clt]'), function (b) { b.classList.toggle('on', b.getAttribute('data-clt') === cl.tab); });
     $('clTodoBox').classList.toggle('hidden', cl.tab !== 'lessons');
-    $('clRange').textContent = shortDate(r.mon) + '～' + shortDate(r.fri) + (r.holidays && r.holidays.length ? '　（放假：' + r.holidays.map(function (h) { return h.name; }).join('、') + '）' : '');
+    $('clRange').textContent = (r.mon === r.fri ? shortDate(r.mon) : shortDate(r.mon) + '～' + shortDate(r.fri)) + (r.holidays && r.holidays.length ? '　（放假：' + r.holidays.map(function (h) { return h.name; }).join('、') + '）' : '');
     var q = $('clQ').value.trim().toLowerCase().split(/\s+/).filter(Boolean), tf = $('clT').value, df = $('clD').value, todo = $('clTodo').checked;
     var byNo = {}; r.orders.forEach(function (o) { byNo[o.orderNo] = o; });
     var hit = function (txt) { txt = txt.toLowerCase(); return q.every(function (w) { return txt.indexOf(w) >= 0; }); };
-    var days = []; for (var i = 0; i < 5; i++) { var d = new Date(r.mon + 'T00:00:00'); d.setDate(d.getDate() + i); days.push(isoDate(d)); }
+    var days = clDays(r);
     if (df) days = days.filter(function (d) { return d === df; });
     var SS = ['上午', '下午', '晚上'], html = '', total = 0;
     if (cl.tab === 'lessons') {
@@ -6415,7 +6431,7 @@
           }).join('') +
           extra.map(function (o) { return '<div style="border-top:1px solid var(--line);padding:8px 0"><span class="badge warn">課表沒有的課</span>' + clOrderHtml(o, false) + '</div>'; }).join('') + '</div>';
       });
-      $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || todo || df ? '沒有符合的課。' : '這週沒有課。') + '</div>';
+      $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || todo || df ? '沒有符合的課。' : '這段期間沒有課。') + '</div>';
     } else {
       days.forEach(function (d) {
         var os = r.orders.filter(function (o) { return o.date === d && (!tf || o.teacher === tf) && (!q.length || hit([o.teacher, o.className, o.project, o.room].concat(o.items.map(function (i) { return i.name; })).join(' '))); })
@@ -6424,10 +6440,24 @@
         total += os.length;
         html += '<div class="panel" style="padding:10px 12px"><h3 style="margin:0 0 4px">' + esc(shortDate(d)) + ' <span class="muted small" style="font-weight:normal">' + os.length + ' 張料單</span></h3>' + os.map(function (o) { return clOrderHtml(o, false); }).join('') + '</div>';
       });
-      $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || df ? '沒有符合的料單。' : '這週還沒有料單。') + '</div>';
+      $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || df ? '沒有符合的料單。' : '這段期間還沒有料單。') + '</div>';
     }
   }
-  $('clWeeks').addEventListener('click', function (e) { var b = e.target.closest('[data-clw]'); if (!b) return; cl.off = Number(b.getAttribute('data-clw')); cl.open = {}; $('clD').value = ''; clLoad(); });
+  $('clWeeks').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-clw],[data-cld]'); if (!b) return;
+    cl.open = {}; $('clD').value = '';
+    if (b.hasAttribute('data-cld')) { var d = new Date(); d.setDate(d.getDate() + Number(b.getAttribute('data-cld'))); cl.from = cl.to = isoDate(d); }
+    else { cl.off = Number(b.getAttribute('data-clw')); cl.from = cl.to = ''; }
+    $('clFrom').value = cl.from; $('clTo').value = cl.from === cl.to ? '' : cl.to;
+    clLoad();
+  });
+  $('clGo').addEventListener('click', function () {
+    var f = $('clFrom').value, t = $('clTo').value || f;
+    if (!f) { msg('clMsg', 'error', '請選開始日期。'); return; }
+    if (t < f) { msg('clMsg', 'error', '結束日期要在開始日期之後。'); return; }
+    cl.from = f; cl.to = t; cl.open = {}; $('clD').value = ''; clLoad();
+  });
+  $('clFrom').addEventListener('change', function () { if (!$('clTo').value || $('clTo').value < this.value) $('clTo').value = ''; });
   $('clTabs').addEventListener('click', function (e) { var b = e.target.closest('[data-clt]'); if (!b) return; cl.tab = b.getAttribute('data-clt'); clRender(); });
   $('clReload').addEventListener('click', clLoad);
   $('clQ').addEventListener('input', function (e) { if (!e.isComposing) clRender(); });
