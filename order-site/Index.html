@@ -3771,7 +3771,7 @@
       if (!ks.length) { msg('qfMsg', 'error', '請先勾要套用的對應。'); return; }
       setBusy(b, true, '存檔中…');
       call('adminSaveCostMaps', token, ks.map(function (k) { var x = qfData.names[k]; return { vendor: x.v, order: x.n, slip: x.to }; })).then(function (r) {
-        costMsg('ok', '已套用 ' + r.saved + ' 樣對應，以後每週都會這樣算。'); costOpen = true; costReload();
+        costMsg('ok', '已套用 ' + r.saved + ' 樣對應：' + ks.map(function (k) { var x = qfData.names[k]; return x.n + '→' + x.to; }).join('、') + '。以後每週都會這樣算。'); costOpen = true; costReload();
       }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
       return;
     }
@@ -3785,8 +3785,8 @@
     if (!rows.length) { msg('qfMsg', 'error', '請先勾要存的換算。'); return; }
     setBusy(b, true, '存檔中…');
     call('adminSaveUnitConvs', token, rows).then(function (r) {
-      data.unitConv = r; costOpen = true; costRerender();
-      costMsg('ok', '已存 ' + rows.length + ' 樣單位換算，以後每週都會用這個算成本。');
+      data.unitConv = r; costOpen = true;
+      costMsg('ok', '已存 ' + rows.length + ' 樣單位換算：' + rows.map(function (x) { return x.name + ' 1 ' + x.unit + '＝' + fmtQty(x.q) + ' ' + x.unit2; }).join('、') + '。以後每週都會用這個算成本。'); costRerender();
     }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
   });
   var PS_CALL = function (q) { return call('adminPriceSearch', token, q); };
@@ -3904,7 +3904,9 @@
   function costRerender() { if (costTab) renderCostTab(); else renderSummary(); }
   function costReload() { if (costTab) loadCostTab(true); else loadSummaryKeepMsg(); }
   // 成本頁的訊息在最上面，在下面清單按「存」看不到 → 同時跳出提示（toast）
-  function costMsg(type, text) { msg(costTab ? 'costMsg' : 'sumMsg', type, text); if (text && (type === 'ok' || type === 'error')) toast((type === 'ok' ? '✓ ' : '⚠ ') + text, type === 'ok'); }
+  var costLog = [], costLastT = null;
+  function costMsg(type, text) {
+    if (type === 'ok' && text && costTab) { var n = new Date(); costLog.push({ time: ('0' + n.getHours()).slice(-2) + ':' + ('0' + n.getMinutes()).slice(-2), text: text, before: costLastT, after: null }); } msg(costTab ? 'costMsg' : 'sumMsg', type, text); if (text && (type === 'ok' || type === 'error')) toast((type === 'ok' ? '✓ ' : '⚠ ') + text, type === 'ok'); }
   // 單價怎麼來的：那週銷貨單這一樣共幾筆、總量、總金額；同一週單價差很多的標出來
   var SPREAD = 1.3;
   function spreadOf(src) { return src && src.lo > 0 && src.hi / src.lo > SPREAD; }
@@ -4025,6 +4027,15 @@
     costMissFilter();
     $('costAuto').innerHTML = suspectHtml(list) + spreadHtml(list);
     $('costTodo').insertAdjacentHTML('afterbegin', quickFixHtml(list));
+    // 剛剛存的：存之前／之後的成本合計、沒有成本幾項，放在一次整理上面（按了看得到改了什麼）
+    costLog.forEach(function (x) { if (!x.after && x.before) x.after = { sum: t.sum, none: t.none, est: t.est }; });
+    costLastT = { sum: t.sum, none: t.none, est: t.est };
+    if (costLog.length) $('costTodo').insertAdjacentHTML('afterbegin', '<div class="panel noprint" id="costLogBox" style="padding:10px 16px;border-left:5px solid var(--ok)"><b>✓ 剛剛存的</b> <span class="muted small">（這次打開網頁以來，最新的在上面）</span><ul style="margin:6px 0 0;padding-left:20px">' +
+      costLog.slice().reverse().slice(0, 8).map(function (x) {
+        var same = x.before && x.after && Math.round(x.before.sum) === Math.round(x.after.sum) && x.before.none === x.after.none;
+        var d = same ? '<div class="small muted">成本金額沒變：原本就先照這個數字估，現在存成固定的，以後每週都照這樣算。</div>' : x.before && x.after ? '<div class="small muted">成本合計 $' + money0(x.before.sum) + ' → <b>$' + money0(x.after.sum) + '</b>・沒有成本 ' + x.before.none + ' → <b>' + x.after.none + '</b> 項・用上次單價估 $' + money0(x.before.est) + ' → $' + money0(x.after.est) + '</div>' : '';
+        return '<li style="margin:2px 0"><span class="muted small">' + esc(x.time) + '</span> ' + esc(x.text) + d + '</li>';
+      }).join('') + '</ul></div>');
     costOpen = true;
     $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計（依品項算）</b>') + allocHtml();
   }
@@ -4255,8 +4266,8 @@
     var go = function () {
       setBusy(b, true, '…');
       call('adminSavePrice', token, v, n, u, pv).then(function (r) {
-        data.prices = r; costOpen = true; costMissOpen = true; costRerender();
-        costMsg('ok', del ? '已刪掉「' + n + '」手填的單價。' : '已存：' + n + '（' + vco(v) + '）$' + pv + '／' + u + '。成本先用這個算，之後銷貨單有這一樣會自動改用銷貨單的單價。');
+        data.prices = r; costOpen = true; costMissOpen = true;
+        costMsg('ok', del ? '已刪掉「' + n + '」手填的單價。' : '已存：' + n + '（' + vco(v) + '）$' + pv + '／' + u + '。成本先用這個算，之後銷貨單有這一樣會自動改用銷貨單的單價。'); costRerender();
       }).catch(function (err) { notice(err.message); setBusy(b, false); });
     };
     if (del) ask('刪掉「' + n + '」手填的單價？', '刪掉').then(function (ok) { if (ok) go(); }); else go();
@@ -4269,8 +4280,8 @@
     if (!pq) { inp.focus(); notice('請填數字，例如 0.3，或直接打重量，例如 11g、11克、2兩。'); return; }
     setBusy(b, true, '…');
     call('adminSaveUnitConv', token, inp.getAttribute('data-uc-name'), inp.getAttribute('data-uc-u'), pq.q, pq.u2).then(function (r) {
-      data.unitConv = r; costOpen = true; costRerender();
-      costMsg('ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + pq.q + ' ' + pq.u2 + '。以後這一樣都會用這個換算算成本。');
+      data.unitConv = r; costOpen = true;
+      costMsg('ok', '已存：' + inp.getAttribute('data-uc-name') + ' 1 ' + inp.getAttribute('data-uc-u') + ' ＝ ' + pq.q + ' ' + pq.u2 + '。以後這一樣都會用這個換算算成本。'); costRerender();
     }).catch(function (err) { notice(err.message); setBusy(b, false); });
   });
   // 換算的數字可以直接帶單位：「11g」「11克」「2兩」「0.5公斤」；沒帶單位就用預設的（通常是斤）
