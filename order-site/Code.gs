@@ -1910,6 +1910,61 @@ function cancelOrder(token, orderNo) {
   return res;
 }
 
+// ---- 📜 老師操作紀錄：老師說有訂、系統卻沒有時，查他到底做了什麼 ----
+
+/**
+ * 管理者：某位老師 from～to（操作的日期）做過的事，照時間排：登入、送出失敗（沒填完整、錯誤）、送出訂單、修改、取消、刪除、退單。
+ * 資料來源：登入資訊、錯誤紀錄、訂單總表＋歷史訂單、修改紀錄、老師刪除（都是系統自動寫的，老師改不到）。
+ */
+function adminTeacherTrail(token, teacher, from, to) {
+  auth_(token, true);
+  teacher = clean_(teacher, 30);
+  if (!teacher) throw new Error('請選老師。');
+  const start = parseDate_(from) || addDays_(today_(), -14), end = addDays_(parseDate_(to) || today_(), 1);
+  if (end <= start) throw new Error('結束日期要在開始日期之後。');
+  if ((end - start) / 86400000 > 120) throw new Error('一次最多查 120 天。');
+  const out = [], has = function (name) { const sh = ss_().getSheetByName(name); return sh && sh.getLastRow() >= 2; };
+  const tm = function (v) { const d = v instanceof Date ? v : errTime_(v); return d instanceof Date && !isNaN(d) ? d : null; };
+  const add = function (d, type, text, extra) {
+    if (!d || d < start || d >= end) return;
+    out.push(Object.assign({ t: d.getTime(), time: Utilities.formatDate(d, tz_(), 'yyyy/MM/dd HH:mm:ss'), type: type, text: text }, extra || {}));
+  };
+  const mine = function (v) { return String(v || '').trim() === teacher; };
+  if (has(SHEET.logins)) readTable_(SHEET.logins, ['登入時間', '帳號']).rows.forEach(function (r) {
+    if (mine(r['帳號'])) add(tm(r['登入時間']), /成功/.test(String(r['結果'])) ? '登入' : '登入失敗', String(r['結果'] || ''));
+  });
+  if (has(SHEET.errors)) readTable_(SHEET.errors, ['時間', '帳號']).rows.forEach(function (r) {
+    if (!mine(r['帳號'])) return;
+    const fn = String(r['功能'] || ''), msg = String(r['訊息'] || '').replace(/^Error:\s*/, '');
+    const send = /送出訂單|submitOrder/.test(fn);
+    add(tm(r['時間']), send ? '⚠ 送出失敗' : '系統訊息', (send ? '' : fn + '：') + msg, { page: String(r['畫面'] || '').split('｜')[0] });
+  });
+  // 訂單：送出時間在這段期間的（也列上課日期在這段期間、但比較早送出的，方便對）
+  const orders = groupOrders_(withHistory_(readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows, addDays_(start, -60)), null)
+    .filter(function (o) { return mine(o.teacher) || mine(o.onBehalfOf); });
+  const byNo = {};
+  orders.forEach(function (o) {
+    byNo[o.orderNo] = o;
+    const live = o.items.filter(function (i) { return i.status !== '已取消'; }).length;
+    const desc = '上課 ' + shortDateTw_(parseDate_(o.useDate)) + ' ' + (o.classTime || '') + '・' + (o.className || '') + '・' + (o.project || '（沒填實作項目）') + '・' + (live || o.items.length) + ' 項・現在狀態：' + o.status +
+      (o.onBehalfOf ? (mine(o.teacher) ? '（幫 ' + o.onBehalfOf + ' 代訂）' : '（' + o.teacher + ' 代訂）') : '');
+    add(parseDateTime_(o.submitted) || tm(o.submitted), '✅ 送出訂單', desc, { orderNo: o.orderNo });
+  });
+  if (has(SHEET.edits)) readTable_(SHEET.edits, ['時間', '訂單編號']).rows.forEach(function (r) {
+    const no = String(r['訂單編號']).trim(), who = String(r['修改人'] || ''), text = String(r['內容'] || '');
+    if (!mine(who) && !byNo[no]) return;
+    const type = /(^|；)退單/.test(text) ? '退單' : /取消整張訂單|整張取消/.test(text) ? '取消訂單' : /老師刪除訂單/.test(text) ? '刪除訂單' : '修改訂單';
+    add(tm(r['時間']), type, (mine(who) ? '' : who + '：') + text, { orderNo: no });
+  });
+  if (has(SHEET.hidden)) readTable_(SHEET.hidden, ['訂單編號']).rows.forEach(function (r) {
+    if (mine(r['老師'])) add(tm(r['刪除時間']), '刪除訂單', '老師自己刪除（刪除時狀態：' + String(r['原狀態'] || '') + '）', { orderNo: String(r['訂單編號']).trim() });
+  });
+  out.sort(function (a, b) { return a.t - b.t; });
+  const n = function (ty) { return out.filter(function (x) { return x.type === ty; }).length; };
+  return { teacher: teacher, from: dateStr_(start), to: dateStr_(addDays_(end, -1)), events: out,
+    summary: { logins: n('登入'), sent: n('✅ 送出訂單'), failed: n('⚠ 送出失敗'), edits: n('修改訂單'), cancels: n('取消訂單') + n('刪除訂單') } };
+}
+
 // ---- 異常紀錄：標記異常、老師刪除、退單、修改、取消、抽查異常，集中在一張表 ----
 
 /**

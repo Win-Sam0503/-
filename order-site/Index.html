@@ -907,6 +907,24 @@
     </section>
 
     <!-- 列印 -->
+    <!-- 📜 老師操作紀錄 -->
+    <section id="viewTrail" class="hidden">
+      <div class="panel noprint">
+        <h2>📜 老師操作紀錄 <button type="button" class="btn ghost small" id="trBack">返回訂單彙整</button></h2>
+        <div class="muted small">老師說「我有訂」、系統卻沒有料單時用：列出他這段期間什麼時候登入、送出成功（訂單編號）、<b>送出失敗（為什麼沒送出去）</b>、修改、取消、刪除。這些都是系統自動記的，老師改不到，可以列印留存。</div>
+        <div class="grid2" style="margin-top:8px">
+          <div><label for="trTeacher">老師</label><input id="trTeacher" list="trTeachers" autocomplete="off" placeholder="打名字或從清單選"><datalist id="trTeachers"></datalist></div>
+          <div style="display:flex;gap:6px;align-items:flex-end"><div><label for="trFrom">操作日期（起）</label><input id="trFrom" type="date"></div><div><label for="trTo">（迄）</label><input id="trTo" type="date"></div></div>
+        </div>
+        <div class="actions" style="justify-content:flex-start;margin-top:6px">
+          <button type="button" class="btn" id="trGo">查詢</button>
+          <button type="button" class="btn ghost" id="trPrint">🖨 列印</button>
+          <label class="check small"><input type="checkbox" id="trNoLogin"> 不列登入</label>
+        </div>
+        <div id="trMsg"></div>
+      </div>
+      <div id="trBody"></div>
+    </section>
     <section id="viewEditReport" class="hidden">
       <div class="panel noprint">
         <h2>修改紀錄報表</h2>
@@ -940,7 +958,7 @@
     <!-- 管理者：訂單彙整 -->
     <section id="viewSummary" class="hidden">
       <div class="panel">
-        <h2>訂單彙整 <span style="display:inline-flex;align-items:center;gap:4px"><button type="button" class="btn ghost small noprint" id="issOpen">⚠ 異常紀錄</button><details class="vhelp noprint"><summary>？說明</summary><div>點日期下面的「上週、本週…」直接查詢。<br>要找特定老師、狀態或關鍵字，按「🔎 更多篩選」。<br>試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div></details></span></h2>
+        <h2>訂單彙整 <span style="display:inline-flex;align-items:center;gap:4px"><button type="button" class="btn ghost small noprint" id="issOpen">⚠ 異常紀錄</button><button type="button" class="btn ghost small noprint" id="trOpen" title="老師說有訂、系統沒有時：查他什麼時候登入、送出成功或失敗、修改、取消">📜 老師操作紀錄</button><details class="vhelp noprint"><summary>？說明</summary><div>點日期下面的「上週、本週…」直接查詢。<br>要找特定老師、狀態或關鍵字，按「🔎 更多篩選」。<br>試算表保留最近約 13 個月，更早的在雲端硬碟「三信家商餐飲科歷史訂單」資料夾。</div></details></span></h2>
         <div class="grid2">
           <div><label for="sFrom">上課日期（起）</label><input id="sFrom" type="date"></div>
           <div><label for="sTo">上課日期（迄）</label><input id="sTo" type="date"></div>
@@ -2017,7 +2035,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -4379,6 +4397,37 @@
           '<td class="noprint"><label class="check" style="margin:0"><input type="checkbox" data-issi="' + esc(x.ids.join('\n')) + '"' + (x.done ? ' checked' : '') + (x.autoDone ? ' disabled title="老師已重新送單，自動算已處理"' : '') + '> ' + (x.done ? '<span class="muted">' + esc(x.done) + '</span>' : '') + '</label></td><td class="iss-p">' + (x.done ? '✓ ' + esc(x.done) : '未處理') + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '<span class="muted">這段期間' + (tch ? esc(tch) + ' 老師' : '') + '沒有' + (issType ? '「' + esc(issType) + '」' : '異常') + '紀錄。</span>';
   }
+  // 📜 老師操作紀錄
+  var trData = null;
+  $('trOpen').addEventListener('click', function () {
+    $('trTeachers').innerHTML = (data.teachers || []).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('');
+    if (!$('trFrom').value) { var d = new Date(); d.setDate(d.getDate() - 14); $('trFrom').value = isoDate(d); $('trTo').value = isoDate(new Date()); }
+    show('viewTrail');
+  });
+  $('trBack').addEventListener('click', function () { show('viewSummary'); });
+  var TR_COLOR = { '✅ 送出訂單': 'var(--ok)', '⚠ 送出失敗': 'var(--bad)', '取消訂單': 'var(--bad)', '刪除訂單': 'var(--bad)', '退單': '#b54708', '修改訂單': '#1d4ed8', '登入失敗': '#b54708' };
+  function trRender() {
+    var r = trData; if (!r) return;
+    var noLogin = $('trNoLogin').checked, ev = r.events.filter(function (x) { return !(noLogin && x.type === '登入'); });
+    var s = r.summary, n = new Date(), p2 = function (x) { return ('0' + x).slice(-2); };
+    $('trBody').innerHTML = '<div class="panel" style="padding:12px 16px">' +
+      '<h3 style="margin:0 0 4px">老師操作紀錄：' + esc(r.teacher) + '</h3>' +
+      '<div class="small">期間：' + esc(shortDate(r.from)) + '～' + esc(shortDate(r.to)) + '　列印人：' + esc(data.account) + '　查詢時間：' + n.getFullYear() + '/' + p2(n.getMonth() + 1) + '/' + p2(n.getDate()) + ' ' + p2(n.getHours()) + ':' + p2(n.getMinutes()) + '</div>' +
+      '<div class="small" style="margin:6px 0">登入 <b>' + s.logins + '</b> 次・送出成功 <b style="color:var(--ok)">' + s.sent + '</b> 張・送出失敗 <b style="color:var(--bad)">' + s.failed + '</b> 次・修改 ' + s.edits + ' 次・取消／刪除 ' + s.cancels + ' 次</div>' +
+      (ev.length ? '<div class="tablewrap"><table class="small"><thead><tr><th style="white-space:nowrap">時間</th><th>做了什麼</th><th>內容</th><th>訂單編號</th></tr></thead><tbody>' + ev.map(function (x) {
+        return '<tr><td style="white-space:nowrap">' + esc(x.time) + '</td><td style="white-space:nowrap;color:' + (TR_COLOR[x.type] || 'inherit') + '"><b>' + esc(x.type) + '</b></td><td style="white-space:normal">' + esc(x.text) + '</td><td style="white-space:nowrap">' + esc(x.orderNo || '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="muted">這段期間沒有任何紀錄（沒有登入、也沒有送出）。</div>') +
+      '<div class="muted small" style="margin-top:8px">說明：「✅ 送出訂單」才代表系統收到料單（有訂單編號）。「⚠ 送出失敗」是老師按了送出但沒填完整或發生錯誤，畫面上會跳提示，料單沒有送出去。只有登入、沒有送出紀錄，表示他沒有按送出。</div></div>';
+  }
+  $('trGo').addEventListener('click', function () {
+    var t = $('trTeacher').value.trim(), b = this;
+    if (!t) { msg('trMsg', 'error', '請選老師。'); return; }
+    setBusy(b, true, '查詢中…'); msg('trMsg', '', '');
+    call('adminTeacherTrail', token, t, $('trFrom').value, $('trTo').value).then(function (r) { trData = r; trRender(); })
+      .catch(function (e) { msg('trMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('trNoLogin').addEventListener('change', trRender);
+  $('trPrint').addEventListener('click', function () { if (!trData) { msg('trMsg', 'error', '先查詢再列印。'); return; } window.print(); });
   $('issOpen').addEventListener('click', function () {
     var open = $('issPanel').classList.toggle('hidden') === false;
     if (open) { issLoad(); $('issPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
