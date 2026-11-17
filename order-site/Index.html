@@ -9583,11 +9583,14 @@
       '<div><label>類別</label>' + sel('kind', SCHED_KINDS, x.kind || SCHED_KINDS[0]) + '</div>' +
       '<div><label>開始日期 <span class="muted small">（彈性課程）</span></label><input data-sf="from" type="date" value="' + esc(x.from || '') + '"></div>' +
       '<div><label>結束日期</label><input data-sf="to" type="date" value="' + esc(x.to || '') + '"></div>' +
+      '<div><label>週期</label>' + sel('alt', ['每週', '隔週'], x.alt ? '隔週' : '每週') + '</div>' +
+      '<div><label>隔週：有上課的那一週 <span class="muted small">（選那週任一天）</span></label><input data-sf="altDate" type="date" value="' + esc(x.alt || ($('gridWeek') && $('gridWeek').value) || '') + '"></div>' +
       '</div>';
   }
   var SCHED_KINDS = ['日間部', '夜間部', '彈性課程'];
   function schedRange(x) {
-    return x.from || x.to ? (x.from ? shortDate(x.from) : '') + '～' + (x.to ? shortDate(x.to) : '') : '';
+    var r = x.from || x.to ? (x.from ? shortDate(x.from) : '') + '～' + (x.to ? shortDate(x.to) : '') : '';
+    return r + (x.alt ? (r ? '・' : '') + '隔週（' + shortDate(x.alt).replace(/（.*$/, '') + ' 那週上）' : '');
   }
   function readSchedForm(box) {
     var f = {};

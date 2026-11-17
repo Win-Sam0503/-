@@ -31,7 +31,15 @@ const CLASS_TIME_PATTERN = /^(上午|下午|晚上)( (1[0-2]|[1-9]):[0-5][05])?$
 const SESSIONS = ['上午', '下午', '晚上'];
 // 課表類別：總課表分頁籤；空白＝日間部。彈性課程可以設開始、結束日期（只有那幾週）
 const SCHEDULE_KINDS = ['日間部', '夜間部', '彈性課程'];
-const SCHEDULE_HEADERS = ['星期', '時段', '教室', '課程', '節次', '班級', '老師', '需要訂貨', '備註', '類別', '開始日期', '結束日期'];
+const SCHEDULE_HEADERS = ['星期', '時段', '教室', '課程', '節次', '班級', '老師', '需要訂貨', '備註', '類別', '開始日期', '結束日期', '隔週'];
+/** 隔週上課：「隔週」欄填有上課那週的週一（空白＝每週都上）。ds 那週跟它差奇數週＝這週不上 */
+function altWeekOff_(anchor, ds) {
+  if (!anchor) return false;
+  const mon = function (s) { const d = parseDate_(s); return d ? addDays_(d, -((d.getDay() + 6) % 7)) : null; };
+  const a = mon(anchor), b = mon(ds);
+  if (!a || !b) return false;
+  return Math.abs(Math.round((b - a) / (7 * 86400000))) % 2 === 1;
+}
 // 鎖單：每週一 12:00 截止「下週」的訂單；截止後最早只能訂下下週的課。管理者不受限制。
 // 這三個是預設值；管理者可以在「系統設定 → 訂貨截止時間」改（存在指令碼屬性 LOCK_RULE），程式裡一律用 lockRule_()
 const LOCK_WEEKDAY = 1;                     // 截止星期（1 = 星期一 … 5 = 星期五）
@@ -5011,6 +5019,7 @@ function readScheduleRaw_() {
       kind: scheduleKind_(r['類別']),
       from: toDate_(r['開始日期']) ? dateStr_(toDate_(r['開始日期'])) : '',
       to: toDate_(r['結束日期']) ? dateStr_(toDate_(r['結束日期'])) : '',
+      alt: toDate_(r['隔週']) ? dateStr_(toDate_(r['隔週'])) : '',
     };
   }).filter(function (x) {
     return x.need && x.teacher && x.day >= 0 && SESSIONS.indexOf(x.session) >= 0 && !/國技|預留/.test(x.course);
@@ -5445,6 +5454,7 @@ function lessonsBetween_(from, to, teacher) {
     const ds = dateStr_(d);
     sched.forEach(function (x) {
       if ((x.from && ds < x.from) || (x.to && ds > x.to)) return;   // 彈性課程：只有開始～結束日期那幾週
+      if (altWeekOff_(x.alt, ds)) return;   // 隔週上課：這週不上
       if (x.day === idx && (!teacher || x.teacher === teacher)) {
         out.push({ teacher: x.teacher, date: ds, session: x.session, course: x.course, className: x.className, room: x.room, source: '課表' });
       }
@@ -5819,6 +5829,7 @@ function scheduleRowOut_(r) {
     kind: scheduleKind_(r['類別']),
     from: toDate_(r['開始日期']) ? dateStr_(toDate_(r['開始日期'])) : '',
     to: toDate_(r['結束日期']) ? dateStr_(toDate_(r['結束日期'])) : '',
+    alt: toDate_(r['隔週']) ? dateStr_(toDate_(r['隔週'])) : '',
   };
 }
 
@@ -5865,6 +5876,13 @@ function scheduleFields_(f) {
     if (a && b && b < a) throw new Error('結束日期不能早於開始日期。');
     out['開始日期'] = a || '';
     out['結束日期'] = b || '';
+  }
+  if (f.alt !== undefined) {   // 週期：每週／隔週（altDate：有上課的那一週，任一天都可以）
+    if (f.alt === '隔週') {
+      const d = parseDate_(f.altDate);
+      if (!d) throw new Error('隔週上課：請選「有上課的那一週」（那週任一天都可以）。');
+      out['隔週'] = addDays_(d, -((d.getDay() + 6) % 7));
+    } else out['隔週'] = '';
   }
   return out;
 }
@@ -5933,7 +5951,7 @@ function adminGetSchedule(token, weekOf) {
     if (!x.need || x.skipped) return;
     const i = '一二三四五'.indexOf(x.weekday);
     if (i < 0) return;
-    if ((x.from && dates[i] < x.from) || (x.to && dates[i] > x.to)) { x.outOfWeek = true; return; }
+    if ((x.from && dates[i] < x.from) || (x.to && dates[i] > x.to) || altWeekOff_(x.alt, dates[i])) { x.outOfWeek = true; return; }
     const r = status(x.teacher, dates[i], x.session);
     x.status = r.status;
     x.orders = r.orders || [];
@@ -6082,7 +6100,7 @@ function addScheduleRow_(fields) {
     ensureHeaders_(sh, SCHEDULE_HEADERS);
     set['需要訂貨'] = true;
     set['備註'] = clean_(fields && fields.note, 100);
-    appendRows_(SHEET.schedule, [set], { '開始日期': 'yyyy-mm-dd', '結束日期': 'yyyy-mm-dd' });
+    appendRows_(SHEET.schedule, [set], { '開始日期': 'yyyy-mm-dd', '結束日期': 'yyyy-mm-dd', '隔週': 'yyyy-mm-dd' });
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
