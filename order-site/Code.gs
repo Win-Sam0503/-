@@ -7069,3 +7069,79 @@ function earliestClassDate_(now) {
 function isLocked_(classDate) {
   return !classDate || classDate < earliestClassDate_(new Date());
 }
+
+/** 管理者：🔎 查單價（成本頁） */
+function adminPriceSearch(token, q) {
+  auth_(token, true);
+  return priceSearch_(q);
+}
+/**
+ * 🔎 查單價：從「銷貨單明細」找食材（名稱或銷貨單品名有關鍵字，空白隔開＝都要有）。
+ * 同一樣、同一家一組：最近一次單價、每週單價（近 26 週）、最高最低。回傳最多 40 組，最近買的排前面。
+ * 訂貨系統和驗收系統都用同一份（兩邊程式各一份，改的時候兩邊一起改）。
+ */
+function priceSearch_(q) {
+  const words = String(q || '').toLowerCase().replace(/[（）()]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!words.length) throw new Error('請打食材名稱。');
+  if (!ss_().getSheetByName('銷貨單明細')) return { groups: [] };
+  const tz = tz_();
+  const toD = function (v) {
+    if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+    const m = String(v || '').replace(/^'/, '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  };
+  const ds = function (d) { return Utilities.formatDate(d, tz, 'yyyy-MM-dd'); };
+  const monOf = function (d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ds(x); };
+  const G = { 'g': 1, '公克': 1, '克': 1, '公斤': 1000, 'kg': 1000, 'KG': 1000, 'Kg': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
+  const groups = {};
+  readTable_('銷貨單明細', ['廠商', '食材名稱', '單價']).rows.forEach(function (r) {
+    if (String(r['類型'] || '').trim() === '器材') return;
+    const name = String(r['食材名稱'] || '').trim(), sn = String(r['銷貨單品名'] || '').trim();
+    const hay = (name + ' ' + sn).toLowerCase();
+    if (!name || !words.every(function (w) { return hay.indexOf(w) >= 0; })) return;
+    const p = Number(r['單價']);
+    if (!(p > 0)) return;
+    const d = toD(r['銷貨單日期']) || toD(r['送貨日期（起）']);
+    if (!d) return;
+    const v = String(r['廠商'] || '').trim(), u = String(r['單位'] || '').trim(), qn = Number(r['數量']) > 0 ? Number(r['數量']) : 0;
+    const k = name + '|' + v;
+    const g = groups[k] = groups[k] || { name: name, vendor: v, alias: {}, rows: [] };
+    if (sn && sn !== name) g.alias[sn] = true;
+    g.rows.push({ d: d, u: u, p: p, q: qn, a: Number(r['金額']) > 0 ? Number(r['金額']) : p * qn });
+  });
+  const r2 = function (x) { return Math.round(x * 100) / 100; };
+  const since = new Date(); since.setDate(since.getDate() - 7 * 26);
+  const out = Object.keys(groups).map(function (k) {
+    const g = groups[k];
+    // 主要單位：重量單位算一組（換成最常用的那個），其他照單位；用金額最多的一組
+    const byU = {};
+    g.rows.forEach(function (x) { const key = G[x.u] ? '#w' : x.u; byU[key] = (byU[key] || 0) + (x.a || x.p) + 0.001; });
+    const main = Object.keys(byU).sort(function (a, b) { return byU[b] - byU[a]; })[0];
+    let rows = g.rows.filter(function (x) { return (G[x.u] ? '#w' : x.u) === main; });
+    let pu = rows[0].u;
+    if (main === '#w') { const c = {}; rows.forEach(function (x) { c[x.u] = (c[x.u] || 0) + 1; }); pu = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0]; }
+    const unitP = function (x) { return main === '#w' ? x.p * G[pu] / G[x.u] : x.p; };
+    const qty = function (x) { return main === '#w' ? x.q * G[x.u] / G[pu] : x.q; };
+    rows.sort(function (a, b) { return a.d - b.d; });
+    const wk = {};
+    rows.forEach(function (x) { const w = monOf(x.d); (wk[w] = wk[w] || []).push(x); });
+    const weeks = Object.keys(wk).sort().map(function (w) {
+      const xs = wk[w], wq = xs.filter(function (x) { return x.q > 0 && x.a > 0; });
+      let p;
+      if (wq.length) { let a = 0, q = 0; wq.forEach(function (x) { a += x.a; q += qty(x); }); p = a / q; }
+      else p = xs.reduce(function (t, x) { return t + unitP(x); }, 0) / xs.length;
+      return { wk: w, p: r2(p), n: xs.length, q: r2(xs.reduce(function (t, x) { return t + qty(x); }, 0)) };
+    });
+    const last = rows[rows.length - 1], ps = rows.map(unitP);
+    const recent = weeks.filter(function (w) { return w.wk >= ds(since); });
+    return {
+      name: g.name, vendor: g.vendor, alias: Object.keys(g.alias).slice(0, 5), unit: pu,
+      last: { p: r2(unitP(last)), date: ds(last.d) },
+      lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)), n: rows.length,
+      other: g.rows.length - rows.length,   // 用別的單位買的筆數（例如有時候用箱）
+      weeks: (recent.length ? recent : weeks.slice(-6))
+    };
+  });
+  out.sort(function (a, b) { return a.last.date < b.last.date ? 1 : a.last.date > b.last.date ? -1 : a.name.localeCompare(b.name, 'zh-Hant'); });
+  return { groups: out.slice(0, 40), more: Math.max(0, out.length - 40) };
+}

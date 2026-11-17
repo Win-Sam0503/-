@@ -1008,6 +1008,9 @@
 
     <!-- 修改密碼 -->
     <section id="viewCost" class="hidden">
+      <details class="panel noprint" id="psBox" style="padding:12px 16px"><summary style="cursor:pointer"><b>🔎 查單價</b> <span class="muted small">打食材名稱，看銷貨單上每家廠商最近一次的單價、每週走勢</span></summary>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input id="psQ" type="search" placeholder="例如：洋蔥、奶油、雞胸" autocomplete="off" style="max-width:260px;flex:1"><button type="button" class="btn small" id="psGo">查詢</button></div>
+        <div id="psOut"></div></details>
       <div class="panel">
         <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div>料單成本＝老師訂的數量 × 那一週那家廠商銷貨單上的單價（驗收網站「💰 銷貨單」填的）。<br>每週看最上面的「⚡ 一次整理」就好：名字不一樣、單位不一樣的，系統先猜好打勾，按一次全部存好，以後每週都照這樣算。名字幾乎一樣的（只差括號）系統直接算，列在「🤖 系統自動對應」給你核對。<br>老師用條、隻、盒訂，菜商用台斤算的：先照那週銷貨單的總重分攤，分不出來用過去幾週推算，再不行用內建常見重量（洋蔥 1 顆約 250 g）估。<br>那週銷貨單沒有的，用最近一次銷貨單的單價估。<br>還是算不出來的在「待處理」，每一行都可以直接處理。</div></details></h2>
         <div class="grid2">
@@ -3652,6 +3655,44 @@
       costMsg('ok', '已存 ' + rows.length + ' 樣單位換算，以後每週都會用這個算成本。');
     }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
   });
+  var PS_CALL = function (q) { return call('adminPriceSearch', token, q); };
+  // ---- 🔎 查單價：銷貨單上的食材單價（最近一次、每週走勢）。訂貨系統、驗收系統各一份，改的時候兩邊一起改 ----
+  function psSpark(ws) {
+    if (ws.length < 2) return '';
+    var w = 200, h = 36, ps = ws.map(function (x) { return x.p; }), lo = Math.min.apply(null, ps), hi = Math.max.apply(null, ps), sp = hi - lo || 1;
+    var pts = ws.map(function (x, i) { return (i * (w - 8) / (ws.length - 1) + 4).toFixed(1) + ',' + (h - 4 - (x.p - lo) / sp * (h - 8)).toFixed(1); });
+    var last = pts[pts.length - 1].split(',');
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block;max-width:100%" aria-hidden="true"><polyline points="' + pts.join(' ') + '" fill="none" stroke="#8a2b1a" stroke-width="2" stroke-linejoin="round"/><circle cx="' + last[0] + '" cy="' + last[1] + '" r="3" fill="#8a2b1a"/></svg>';
+  }
+  function psMd(s) { var m = String(s || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : s; }
+  function psRender(r) {
+    var gs = r.groups || [];
+    if (!gs.length) return '<div class="muted" style="margin-top:8px">銷貨單上找不到這個食材（試試別的叫法，例如「紅K」「蔥」）。</div>';
+    var money = function (p) { return '$' + (Math.round(p * 100) / 100); };
+    return '<div class="muted small" style="margin:8px 0 4px">找到 ' + gs.length + ' 樣' + (r.more ? '（還有 ' + r.more + ' 樣，請打更完整的名稱）' : '') + '，最近買的排前面。單價是那週銷貨單的平均（總金額 ÷ 總量）。</div>' +
+      gs.map(function (g) {
+        var ws = g.weeks || [], prev = ws.length > 1 ? ws[ws.length - 2].p : null, cur = ws.length ? ws[ws.length - 1].p : g.last.p;
+        var trend = prev === null ? '' : cur > prev * 1.03 ? '<span style="color:#b42318">▲ 比前一次貴 ' + Math.round((cur / prev - 1) * 100) + '%</span>' : cur < prev * 0.97 ? '<span style="color:#027a48">▼ 比前一次便宜 ' + Math.round((1 - cur / prev) * 100) + '%</span>' : '<span class="muted">跟前一次差不多</span>';
+        return '<div style="border:1px solid #e4e7ec;border-radius:10px;padding:10px 12px;margin:6px 0;background:#fff">' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between">' +
+          '<div style="min-width:180px"><b style="font-size:16px">' + esc(g.name) + '</b> <span class="muted small">' + esc(g.vendor) + '</span>' +
+          (g.alias.length ? '<div class="muted small">銷貨單寫：' + esc(g.alias.join('、')) + '</div>' : '') +
+          '<div style="margin-top:4px">最近一次 <b style="font-size:18px">' + money(g.last.p) + '</b>／' + esc(g.unit) + ' <span class="muted small">（' + psMd(g.last.date) + '）</span></div>' +
+          '<div class="small">' + trend + '　<span class="muted">最低 ' + money(g.lo) + '・最高 ' + money(g.hi) + '・共 ' + g.n + ' 筆' + (g.other ? '（另有 ' + g.other + ' 筆用別的單位）' : '') + '</span></div></div>' +
+          '<div>' + psSpark(ws) + '</div></div>' +
+          (ws.length ? '<details style="margin-top:4px"><summary class="small" style="cursor:pointer">每週單價（' + ws.length + ' 週）</summary><div class="small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px">' +
+            ws.slice().reverse().map(function (w) { return '<span>' + psMd(w.wk) + ' 那週 <b>' + money(w.p) + '</b></span>'; }).join('') + '</div></details>' : '') +
+          '</div>';
+      }).join('');
+  }
+  function psSearch() {
+    var q = document.getElementById('psQ').value.trim(), out = document.getElementById('psOut'), b = document.getElementById('psGo');
+    if (!q) { out.innerHTML = '<div class="muted" style="margin-top:8px">請打食材名稱。</div>'; return; }
+    out.innerHTML = '<div class="muted" style="margin-top:8px">查詢中…</div>'; b.disabled = true;
+    PS_CALL(q).then(function (r) { out.innerHTML = psRender(r); }).catch(function (e) { out.innerHTML = '<div style="color:#b42318;margin-top:8px">' + esc(e.message) + '</div>'; }).then(function () { b.disabled = false; });
+  }
+  document.getElementById('psGo').addEventListener('click', psSearch);
+  document.getElementById('psQ').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); psSearch(); } });
   // ① 待處理的搜尋（重新算成本後保留）
   var costMissQ = '', costMissS = '';
   function costMissFilter() {
