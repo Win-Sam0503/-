@@ -7629,6 +7629,8 @@
   function renderAuto(st) {
     autoState = st;
     var ln = st.line || { teachersBound: [], quota: null, richMenu: '' };
+    // 校隊綁定碼直接顯示在按鈕旁邊（結果訊息在面板最上面，按了看不到）
+    if ($('aCrewInfo')) $('aCrewInfo').innerHTML = crewErr ? '<span style="color:var(--bad)">' + esc(crewErr) + '</span>' : ln.crewCode ? '目前的碼：<b style="font-size:18px;color:var(--brand)">校隊 ' + esc(ln.crewCode.code) + '</b>（到 ' + esc(ln.crewCode.until) + '）・已綁定 ' + (ln.crewBound || 0) + ' 人' : '已綁定 ' + (ln.crewBound || 0) + ' 人・目前沒有有效的碼，按左邊產生';
     var on = st.vendorTrigger && st.digestTrigger && st.maintTrigger && st.remindTrigger;
     var yes = function (b, t, f) { return b ? '<span style="color:var(--ok)">✓ ' + t + '</span>' : '<span style="color:var(--muted)">✗ ' + f + '</span>'; };
     $('autoStatus').innerHTML =
@@ -7840,7 +7842,12 @@
     return call.apply(null, [fn, token].concat(args)).then(function (res) {
       msg('autoMsg', 'ok', okText(res));
       return loadAuto(true);   // 保留上面的結果訊息
-    }).catch(function (e) { msg('autoMsg', 'error', e.message); })
+    }).catch(function (e) {
+      msg('autoMsg', 'error', e.message);
+      if (btn.id === 'aCrewCode') crewErr = e.message;
+      var am = $('autoMsg'), rc = am && am.getBoundingClientRect();
+      if (rc && (rc.bottom < 0 || rc.top > window.innerHeight)) am.scrollIntoView({ behavior: 'smooth', block: 'center' });   // 錯誤訊息在畫面外：捲過去
+    })
       .then(function () {
         setBusy(btn, false);
         btn._label = null;                  // 按鈕文字以最新狀態為準（例如啟用／停用排程）
@@ -8065,8 +8072,13 @@
     if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n管理者另外有管理者版選單（補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單）。\n這個不會用到則數。')) return;
     autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng(), crewMenuPng());
   });
+  var crewErr = '';
   $('aCrewCode').addEventListener('click', function () {
+    crewErr = '';
+    $('aCrewInfo').innerHTML = '<span class="muted">產生中…</span>';
     autoCall(this, 'adminCrewLineCode', function (st) {
+      var c0 = st && st.line && st.line.crewCode;
+      $('aCrewInfo').innerHTML = c0 ? '✅ 請同學在官方 LINE 個人聊天室傳：<b style="font-size:18px;color:var(--brand)">校隊 ' + esc(c0.code) + '</b>（到 ' + esc(c0.until) + '）' : '';
       var c = st && st.line && st.line.crewCode;
       return c ? '校隊綁定碼：「校隊 ' + c.code + '」（到 ' + c.until + '，全部校隊同學用同一個）。請同學加官方 LINE 好友，傳這句話就好。看到的選單只有料單、課表，不能訂貨。' : '已產生。';
     });
