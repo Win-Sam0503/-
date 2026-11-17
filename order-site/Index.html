@@ -269,6 +269,7 @@
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1001; background: #b42318; color: #fff; padding: 12px 18px; border-radius: 12px;
     font-size: 16px; font-weight: 600; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(0,0,0,.25); text-align: center; }
   .toast.hidden { display: none; }
+  .toast.ok { background: #027a48; }
   .field-err { outline: 3px solid #f04438 !important; outline-offset: 2px; }
   .lessons-as { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); max-width: 420px; }
   .sched-table td { vertical-align: middle; }
@@ -1791,9 +1792,10 @@
   function notice(text) { return ask(text, '知道了', { okOnly: true }); }
   // 畫面下方浮出的提示（捲到哪裡都看得到）
   var toastTimer = null;
-  function toast(text) {
+  function toast(text, ok) {
     var t = $('toast');
     t.textContent = text;
+    t.classList.toggle('ok', !!ok);
     t.classList.remove('hidden');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.classList.add('hidden'); }, 6000);
@@ -3901,7 +3903,8 @@
   function costRange() { var f = $(costTab ? 'cFrom' : 'sFrom').value, t = $(costTab ? 'cTo' : 'sTo').value || f; return [f, t]; }
   function costRerender() { if (costTab) renderCostTab(); else renderSummary(); }
   function costReload() { if (costTab) loadCostTab(true); else loadSummaryKeepMsg(); }
-  function costMsg(type, text) { msg(costTab ? 'costMsg' : 'sumMsg', type, text); }
+  // 成本頁的訊息在最上面，在下面清單按「存」看不到 → 同時跳出提示（toast）
+  function costMsg(type, text) { msg(costTab ? 'costMsg' : 'sumMsg', type, text); if (text && (type === 'ok' || type === 'error')) toast((type === 'ok' ? '✓ ' : '⚠ ') + text, type === 'ok'); }
   // 單價怎麼來的：那週銷貨單這一樣共幾筆、總量、總金額；同一週單價差很多的標出來
   var SPREAD = 1.3;
   function spreadOf(src) { return src && src.lo > 0 && src.hi / src.lo > SPREAD; }
