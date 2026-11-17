@@ -1842,7 +1842,7 @@
     });
   } catch (e) {}
   function setupApp() {
-    $('who').textContent = data.account + (data.isAdmin ? '（管理者）' : '') + ' 已登入';
+    $('who').textContent = data.account + (data.isAdmin ? '（管理者）' : data.crewOrder ? '（校隊・代訂）' : '') + ' 已登入';
     // 同一台裝置之前是校隊登入（只留放置登記）：老師的按鈕要顯示回來
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]:not(.admin-only)'), function (el) { el.classList.remove('hidden'); });
     Array.prototype.forEach.call(document.querySelectorAll('.admin-only'), function (el) {
@@ -1853,7 +1853,7 @@
     $('fDept').innerHTML = '<option value="">請選擇</option>' + data.departments.map(function (d) {
       return '<option>' + esc(d) + '</option>';
     }).join('');
-    $('fFor').innerHTML = '<option value="">（自己）</option>' + data.teachers.filter(function (t) {
+    $('fFor').innerHTML = '<option value="">' + (data.crewOrder ? '請選老師' : '（自己）') + '</option>' + data.teachers.filter(function (t) {
       return t !== data.account;
     }).map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('');
     $('nVendor').innerHTML = '<option value="">請選擇</option>' + data.vendors.map(function (v) {
@@ -2227,9 +2227,10 @@
   setInterval(function () { if (data && token) renderDeadline(); }, 60000);
   // ---- 代訂：預設收起來，要幫別人訂才打開 ----
   function syncForBox() {
-    var on = !!$('fFor').value;
+    var on = !!$('fFor').value || !!(data && data.crewOrder);   // 校隊只能代訂：一直打開
     $('forBox').classList.toggle('hidden', !on);
     $('forLink').classList.toggle('hidden', on);
+    $('forHide').classList.toggle('hidden', !!(data && data.crewOrder));
   }
   $('forShow').addEventListener('click', function (e) { e.preventDefault(); $('forBox').classList.remove('hidden'); $('forLink').classList.add('hidden'); $('fFor').focus(); });
   $('forHide').addEventListener('click', function (e) {
@@ -6078,7 +6079,7 @@
   // 放置登記沒開放：管理者的選單不顯示；校隊登入只看到「還沒開放」
   function syncPlaceNav() {
     var b = document.querySelector('#nav button[data-view="viewCrew"]');
-    if (b && data && !data.isCrew) b.classList.toggle('hidden', !data.isAdmin || !data.placeEnabled);
+    if (b && data && !data.isCrew) b.classList.toggle('hidden', !(data.isAdmin || data.crewOrder) || !data.placeEnabled);
   }
   function setupCrew() {
     $('who').textContent = data.account + '（校隊）已登入';
@@ -6191,7 +6192,8 @@
   // 系統設定：校隊帳號
   function renderCrewAdm(list) {
     $('crewAdmList').innerHTML = list.length ? list.map(function (c) {
-      return '<div><span>' + esc(c.account) + (c.enabled ? '' : ' <span class="muted">（已停用）</span>') + '</span><span>' +
+      return '<div><span>' + esc(c.account) + (c.enabled ? '' : ' <span class="muted">（已停用）</span>') + (c.canOrder ? ' <span class="small" style="color:#0a7">（可代訂）</span>' : '') + '</span><span>' +
+        '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="' + (c.canOrder ? 'order-off' : 'order-on') + '">' + (c.canOrder ? '取消訂貨權限' : '給訂貨權限') + '</button> ' +
         '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="' + (c.enabled ? 'disable' : 'enable') + '">' + (c.enabled ? '停用' : '啟用') + '</button> ' +
         '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="reset">重設密碼</button></span></div>';
     }).join('') : '<span class="muted">還沒有校隊帳號。</span>';
@@ -6223,12 +6225,15 @@
     var b = e.target.closest('[data-cract]');
     if (!b) return;
     var who = b.getAttribute('data-crew'), act = b.getAttribute('data-cract');
-    var txt = act === 'reset' ? '把「' + who + '」的密碼重設成 0000？' : act === 'disable' ? '停用「' + who + '」？停用後就不能登入。' : '重新啟用「' + who + '」？';
+    var txt = act === 'reset' ? '把「' + who + '」的密碼重設成 0000？' : act === 'disable' ? '停用「' + who + '」？停用後就不能登入。' :
+      act === 'order-on' ? '讓「' + who + '」可以登入訂貨網幫老師代訂？\n（送出時一定要選代訂對象老師，料單會記在老師名下，也會記錄是誰代訂的）' :
+      act === 'order-off' ? '取消「' + who + '」的訂貨權限？之後登入只能用放置登記。' : '重新啟用「' + who + '」？';
     if (!safeConfirm(txt)) return;
     setBusy(b, true, '處理中…');
     call('adminSetCrew', token, who, act).then(function (list) {
       renderCrewAdm(list);
-      msg('autoMsg', 'ok', act === 'reset' ? '「' + who + '」的密碼已重設成 0000。' : act === 'disable' ? '已停用「' + who + '」。' : '已啟用「' + who + '」。');
+      msg('autoMsg', 'ok', act === 'reset' ? '「' + who + '」的密碼已重設成 0000。' : act === 'disable' ? '已停用「' + who + '」。' :
+        act === 'order-on' ? '「' + who + '」現在可以幫老師代訂了（重新登入後生效）。' : act === 'order-off' ? '已取消「' + who + '」的訂貨權限。' : '已啟用「' + who + '」。');
     }).catch(function (err) { msg('autoMsg', 'error', err.message); setBusy(b, false); });
   });
 

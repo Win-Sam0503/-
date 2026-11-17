@@ -383,7 +383,8 @@ function auth_(token, needAdmin, allowMustChange, allowCrew) {
   if (!allowMustChange && cache.get('mustchange:' + token)) throw new Error('MUST_CHANGE_PASSWORD');
   if (needAdmin && !isAdmin_(account)) throw new Error('只有管理者可以使用這個功能。');
   // 校隊帳號只能登記放置位置、改密碼，不能訂貨、看訂單
-  if (!needAdmin && !allowCrew && !isAdmin_(account) && isCrew_(account)) throw new Error('校隊帳號只能使用「放置登記」。');
+  // 「可訂貨」打勾的校隊可以幫老師代訂（送出時一定要選代訂對象老師）
+  if (!needAdmin && !allowCrew && !isAdmin_(account) && isCrew_(account) && !crewCanOrder_(account)) throw new Error('校隊帳號只能使用「放置登記」。');
   return account;
 }
 
@@ -391,16 +392,21 @@ function auth_(token, needAdmin, allowMustChange, allowCrew) {
 function isCrew_(account) {
   return !!account && crewAccounts_().indexOf(account) >= 0;
 }
-function crewAccounts_() {
+function crewAccounts_() { return crewInfo_().all; }
+/** 校隊帳號而且「可訂貨」打勾：可以登入訂貨網幫老師代訂 */
+function crewCanOrder_(account) { return !!account && crewInfo_().order.indexOf(account) >= 0; }
+function crewInfo_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('crewAccounts');
+  const hit = cache.get('crewAccounts2');
   if (hit) return JSON.parse(hit);
   const t = readTable_(SHEET.accounts, ['帳號']);
-  const list = t.cols['校隊'] === undefined ? [] : t.rows.filter(function (r) {
-    return isTrue_(r['校隊']) && isTrue_(r['啟用']);
-  }).map(function (r) { return String(r['帳號']).trim(); }).filter(Boolean);
-  cache.put('crewAccounts', JSON.stringify(list), 300);
-  return list;
+  const rows = t.cols['校隊'] === undefined ? [] : t.rows.filter(function (r) { return isTrue_(r['校隊']) && isTrue_(r['啟用']) && String(r['帳號']).trim(); });
+  const info = {
+    all: rows.map(function (r) { return String(r['帳號']).trim(); }),
+    order: rows.filter(function (r) { return isTrue_(r['可訂貨']); }).map(function (r) { return String(r['帳號']).trim(); })
+  };
+  cache.put('crewAccounts2', JSON.stringify(info), 300);
+  return info;
 }
 
 // =====================================================================
@@ -468,7 +474,7 @@ function bootDirty_(name) {
 
 function getBootstrap(token) {
   const account = auth_(token, false, false, true);
-  if (!isAdmin_(account) && isCrew_(account)) return { account: account, isCrew: true, isAdmin: false, items: [], today: dateStr_(today_()), placeEnabled: placeEnabled_() };
+  if (!isAdmin_(account) && isCrew_(account) && !crewCanOrder_(account)) return { account: account, isCrew: true, isAdmin: false, items: [], today: dateStr_(today_()), placeEnabled: placeEnabled_() };
   const items = cachedItems_();
   const vendors = [];
   items.forEach(function (it) { if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor); });
@@ -485,6 +491,7 @@ function getBootstrap(token) {
   return {
     account: account,
     isAdmin: isAdmin,
+    crewOrder: !isAdmin && crewCanOrder_(account),
     isOwner: ADMIN_ACCOUNTS.indexOf(account) >= 0,
     items: items,
     vendors: vendors,
@@ -1135,6 +1142,10 @@ function validateOrder_(p, account, isAdmin) {
 
   let onBehalfOf = clean_(p.onBehalfOf, 30);
   if (onBehalfOf === account) onBehalfOf = '';
+  if (!isAdmin_(account) && isCrew_(account)) {
+    if (!onBehalfOf) throw new Error('校隊是幫老師代訂，請在「代訂對象老師」選是哪位老師的課。');
+    if (isCrew_(onBehalfOf)) throw new Error('代訂對象要選老師，不能選校隊帳號。');
+  }
   if (onBehalfOf) {
     const valid = readTable_(SHEET.accounts, ['帳號', '啟用']).rows.some(function (r) {
       return String(r['帳號']).trim() === onBehalfOf && isTrue_(r['啟用']);
@@ -5111,7 +5122,7 @@ function adminListCrew(token) {
   const t = readTable_(SHEET.accounts, ['帳號', '啟用']);
   if (t.cols['校隊'] === undefined) return [];
   return t.rows.filter(function (r) { return isTrue_(r['校隊']); }).map(function (r) {
-    return { account: String(r['帳號']).trim(), enabled: isTrue_(r['啟用']) };
+    return { account: String(r['帳號']).trim(), enabled: isTrue_(r['啟用']), canOrder: isTrue_(r['可訂貨']) };
   });
 }
 
@@ -5133,7 +5144,11 @@ function adminSetCrew(token, account, action) {
       if (r) setCell_(t, r._row, '校隊', true);
     } else {
       if (!r || !isTrue_(r['校隊'])) throw new Error('找不到校隊帳號「' + account + '」。');
-      if (action === 'disable') setCell_(t, r._row, '啟用', false);
+      if (action === 'order-on' || action === 'order-off') {
+        ensureHeaders_(sheet_(SHEET.accounts), ['可訂貨']);
+        const t2 = readTable_(SHEET.accounts, ['帳號']);
+        setCell_(t2, r._row, '可訂貨', action === 'order-on');
+      } else if (action === 'disable') setCell_(t, r._row, '啟用', false);
       else if (action === 'enable') setCell_(t, r._row, '啟用', true);
       else if (action === 'reset') {
         const cell = t.sheet.getRange(r._row, t.cols['密碼']);
@@ -5145,7 +5160,7 @@ function adminSetCrew(token, account, action) {
   } finally {
     lock.releaseLock();
   }
-  CacheService.getScriptCache().remove('crewAccounts');
+  CacheService.getScriptCache().removeAll(['crewAccounts', 'crewAccounts2']);
   try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
   return adminListCrew(token);
 }
