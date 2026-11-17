@@ -3495,7 +3495,7 @@
     var rg = costRange(), f = rg[0], t = rg[1], key = f + '|' + t;
     if (!data.isAdmin || slipItemsCache.key === key || slipItemsCache.loading) return;
     slipItemsCache.loading = true;
-    call('adminSlipItems', token, f, t).then(function (r) { slipItemsCache = { key: key, data: r, loading: false }; var el = $('costMiss'); if (el && lastCostList) el.outerHTML = missingCostHtml(lastCostList); })
+    call('adminSlipItems', token, f, t).then(function (r) { slipItemsCache = { key: key, data: r, loading: false }; var el = $('costMiss'); if (el && lastCostList) { el.outerHTML = missingCostHtml(lastCostList); costMissFilter(); } })
       .catch(function () { slipItemsCache.loading = false; });
   }
   // 自己找到的單價直接填：「$ 25 ／ 顆」存進單價表（廠商、品名、單位），之後銷貨單有這一樣會自動改用銷貨單的
@@ -3506,6 +3506,20 @@
       ' <button type="button" class="btn ghost small" data-mpsave data-mp-v="' + esc(it.vendor) + '" data-mp-n="' + esc(it.name) + '" style="padding:1px 8px">存</button>' +
       (cur ? ' <button type="button" class="btn ghost small" data-mpdel data-mp-v="' + esc(it.vendor) + '" data-mp-n="' + esc(it.name) + '" data-mp-ou="' + esc(cur.u) + '" style="padding:1px 8px;color:var(--bad)">刪掉</button>' : '') + '</div>';
   }
+  // ① 待處理的搜尋（重新算成本後保留）
+  var costMissQ = '', costMissS = '';
+  function costMissFilter() {
+    var box = $('costMiss'); if (!box) return;
+    var q = costMissQ.trim().toLowerCase().split(/\s+/).filter(Boolean), n = 0, all = 0;
+    Array.prototype.forEach.call(box.querySelectorAll('tr[data-mq]'), function (tr) {
+      var t = tr.getAttribute('data-mq'), ok = (!costMissS || tr.getAttribute('data-ms') === costMissS) && q.every(function (w) { return t.indexOf(w) >= 0; });
+      tr.style.display = ok ? '' : 'none'; all++; if (ok) n++;
+    });
+    var c = $('costMissN'); if (c) c.textContent = (q.length || costMissS) ? '符合 ' + n + '／' + all + ' 樣' : '';
+  }
+  document.addEventListener('input', function (e) { if (e.target.id === 'costMissQ' && !e.isComposing) { costMissQ = e.target.value; costMissFilter(); } });
+  document.addEventListener('compositionend', function (e) { if (e.target.id === 'costMissQ') { costMissQ = e.target.value; costMissFilter(); } });
+  document.addEventListener('change', function (e) { if (e.target.id === 'costMissS') { costMissS = e.target.value; costMissFilter(); } });
   // 沒有成本的品項（同名同單位合在一起），一次看原因、一次填換算
   function missingCostHtml(list) {
     var m = {}, keys = [];
@@ -3528,7 +3542,9 @@
     lastMissRows = keys.map(function (k) { var x = m[k]; return [x.it.name, x.it.vendor || '', x.it.unit || '', x.n, x.man ? '手填單價' : x.est ? '用上次單價估' : '沒有成本', whyOf(x).text]; });
     if (slipItemsCache.key !== costRange().join('|')) setTimeout(loadSlipItems, 0);
     return '<details id="costMiss"' + (costMissOpen ? ' open' : '') + ' style="margin:6px 0 8px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 沒對到銷貨單：' + (nNone ? nNone + ' 樣沒有成本' : '') + (nNone && nEst ? '、' : '') + (nEst ? nEst + ' 樣用上次單價估' : '') + (!nNone && !nEst ? '都處理好了' : '') + '</b>' + (nMan ? '<span class="muted">（' + nMan + ' 樣用手填單價）</span>' : '') + '（點開看清單、原因、填換算、填單價）</summary>' +
-      '<div class="noprint" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn ghost small" data-misscopy>📋 複製清單</button><button type="button" class="btn ghost small" data-misscsv>⬇ 下載清單（Excel）</button></div>' +
+      '<div class="noprint" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="costMissQ" type="search" placeholder="🔍 找食材、廠商、原因" autocomplete="off" value="' + esc(costMissQ) + '" style="max-width:220px;padding:5px 8px">' +
+      '<select id="costMissS" style="width:auto;padding:5px 8px">' + [['', '全部狀態'], ['n', '沒有成本'], ['e', '用上次單價估'], ['h', '手填單價']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === costMissS ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+      '<span id="costMissN" class="muted small"></span><span style="flex:1"></span><button type="button" class="btn ghost small" data-misscopy>📋 複製清單</button><button type="button" class="btn ghost small" data-misscsv>⬇ 下載清單（Excel）</button></div>' +
       '<div class="tablewrap"><table class="small"><tr><th>食材</th><th>訂的單位</th><th>次數</th><th>狀態</th><th>原因／處理</th></tr>' +
       keys.map(function (k) {
         var x = m[k], w = whyOf(x);
@@ -3536,7 +3552,7 @@
         var pick = !w.conv && data.isAdmin ? '<div class="noprint" style="margin-top:3px">' + (slipItemsCache.data ? (opts.length ? '廠商送的其實是：<select data-cm-v="' + esc(sv) + '" data-cm-o="' + esc(x.it.name) + '" style="width:auto;max-width:220px;display:inline-block;padding:2px 4px"><option value="">（選銷貨單上的品項）</option>' +
           opts.map(function (y) { return '<option value="' + esc(y.n) + '">' + esc(y.n + '　$' + fmtQty(y.p) + '／' + y.u) + '</option>'; }).join('') + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
           : '<span class="muted">這幾週 ' + esc(sv) + ' 的銷貨單還沒填品項</span>') : '<span class="muted">讀取銷貨單品項中…</span>') + '</div>' : '';
-        return '<tr><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.man ? '<span style="color:var(--ok)">✏ 手填單價</span>' : x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + (x.man ? '' : pick) + priceInput(x.it, x.man ? x.c : null) +
+        return '<tr data-mq="' + esc((x.it.name + ' ' + (x.it.vendor || '') + ' ' + vco(x.it.vendor || '') + ' ' + (x.it.unit || '') + ' ' + w.text).toLowerCase()) + '" data-ms="' + (x.man ? 'h' : x.est ? 'e' : 'n') + '"><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.man ? '<span style="color:var(--ok)">✏ 手填單價</span>' : x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + (x.man ? '' : pick) + priceInput(x.it, x.man ? x.c : null) +
           (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
@@ -3684,6 +3700,7 @@
     if (!list.length) { $('costTodo').innerHTML = $('costAuto').innerHTML = $('costBox').innerHTML = ''; return; }
     var miss = missingCostHtml(list);
     $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
+    costMissFilter();
     $('costAuto').innerHTML = suspectHtml(list) + spreadHtml(list) + autoReviewHtml(list);
     costOpen = true;
     $('costBox').innerHTML = costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>③ 成本統計（依品項算）</b>') + allocHtml();
