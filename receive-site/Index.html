@@ -1269,14 +1269,14 @@
     return new Promise(function (resolve, reject) {
       var img = new Image(), url = URL.createObjectURL(file);
       img.onload = function () {
-        var s = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        var s = Math.min(1, 2200 / Math.max(img.width, img.height)), c = document.createElement('canvas');
         var w = Math.round(img.width * s), h = Math.round(img.height * s), rot = noRot ? 0 : Number($('photoRot').value) || 0, side = rot === 90 || rot === 270;
         c.width = side ? h : w; c.height = side ? w : h;
         var g = c.getContext('2d');
         g.translate(c.width / 2, c.height / 2); g.rotate(rot * Math.PI / 180);
         g.drawImage(img, -w / 2, -h / 2, w, h);
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg', 0.75).split(',')[1]);
+        resolve(c.toDataURL('image/jpeg', 0.85).split(',')[1]);
       };
       img.onerror = function () { reject(new Error('照片讀不到，請再拍一次。')); };
       img.src = url;
@@ -4099,13 +4099,14 @@
       var md = W.navigator.mediaDevices;
       if (!md || !md.getUserMedia) { fail({ name: 'NoAPI', message: '這個瀏覽器不支援' }); return; }
       var id = q('camSel') && q('camSel').value || LS('rcvCam') || '';
-      var v = { width: { ideal: 1920 }, height: { ideal: 1080 } }; if (id) v.deviceId = { exact: id };
+      var v = { width: { ideal: 3840 }, height: { ideal: 2160 } }; if (id) v.deviceId = { exact: id };
       return md.getUserMedia({ video: v, audio: false }).catch(function (e) {
         if (id && e && e.name === 'OverconstrainedError') { LS('rcvCam', ''); return md.getUserMedia({ video: true, audio: false }); }
         throw e;
       }).then(function (s) {
         stream = s; var vd = q('camV'); if (!vd) { stop(); return; }
         vd.srcObject = s; vd.play();
+        camTune(s.getVideoTracks()[0]);
         return md.enumerateDevices().then(function (ds) {
           var cams = ds.filter(function (d) { return d.kind === 'videoinput'; });
           var curId = (s.getVideoTracks()[0].getSettings() || {}).deviceId || '';
@@ -4114,19 +4115,53 @@
         });
       }).catch(fail);
     };
+    // 自動對焦、手動對焦拉桿、顯示實際畫質
+    var camTune = function (tk) {
+      var caps = {}; try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch (e) {}
+      var fm = caps.focusMode || [];
+      if (fm.indexOf('continuous') >= 0) tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
+      var info = function () { var t = tk.getSettings() || {}, wd = Math.max(t.width || 0, t.height || 0);
+        q('camInfo').innerHTML = '畫質 ' + (t.width || '?') + '×' + (t.height || '?') + (wd && wd < 1280 ? ' <b style="color:#b45309">（偏低：這顆鏡頭畫質不夠，字小的單子會糊）</b>' : '') +
+          (fm.indexOf('continuous') >= 0 ? '・自動對焦' : fm.length ? '' : '・這顆鏡頭不能調焦（定焦），請讓單子離鏡頭 30～50 公分'); };
+      setTimeout(function () { if (q('camInfo')) info(); }, 600);
+      var fd = caps.focusDistance;
+      if (fd && fd.max > fd.min && fm.indexOf('manual') >= 0) {
+        q('camFoc').innerHTML = '🎯 對焦 <button type="button" id="camAF">自動</button> <input type="range" id="camFR" min="' + fd.min + '" max="' + fd.max + '" step="' + (fd.step || (fd.max - fd.min) / 100) + '" style="width:200px;vertical-align:middle"> <span class="cTip">（字糊就拖這條，拖到字最清楚）</span>';
+        q('camFR').oninput = function () { tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: +this.value }] }).catch(function () {}); };
+        q('camAF').onclick = function () { tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {}); };
+      }
+    };
     var snap = function () {
       var vd = q('camV'); if (!vd || !vd.videoWidth) return;
-      var w = vd.videoWidth, h = vd.videoHeight, cv = D.createElement('canvas'), r = rot % 360;
-      cv.width = r % 180 ? h : w; cv.height = r % 180 ? w : h;
-      var g = cv.getContext('2d'); g.translate(cv.width / 2, cv.height / 2); g.rotate(r * Math.PI / 180); g.drawImage(vd, -w / 2, -h / 2);
-      cv.toBlob(function (bl) {
-        if (!bl) return;
-        bl = new Blob([bl], { type: 'image/jpeg' });   // 轉成這頁的 Blob（小視窗關掉也不受影響）
-        var f = new File([bl], 'cam_' + Date.now() + '.jpg', { type: 'image/jpeg' });
-        if (!target.multiple) { shots.forEach(function (s) { URL.revokeObjectURL(s.u); }); shots = []; }
-        shots.push({ f: f, u: URL.createObjectURL(bl) }); thumbs();
-        vd.style.opacity = '.3'; setTimeout(function () { vd.style.opacity = ''; }, 120);
-      }, 'image/jpeg', 0.92);
+      var tk = stream && stream.getVideoTracks()[0], r = rot % 360;
+      var draw = function (src, w, h) {
+        var cv = D.createElement('canvas');
+        cv.width = r % 180 ? h : w; cv.height = r % 180 ? w : h;
+        var g = cv.getContext('2d'); g.translate(cv.width / 2, cv.height / 2); g.rotate(r * Math.PI / 180); g.drawImage(src, -w / 2, -h / 2);
+        cv.toBlob(function (bl) {
+          if (!bl) return;
+          bl = new Blob([bl], { type: 'image/jpeg' });   // 轉成這頁的 Blob（小視窗關掉也不受影響）
+          var f = new File([bl], 'cam_' + Date.now() + '.jpg', { type: 'image/jpeg' });
+          if (!target.multiple) { shots.forEach(function (s) { URL.revokeObjectURL(s.u); }); shots = []; }
+          shots.push({ f: f, u: URL.createObjectURL(bl) }); thumbs();
+        }, 'image/jpeg', 0.92);
+      };
+      vd.style.opacity = '.3'; setTimeout(function () { vd.style.opacity = ''; }, 120);
+      // 鏡頭支援「拍照模式」就用它（比影片畫面清楚），不支援就截影片畫面
+      if (tk && W.ImageCapture) {
+        try {
+          new W.ImageCapture(tk).takePhoto().then(function (bl) { return W.createImageBitmap(bl); })
+            .then(function (bm) { draw(bm, bm.width, bm.height); })
+            .catch(function () { draw(vd, vd.videoWidth, vd.videoHeight); });
+          return;
+        } catch (e) {}
+      }
+      draw(vd, vd.videoWidth, vd.videoHeight);
+    };
+    var snapLater = function () {
+      var b = q('camT'), n = 3; if (!b || b.disabled) return; b.disabled = true;
+      var tick = function () { if (!q('camT')) return; if (n === 0) { b.disabled = false; b.textContent = '⏱ 3 秒後拍'; snap(); return; } b.textContent = '⏱ ' + n + '…'; n--; setTimeout(tick, 1000); };
+      tick();
     };
     var finish = function () {
       if (!shots.length) return;
@@ -4143,9 +4178,10 @@
         '<button type="button" id="camRot" title="畫面是橫的、倒的就按這個">↻ 轉向（' + rot + '°）</button>' +
         '<button type="button" id="camX">✕ 關閉</button></span></div>' +
         '<div id="camMain"><video id="camV" autoplay playsinline muted style="transform:rotate(' + rot + 'deg)"></video>' +
-        '<div class="cTip">單子平放、鏡頭從正上方拍，字要正、要清楚。可以連拍好幾張（按空白鍵也能拍）。</div></div>' +
+        '<div class="cTip"><span id="camInfo"></span><div id="camFoc"></div>單子平放、鏡頭從正上方拍、光線要亮。按完手放開、不要碰到桌子，用「⏱ 3 秒後拍」最穩。可以連拍好幾張（按空白鍵也能拍）。</div></div>' +
         '<div class="cTh" id="camTh"></div>' +
         '<div class="cRow" style="margin-top:10px"><button type="button" class="pri" id="camSnap">📸 拍這張</button>' +
+        '<button type="button" id="camT">⏱ 3 秒後拍</button>' +
         '<button type="button" class="pri" id="camOk" disabled>✓ 完成</button>' +
         (pop ? '' : '<button type="button" id="camFile">🖼 改選照片檔</button>') + '</div></div>';
     };
@@ -4165,7 +4201,7 @@
         q('camFile').onclick = pickFile;
       }
       D.addEventListener('keydown', keys);
-      q('camX').onclick = close; q('camSnap').onclick = snap; q('camOk').onclick = finish;
+      q('camX').onclick = close; q('camSnap').onclick = snap; q('camT').onclick = snapLater; q('camOk').onclick = finish;
       q('camRot').onclick = function () { rot = (rot + 90) % 360; LS('rcvCamRot', String(rot)); this.textContent = '↻ 轉向（' + rot + '°）'; var v = q('camV'); if (v) v.style.transform = 'rotate(' + rot + 'deg)'; };
       q('camSel').onchange = function () { LS('rcvCam', this.value); startCam(); };
       q('camTh').onclick = function (e) { var b = e.target.closest('[data-camdel]'); if (!b) return; var i = +b.getAttribute('data-camdel'); URL.revokeObjectURL(shots[i].u); shots.splice(i, 1); thumbs(); };
