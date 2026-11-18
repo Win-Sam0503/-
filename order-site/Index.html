@@ -1156,8 +1156,9 @@
 
     <!-- 修改密碼 -->
     <section id="viewCost" class="hidden">
-      <details class="panel noprint" id="psBox" style="padding:12px 16px"><summary style="cursor:pointer"><b>🔎 查單價</b> <span class="muted small">打食材名稱，看銷貨單上每家廠商最近一次的單價、每週走勢</span></summary>
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input id="psQ" type="search" placeholder="例如：洋蔥、奶油、雞胸" autocomplete="off" style="max-width:260px;flex:1"><button type="button" class="btn small" id="psGo">查詢</button></div>
+      <details class="panel noprint" id="psBox" style="padding:12px 16px"><summary style="cursor:pointer"><b>🔎 查單價</b> <span class="muted small">打食材名稱，或選廠商看那家全部品項的時價、每週走勢</span></summary>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><select id="psV" style="width:auto;max-width:200px"><option value="">全部廠商</option></select><input id="psQ" type="search" placeholder="例如：洋蔥、奶油、雞胸（選了廠商可以不打）" autocomplete="off" style="max-width:280px;flex:1"><button type="button" class="btn small" id="psGo">查詢</button>
+        <select id="psSort" style="width:auto" title="排序"><option value="date">最近買的排前面</option><option value="name">照名稱</option><option value="up">漲最多的排前面</option><option value="down">跌最多的排前面</option></select></div>
         <div id="psOut"></div></details>
       <div class="panel">
         <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div><b>正式成本＝「實際成本（依銷貨單分攤）」</b>：每週每家廠商銷貨單上真的花的錢，照每張料單的比例分下去，加起來一定等於銷貨單金額；個別品項算錯也不會影響總額。<br>「逐項估算」＝老師訂的數量 × 那一週那家廠商銷貨單上的單價，只拿來決定比例和找問題。<br><br>每週看最上面的「⚡ 一次整理」就好：名字不一樣、單位不一樣的，系統先猜好打勾，按一次全部存好，以後每週都照這樣算。名字幾乎一樣的（只差括號）系統直接算，列在「🤖 系統自動對應」給你核對。<br>老師用條、隻、盒訂，菜商用台斤算的：先照那週銷貨單的總重分攤，分不出來用過去幾週推算，再不行用內建常見重量（洋蔥 1 顆約 250 g）估。<br>那週銷貨單沒有的，用最近一次銷貨單的單價估。<br>還是算不出來的在「待處理」，每一行都可以直接處理。</div></details></h2>
@@ -3812,7 +3813,7 @@
       costMsg('ok', '已存 ' + rows.length + ' 樣單位換算：' + rows.map(function (x) { return x.name + ' 1 ' + x.unit + '＝' + fmtQty(x.q) + ' ' + x.unit2; }).join('、') + '。以後每週都會用這個算成本。'); costRerender();
     }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
   });
-  var PS_CALL = function (q) { return call('adminPriceSearch', token, q); };
+  var PS_CALL = function (q, v) { return call('adminPriceSearch', token, q, v); };
   // ---- 🔎 查單價：銷貨單上的食材單價（最近一次、每週走勢）。訂貨系統、驗收系統各一份，改的時候兩邊一起改 ----
   function psSpark(ws) {
     if (ws.length < 2) return '';
@@ -3822,11 +3823,38 @@
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block;max-width:100%" aria-hidden="true"><polyline points="' + pts.join(' ') + '" fill="none" stroke="#8a2b1a" stroke-width="2" stroke-linejoin="round"/><circle cx="' + last[0] + '" cy="' + last[1] + '" r="3" fill="#8a2b1a"/></svg>';
   }
   function psMd(s) { var m = String(s || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : s; }
+  var psLast = null;
+  function psChg(ws) { if (!ws || ws.length < 2) return null; var a = ws[ws.length - 2].p, c = ws[ws.length - 1].p; return a ? (c / a - 1) : null; }
+  function psSorted(gs) {
+    var how = (document.getElementById('psSort') || {}).value || 'date', ch = function (g) { var c = psChg(g.weeks); return c === null ? 0 : c; };
+    return gs.slice().sort(function (a, b) {
+      if (how === 'name') return a.name.localeCompare(b.name, 'zh-Hant');
+      if (how === 'up') return ch(b) - ch(a);
+      if (how === 'down') return ch(a) - ch(b);
+      return a.last.date < b.last.date ? 1 : a.last.date > b.last.date ? -1 : a.name.localeCompare(b.name, 'zh-Hant');
+    });
+  }
   function psRender(r) {
-    var gs = r.groups || [];
-    if (!gs.length) return '<div class="muted" style="margin-top:8px">銷貨單上找不到這個食材（試試別的叫法，例如「紅K」「蔥」）。</div>';
+    var gs = psSorted(r.groups || []);
+    if (!gs.length) return '<div class="muted" style="margin-top:8px">' + (r.vendor ? '「' + esc(r.vendor) + '」的銷貨單上找不到' + (document.getElementById('psQ').value.trim() ? '這個食材' : '有單價的品項') + '。' : '銷貨單上找不到這個食材（試試別的叫法，例如「紅K」「蔥」）。') + '</div>';
     var money = function (p) { return '$' + (Math.round(p * 100) / 100); };
-    return '<div class="muted small" style="margin:8px 0 4px">找到 ' + gs.length + ' 樣' + (r.more ? '（還有 ' + r.more + ' 樣，請打更完整的名稱）' : '') + '，最近買的排前面。單價是那週銷貨單的平均（總金額 ÷ 總量）。</div>' +
+    var trendOf = function (g) {
+      var ws = g.weeks || [], prev = ws.length > 1 ? ws[ws.length - 2].p : null, cur = ws.length ? ws[ws.length - 1].p : g.last.p;
+      return prev === null ? '<span class="muted">—</span>' : cur > prev * 1.03 ? '<span style="color:#b42318">▲ ' + Math.round((cur / prev - 1) * 100) + '%</span>' : cur < prev * 0.97 ? '<span style="color:#027a48">▼ ' + Math.round((1 - cur / prev) * 100) + '%</span>' : '<span class="muted">持平</span>';
+    };
+    if (r.vendor) {   // 選了廠商：一張時價表
+      var old = new Date(); old.setDate(old.getDate() - 56);
+      var oldS = old.getFullYear() + '-' + ('0' + (old.getMonth() + 1)).slice(-2) + '-' + ('0' + old.getDate()).slice(-2);
+      return '<div class="muted small" style="margin:8px 0 4px"><b>' + esc(r.vendor) + '</b> 時價：' + gs.length + ' 樣' + (r.more ? '（還有 ' + r.more + ' 樣，請打名稱縮小）' : '') + '。單價是最近一次那週銷貨單的平均（總金額 ÷ 總量）；漲跌是跟前一次買的那週比；灰色＝超過 8 週沒買，價格可能已經變了。</div>' +
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px"><tr style="background:#f2f4f7;text-align:left"><th style="padding:6px">品名</th><th style="padding:6px">時價</th><th style="padding:6px">最近買</th><th style="padding:6px">漲跌</th><th style="padding:6px">最低～最高</th><th style="padding:6px">走勢</th></tr>' +
+        gs.map(function (g) {
+          var stale = g.last.date < oldS;
+          return '<tr style="border-top:1px solid #e4e7ec' + (stale ? ';color:#98a2b3' : '') + '"><td style="padding:6px"><b>' + esc(g.name) + '</b>' + (g.alias.length ? '<div class="small" style="color:#98a2b3">' + esc(g.alias.join('、')) + '</div>' : '') + '</td>' +
+            '<td style="padding:6px;white-space:nowrap"><b style="font-size:16px">' + money(g.last.p) + '</b>／' + esc(g.unit) + '</td><td style="padding:6px;white-space:nowrap">' + psMd(g.last.date) + (stale ? ' <span class="small">（很久沒買）</span>' : '') + '</td>' +
+            '<td style="padding:6px;white-space:nowrap">' + trendOf(g) + '</td><td style="padding:6px;white-space:nowrap" class="small">' + money(g.lo) + '～' + money(g.hi) + '</td><td style="padding:6px">' + psSpark(g.weeks || []) + '</td></tr>';
+        }).join('') + '</table></div>';
+    }
+    return '<div class="muted small" style="margin:8px 0 4px">找到 ' + gs.length + ' 樣' + (r.more ? '（還有 ' + r.more + ' 樣，請打更完整的名稱）' : '') + '。單價是那週銷貨單的平均（總金額 ÷ 總量）。</div>' +
       gs.map(function (g) {
         var ws = g.weeks || [], prev = ws.length > 1 ? ws[ws.length - 2].p : null, cur = ws.length ? ws[ws.length - 1].p : g.last.p;
         var trend = prev === null ? '' : cur > prev * 1.03 ? '<span style="color:#b42318">▲ 比前一次貴 ' + Math.round((cur / prev - 1) * 100) + '%</span>' : cur < prev * 0.97 ? '<span style="color:#027a48">▼ 比前一次便宜 ' + Math.round((1 - cur / prev) * 100) + '%</span>' : '<span class="muted">跟前一次差不多</span>';
@@ -3842,13 +3870,23 @@
           '</div>';
       }).join('');
   }
+  function psVendors(list) {
+    var sel = document.getElementById('psV'); if (!sel || !list || sel.options.length > 1) return;
+    sel.innerHTML = '<option value="">全部廠商</option>' + list.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
+  }
   function psSearch() {
-    var q = document.getElementById('psQ').value.trim(), out = document.getElementById('psOut'), b = document.getElementById('psGo');
-    if (!q) { out.innerHTML = '<div class="muted" style="margin-top:8px">請打食材名稱。</div>'; return; }
+    var q = document.getElementById('psQ').value.trim(), v = document.getElementById('psV').value, out = document.getElementById('psOut'), b = document.getElementById('psGo');
+    if (!q && !v) { out.innerHTML = '<div class="muted" style="margin-top:8px">請打食材名稱，或選一家廠商看它全部的時價。</div>'; return; }
     out.innerHTML = '<div class="muted" style="margin-top:8px">查詢中…</div>'; b.disabled = true;
-    PS_CALL(q).then(function (r) { out.innerHTML = psRender(r); }).catch(function (e) { out.innerHTML = '<div style="color:#b42318;margin-top:8px">' + esc(e.message) + '</div>'; }).then(function () { b.disabled = false; });
+    PS_CALL(q, v).then(function (r) { psLast = r; psVendors(r.vendors); out.innerHTML = psRender(r); }).catch(function (e) { out.innerHTML = '<div style="color:#b42318;margin-top:8px">' + esc(e.message) + '</div>'; }).then(function () { b.disabled = false; });
   }
   document.getElementById('psGo').addEventListener('click', psSearch);
+  document.getElementById('psV').addEventListener('change', psSearch);
+  document.getElementById('psSort').addEventListener('change', function () { if (psLast) document.getElementById('psOut').innerHTML = psRender(psLast); });
+  document.getElementById('psBox').addEventListener('toggle', function () {   // 打開時先載入廠商清單
+    if (!this.open || document.getElementById('psV').options.length > 1) return;
+    PS_CALL('', '').then(function (r) { psVendors(r.vendors); }).catch(function () {});
+  });
   document.getElementById('psQ').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); psSearch(); } });
   // ① 待處理的搜尋（重新算成本後保留）
   var costMissQ = '', costMissS = '';

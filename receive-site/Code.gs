@@ -2757,10 +2757,10 @@ function signLineUnbind_(role) {
  * 同一樣、同一家一組：最近一次單價、每週單價（近 26 週）、最高最低。回傳最多 40 組，最近買的排前面。
  * 訂貨系統和驗收系統都用同一份（兩邊程式各一份，改的時候兩邊一起改）。
  */
-function priceSearch_(q) {
+function priceSearch_(q, vendor) {
   const words = String(q || '').toLowerCase().replace(/[（）()]/g, ' ').split(/\s+/).filter(Boolean);
-  if (!words.length) throw new Error('請打食材名稱。');
-  if (!ss_().getSheetByName('銷貨單明細')) return { groups: [] };
+  vendor = String(vendor || '').trim();
+  if (!ss_().getSheetByName('銷貨單明細')) return { groups: [], vendors: [] };
   const tz = tz_();
   const toD = function (v) {
     if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate());
@@ -2770,9 +2770,13 @@ function priceSearch_(q) {
   const ds = function (d) { return Utilities.formatDate(d, tz, 'yyyy-MM-dd'); };
   const monOf = function (d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ds(x); };
   const G = { 'g': 1, '公克': 1, '克': 1, '公斤': 1000, 'kg': 1000, 'KG': 1000, 'Kg': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
-  const groups = {};
+  const groups = {}, vens = {};
   readTable_('銷貨單明細', ['廠商', '食材名稱', '單價']).rows.forEach(function (r) {
     if (String(r['類型'] || '').trim() === '器材') return;
+    const vv = String(r['廠商'] || '').trim();
+    if (vv && Number(r['單價']) > 0) vens[vv] = (vens[vv] || 0) + 1;
+    if (vendor && vv !== vendor) return;
+    if (!words.length && !vendor) return;
     const name = String(r['食材名稱'] || '').trim(), sn = String(r['銷貨單品名'] || '').trim();
     const hay = (name + ' ' + sn).toLowerCase();
     if (!name || !words.every(function (w) { return hay.indexOf(w) >= 0; })) return;
@@ -2820,5 +2824,8 @@ function priceSearch_(q) {
     };
   });
   out.sort(function (a, b) { return a.last.date < b.last.date ? 1 : a.last.date > b.last.date ? -1 : a.name.localeCompare(b.name, 'zh-Hant'); });
-  return { groups: out.slice(0, 40), more: Math.max(0, out.length - 40) };
+  const vendors = Object.keys(vens).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+  if (!words.length && !vendor) return { groups: [], vendors: vendors };
+  const lim = vendor ? 400 : 40;   // 選廠商＝看這家全部品項的時價
+  return { groups: out.slice(0, lim), more: Math.max(0, out.length - lim), vendors: vendors, vendor: vendor };
 }
