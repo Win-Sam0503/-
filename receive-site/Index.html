@@ -1767,8 +1767,11 @@
     var ks = Object.keys(names); if (!ks.length) return [];
     return gs.map(function (g) {
       var want = {}; g.lines.forEach(function (x) { want[x.name] = x; });
-      var hit = 0, qhit = 0;
-      ks.forEach(function (n) { if (want[n]) { hit++; var e = String(want[n].expect || '').match(/^([\d.]+)/), q = numv(names[n].qty); if (e && q !== null && Math.abs(Number(e[1]) - q) < 0.01) qhit++; } });
+      var hit = 0, qhit = 0, wk = Object.keys(want);
+      // 名字不一定一樣（紅蘿波／紅蘿蔔、蔥／青蔥、高麗菜(高山)／高麗菜）：去掉括號後一樣、互相包含、或有 2 個字一樣都算
+      var strip = function (x) { return String(x).replace(/[(（][^)）]*[)）]/g, '').trim(); };
+      var like = function (n) { var a = strip(n); if (want[n]) return want[n]; for (var z = 0; z < wk.length; z++) { var b = strip(wk[z]), c = 0; if (a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return want[wk[z]]; for (var y = 0; y < a.length; y++) if (b.indexOf(a[y]) >= 0 && a.indexOf(a[y]) === y) c++; if (c >= 2) return want[wk[z]]; } return null; };
+      ks.forEach(function (n) { var w = like(n); if (w) { hit++; var e = String(w.expect || '').match(/^([\d.]+)/), q = numv(names[n].qty); if (e && q !== null && Math.abs(Number(e[1]) - q) < 0.01) qhit++; } });
       var uni = ks.length + Object.keys(want).length - hit;
       return { g: g, sc: uni ? (hit + qhit * 0.5) / uni : 0, hit: hit, all: Object.keys(want).length, used: !!used[g.k] };
     }).filter(function (x) { return x.hit; }).sort(function (a, b) { return (a.used - b.used) || (b.sc - a.sc); }).slice(0, 3);
@@ -3602,7 +3605,7 @@
   function hxStatsView() {
     var d = new Date(), to = hxYm(d), from = hxYm(new Date(d.getFullYear(), d.getMonth() - 5, 1));
     $('hxBox').innerHTML = '<div class="panel"><div class="row noprint"><input id="hxSf" type="month" style="width:auto" value="' + from + '"> ～ <input id="hxSt" type="month" style="width:auto" value="' + to + '">' +
-      '<button type="button" class="btn small" id="hxSgo">產生</button><button type="button" class="btn ghost small" id="hxSprint">🖨 列印</button><button type="button" class="btn ghost small" id="hxScsv">💾 存 Excel</button></div><div id="hxSbox" style="margin-top:8px"></div></div>';
+      '<button type="button" class="btn small" id="hxSgo">產生</button><button type="button" class="btn ghost small" id="hxSprint" title="開一個乾淨的視窗，列印或在「目的地」選「另存為 PDF」">🖨 列印／存 PDF</button><button type="button" class="btn ghost small" id="hxScsv">💾 存 Excel</button></div><div id="hxSbox" style="margin-top:8px"></div></div>';
     $('hxSgo').click();
   }
   var hxSt = null, hxStTab = 'sum', hxStQ = { cat: '', vendor: '', st: '', q: '' };
@@ -3686,6 +3689,27 @@
         }).join('') + '<tr><td colspan="3"><b>合計</b></td><td><b>$' + money(r2(pt)) + '</b></td><td></td></tr></table></div>';
     }
     $('hxStIn').innerHTML = html;
+  }
+  // 🖨 列印／存 PDF：只印目前這個分頁（乾淨版面），在列印視窗「目的地」選「另存為 PDF」就是 PDF 檔
+  function hxStPrint() {
+    var box = $('hxStIn'); if (!hxSt || !box) return;
+    var tab = { sum: '各類別每月花費', code: '經費編號・分支', bud: '預算執行率', inv: '發票清單', pay: '付款方式' }[hxStTab];
+    var body = box.cloneNode(true);
+    Array.prototype.forEach.call(body.querySelectorAll('.noprint,select,input,button'), function (e) { e.remove(); });
+    Array.prototype.forEach.call(body.querySelectorAll('a'), function (a) { var sp = document.createElement('span'); sp.innerHTML = a.innerHTML; a.replaceWith(sp); });
+    var now = new Date(), today = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+    var f = [hxStQ.cat, hxStQ.vendor, hxStQ.st, hxStQ.q].filter(Boolean);
+    var title = '核銷統計－' + tab + '（' + hxSt.from + '～' + hxSt.to + '）';
+    var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' +
+      'body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;margin:16px;color:#111;font-size:13px}h1{font-size:18px;margin:0 0 2px}h2{font-size:16px;margin:10px 0 2px}h3{font-size:14px;margin:10px 0 4px}.sub,.muted,.small{font-size:12px;color:#555}' +
+      'table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border:1px solid #999;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eee}tr{page-break-inside:avoid}thead{display:table-header-group}' +
+      '.badge{display:inline-block;border:1px solid #999;border-radius:10px;padding:1px 8px;margin-right:6px}.bar{margin-bottom:10px}@media print{.bar{display:none}body{margin:0}}@page{size:A4 landscape;margin:12mm}</style></head><body>' +
+      '<div class="bar"><button onclick="window.print()" style="font-size:16px;padding:6px 14px">🖨 列印／存 PDF</button> <button onclick="window.close()" style="font-size:16px;padding:6px 14px">關閉</button> <span style="font-size:13px;color:#555">存 PDF：列印視窗的「目的地」選「另存為 PDF」</span></div>' +
+      '<h1>' + esc(title) + '</h1><div class="sub">列印日期 ' + today + (f.length ? '・篩選：' + esc(f.join('、')) : '') + '</div>' + body.innerHTML.replace(/<h2[^>]*>[\s\S]*?<\/h2>/, '') + '</body></html>';
+    var w = window.open('', '_blank', 'width=1000,height=800');
+    if (!w) { alert('列印視窗被瀏覽器擋住了：請按網址列右邊的「已封鎖彈出式視窗」圖示 → 選「一律允許」，再按一次。'); return; }
+    w.document.open(); w.document.write(html); w.document.close(); w.focus();
+    setTimeout(function () { try { w.print(); } catch (e) {} }, 400);
   }
   function hxStInvList() {
     var q = hxStQ.q.trim().toLowerCase();
@@ -4154,7 +4178,7 @@
       call('hxStats', from, to).then(function (r) { hxStatsRender(r, from, to); }).catch(function (err) { $('hxSbox').textContent = err.message; });
       return;
     }
-    if (t.id === 'hxSprint') { window.print(); return; }
+    if (t.id === 'hxSprint') { hxStPrint(); return; }
     if (t.id === 'hxScsv') { hxCsv(); return; }
     if (t.id === 'hxRouteApply') {
       var rv = $('hxRouteAll').value.trim();
