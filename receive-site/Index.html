@@ -1814,7 +1814,7 @@
     cur.slip.papers.forEach(function (pp, i) {
       var gEl = document.querySelector('[data-pguess="' + i + '"]'), tEl = document.querySelector('[data-ptchk="' + i + '"]');
       if (gEl) {
-        if (pp.cls) gEl.innerHTML = '';
+        if (pp.cls) gEl.innerHTML = pp.auto ? '<span style="color:#b45309;font-weight:600">🤖 自動猜的（對到 ' + pp.auto + '），請核對</span>' : '';
         else { var gu = clsGuess(pp, gs, clsUsed(i)); gEl.innerHTML = gu.length ? '可能是：' + gu.map(function (x) { return '<button type="button" class="btn ghost small" data-pgset="' + i + '" data-k="' + esc(x.g.k) + '" style="padding:1px 8px' + (x.used ? ';opacity:.55' : '') + '" title="對到 ' + x.hit + '／' + x.all + ' 樣' + (x.used ? '；這班已經有單子了' : '') + '">' + esc(clsLabel(x.g)) + '</button>'; }).join(' ') : (pp.rows.some(function (r) { return String(r.name || '').trim(); }) ? '<span class="muted">對不到哪一班</span>' : '<span class="muted">先選班級，系統會把那班叫的菜帶進來</span>'); }
       }
       if (tEl) {
@@ -1826,9 +1826,28 @@
     var done = gs.filter(function (g) { return usedAll[g.k]; }), todo = gs.filter(function (g) { return !usedAll[g.k]; });
     var noCls = cur.slip.papers.filter(function (pp) { return !pp.cls && pp.rows.some(function (r) { return String(r.name || '').trim(); }); }).length;
     var bad = cur.slip.papers.filter(function (pp) { var pt = numv(pp.ptotal); if (pt === null) return false; var sub = pp.rows.reduce(function (a, r) { var v = numv(r.amount); return a + (v === null ? 0 : v); }, 0); return Math.abs(pt - sub) >= 0.5; }).length;
-    box.innerHTML = '<div class="msg info" style="margin:6px 0"><b>🏫 一班一張：</b>已打 <b>' + done.length + '／' + gs.length + '</b> 班' + (noCls ? '・<b style="color:var(--bad)">' + noCls + ' 張還沒選班級</b>' : '') + (bad ? '・<b style="color:var(--bad)">' + bad + ' 張合計對不上</b>' : '') +
+    var canAuto = cur.slip.papers.some(function (pp) { return !pp.cls && pp.rows.some(function (r) { return String(r.name || '').trim(); }); });
+    box.innerHTML = '<div class="msg info" style="margin:6px 0">' + (canAuto ? '<button type="button" class="btn small" id="clsAuto" style="float:right" title="照品名、數量跟各班叫貨單比，最像的就選那班（一班只配一張）">🤖 自動猜沒選班級的</button>' : '') + '<b>🏫 一班一張：</b>已打 <b>' + done.length + '／' + gs.length + '</b> 班' + (noCls ? '・<b style="color:var(--bad)">' + noCls + ' 張還沒選班級</b>' : '') + (bad ? '・<b style="color:var(--bad)">' + bad + ' 張合計對不上</b>' : '') +
       (todo.length ? '<details style="margin-top:4px"><summary class="small" style="cursor:pointer">還沒打的班級（' + todo.length + '）</summary><div class="small" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">' +
         todo.map(function (g) { return '<button type="button" class="btn ghost small" data-pnew="' + esc(g.k) + '" style="padding:1px 8px" title="新增一張，帶入這班叫的菜">＋ ' + esc(clsLabel(g)) + '</button>'; }).join('') + '</div></details>' : '<span class="small" style="color:var(--ok)">　✓ 每班都有單子了</span>') + '</div>';
+  }
+  // 舊的單子一次補班級：每張跟每班算分數，分數高的先配；一班只配一張、太不像的不配
+  function clsAutoAll() {
+    var gs = clsGroups(), used = clsUsed(-1), pairs = [], n = 0;
+    cur.slip.papers.forEach(function (pp, i) {
+      if (pp.cls) return;
+      clsGuess(pp, gs, {}).forEach(function (x) { if (!used[x.g.k]) pairs.push({ i: i, g: x.g, sc: x.sc, hit: x.hit, all: x.all }); });
+    });
+    pairs.sort(function (a, b) { return b.sc - a.sc; });
+    var doneP = {};
+    pairs.forEach(function (x) {
+      if (doneP[x.i] || used[x.g.k] || x.sc < 0.4) return;
+      var pp = cur.slip.papers[x.i]; pp.cls = x.g.cls; pp.teacher = x.g.teacher; pp.cdate = x.g.date; pp.auto = x.hit + '／' + x.all + ' 樣';
+      doneP[x.i] = 1; used[x.g.k] = 1; n++;
+    });
+    var left = cur.slip.papers.filter(function (pp) { return !pp.cls && pp.rows.some(function (r) { return String(r.name || '').trim(); }); }).length;
+    renderPapers(); saveDraft();
+    msg('slMsg', n ? 'ok' : 'warn', n ? '自動選好 ' + n + ' 張的班級（標「🤖 自動猜的」），請一張一張核對，不對的直接改選單；按「💾 儲存銷貨單」才會存。' + (left ? '還有 ' + left + ' 張猜不出來，請自己選。' : '') : '猜不出來：這些單子的品項跟叫貨單差太多（或班級都已經有單子了），請自己選。');
   }
   function clsSet(i, k) {
     var pp = cur.slip.papers[i], g = clsGroups().filter(function (x) { return x.k === k; })[0];
@@ -1956,7 +1975,7 @@
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
     if (t.hasAttribute && t.hasAttribute('data-pd')) { cur.slip.papers[Number(t.getAttribute('data-pd'))].date = t.value; saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-ptot')) { cur.slip.papers[Number(t.getAttribute('data-ptot'))].ptotal = t.value; clsRefresh(); saveDraft(); return; }
-    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); if (t.value !== '__keep') clsSet(ci, t.value); renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; if (t.value !== '__keep') clsSet(ci, t.value); renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
     if (!f || f === 'pu' || f === 'wu') return;
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     if (f === 'wt' && totMode()) { r.tw = t.value; totApply(r); }
@@ -2009,6 +2028,7 @@
   $('slipBox').addEventListener('click', function (e) {
     var t = e.target, sl = cur.slip, v;
     if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
+    if (t.id === 'clsAuto') { clsAutoAll(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pgset')) { var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg) { gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; } renderPapers(); saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pnew')) {
       var nk = t.getAttribute('data-pnew'), ng = clsGroups().filter(function (x) { return x.k === nk; })[0]; if (!ng) return;
