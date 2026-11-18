@@ -3617,7 +3617,9 @@
     var months = [];
     for (var m = new Date(Number(from.slice(0, 4)), Number(from.slice(5)) - 1, 1); hxYm(m) <= to; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) months.push(hxYm(m));
     hxSt.months = months;
-    $('hxSbox').innerHTML = '<div class="row noprint" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' + HX_ST_TABS.map(function (t) { return '<button type="button" class="btn small ' + (t[0] === hxStTab ? '' : 'ghost') + '" data-hxst="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div><div id="hxStIn"></div>';
+    if (hxHide.tabs[hxStTab]) hxStTab = (HX_ST_TABS.filter(function (t) { return !hxHide.tabs[t[0]]; })[0] || ['sum'])[0];
+    $('hxSbox').innerHTML = '<div class="row noprint" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' + HX_ST_TABS.map(function (t) { return '<button type="button" class="btn small ' + (t[0] === hxStTab ? '' : 'ghost') + '" data-hxst="' + t[0] + '"' + (hxHide.tabs[t[0]] ? ' style="display:none"' : '') + '>' + t[1] + '</button>'; }).join('') +
+      '<span style="flex:1"></span><button type="button" class="btn ghost small" id="hxHideBtn" title="選要顯示哪些分頁、哪些欄位（會記住，列印／存 PDF 也照這樣）">⚙ 顯示設定</button></div><div id="hxHidePanel" class="noprint"></div><div id="hxStIn"></div>';
     hxStTabRender();
   }
   function hxStTabRender() {
@@ -3689,6 +3691,8 @@
         }).join('') + '<tr><td colspan="3"><b>合計</b></td><td><b>$' + money(r2(pt)) + '</b></td><td></td></tr></table></div>';
     }
     $('hxStIn').innerHTML = html;
+    hxApplyHide();
+    if ($('hxHidePanel') && $('hxHidePanel').innerHTML) hxHidePanel();
   }
   // 🖨 列印／存 PDF：只印目前這個分頁（乾淨版面），在列印視窗「目的地」選「另存為 PDF」就是 PDF 檔
   function hxStPrint() {
@@ -3711,6 +3715,65 @@
     w.document.open(); w.document.write(html); w.document.close(); w.focus();
     setTimeout(function () { try { w.print(); } catch (e) {} }, 400);
   }
+  // ⚙ 顯示設定：藏分頁、藏欄位、藏沒有金額的類別、藏「類別 × 廠商」（存在這台電腦）
+  var hxHide = (function () { try { var o = JSON.parse(localStorage.getItem('rcvHxHide') || '{}'); return { tabs: o.tabs || {}, cols: o.cols || {}, zero: !!o.zero, vend: !!o.vend }; } catch (e) { return { tabs: {}, cols: {}, zero: false, vend: false }; } })();
+  function hxHideSave() { try { localStorage.setItem('rcvHxHide', JSON.stringify(hxHide)); } catch (e) {} }
+  function hxColNames() {   // 目前分頁表格的欄位名稱（月份欄不能藏）
+    var t = document.querySelector('#hxStIn table'); if (!t) return [];
+    var hr = t.querySelector('tr'); if (!hr) return [];
+    return Array.prototype.map.call(hr.children, function (c) { return c.textContent.trim(); }).filter(function (n, i) { return i > 0 && n && !/^\d+月$/.test(n); });
+  }
+  function hxApplyHide() {
+    var hid = hxHide.cols[hxStTab] || [];
+    Array.prototype.forEach.call(document.querySelectorAll('#hxStIn table'), function (t) {
+      var rows = t.querySelectorAll('tr'); if (!rows.length) return;
+      var heads = Array.prototype.map.call(rows[0].children, function (c) { return c.textContent.trim(); });
+      var off = {}; heads.forEach(function (h, i) { if (i > 0 && hid.indexOf(h) >= 0) off[i] = 1; });
+      Array.prototype.forEach.call(rows, function (tr) {
+        var col = 0;
+        Array.prototype.forEach.call(tr.children, function (c) {
+          var span = Number(c.getAttribute('colspan')) || 1, keep = 0;
+          for (var k = col; k < col + span; k++) if (!off[k]) keep++;
+          if (!keep) c.style.display = 'none'; else if (span > 1) c.setAttribute('colspan', keep);
+          col += span;
+        });
+      });
+    });
+    if (hxStTab === 'sum') {
+      if (hxHide.zero) Array.prototype.forEach.call(document.querySelectorAll('#hxStIn [data-hxstcat]'), function (a) { var tr = a.closest('tr'); var tds = tr.children; var tot = tds[tds.length - 3]; if (tot && /^\$0$/.test(tot.textContent.trim())) tr.style.display = 'none'; });
+      if (hxHide.vend) { var h3 = Array.prototype.filter.call(document.querySelectorAll('#hxStIn h3'), function (h) { return /類別 × 廠商/.test(h.textContent); })[0]; if (h3) { var n = h3.nextElementSibling; h3.style.display = 'none'; while (n && n.tagName === 'DIV') { n.style.display = 'none'; n = n.nextElementSibling; } } }
+    }
+  }
+  function hxHidePanel() {
+    var p = $('hxHidePanel'), cols = hxColNames(), hid = hxHide.cols[hxStTab] || [];
+    var cb = function (attr, v, on, label) { return '<label class="small" style="display:inline-flex;gap:4px;align-items:center;margin:2px 10px 2px 0"><input type="checkbox" ' + attr + '="' + esc(v) + '"' + (on ? ' checked' : '') + '>' + esc(label) + '</label>'; };
+    p.innerHTML = '<div class="hxcard" style="margin-bottom:8px;padding:10px"><b>⚙ 顯示設定</b> <span class="muted small">打勾＝顯示。會記在這台電腦，列印／存 PDF 也照這樣。</span>' +
+      '<div style="margin-top:6px"><span class="small"><b>分頁：</b></span>' + HX_ST_TABS.map(function (t) { return cb('data-hhtab', t[0], !hxHide.tabs[t[0]], t[1]); }).join('') + '</div>' +
+      '<div style="margin-top:4px"><span class="small"><b>「' + esc((HX_ST_TABS.filter(function (t) { return t[0] === hxStTab; })[0] || [])[1] || '') + '」的欄位：</b></span>' + (cols.length ? cols.map(function (c) { return cb('data-hhcol', c, hid.indexOf(c) < 0, c); }).join('') : '<span class="muted small">這頁沒有可以藏的欄位</span>') + '</div>' +
+      (hxStTab === 'sum' ? '<div style="margin-top:4px"><span class="small"><b>其他：</b></span>' + cb('data-hhopt', 'zero', !hxHide.zero, '沒有金額的類別') + cb('data-hhopt', 'vend', !hxHide.vend, '各類別 × 廠商') + '</div>' : '') +
+      '<div style="margin-top:6px"><button type="button" class="btn ghost small" id="hxHideReset">全部顯示</button> <button type="button" class="btn ghost small" id="hxHideClose">收起來</button></div></div>';
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target; if (!t || !hxSt) return;
+    if (t.id === 'hxHideBtn') { if ($('hxHidePanel').innerHTML) $('hxHidePanel').innerHTML = ''; else hxHidePanel(); }
+    else if (t.id === 'hxHideClose') $('hxHidePanel').innerHTML = '';
+    else if (t.id === 'hxHideReset') { hxHide = { tabs: {}, cols: {}, zero: false, vend: false }; hxHideSave(); hxStatsRender(hxSt, hxSt.from, hxSt.to); hxHidePanel(); }
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t || !hxSt || t.type !== 'checkbox') return;
+    if (t.hasAttribute('data-hhtab')) {
+      var k = t.getAttribute('data-hhtab');
+      if (!t.checked && HX_ST_TABS.filter(function (x) { return !hxHide.tabs[x[0]] && x[0] !== k; }).length === 0) { t.checked = true; return; }   // 至少留一個分頁
+      if (t.checked) delete hxHide.tabs[k]; else hxHide.tabs[k] = 1;
+      hxHideSave(); hxStatsRender(hxSt, hxSt.from, hxSt.to); hxHidePanel(); return;
+    }
+    if (t.hasAttribute('data-hhcol')) {
+      var c = t.getAttribute('data-hhcol'), l = hxHide.cols[hxStTab] = (hxHide.cols[hxStTab] || []).filter(function (x) { return x !== c; });
+      if (!t.checked) l.push(c);
+      hxHideSave(); hxStTabRender(); return;
+    }
+    if (t.hasAttribute('data-hhopt')) { hxHide[t.getAttribute('data-hhopt')] = !t.checked; hxHideSave(); hxStTabRender(); }
+  });
   function hxStInvList() {
     var q = hxStQ.q.trim().toLowerCase();
     return (hxSt.invoices || []).filter(function (v) {
