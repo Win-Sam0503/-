@@ -3623,7 +3623,7 @@
     hxStTabRender();
   }
   function hxStTabRender() {
-    var r = hxSt, from = r.from, to = r.to, months = r.months, html = '';
+    var r = hxView(), from = r.from, to = r.to, months = r.months, html = '';
     Array.prototype.forEach.call(document.querySelectorAll('[data-hxst]'), function (b) { b.classList.toggle('ghost', b.getAttribute('data-hxst') !== hxStTab); });
     if (hxStTab === 'sum') {
       var cell = {}, tot = {}, done = {};
@@ -3675,7 +3675,7 @@
         '<select id="hxStC" style="width:auto">' + opt(cats, hxStQ.cat, '全部類別') + '</select><select id="hxStV" style="width:auto">' + opt(vens, hxStQ.vendor, '全部廠商') + '</select>' +
         '<select id="hxStS" style="width:auto"><option value="">全部狀態</option><option' + (hxStQ.st === '已核銷' ? ' selected' : '') + '>已核銷</option><option' + (hxStQ.st === '待核銷' ? ' selected' : '') + '>待核銷</option></select>' +
         '<input id="hxStQ" placeholder="搜尋發票號碼、編號、備註" value="' + esc(hxStQ.q) + '" style="width:200px"></div>' +
-        '<div class="small"><b>' + L.length + '</b> 張，合計 <b>$' + money(r2(sum)) + '</b>' + (hxStQ.cat ? '（只算「' + esc(hxStQ.cat) + '」那一份）' : '') + '</div>' +
+        '<div class="small"><b>' + L.length + '</b> 張，合計 <b>$' + money(r2(sum)) + '</b>' + (hxStQ.cat ? '（只算「' + esc(hxStQ.cat) + '」那一份）' : Object.keys(hxHide.cats || {}).length ? '（不含藏起來的類別：' + esc(Object.keys(hxHide.cats).join('、')) + '）' : '') + '</div>' +
         '<div class="slipwrap"><table class="hxt"><tr><th>發票日期</th><th>發票號碼</th><th>廠商</th><th>發票金額</th><th>分到類別（狀態）</th><th>經費編號</th><th>付款</th><th>備註</th></tr>' + L.map(function (v) {
           return '<tr><td>' + esc(v.date) + '</td><td class="small">' + esc(v.nos.join('、') || '—') + '</td><td>' + esc(v.vendor) + '</td><td><b>$' + money(v.amount) + '</b></td><td class="small">' +
             v.allocs.map(function (a) { return esc(a.cat) + ' $' + money(a.amount) + ' ' + (a.status === '已核銷' ? '<span style="color:var(--ok,#15803d)">✓已核銷' + (a.doneDate ? ' ' + esc(a.doneDate) : '') + '</span>' : '<span style="color:var(--bad)">待核銷</span>'); }).join('<br>') +
@@ -3716,7 +3716,19 @@
     setTimeout(function () { try { w.print(); } catch (e) {} }, 400);
   }
   // ⚙ 顯示設定：藏分頁、藏欄位、藏沒有金額的類別、藏「類別 × 廠商」（存在這台電腦）
-  var hxHide = (function () { try { var o = JSON.parse(localStorage.getItem('rcvHxHide') || '{}'); return { tabs: o.tabs || {}, cols: o.cols || {}, zero: !!o.zero, vend: !!o.vend }; } catch (e) { return { tabs: {}, cols: {}, zero: false, vend: false }; } })();
+  var hxHide = (function () { try { var o = JSON.parse(localStorage.getItem('rcvHxHide') || '{}'); return { tabs: o.tabs || {}, cols: o.cols || {}, cats: o.cats || {}, zero: !!o.zero, vend: !!o.vend }; } catch (e) { return { tabs: {}, cols: {}, cats: {}, zero: false, vend: false }; } })();
+  // 藏起來的類別：每個分頁都不算它（發票只留其他類別那幾份；付款方式照整張發票，不分類別）
+  function hxView() {
+    var hc = hxHide.cats || {}; if (!Object.keys(hc).length) return hxSt;
+    var ok = function (c) { return !hc[c]; }, v = {};
+    Object.keys(hxSt).forEach(function (k) { v[k] = hxSt[k]; });
+    v.cats = (hxSt.cats || []).filter(ok);
+    v.rows = (hxSt.rows || []).filter(function (x) { return ok(x.cat); });
+    v.codes = (hxSt.codes || []).filter(function (x) { return ok(x.cat); });
+    v.budgets = (hxSt.budgets || []).filter(function (x) { return ok(x.cat); });
+    v.invoices = (hxSt.invoices || []).map(function (x) { var al = x.allocs.filter(function (a) { return ok(a.cat); }); if (!al.length) return null; var y = {}; Object.keys(x).forEach(function (k) { y[k] = x[k]; }); y.allocs = al; return y; }).filter(Boolean);
+    return v;
+  }
   function hxHideSave() { try { localStorage.setItem('rcvHxHide', JSON.stringify(hxHide)); } catch (e) {} }
   function hxColNames() {   // 目前分頁表格的欄位名稱（月份欄不能藏）
     var t = document.querySelector('#hxStIn table'); if (!t) return [];
@@ -3750,6 +3762,7 @@
     p.innerHTML = '<div class="hxcard" style="margin-bottom:8px;padding:10px"><b>⚙ 顯示設定</b> <span class="muted small">打勾＝顯示。會記在這台電腦，列印／存 PDF 也照這樣。</span>' +
       '<div style="margin-top:6px"><span class="small"><b>分頁：</b></span>' + HX_ST_TABS.map(function (t) { return cb('data-hhtab', t[0], !hxHide.tabs[t[0]], t[1]); }).join('') + '</div>' +
       '<div style="margin-top:4px"><span class="small"><b>「' + esc((HX_ST_TABS.filter(function (t) { return t[0] === hxStTab; })[0] || [])[1] || '') + '」的欄位：</b></span>' + (cols.length ? cols.map(function (c) { return cb('data-hhcol', c, hid.indexOf(c) < 0, c); }).join('') : '<span class="muted small">這頁沒有可以藏的欄位</span>') + '</div>' +
+      '<div style="margin-top:4px"><span class="small"><b>類別（每個分頁都會藏）：</b></span>' + (hxSt.cats || []).map(function (c) { return cb('data-hhcat', c, !(hxHide.cats || {})[c], c); }).join('') + (hxStTab === 'pay' && Object.keys(hxHide.cats || {}).length ? '<div class="muted small">付款方式是照整張發票算的，不分類別，所以這頁不會少。</div>' : '') + '</div>' +
       (hxStTab === 'sum' ? '<div style="margin-top:4px"><span class="small"><b>其他：</b></span>' + cb('data-hhopt', 'zero', !hxHide.zero, '沒有金額的類別') + cb('data-hhopt', 'vend', !hxHide.vend, '各類別 × 廠商') + '</div>' : '') +
       '<div style="margin-top:6px"><button type="button" class="btn ghost small" id="hxHideReset">全部顯示</button> <button type="button" class="btn ghost small" id="hxHideClose">收起來</button></div></div>';
   }
@@ -3757,7 +3770,7 @@
     var t = e.target; if (!t || !hxSt) return;
     if (t.id === 'hxHideBtn') { if ($('hxHidePanel').innerHTML) $('hxHidePanel').innerHTML = ''; else hxHidePanel(); }
     else if (t.id === 'hxHideClose') $('hxHidePanel').innerHTML = '';
-    else if (t.id === 'hxHideReset') { hxHide = { tabs: {}, cols: {}, zero: false, vend: false }; hxHideSave(); hxStatsRender(hxSt, hxSt.from, hxSt.to); hxHidePanel(); }
+    else if (t.id === 'hxHideReset') { hxHide = { tabs: {}, cols: {}, cats: {}, zero: false, vend: false }; hxHideSave(); hxStatsRender(hxSt, hxSt.from, hxSt.to); hxHidePanel(); }
   });
   document.addEventListener('change', function (e) {
     var t = e.target; if (!t || !hxSt || t.type !== 'checkbox') return;
@@ -3772,16 +3785,22 @@
       if (!t.checked) l.push(c);
       hxHideSave(); hxStTabRender(); return;
     }
+    if (t.hasAttribute('data-hhcat')) {
+      var cc = t.getAttribute('data-hhcat'); hxHide.cats = hxHide.cats || {};
+      if (t.checked) delete hxHide.cats[cc]; else hxHide.cats[cc] = 1;
+      if (hxStQ.cat && hxHide.cats[hxStQ.cat]) hxStQ.cat = '';
+      hxHideSave(); hxStTabRender(); return;
+    }
     if (t.hasAttribute('data-hhopt')) { hxHide[t.getAttribute('data-hhopt')] = !t.checked; hxHideSave(); hxStTabRender(); }
   });
   function hxStInvList() {
     var q = hxStQ.q.trim().toLowerCase();
-    return (hxSt.invoices || []).filter(function (v) {
+    return (hxView().invoices || []).filter(function (v) {
       if (hxStQ.vendor && v.vendor !== hxStQ.vendor) return false;
       var al = v.allocs.filter(function (a) { return (!hxStQ.cat || a.cat === hxStQ.cat) && (!hxStQ.st || (hxStQ.st === '已核銷') === (a.status === '已核銷')); });
       if ((hxStQ.cat || hxStQ.st) && !al.length) return false;
       if (q && [v.nos.join(' '), v.note, v.vendor, v.allocs.map(function (a) { return a.codes.join(' '); }).join(' ')].join(' ').toLowerCase().indexOf(q) < 0) return false;
-      v.shown = hxStQ.cat || hxStQ.st ? al.reduce(function (n, a) { return n + a.amount; }, 0) : v.amount;
+      v.shown = hxStQ.cat || hxStQ.st || Object.keys(hxHide.cats || {}).length ? al.reduce(function (n, a) { return n + a.amount; }, 0) : v.amount;
       return true;
     }).sort(function (a, b) { return a.date.localeCompare(b.date); });
   }
