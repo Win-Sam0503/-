@@ -2686,7 +2686,7 @@
     if (fd) fm = '';   // 選了單日：整月的條件不用（發票日期在那天的都列）
     msg('hxMsg', 'info', '讀取中…'); $('hxBox').innerHTML = '';
     return call('hxGet', hxTab === 'list' ? fv : '', hxTab === 'list' ? fm : '').then(function (r) {
-      hx = r; msg('hxMsg', '', '');
+      hx = r; hxSplitCats(); msg('hxMsg', '', '');
       if (hxTab === 'list') hxList(fv, fm, fd);
       else if (hxTab === 'new') { hxF = null; hxForm(); }
       else if (hxTab === 'edit') hxForm();
@@ -2699,7 +2699,18 @@
       else hxCatsView();
     }).catch(function (e) { msg('hxMsg', 'error', e.message); });
   }
-  function catHandler(n) { var c = hx.cats.filter(function (x) { return x.name === n; })[0]; return c ? c.handler : ''; }
+  // 隱藏的類別：hx.allCats 是全部（類別設定頁用），hx.cats 只有沒隱藏的
+  function hxSplitCats() { hx.allCats = hx.cats || []; hx.cats = hx.allCats.filter(function (c) { return !c.hidden; }); }
+  // 新增／修改核銷表單用：沒隱藏的＋這張已經有分到的隱藏類別（不然改舊發票會把那一份弄丟）
+  function hxUseCats() {
+    var used = {};
+    if (typeof hxF !== 'undefined' && hxF) {
+      Object.keys(hxF.parts || {}).forEach(function (k) { if ((hxF.parts[k] || []).some(function (v) { return String(v).trim(); })) used[k] = 1; });
+      (hxF.extras || []).forEach(function (x) { if (x.cat) used[x.cat] = 1; });
+    }
+    return (hx.allCats || hx.cats).filter(function (c) { return !c.hidden || used[c.name]; });
+  }
+  function catHandler(n) { var c = (hx.allCats || hx.cats).filter(function (x) { return x.name === n; })[0]; return c ? c.handler : ''; }
   // ① 發票列表
   function hxList(fv, fm, fd) {
     var todo = 0;
@@ -2903,7 +2914,7 @@
     var d = hxF.exBulk || (hxF.exBulk = { date: (hxF.extras[0] && hxF.extras[0].date) || iso(new Date()), cat: '', buyer: '', note: '' });
     return '<div class="hxrow" style="background:#f9fafb"><b class="no">整批設定</b>' +
       '<label class="hxf"><span>日期</span><input type="date" data-hb="date" value="' + esc(d.date) + '"></label>' +
-      '<label class="hxf"><span>類別</span><select data-hb="cat"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === d.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="hxf"><span>類別</span><select data-hb="cat"><option value="">選類別</option>' + hxUseCats().map(function (c) { return '<option' + (c.name === d.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
       '<label class="hxf"><span>購買人</span><input data-hb="buyer" value="' + esc(d.buyer) + '"></label>' +
       '<label class="hxf"><span>備註</span><input data-hb="note" value="' + esc(d.note) + '" placeholder="例如：成果展"></label>' +
       '<button type="button" class="btn small" id="hxExApply" title="把上面四格套到下面每一項">套用到全部 ' + hxF.extras.length + ' 項</button></div>';
@@ -2922,7 +2933,7 @@
     $('hxEx').innerHTML = (hxF.extras.length >= 2 ? hxExBulk() : '') + (hxF.extras.length ? hxF.extras.map(function (x, i) {
       var f = function (k, label, attrs) { return '<label class="hxf"><span>' + label + '</span><input data-he="' + k + '" data-i="' + i + '" ' + attrs + ' value="' + esc(x[k] === undefined ? '' : String(x[k])) + '"></label>'; };
       return '<div class="hxrow' + (x.ck ? ' ck' : '') + '"><label class="hxck" title="對過收據就打勾"><input type="checkbox" data-heck="' + i + '"' + (x.ck ? ' checked' : '') + '><span class="no">' + (i + 1) + '</span></label>' + f('name', '品名', 'list="hxExNames" placeholder="例如：草莓 2 盒"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
-        '<label class="hxf"><span>類別</span><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hx.cats.map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="hxf"><span>類別</span><select data-he="cat" data-i="' + i + '"><option value="">選類別</option>' + hxUseCats().map(function (c) { return '<option' + (c.name === x.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
         f('date', '日期', 'type="date"') + f('buyer', '購買人', 'placeholder="老師先買的填名字"') + f('note', '備註', 'placeholder="例如：成果展"') +
         '<label class="hxf" title="發票照經費編號的金額開、上面有銷貨單沒有的品項：這項的錢已經算在上面類別分配（經費編號）裡，不會再加一次"><span>湊足經費</span><span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" data-hefill="' + i + '"' + (x.fill ? ' checked' : '') + '> 含在分配裡</span></label>' +
         '<button type="button" class="btn ghost small" data-hedel="' + i + '" title="拿掉這項">✕</button></div>';
@@ -2994,7 +3005,7 @@
     var b = e.target.closest && e.target.closest('[data-hxfill]');
     if (!b || !hxF) return;
     var amt = Number(b.getAttribute('data-hxfill')), parts = hxReadParts(), best = '', bestAmt = 0;
-    hx.cats.forEach(function (c) { var t = 0; (parts[c.name] || []).forEach(function (v) { t += sumExpr(v) || 0; }); if (t > bestAmt) { bestAmt = t; best = c.name; } });
+    hxUseCats().forEach(function (c) { var t = 0; (parts[c.name] || []).forEach(function (v) { t += sumExpr(v) || 0; }); if (t > bestAmt) { bestAmt = t; best = c.name; } });
     var x = hxExNew('補足經費（發票上有、銷貨單沒有的品項）', String(amt));
     x.cat = x.cat || best; x.fill = true; x.note = x.note || '湊足經費編號金額，品名可改成發票上的品項';
     hxF.extras.push(x);
@@ -3018,7 +3029,7 @@
     if (nx) nx.focus(); else hxExAddRow();
   });
   function hxRenderCats() {
-    $('hxCats').innerHTML = hx.cats.map(function (c) {
+    $('hxCats').innerHTML = hxUseCats().map(function (c) {
       var ps = hxF.parts[c.name] && hxF.parts[c.name].length ? hxF.parts[c.name] : [''], pc = (hxF.pcodes || {})[c.name] || [];
       var hasCodes = (hx.codes || []).some(function (x) { return x.cat === c.name; });
       return '<div class="hxcat"><div class="nm"><b>' + esc(c.name) + '</b><div class="muted small">餐飲科行政助理：' + esc(c.handler || '（還沒設定）') + '</div>' +
@@ -3187,7 +3198,7 @@
     var parts = hxReadParts();
     hxF.extras.forEach(function (x) { var a = numv(x.amount) || 0; exAll += a; if (x.cat && !x.fill) exBy[x.cat] = r2((exBy[x.cat] || 0) + a); });   // 含在分配（湊足經費）的已經算在經費編號裡，不再加
     exAll = r2(exAll);
-    hx.cats.forEach(function (c) {
+    hxUseCats().forEach(function (c) {
       var sub = 0;
       (parts[c.name] || []).forEach(function (v) { var x = sumExpr(v); if (x === null) bad = true; else sub += x; });
       sub = r2(sub + (exBy[c.name] || 0)); cat += sub;
@@ -3441,7 +3452,7 @@
     c = c || { code: '', cat: '', name: '', amount: '', group: '', vendors: '', month: '', note: '', handler: '' };
     var f = function (k, label, ph, w) { return '<label class="small">' + label + ' <input data-cf="' + k + '" value="' + esc(c[k] === undefined ? '' : String(c[k])) + '" placeholder="' + (ph || '') + '" style="width:' + (w || 140) + 'px"></label>'; };
     $('hxCform').innerHTML = '<div class="hxcard" style="margin-top:8px"><b>' + (c.code ? '修改分支 ' + esc(c.code) : '＋ 新增分支') + '</b>' +
-      '<div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap"><label class="small">大類 <select data-cf="cat">' + hx.cats.map(function (x) { return '<option' + (x.name === c.cat ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' +
+      '<div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap"><label class="small">大類 <select data-cf="cat">' + (hx.allCats || hx.cats).filter(function (x) { return !x.hidden || x.name === c.cat; }).map(function (x) { return '<option' + (x.name === c.cat ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' +
       f('name', '分支名稱', '例如：歐式點心', 160) + f('code', '編號', '學校的編號，沒有就空白', 150) + f('amount', '金額', '0', 100) +
       f('group', '組別', '中餐／烘焙／飲調（選填）', 150) + f('vendors', '廠商', '選填', 140) + f('month', '開發票月份', '選填，例如 菜商11月', 140) + f('handler', '餐飲科行政助理', '選填，好幾位用、隔開', 170) + f('note', '備註', '選填', 160) + '</div>' +
       '<div class="row" style="margin-top:6px"><button type="button" class="btn small" id="hxCodeSave" data-old="' + esc(c.code) + '">💾 儲存</button><button type="button" class="btn ghost small" id="hxCcancel">取消</button><span id="hxCmsg" class="small"></span></div></div>';
@@ -3719,7 +3730,8 @@
   var hxHide = (function () { try { var o = JSON.parse(localStorage.getItem('rcvHxHide') || '{}'); return { tabs: o.tabs || {}, cols: o.cols || {}, cats: o.cats || {}, zero: !!o.zero, vend: !!o.vend }; } catch (e) { return { tabs: {}, cols: {}, cats: {}, zero: false, vend: false }; } })();
   // 藏起來的類別：每個分頁都不算它（發票只留其他類別那幾份；付款方式照整張發票，不分類別）
   function hxView() {
-    var hc = hxHide.cats || {}; if (!Object.keys(hc).length) return hxSt;
+    var hc = {}; Object.keys(hxHide.cats || {}).forEach(function (k) { hc[k] = 1; }); ((hx && hx.allCats) || []).forEach(function (c) { if (c.hidden) hc[c.name] = 1; });
+    if (!Object.keys(hc).length) return hxSt;
     var ok = function (c) { return !hc[c]; }, v = {};
     Object.keys(hxSt).forEach(function (k) { v[k] = hxSt[k]; });
     v.cats = (hxSt.cats || []).filter(ok);
@@ -3762,7 +3774,7 @@
     p.innerHTML = '<div class="hxcard" style="margin-bottom:8px;padding:10px"><b>⚙ 顯示設定</b> <span class="muted small">打勾＝顯示。會記在這台電腦，列印／存 PDF 也照這樣。</span>' +
       '<div style="margin-top:6px"><span class="small"><b>分頁：</b></span>' + HX_ST_TABS.map(function (t) { return cb('data-hhtab', t[0], !hxHide.tabs[t[0]], t[1]); }).join('') + '</div>' +
       '<div style="margin-top:4px"><span class="small"><b>「' + esc((HX_ST_TABS.filter(function (t) { return t[0] === hxStTab; })[0] || [])[1] || '') + '」的欄位：</b></span>' + (cols.length ? cols.map(function (c) { return cb('data-hhcol', c, hid.indexOf(c) < 0, c); }).join('') : '<span class="muted small">這頁沒有可以藏的欄位</span>') + '</div>' +
-      '<div style="margin-top:4px"><span class="small"><b>類別（每個分頁都會藏）：</b></span>' + (hxSt.cats || []).map(function (c) { return cb('data-hhcat', c, !(hxHide.cats || {})[c], c); }).join('') + (hxStTab === 'pay' && Object.keys(hxHide.cats || {}).length ? '<div class="muted small">付款方式是照整張發票算的，不分類別，所以這頁不會少。</div>' : '') + '</div>' +
+      '<div style="margin-top:4px"><span class="small"><b>類別（每個分頁都會藏）：</b></span>' + (hxSt.cats || []).filter(function (c) { return !((hx && hx.allCats) || []).some(function (x) { return x.hidden && x.name === c; }); }).map(function (c) { return cb('data-hhcat', c, !(hxHide.cats || {})[c], c); }).join('') + (hxStTab === 'pay' && Object.keys(hxHide.cats || {}).length ? '<div class="muted small">付款方式是照整張發票算的，不分類別，所以這頁不會少。</div>' : '') + '</div>' +
       (hxStTab === 'sum' ? '<div style="margin-top:4px"><span class="small"><b>其他：</b></span>' + cb('data-hhopt', 'zero', !hxHide.zero, '沒有金額的類別') + cb('data-hhopt', 'vend', !hxHide.vend, '各類別 × 廠商') + '</div>' : '') +
       '<div style="margin-top:6px"><button type="button" class="btn ghost small" id="hxHideReset">全部顯示</button> <button type="button" class="btn ghost small" id="hxHideClose">收起來</button></div></div>';
   }
@@ -4133,16 +4145,18 @@
     $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">類別與餐飲科行政助理</h2><div class="muted small">可以自己加第 9、10、11…類：按「＋ 新增大類」打名字和餐飲科行政助理，再按「💾 儲存」。新的大類會出現在新增核銷的「拆到各類別」、預算、統計，也可以在「經費編號・分支」幫它加分支。改名字不會改到已經存的發票（舊發票照原本的名字）。</div>' +
       '<div class="muted small" style="margin:6px 0">餐飲科行政助理可以好幾位，用「、」隔開，誰都可以按確認（系統記是誰按的）。<b>再確認</b>：餐飲科行政助理確認後還要誰確認，照順序填，例如「組長、主任」，全部確認完才算已核銷。經費編號（分支）也可以各自設餐飲科行政助理，有設的就用那幾位。</div>' +
       '<div class="row" style="margin:6px 0;align-items:center"><b class="small">全部類別一樣的送簽流程：</b><input id="hxRouteAll" placeholder="例如 組長、主任、總務處、會計室、校長" style="width:320px"><button type="button" class="btn ghost small" id="hxRouteApply">套用到下面每一類</button><span class="muted small">套用後還可以個別改，按「💾 儲存」才會存</span></div>' +
-      '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>餐飲科行政助理</th><th>再確認（照順序）</th><th></th></tr>' + hx.cats.map(function (c) { return hxCatRow(c.name, c.handler, c.review); }).join('') + '</table>' +
+      '<table class="hxt" id="hxCt"><tr><th></th><th>類別</th><th>餐飲科行政助理</th><th>再確認（照順序）</th><th title="打勾＝整個核銷系統都不列（新增核銷、預算、經費編號、統計），已經存的發票不動">隱藏</th><th></th></tr>' + (hx.allCats || hx.cats).map(function (c) { return hxCatRow(c.name, c.handler, c.review, c.hidden); }).join('') + '</table>' +
+      '<div class="muted small" style="margin-top:4px">「隱藏」打勾：這一類在新增核銷、預算、經費編號、統計表都不會出現（例如這學期用不到的進修部）；已經存的發票、還沒核銷完的照常可以處理。要用再取消打勾就回來了。</div>' +
       '<div class="row" style="margin-top:8px"><button type="button" class="btn secondary small" id="hxCadd">＋ 新增大類</button><span style="flex:1"></span><button type="button" class="btn" id="hxCsave">💾 儲存</button></div></div>' +
       '<div class="panel"><h2 style="margin-top:0">📱 LINE 查待簽</h2><div class="muted small">用一個<b>核銷專用的 LINE 官方帳號</b>（跟訂貨系統分開，老師看不到）。每一關綁定一次後，主任、會計在 LINE 傳「<b>待簽</b>」，就會列出輪到他簽的文件，每份附「已簽好」的連結，按一下就記錄。<b>這種回覆不花 LINE 則數。</b>「主動通知」預設關閉；打勾的關卡輪到時會主動收到 LINE（會用掉免費則數，每月約 200 則，快用完會自動停）。</div><div id="signLine" style="margin-top:8px">讀取中…</div></div>';
     hxCatNum();
     signLineLoad();
   }
   function hxCatNum() { Array.prototype.forEach.call(document.querySelectorAll('#hxCt [data-cnum]'), function (x, i) { x.textContent = '第 ' + (i + 1) + ' 類'; }); }
-  function hxCatRow(n, h, rv) {
+  function hxCatRow(n, h, rv, hid) {
     return '<tr><td data-cnum class="small muted" style="white-space:nowrap"></td><td data-lb="類別"><input data-cn value="' + esc(n) + '"></td><td data-lb="餐飲科行政助理"><input data-ch value="' + esc(h) + '" placeholder="例如 王老師、李老師"></td>' +
       '<td data-lb="再確認（照順序）"><input data-crv value="' + esc(rv || '') + '" placeholder="例如 組長、主任"></td>' +
+      '<td data-lb="隱藏" style="text-align:center"><input type="checkbox" data-chid' + (hid ? ' checked' : '') + ' style="width:auto"></td>' +
       '<td><button type="button" class="btn ghost small" data-cup>↑</button><button type="button" class="btn ghost small" data-cdel>刪除</button></td></tr>';
   }
   document.querySelector('.hxtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-hx]'); if (b) hxOpen(b.getAttribute('data-hx')); });
@@ -4272,9 +4286,9 @@
     if (t.hasAttribute('data-cdel')) { var nm = (t.closest('tr').querySelector('[data-cn]') || {}).value; if (nm && !window.confirm('刪除大類「' + nm + '」？\n已經存的發票不受影響；按「💾 儲存」才會存。')) return; t.closest('tr').remove(); hxCatNum(); return; }
     if (t.hasAttribute('data-cup')) { var tr = t.closest('tr'), pv = tr.previousElementSibling; if (pv && pv.querySelector('[data-cn]')) tr.parentNode.insertBefore(tr, pv); hxCatNum(); return; }
     if (t.id === 'hxCsave') {
-      var list = Array.prototype.map.call(document.querySelectorAll('#hxCt tr'), function (tr) { var n = tr.querySelector('[data-cn]'); return n ? { name: n.value.trim(), handler: tr.querySelector('[data-ch]').value.trim(), review: (tr.querySelector('[data-crv]') || { value: '' }).value.trim() } : null; }).filter(Boolean);
+      var list = Array.prototype.map.call(document.querySelectorAll('#hxCt tr'), function (tr) { var n = tr.querySelector('[data-cn]'); return n ? { name: n.value.trim(), handler: tr.querySelector('[data-ch]').value.trim(), review: (tr.querySelector('[data-crv]') || { value: '' }).value.trim(), hidden: !!(tr.querySelector('[data-chid]') || {}).checked } : null; }).filter(Boolean);
       t.disabled = true;
-      call('hxSaveCats', list).then(function (c) { hx.cats = c; hxCatsView(); msg('hxMsg', 'ok', '類別與餐飲科行政助理已儲存。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; });
+      call('hxSaveCats', list).then(function (c) { hx.cats = c; hxSplitCats(); hxCatsView(); msg('hxMsg', 'ok', '類別與餐飲科行政助理已儲存。'); }).catch(function (err) { msg('hxMsg', 'error', err.message); t.disabled = false; });
     }
   });
   $('hxBox').addEventListener('change', function (e) {

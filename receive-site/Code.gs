@@ -1525,7 +1525,8 @@ const HX_ALLOC_HEADERS = ['發票編號', '類別', '金額', '經手人', '狀�
 const HX_LINE_HEADERS = ['發票編號', '發票號碼', '發票日期', '金額', '照片', '備註', '付款方式', '付款對象'];   // 付款方式：匯款／現金／回科辦現金／老師先墊／廠商月結
 // 另外叫料：不在叫貨單裡的（臨時電話加叫、系統外的商店、活動用、老師先買後報帳），一項一列，金額算進那一類
 const HX_EXTRA_HEADERS = ['發票編號', '日期', '品名', '金額', '類別', '購買人', '備註', '含在分配'];   // 含在分配＝是：發票為了湊足經費編號金額開的品項，錢已經算在類別分配（經費編號）裡，不再另外加   // 一筆核銷可以有好幾張發票（「發票編號」是這筆核銷的編號）
-const HX_CAT_HEADERS = ['類別', '經手人', '排序', '再確認'];   // 經手人可以好幾位（、隔開，誰都可以按）；再確認：經手人之後還要誰確認，照順序，例如「組長、主任」
+const HX_CAT_HEADERS = ['類別', '經手人', '排序', '再確認', '隱藏'];   // 隱藏：打勾的類別整個核銷系統都不列（新增核銷、預算、經費編號、統計），舊發票不動
+   // 經手人可以好幾位（、隔開，誰都可以按）；再確認：經手人之後還要誰確認，照順序，例如「組長、主任」
 const HX_BUDGET_HEADERS = ['預算編號', '類別', '名稱', '起', '迄', '預算', '備註', '更新時間', '更新人'];
 const HX_DEFAULT_CATS = ['國中技藝班（餐旅）', '國中技藝班（食品）', '特教班', '實習實作', '餐飲科科費', '國中生涯實作（三信）', '國中生涯實作（國中）', '未未成果展'];
 const HX_STOCK_CAT = '餐飲科科費';   // 補庫存（沒有班級、大家共用的）先帶這一類
@@ -1542,13 +1543,14 @@ function hxCats_() {
   }
   return readTable_('核銷類別', ['類別']).rows.filter(function (r) { return String(r['類別']).trim(); })
     .sort(function (a, b) { return (Number(a['排序']) || 99) - (Number(b['排序']) || 99); })
-    .map(function (r) { return { name: hxCat_(r['類別']), handler: String(r['經手人'] || '').trim(), review: String(r['再確認'] || '').trim() }; });
+    .map(function (r) { const h = r['隱藏']; return { name: hxCat_(r['類別']), handler: String(r['經手人'] || '').trim(), review: String(r['再確認'] || '').trim(), hidden: h === true || /^(TRUE|是|1|v|✓)$/i.test(String(h || '').trim()) }; });
 }
 
 /** 存類別設定：list = [{ name, handler }]，照順序 */
 function hxSaveCats_(list) {
-  list = (list || []).map(function (x) { return { name: clean_(x.name, 30), handler: clean_(x.handler, 60), review: clean_(x.review, 60) }; }).filter(function (x) { return x.name; });
+  list = (list || []).map(function (x) { return { name: clean_(x.name, 30), handler: clean_(x.handler, 60), review: clean_(x.review, 60), hidden: !!x.hidden }; }).filter(function (x) { return x.name; });
   if (!list.length) throw new Error('至少要有一個類別。');
+  if (list.every(function (x) { return x.hidden; })) throw new Error('至少要留一個類別不隱藏。');
   const seen = {};
   list.forEach(function (x) { if (seen[x.name]) throw new Error('類別「' + x.name + '」重複了。'); seen[x.name] = true; });
   const lock = waitLock_();
@@ -1556,7 +1558,7 @@ function hxSaveCats_(list) {
     ensureSheet_('核銷類別', HX_CAT_HEADERS);
     const t = readTable_('核銷類別', ['類別']);
     if (t.rows.length) deleteRows_(t.sheet, t.rows.map(function (r) { return r._row; }));
-    appendRows_('核銷類別', list.map(function (x, i) { return { '類別': x.name, '經手人': x.handler, '排序': i + 1, '再確認': x.review }; }));
+    appendRows_('核銷類別', list.map(function (x, i) { return { '類別': x.name, '經手人': x.handler, '排序': i + 1, '再確認': x.review, '隱藏': x.hidden ? '是' : '' }; }));
   } finally {
     lock.releaseLock();
   }
