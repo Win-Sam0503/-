@@ -4044,6 +4044,107 @@
       });
     } catch (e) { go(); }
   })();
+
+  // ===== 💻 電腦視訊鏡頭拍照：電腦上按「📷 拍…」改開鏡頭畫面（手機照舊開相機）=====
+  (function () {
+    var desk = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0) && window.matchMedia && matchMedia('(pointer:fine)').matches;
+    if (!desk) return;
+    var css = document.createElement('style');
+    css.textContent = '#camBox{position:fixed;inset:0;z-index:96;background:rgba(16,24,40,.88);display:flex;align-items:center;justify-content:center;padding:12px}' +
+      '#camBox .cIn{background:#fff;color:#111;border-radius:12px;max-width:960px;width:100%;max-height:96vh;overflow:auto;padding:12px}' +
+      '#camBox video{width:100%;max-height:62vh;background:#000;border-radius:8px;display:block}' +
+      '#camBox .cTh{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}#camBox .cTh span{position:relative}#camBox .cTh img{height:70px;border-radius:6px;border:1px solid #ccc}' +
+      '#camBox .cTh b{position:absolute;top:-6px;right:-6px;background:#d33;color:#fff;border-radius:50%;width:20px;height:20px;line-height:20px;text-align:center;cursor:pointer;font-size:12px}';
+    document.head.appendChild(css);
+    var bypass = false, stream = null, target = null, shots = [], rot = 0;
+    var LS = function (k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} };
+    var stop = function () { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; };
+    var close = function () { stop(); shots.forEach(function (s) { URL.revokeObjectURL(s.u); }); shots = []; var b = $('camBox'); if (b) b.remove(); };
+    var pickFile = function () { var inp = target; close(); bypass = true; inp.click(); bypass = false; };
+    var thumbs = function () {
+      $('camTh').innerHTML = shots.map(function (s, i) { return '<span><img src="' + s.u + '"><b data-camdel="' + i + '" title="刪掉這張">✕</b></span>'; }).join('');
+      $('camOk').textContent = shots.length ? '✓ 用這 ' + shots.length + ' 張' : '✓ 完成';
+      $('camOk').disabled = !shots.length;
+    };
+    var fail = function (e) {
+      stop();
+      var why = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? '瀏覽器不准這個網頁用鏡頭（可能是你按了「封鎖」，或 Google 網頁系統不開放）。'
+        : e && e.name === 'NotFoundError' ? '找不到視訊鏡頭，請確認鏡頭有插好、Windows「相機」App 打得開。'
+        : e && e.name === 'NotReadableError' ? '鏡頭正在被別的程式用（例如「相機」App、Meet、LINE 視訊），請先關掉它再試。'
+        : '開不了鏡頭（' + esc(e && (e.name || e.message) || '不明原因') + '）。';
+      $('camMain').innerHTML = '<div class="msg error">' + why + '</div>' +
+        '<div class="small" style="line-height:1.7;margin:8px 0">如果按了封鎖：點網址列左邊的 🔒／⚙ 圖示 →「攝影機」改成「允許」→ 重新整理再試。<br>' +
+        '都不行就用備案：開 Windows「相機」App 拍照（存在「圖片 → 本機照片」）→ 按下面「🖼 改選照片檔」選那張。</div>';
+    };
+    var startCam = function () {
+      stop();
+      var id = $('camSel') && $('camSel').value || LS('rcvCam') || '';
+      var v = { width: { ideal: 1920 }, height: { ideal: 1080 } }; if (id) v.deviceId = { exact: id };
+      return navigator.mediaDevices.getUserMedia({ video: v, audio: false }).catch(function (e) {
+        if (id && e && e.name === 'OverconstrainedError') { LS('rcvCam', ''); return navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+        throw e;
+      }).then(function (s) {
+        stream = s; var vd = $('camV'); if (!vd) { stop(); return; }
+        vd.srcObject = s; vd.play();
+        return navigator.mediaDevices.enumerateDevices().then(function (ds) {
+          var cams = ds.filter(function (d) { return d.kind === 'videoinput'; });
+          var curId = (s.getVideoTracks()[0].getSettings() || {}).deviceId || '';
+          $('camSel').innerHTML = cams.map(function (d, i) { return '<option value="' + esc(d.deviceId) + '"' + (d.deviceId === curId ? ' selected' : '') + '>' + esc(d.label || ('鏡頭 ' + (i + 1))) + '</option>'; }).join('');
+          $('camSel').style.display = cams.length > 1 ? '' : 'none';
+        });
+      }).catch(fail);
+    };
+    var snap = function () {
+      var vd = $('camV'); if (!vd || !vd.videoWidth) return;
+      var w = vd.videoWidth, h = vd.videoHeight, cv = document.createElement('canvas'), r = rot % 360;
+      cv.width = r % 180 ? h : w; cv.height = r % 180 ? w : h;
+      var g = cv.getContext('2d'); g.translate(cv.width / 2, cv.height / 2); g.rotate(r * Math.PI / 180); g.drawImage(vd, -w / 2, -h / 2);
+      cv.toBlob(function (bl) {
+        if (!bl) return;
+        var f = new File([bl], 'cam_' + Date.now() + '.jpg', { type: 'image/jpeg' });
+        if (!target.multiple) shots.forEach(function (s) { URL.revokeObjectURL(s.u); }), shots = [];
+        shots.push({ f: f, u: URL.createObjectURL(bl) }); thumbs();
+        vd.style.opacity = '.3'; setTimeout(function () { vd.style.opacity = ''; }, 120);
+      }, 'image/jpeg', 0.92);
+    };
+    var finish = function () {
+      if (!shots.length) return;
+      var inp = target, dt = new DataTransfer();
+      shots.forEach(function (s) { dt.items.add(s.f); });
+      close();
+      try { inp.files = dt.files; } catch (e) { alert('這個瀏覽器不支援直接放照片，請改用「🖼 選照片檔」。'); return; }
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    var open = function (inp) {
+      target = inp; shots = []; rot = +(LS('rcvCamRot') || 0);
+      var d = document.createElement('div'); d.id = 'camBox';
+      d.innerHTML = '<div class="cIn"><div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px"><b>💻 用電腦鏡頭拍</b>' +
+        '<span class="row" style="gap:6px"><select id="camSel" style="width:auto;display:none" title="有好幾個鏡頭時選這裡"></select>' +
+        '<button type="button" class="btn ghost small" id="camRot" title="畫面是橫的、倒的就按這個">↻ 轉向（' + rot + '°）</button>' +
+        '<button type="button" class="btn ghost small" id="camX">✕ 關閉</button></span></div>' +
+        '<div id="camMain"><video id="camV" autoplay playsinline muted style="transform:rotate(' + rot + 'deg)"></video>' +
+        '<div class="small muted" style="margin-top:6px">單子平放、鏡頭從正上方拍，字要正、要清楚。可以連拍好幾張（按空白鍵也能拍）。</div></div>' +
+        '<div class="cTh" id="camTh"></div>' +
+        '<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><button type="button" class="btn" id="camSnap">📸 拍這張</button>' +
+        '<button type="button" class="btn" id="camOk" disabled>✓ 完成</button>' +
+        '<button type="button" class="btn ghost small" id="camFile">🖼 改選照片檔</button></div></div>';
+      document.body.appendChild(d);
+      $('camX').onclick = close; $('camSnap').onclick = snap; $('camOk').onclick = finish; $('camFile').onclick = pickFile;
+      $('camRot').onclick = function () { rot = (rot + 90) % 360; LS('rcvCamRot', String(rot)); this.textContent = '↻ 轉向（' + rot + '°）'; var v = $('camV'); if (v) v.style.transform = 'rotate(' + rot + 'deg)'; };
+      $('camSel').onchange = function () { LS('rcvCam', this.value); startCam(); };
+      $('camTh').onclick = function (e) { var b = e.target.closest('[data-camdel]'); if (!b) return; var i = +b.getAttribute('data-camdel'); URL.revokeObjectURL(shots[i].u); shots.splice(i, 1); thumbs(); };
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { fail({ name: 'NoAPI', message: '這個瀏覽器不支援' }); return; }
+      startCam();
+    };
+    document.addEventListener('keydown', function (e) { if (!$('camBox')) return; if (e.key === 'Escape') close(); else if (e.key === ' ' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') { e.preventDefault(); snap(); } });
+    document.addEventListener('click', function (e) {
+      if (bypass || !e.target.closest) return;
+      var lb = e.target.closest('label'); if (!lb) return;
+      var inp = lb.htmlFor ? $(lb.htmlFor) : lb.querySelector('input[type=file]');
+      if (!inp || inp.type !== 'file' || !inp.hasAttribute('capture') || inp.disabled) return;
+      e.preventDefault(); e.stopPropagation(); open(inp);
+    }, true);
+  })();
 })();
 </script>
 </body>
