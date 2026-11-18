@@ -3412,41 +3412,130 @@
       '<button type="button" class="btn small" id="hxSgo">產生</button><button type="button" class="btn ghost small" id="hxSprint">🖨 列印</button><button type="button" class="btn ghost small" id="hxScsv">💾 存 Excel</button></div><div id="hxSbox" style="margin-top:8px"></div></div>';
     $('hxSgo').click();
   }
-  var hxSt = null;
+  var hxSt = null, hxStTab = 'sum', hxStQ = { cat: '', vendor: '', st: '', q: '' };
+  var HX_ST_TABS = [['sum', '📊 總覽'], ['code', '🔢 經費編號'], ['bud', '🎯 預算執行率'], ['inv', '🧾 發票清單'], ['pay', '💳 付款方式']];
+  function hxPct(used, amt) { if (!amt) return '<span class="muted">—</span>'; var p = Math.round(used / amt * 1000) / 10, col = p > 100 ? 'var(--bad)' : p >= 90 ? '#b45309' : 'var(--ok,#15803d)';
+    return '<div style="min-width:110px"><div style="background:#e5e7eb;border-radius:6px;height:8px;overflow:hidden"><div style="width:' + Math.min(100, p) + '%;height:100%;background:' + col + '"></div></div><span style="color:' + col + ';font-weight:600">' + p + '%</span></div>'; }
   function hxStatsRender(r, from, to) {
-    hxSt = r;
+    hxSt = r; hxSt.from = from; hxSt.to = to;
     var months = [];
     for (var m = new Date(Number(from.slice(0, 4)), Number(from.slice(5)) - 1, 1); hxYm(m) <= to; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) months.push(hxYm(m));
-    var cell = {}, tot = {}, done = {};
-    r.rows.forEach(function (x) { var k = x.cat + '|' + x.ym; cell[k] = r2((cell[k] || 0) + x.amount); tot[x.cat] = r2((tot[x.cat] || 0) + x.amount); done[x.cat] = r2((done[x.cat] || 0) + x.done); });
-    var html = '<h2 style="margin:0">各類別每月花費（' + esc(from) + '～' + esc(to) + '）</h2><div class="muted small">照發票日期的月份算；最右邊是已核銷、待核銷的金額。</div><div class="slipwrap"><table class="hxt"><tr><th>類別</th>' +
-      months.map(function (m) { return '<th>' + esc(Number(m.slice(5)) + '月') + '</th>'; }).join('') + '<th>合計</th><th>已核銷</th><th>待核銷</th></tr>';
-    var grand = 0;
-    r.cats.forEach(function (c) {
-      grand += tot[c] || 0;
-      html += '<tr><td><b>' + esc(c) + '</b></td>' + months.map(function (m) { var v = cell[c + '|' + m]; return '<td>' + (v ? '$' + money(v) : '<span class="muted">—</span>') + '</td>'; }).join('') +
-        '<td><b>$' + money(tot[c] || 0) + '</b></td><td>$' + money(done[c] || 0) + '</td><td>' + (r2((tot[c] || 0) - (done[c] || 0)) ? '<b style="color:var(--bad)">$' + money(r2((tot[c] || 0) - (done[c] || 0))) + '</b>' : '$0') + '</td></tr>';
-    });
-    html += '<tr><td><b>總計</b></td>' + months.map(function (m) { var v = r.rows.filter(function (x) { return x.ym === m; }).reduce(function (n, x) { return n + x.amount; }, 0); return '<td><b>$' + money(r2(v)) + '</b></td>'; }).join('') +
-      '<td><b>$' + money(r2(grand)) + '</b></td><td></td><td></td></tr></table></div>';
-    // 各類別各廠商明細
-    html += '<h3>各類別 × 廠商</h3>' + r.cats.filter(function (c) { return tot[c]; }).map(function (c) {
-      var vs = {};
-      r.rows.filter(function (x) { return x.cat === c; }).forEach(function (x) { vs[x.vendor] = r2((vs[x.vendor] || 0) + x.amount); });
-      return '<div style="margin:4px 0"><b>' + esc(c) + '</b>（餐飲科行政助理：' + esc(catHandler(c) || '—') + '）：' + Object.keys(vs).sort().map(function (v) { return esc(v) + ' $' + money(vs[v]); }).join('、') + '</div>';
-    }).join('');
-    $('hxSbox').innerHTML = html;
     hxSt.months = months;
+    $('hxSbox').innerHTML = '<div class="row noprint" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' + HX_ST_TABS.map(function (t) { return '<button type="button" class="btn small ' + (t[0] === hxStTab ? '' : 'ghost') + '" data-hxst="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div><div id="hxStIn"></div>';
+    hxStTabRender();
   }
+  function hxStTabRender() {
+    var r = hxSt, from = r.from, to = r.to, months = r.months, html = '';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-hxst]'), function (b) { b.classList.toggle('ghost', b.getAttribute('data-hxst') !== hxStTab); });
+    if (hxStTab === 'sum') {
+      var cell = {}, tot = {}, done = {};
+      r.rows.forEach(function (x) { var k = x.cat + '|' + x.ym; cell[k] = r2((cell[k] || 0) + x.amount); tot[x.cat] = r2((tot[x.cat] || 0) + x.amount); done[x.cat] = r2((done[x.cat] || 0) + x.done); });
+      html = '<h2 style="margin:0">各類別每月花費（' + esc(from) + '～' + esc(to) + '）</h2><div class="muted small">照發票日期的月份算；最右邊是已核銷、待核銷的金額。點類別名稱看那一類的發票。</div><div class="slipwrap"><table class="hxt"><tr><th>類別</th>' +
+        months.map(function (m) { return '<th>' + esc(Number(m.slice(5)) + '月') + '</th>'; }).join('') + '<th>合計</th><th>已核銷</th><th>待核銷</th></tr>';
+      var grand = 0;
+      r.cats.forEach(function (c) {
+        grand += tot[c] || 0;
+        html += '<tr><td><b><a href="#" data-hxstcat="' + esc(c) + '">' + esc(c) + '</a></b></td>' + months.map(function (m) { var v = cell[c + '|' + m]; return '<td>' + (v ? '$' + money(v) : '<span class="muted">—</span>') + '</td>'; }).join('') +
+          '<td><b>$' + money(tot[c] || 0) + '</b></td><td>$' + money(done[c] || 0) + '</td><td>' + (r2((tot[c] || 0) - (done[c] || 0)) ? '<b style="color:var(--bad)">$' + money(r2((tot[c] || 0) - (done[c] || 0))) + '</b>' : '$0') + '</td></tr>';
+      });
+      html += '<tr><td><b>總計</b></td>' + months.map(function (m) { var v = r.rows.filter(function (x) { return x.ym === m; }).reduce(function (n, x) { return n + x.amount; }, 0); return '<td><b>$' + money(r2(v)) + '</b></td>'; }).join('') +
+        '<td><b>$' + money(r2(grand)) + '</b></td><td></td><td></td></tr></table></div>';
+      html += '<h3>各類別 × 廠商</h3>' + r.cats.filter(function (c) { return tot[c]; }).map(function (c) {
+        var vs = {};
+        r.rows.filter(function (x) { return x.cat === c; }).forEach(function (x) { vs[x.vendor] = r2((vs[x.vendor] || 0) + x.amount); });
+        return '<div style="margin:4px 0"><b>' + esc(c) + '</b>（餐飲科行政助理：' + esc(catHandler(c) || '—') + '）：' + Object.keys(vs).sort().map(function (v) { return esc(v) + ' $' + money(vs[v]); }).join('、') + '</div>';
+      }).join('');
+    } else if (hxStTab === 'code') {
+      var cs = (r.codes || []).slice().sort(function (a, b) { return a.cat.localeCompare(b.cat) || a.code.localeCompare(b.code); });
+      html = '<h2 style="margin:0">經費編號・分支（' + esc(from) + '～' + esc(to) + '）</h2><div class="muted small">「這段用了」只算選的月份；「總共用了／剩下」是這個編號到今天全部的。</div>';
+      if (!cs.length) html += '<div class="muted" style="margin-top:8px">這段期間沒有用到經費編號（在「經費編號・分支」新增分支，核銷時選編號才會統計）。</div>';
+      else {
+        html += '<div class="slipwrap"><table class="hxt"><tr><th>類別</th><th>編號</th><th>名稱</th><th>預算</th><th>這段用了</th><th>其中已核銷</th><th>總共用了</th><th>剩下</th><th>執行率</th></tr>';
+        var lastCat = null, sub = null, subs = [];
+        var flush = function () { if (sub) html += '<tr style="background:#f3f4f6"><td colspan="3"><b>' + esc(sub.cat) + ' 小計</b></td><td><b>$' + money(sub.amount) + '</b></td><td><b>$' + money(sub.used) + '</b></td><td>$' + money(sub.done) + '</td><td><b>$' + money(sub.usedAll) + '</b></td><td><b>$' + money(r2(sub.amount - sub.usedAll)) + '</b></td><td>' + hxPct(sub.usedAll, sub.amount) + '</td></tr>'; };
+        cs.forEach(function (c) {
+          if (c.cat !== lastCat) { flush(); lastCat = c.cat; sub = { cat: c.cat, amount: 0, used: 0, done: 0, usedAll: 0 }; }
+          sub.amount = r2(sub.amount + c.amount); sub.used = r2(sub.used + c.used); sub.done = r2(sub.done + c.done); sub.usedAll = r2(sub.usedAll + c.usedAll);
+          html += '<tr><td>' + esc(c.cat) + '</td><td><b>' + esc(c.code) + '</b></td><td>' + esc(c.name) + (c.group ? ' <span class="muted small">' + esc(c.group) + '</span>' : '') + '</td><td>$' + money(c.amount) + '</td><td>' + (c.used ? '$' + money(c.used) : '<span class="muted">—</span>') + '</td><td>$' + money(c.done) + '</td><td>$' + money(c.usedAll) + '</td><td>' + (c.left < 0 ? '<b style="color:var(--bad)">−$' + money(-c.left) + '（超支）</b>' : '$' + money(c.left)) + '</td><td>' + hxPct(c.usedAll, c.amount) + '</td></tr>';
+        });
+        flush(); html += '</table></div>';
+      }
+    } else if (hxStTab === 'bud') {
+      var bs = r.budgets || [];
+      html = '<h2 style="margin:0">預算執行率</h2><div class="muted small">列出跟 ' + esc(from) + '～' + esc(to) + ' 有重疊的預算；已用＝預算期間內、分到這一類的發票金額。</div>';
+      if (!bs.length) html += '<div class="muted" style="margin-top:8px">這段期間沒有設定預算（在「預算」頁新增）。</div>';
+      else html += '<div class="slipwrap"><table class="hxt"><tr><th>類別</th><th>名稱</th><th>期間</th><th>預算</th><th>已核銷</th><th>待核銷</th><th>已用合計</th><th>剩下</th><th>執行率</th></tr>' + bs.map(function (b) {
+        return '<tr><td><b>' + esc(b.cat) + '</b></td><td>' + esc(b.name) + '</td><td class="small">' + esc(b.from) + '～' + esc(b.to) + '</td><td>$' + money(b.amount) + '</td><td>$' + money(b.done) + '</td><td>' + (b.pending ? '<span style="color:var(--bad)">$' + money(b.pending) + '</span>' : '$0') + '</td><td><b>$' + money(b.used) + '</b></td><td>' + (b.left < 0 ? '<b style="color:var(--bad)">−$' + money(-b.left) + '（超支）</b>' : '$' + money(b.left)) + '</td><td>' + hxPct(b.used, b.amount) + '</td></tr>';
+      }).join('') + '</table></div>';
+    } else if (hxStTab === 'inv') {
+      var cats = {}, vens = {};
+      (r.invoices || []).forEach(function (v) { vens[v.vendor] = 1; v.allocs.forEach(function (a) { cats[a.cat] = 1; }); });
+      var opt = function (o, cur, all) { return '<option value="">' + all + '</option>' + Object.keys(o).sort().map(function (k) { return '<option' + (k === cur ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join(''); };
+      var L = hxStInvList();
+      var sum = L.reduce(function (n, v) { return n + v.shown; }, 0);
+      html = '<h2 style="margin:0">發票清單（' + esc(from) + '～' + esc(to) + '）</h2><div class="row noprint" style="gap:6px;flex-wrap:wrap;margin:6px 0">' +
+        '<select id="hxStC" style="width:auto">' + opt(cats, hxStQ.cat, '全部類別') + '</select><select id="hxStV" style="width:auto">' + opt(vens, hxStQ.vendor, '全部廠商') + '</select>' +
+        '<select id="hxStS" style="width:auto"><option value="">全部狀態</option><option' + (hxStQ.st === '已核銷' ? ' selected' : '') + '>已核銷</option><option' + (hxStQ.st === '待核銷' ? ' selected' : '') + '>待核銷</option></select>' +
+        '<input id="hxStQ" placeholder="搜尋發票號碼、編號、備註" value="' + esc(hxStQ.q) + '" style="width:200px"></div>' +
+        '<div class="small"><b>' + L.length + '</b> 張，合計 <b>$' + money(r2(sum)) + '</b>' + (hxStQ.cat ? '（只算「' + esc(hxStQ.cat) + '」那一份）' : '') + '</div>' +
+        '<div class="slipwrap"><table class="hxt"><tr><th>發票日期</th><th>發票號碼</th><th>廠商</th><th>發票金額</th><th>分到類別（狀態）</th><th>經費編號</th><th>付款</th><th>備註</th></tr>' + L.map(function (v) {
+          return '<tr><td>' + esc(v.date) + '</td><td class="small">' + esc(v.nos.join('、') || '—') + '</td><td>' + esc(v.vendor) + '</td><td><b>$' + money(v.amount) + '</b></td><td class="small">' +
+            v.allocs.map(function (a) { return esc(a.cat) + ' $' + money(a.amount) + ' ' + (a.status === '已核銷' ? '<span style="color:var(--ok,#15803d)">✓已核銷' + (a.doneDate ? ' ' + esc(a.doneDate) : '') + '</span>' : '<span style="color:var(--bad)">待核銷</span>'); }).join('<br>') +
+            '</td><td class="small">' + esc(v.allocs.map(function (a) { return a.codes.join('、'); }).filter(Boolean).join('、')) + '</td><td class="small">' + esc(v.pays.join('、')) + '</td><td class="small">' + esc(v.note) + '</td></tr>';
+        }).join('') + '</table></div>';
+    } else if (hxStTab === 'pay') {
+      var ps = r.pays || [], pt = ps.reduce(function (n, p) { return n + p.amount; }, 0), byPay = {};
+      ps.forEach(function (p) { byPay[p.pay] = r2((byPay[p.pay] || 0) + p.amount); });
+      html = '<h2 style="margin:0">付款方式／對象（' + esc(from) + '～' + esc(to) + '）</h2><div class="muted small">照每張發票填的付款方式算，方便對帳。「（沒填）」的請到發票裡補。</div>' +
+        '<div style="margin:6px 0">' + Object.keys(byPay).map(function (k) { return '<span class="badge none" style="margin-right:6px">' + esc(k) + ' <b>$' + money(byPay[k]) + '</b></span>'; }).join('') + '</div>' +
+        '<div class="slipwrap"><table class="hxt"><tr><th>付款方式</th><th>付款對象</th><th>張數</th><th>金額</th><th>占比</th></tr>' + ps.map(function (p) {
+          return '<tr><td>' + esc(p.pay) + '</td><td>' + esc(p.payee || '—') + (p.guess ? ' <span class="muted small">（' + p.guess + ' 張是從備註判斷的）</span>' : '') + '</td><td>' + p.n + '</td><td><b>$' + money(p.amount) + '</b></td><td>' + (pt ? Math.round(p.amount / pt * 1000) / 10 + '%' : '') + '</td></tr>';
+        }).join('') + '<tr><td colspan="3"><b>合計</b></td><td><b>$' + money(r2(pt)) + '</b></td><td></td></tr></table></div>';
+    }
+    $('hxStIn').innerHTML = html;
+  }
+  function hxStInvList() {
+    var q = hxStQ.q.trim().toLowerCase();
+    return (hxSt.invoices || []).filter(function (v) {
+      if (hxStQ.vendor && v.vendor !== hxStQ.vendor) return false;
+      var al = v.allocs.filter(function (a) { return (!hxStQ.cat || a.cat === hxStQ.cat) && (!hxStQ.st || (hxStQ.st === '已核銷') === (a.status === '已核銷')); });
+      if ((hxStQ.cat || hxStQ.st) && !al.length) return false;
+      if (q && [v.nos.join(' '), v.note, v.vendor, v.allocs.map(function (a) { return a.codes.join(' '); }).join(' ')].join(' ').toLowerCase().indexOf(q) < 0) return false;
+      v.shown = hxStQ.cat || hxStQ.st ? al.reduce(function (n, a) { return n + a.amount; }, 0) : v.amount;
+      return true;
+    }).sort(function (a, b) { return a.date.localeCompare(b.date); });
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-hxst],[data-hxstcat]'); if (!t || !hxSt) return;
+    e.preventDefault();
+    if (t.hasAttribute('data-hxstcat')) { hxStQ = { cat: t.getAttribute('data-hxstcat'), vendor: '', st: '', q: '' }; hxStTab = 'inv'; }
+    else hxStTab = t.getAttribute('data-hxst');
+    hxStTabRender();
+  });
+  document.addEventListener('input', function (e) {
+    var id = e.target.id; if (!hxSt || ['hxStC', 'hxStV', 'hxStS', 'hxStQ'].indexOf(id) < 0) return;
+    hxStQ = { cat: $('hxStC').value, vendor: $('hxStV').value, st: $('hxStS').value, q: $('hxStQ').value };
+    var pos = e.target.selectionStart; hxStTabRender();
+    if (id === 'hxStQ') { $('hxStQ').focus(); try { $('hxStQ').setSelectionRange(pos, pos); } catch (er) {} }
+  });
   function hxCsv() {
     if (!hxSt) return;
-    var lines = [['月份', '類別', '廠商', '金額', '已核銷', '待核銷']];
-    hxSt.rows.slice().sort(function (a, b) { return a.ym.localeCompare(b.ym) || a.cat.localeCompare(b.cat) || a.vendor.localeCompare(b.vendor); })
-      .forEach(function (x) { lines.push([x.ym, x.cat, x.vendor, x.amount, x.done, r2(x.amount - x.done)]); });
-    var csv = '﻿' + lines.map(function (l) { return l.map(function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+    var lines, name = { sum: '各類別', code: '經費編號', bud: '預算執行率', inv: '發票清單', pay: '付款方式' }[hxStTab];
+    if (hxStTab === 'code') { lines = [['類別', '編號', '名稱', '組別', '預算', '這段用了', '其中已核銷', '總共用了', '剩下', '執行率%']];
+      (hxSt.codes || []).forEach(function (c) { lines.push([c.cat, c.code, c.name, c.group, c.amount, c.used, c.done, c.usedAll, c.left, c.amount ? Math.round(c.usedAll / c.amount * 1000) / 10 : '']); }); }
+    else if (hxStTab === 'bud') { lines = [['類別', '名稱', '起', '迄', '預算', '已核銷', '待核銷', '已用合計', '剩下', '執行率%']];
+      (hxSt.budgets || []).forEach(function (b) { lines.push([b.cat, b.name, b.from, b.to, b.amount, b.done, b.pending, b.used, b.left, b.amount ? Math.round(b.used / b.amount * 1000) / 10 : '']); }); }
+    else if (hxStTab === 'inv') { lines = [['發票日期', '發票號碼', '廠商', '發票金額', '類別', '分到金額', '狀態', '核銷日期', '經費編號', '付款', '備註']];
+      hxStInvList().forEach(function (v) { v.allocs.forEach(function (a) { if (hxStQ.cat && a.cat !== hxStQ.cat) return; lines.push([v.date, v.nos.join('、'), v.vendor, v.amount, a.cat, a.amount, a.status, a.doneDate, a.codes.join('、'), v.pays.join('、'), v.note]); }); }); }
+    else if (hxStTab === 'pay') { lines = [['付款方式', '付款對象', '張數', '金額']];
+      (hxSt.pays || []).forEach(function (p) { lines.push([p.pay, p.payee, p.n, p.amount]); }); }
+    else { lines = [['月份', '類別', '廠商', '金額', '已核銷', '待核銷']];
+      hxSt.rows.slice().sort(function (a, b) { return a.ym.localeCompare(b.ym) || a.cat.localeCompare(b.cat) || a.vendor.localeCompare(b.vendor); })
+        .forEach(function (x) { lines.push([x.ym, x.cat, x.vendor, x.amount, x.done, r2(x.amount - x.done)]); }); }
+    var csv = '﻿' + lines.map(function (l) { return l.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = '核銷統計 ' + $('hxSf').value + '～' + $('hxSt').value + '.csv';
+    a.download = '核銷' + name + ' ' + $('hxSf').value + '～' + $('hxSt').value + '.csv';
     document.body.appendChild(a); a.click(); a.remove();
   }
   // ④ 類別與經手人

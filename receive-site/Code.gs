@@ -2150,7 +2150,31 @@ function hxStats_(from, to) {
       if (a.status === '已核銷') o.done = round2_(o.done + a.amount);
     });
   });
-  return { cats: cats, rows: Object.keys(rows).map(function (k) { return rows[k]; }) };
+  // ↓ 細項：經費編號、預算執行率、發票逐張、付款方式（都只算這段月份）
+  const all = hxReadInvoices_(), inR = function (d) { const ym = String(d || '').slice(0, 7); return ym && !(from && ym < from) && !(to && ym > to); };
+  const invs = all.filter(function (inv) { return inR(inv.date); });
+  const codes = hxCodes_(all).map(function (c) {
+    const u = c.uses.filter(function (x) { return inR(x.date); });
+    return { code: c.code, name: c.name, cat: c.cat, group: c.group, handler: c.handler, amount: c.amount, usedAll: c.used, left: c.left,
+      used: round2_(u.reduce(function (n, x) { return n + x.amount; }, 0)), done: round2_(u.filter(function (x) { return x.status === '已核銷'; }).reduce(function (n, x) { return n + x.amount; }, 0)), n: u.length };
+  }).filter(function (c) { return c.n || c.amount; });
+  const fd = from ? from + '-01' : '', td = to ? to + '-31' : '';
+  const budgets = hxBudgets_(all).filter(function (b) { return (!td || b.from <= td) && (!fd || b.to >= fd); });
+  const pays = {};
+  invs.forEach(function (inv) {
+    inv.lines.forEach(function (l) {
+      const k = (l.pay || '（沒填）') + '|' + (l.payee || '');
+      const o = pays[k] = pays[k] || { pay: l.pay || '（沒填）', payee: l.payee || '', amount: 0, n: 0, guess: 0 };
+      o.amount = round2_(o.amount + l.amount); o.n++; if (l.guess) o.guess++;
+    });
+  });
+  const list = invs.map(function (inv) {
+    return { id: inv.id, date: inv.date, vendor: inv.vendor, nos: inv.lines.map(function (l) { return l.no; }).filter(Boolean), amount: inv.amount,
+      allocs: inv.allocs.map(function (a) { return { cat: a.cat, amount: a.amount, status: a.status, handler: a.handler, doneDate: a.doneDate, codes: (a.codes || []).map(function (x) { return x.code; }) }; }),
+      pays: inv.lines.map(function (l) { return (l.pay || '') + (l.payee ? '→' + l.payee : ''); }).filter(Boolean), note: inv.note };
+  });
+  return { cats: cats, rows: Object.keys(rows).map(function (k) { return rows[k]; }), codes: codes, budgets: budgets,
+    pays: Object.keys(pays).map(function (k) { return pays[k]; }).sort(function (a, b) { return b.amount - a.amount; }), invoices: list };
 }
 
 // ---------------------------------------------------------------------
