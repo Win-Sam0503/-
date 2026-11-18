@@ -1878,10 +1878,13 @@ function adminSlipTotals(token, from, to) {
     const a = Number(r['金額']), q = Number(r['數量']), p = Number(r['單價']);
     const amt = a > 0 ? a : (q > 0 && p > 0 ? q * p : 0);
     const v = String(r['廠商'] || '').trim(), k = wk + '|' + v;
-    if (!out[k]) out[k] = { wk: wk, v: v, amt: 0, n: 0, blank: 0 };
+    if (!out[k]) out[k] = { wk: wk, v: v, amt: 0, n: 0, blank: 0, cls: {} };
     out[k].amt += amt; out[k].n++; if (!amt) out[k].blank++;
+    // 菜商一班一張：驗收時有選班級的，記那一班的金額（成本直接算給那一班）
+    const cls = String(r['上課班級'] || '').replace(/^'/, '').trim();
+    if (cls) { const ck = cls + '|' + String(r['老師'] || '').trim(); out[k].cls[ck] = (out[k].cls[ck] || 0) + amt; }
   });
-  return Object.keys(out).map(function (k) { const x = out[k]; x.amt = Math.round(x.amt); return x; });
+  return Object.keys(out).map(function (k) { const x = out[k]; x.amt = Math.round(x.amt); Object.keys(x.cls).forEach(function (c) { x.cls[c] = Math.round(x.cls[c]); }); return x; });
 }
 
 /** 銷貨單的單價：{ 「週一|廠商|品名（換成食材總表正式名稱）」: { u, p } }，只讀 weeks 裡的週 */

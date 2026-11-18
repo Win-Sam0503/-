@@ -1476,8 +1476,10 @@
       var pp = [];
       sv.rows.forEach(function (r) {
         var k = Math.max(0, (Number(r.sheet) || 1) - 1), q = isJin(r.unit) && numv(r.qty) !== null ? jinShow(r.qty) : r.qty;
-        pp[k] = pp[k] || { date: r.date || '', kind: r.kind || '食材', rows: [] };
+        pp[k] = pp[k] || { date: r.date || '', kind: r.kind || '食材', rows: [], cls: r.cls || '', teacher: r.teacher || '', ptotal: r.ptotal || '' };
         if (!pp[k].date && r.date) pp[k].date = r.date;
+        if (!pp[k].cls && r.cls) { pp[k].cls = r.cls; pp[k].teacher = r.teacher || ''; }
+        if (pp[k].ptotal === '' && r.ptotal) pp[k].ptotal = r.ptotal;
         var pw = r.pw !== undefined && r.pw !== '' ? r.pw : '', hasPcs = r.pcs !== undefined && r.pcs !== '';
         // 每單位重量用「總重量 ÷ 件數」算回來（存的每單位重量只留兩位小數，1.7 公斤 ÷ 4 片＝0.425 會變 0.43）
         var pwu0 = r.pwu || r.unit, exact = hasPcs && Number(r.pcs) > 0 && numv(r.qty) !== null && WG[r.unit] && WG[pwu0] ? Number(r.qty) * WG[r.unit] / WG[pwu0] / Number(r.pcs) : null;
@@ -1741,6 +1743,100 @@
     }
   });
   function itemUnit(n) { var r = (hxItemList || []).filter(function (x) { return x[0] === n; })[0]; return r && r[3] || ''; }
+  // ---- 菜商（照班級點的廠商）：一班一張銷貨單，每張選是哪一班 ----
+  function clsGroups() {
+    var by = {}, out = [];
+    slipLines().forEach(function (x) {
+      var k = (x.date || '') + '|' + (x.cls || '') + '|' + (x.teacher || '');
+      if (!by[k]) { by[k] = { k: k, date: x.date || '', cls: x.cls || '', teacher: x.teacher || '', lines: [] }; out.push(by[k]); }
+      by[k].lines.push(x);
+    });
+    return out;
+  }
+  function clsKey(pp) { return pp && pp.cls ? (pp.cdate || '') + '|' + pp.cls + '|' + (pp.teacher || '') : ''; }
+  function clsLabel(g) { return (g.date ? mdOf(g.date) + ' ' : '') + g.cls + (g.teacher ? ' ' + g.teacher : ''); }
+  function mdOf(d) { var m = String(d || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : d; }
+  function clsOfPaper(pp, gs) {
+    if (!pp.cls) return null;
+    var m = gs.filter(function (g) { return g.cls === pp.cls && (g.teacher || '') === (pp.teacher || ''); });
+    return m.filter(function (g) { return g.date === (pp.cdate || pp.date); })[0] || m[0] || null;   // 同一班一週兩次：先對上課日期，再對單子日期
+  }
+  // 猜這張是哪一班：單上的品名跟各班叫的品項比，越像分數越高；數量也一樣再加分
+  function clsGuess(pp, gs, used) {
+    var names = {}; pp.rows.forEach(function (r) { var n = String(r.name || '').trim(); if (n) names[n] = r; });
+    var ks = Object.keys(names); if (!ks.length) return [];
+    return gs.map(function (g) {
+      var want = {}; g.lines.forEach(function (x) { want[x.name] = x; });
+      var hit = 0, qhit = 0;
+      ks.forEach(function (n) { if (want[n]) { hit++; var e = String(want[n].expect || '').match(/^([\d.]+)/), q = numv(names[n].qty); if (e && q !== null && Math.abs(Number(e[1]) - q) < 0.01) qhit++; } });
+      var uni = ks.length + Object.keys(want).length - hit;
+      return { g: g, sc: uni ? (hit + qhit * 0.5) / uni : 0, hit: hit, all: Object.keys(want).length, used: !!used[g.k] };
+    }).filter(function (x) { return x.hit; }).sort(function (a, b) { return (a.used - b.used) || (b.sc - a.sc); }).slice(0, 3);
+  }
+  function clsUsed(except) {
+    var gs = clsGroups(), used = {};
+    cur.slip.papers.forEach(function (pp, i) { if (i === except) return; var g = clsOfPaper(pp, gs); if (g) used[g.k] = (used[g.k] || 0) + 1; });
+    return used;
+  }
+  // 選了班級、這張還沒打：把那班叫的菜帶進來（數量照叫貨，單價用上次的），只要改不一樣的
+  function clsFill(i, g) {
+    var pp = cur.slip.papers[i];
+    var empty = pp.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
+    if (!empty && !window.confirm('這張已經有打品項，要換成「' + clsLabel(g) + '」叫的菜嗎？（原本打的會清掉）')) return false;
+    pp.rows = g.lines.map(function (x) {
+      var e = String(x.expect || '').trim(), m, q = '', u = '';
+      if ((m = e.match(/^(\d+(?:\.\d+)?)\s*斤(?:\s*(\d+(?:\.\d+)?)\s*兩)?$/))) { q = m[2] ? m[1] + '斤' + m[2] + '兩' : m[1]; u = '斤'; }
+      else if ((m = e.match(/^(\d+(?:\.\d+)?)\s*(\S+)$/))) { q = m[1]; u = m[2]; }
+      var lp = (cur.b.prices || {})[x.name], r = { name: x.name, qty: q, unit: u, price: '', amount: '' };
+      if (lp && lp.price !== '' && lp.price !== undefined && (!lp.unit || lp.unit === u || (isJin(lp.unit) && isJin(u)))) {
+        r.price = String(lp.price);
+        var qq = slipQty(r), pr = numv(r.price);
+        if (qq !== null && pr !== null) r.amount = String(amt0(qq * pr));
+      }
+      return r;
+    });
+    if (!pp.rows.length) pp.rows.push({ name: '', qty: '', unit: '', price: '', amount: '' });
+    return true;
+  }
+  function clsHead(i, pp) {
+    if (!cur.b.perClass) return '';
+    var gs = clsGroups(), used = clsUsed(i), g = clsOfPaper(pp, gs);
+    var opts = '<option value="">— 這張是哪一班？—</option>' + gs.map(function (x) { return '<option value="' + esc(x.k) + '"' + (g && g.k === x.k ? ' selected' : '') + '>' + esc(clsLabel(x)) + (used[x.k] ? '（已有 ' + used[x.k] + ' 張）' : '') + '</option>'; }).join('') +
+      (pp.cls && !g ? '<option value="__keep" selected>' + esc(pp.cls + (pp.teacher ? ' ' + pp.teacher : '')) + '（叫貨單沒有）</option>' : '');
+    return '<div class="row" style="align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap"><label class="small">🏫 班級 <select data-pcls="' + i + '" style="width:auto;max-width:240px">' + opts + '</select></label>' +
+      '<span data-pguess="' + i + '" class="small"></span>' +
+      '<span style="flex:1"></span><label class="small">單子合計 <input data-ptot="' + i + '" inputmode="decimal" style="width:90px" value="' + esc(String(pp.ptotal === undefined ? '' : pp.ptotal)) + '" placeholder="單子底下的"></label><span data-ptchk="' + i + '" class="small"></span></div>';
+  }
+  // 每張：猜班級、單子合計對不對；最上面：哪幾班打了、哪幾班還沒
+  function clsRefresh() {
+    if (!cur || !cur.b || !cur.b.perClass || !cur.slip || !cur.slip.papers) return;
+    var gs = clsGroups(), usedAll = clsUsed(-1);
+    cur.slip.papers.forEach(function (pp, i) {
+      var gEl = document.querySelector('[data-pguess="' + i + '"]'), tEl = document.querySelector('[data-ptchk="' + i + '"]');
+      if (gEl) {
+        if (pp.cls) gEl.innerHTML = '';
+        else { var gu = clsGuess(pp, gs, clsUsed(i)); gEl.innerHTML = gu.length ? '可能是：' + gu.map(function (x) { return '<button type="button" class="btn ghost small" data-pgset="' + i + '" data-k="' + esc(x.g.k) + '" style="padding:1px 8px' + (x.used ? ';opacity:.55' : '') + '" title="對到 ' + x.hit + '／' + x.all + ' 樣' + (x.used ? '；這班已經有單子了' : '') + '">' + esc(clsLabel(x.g)) + '</button>'; }).join(' ') : (pp.rows.some(function (r) { return String(r.name || '').trim(); }) ? '<span class="muted">對不到哪一班</span>' : '<span class="muted">先選班級，系統會把那班叫的菜帶進來</span>'); }
+      }
+      if (tEl) {
+        var pt = numv(pp.ptotal), sub = pp.rows.reduce(function (a, r) { var v = numv(r.amount); return a + (v === null ? 0 : v); }, 0);
+        tEl.innerHTML = pt === null ? '' : Math.abs(pt - sub) < 0.5 ? '<span style="color:var(--ok)">✓ 對</span>' : '<span style="color:var(--bad);font-weight:700">差 $' + money(r2(sub - pt)) + '</span>';
+      }
+    });
+    var box = $('clsProg'); if (!box) return;
+    var done = gs.filter(function (g) { return usedAll[g.k]; }), todo = gs.filter(function (g) { return !usedAll[g.k]; });
+    var noCls = cur.slip.papers.filter(function (pp) { return !pp.cls && pp.rows.some(function (r) { return String(r.name || '').trim(); }); }).length;
+    var bad = cur.slip.papers.filter(function (pp) { var pt = numv(pp.ptotal); if (pt === null) return false; var sub = pp.rows.reduce(function (a, r) { var v = numv(r.amount); return a + (v === null ? 0 : v); }, 0); return Math.abs(pt - sub) >= 0.5; }).length;
+    box.innerHTML = '<div class="msg info" style="margin:6px 0"><b>🏫 一班一張：</b>已打 <b>' + done.length + '／' + gs.length + '</b> 班' + (noCls ? '・<b style="color:var(--bad)">' + noCls + ' 張還沒選班級</b>' : '') + (bad ? '・<b style="color:var(--bad)">' + bad + ' 張合計對不上</b>' : '') +
+      (todo.length ? '<details style="margin-top:4px"><summary class="small" style="cursor:pointer">還沒打的班級（' + todo.length + '）</summary><div class="small" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">' +
+        todo.map(function (g) { return '<button type="button" class="btn ghost small" data-pnew="' + esc(g.k) + '" style="padding:1px 8px" title="新增一張，帶入這班叫的菜">＋ ' + esc(clsLabel(g)) + '</button>'; }).join('') + '</div></details>' : '<span class="small" style="color:var(--ok)">　✓ 每班都有單子了</span>') + '</div>';
+  }
+  function clsSet(i, k) {
+    var pp = cur.slip.papers[i], g = clsGroups().filter(function (x) { return x.k === k; })[0];
+    if (!g) { if (k === '') { pp.cls = ''; pp.teacher = ''; pp.cdate = ''; } return; }
+    var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
+    pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date;
+    if (!had) clsFill(i, g);
+  }
   function renderPapers() {
     var sl = cur.slip;
     $('slipQWrap').classList.remove('hidden');   // 一張一張打的也可以搜尋品名
@@ -1748,11 +1844,12 @@
     var html = '<datalist id="itemList">' + itemOpts() + '</datalist>' +
       '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     var showWt = wtVendor() || sl.papers.some(function (pp) { return pp.rows.some(function (r) { return numv(r.wt) !== null; }); });
+    if (cur.b.perClass) html += '<div id="clsProg"></div>';
     html += sl.papers.map(function (pp, i) {
       return (i ? '<div class="paper-sep"><span>✂ 第 ' + (i + 1) + ' 張銷貨單</span><button type="button" class="btn ghost small" data-pmerge="' + i + '" title="不用分開：這張的品項併回上一張" style="padding:1px 8px">↩ 併回上一張</button></div>' : '') +
         '<div class="paper' + (pp.kind === '器材' ? ' gear' : '') + '"><div class="row" style="align-items:center"><b>📄 第 ' + (i + 1) + ' 張</b>' +
         '<span class="kindsw"><button type="button" data-pk="' + i + '" data-k="食材" class="' + (pp.kind !== '器材' ? 'on' : '') + '">🥬 食材</button><button type="button" data-pk="' + i + '" data-k="器材" class="' + (pp.kind === '器材' ? 'on' : '') + '">🔧 器材</button></span><label class="small">日期 <input type="date" data-pd="' + i + '" value="' + esc(pp.date || '') + '" style="width:auto"></label>' +
-        '<span style="flex:1"></span><span class="small">小計 <b data-psub="' + i + '"></b></span>' + (sl.papers.length > 1 ? '<button type="button" class="btn ghost small" data-pdel="' + i + '" title="刪掉這一張">🗑</button>' : '') + '</div>' +
+        '<span style="flex:1"></span><span class="small">小計 <b data-psub="' + i + '"></b></span>' + (sl.papers.length > 1 ? '<button type="button" class="btn ghost small" data-pdel="' + i + '" title="刪掉這一張">🗑</button>' : '') + '</div>' + clsHead(i, pp) +
         '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>數量</th><th>單位</th>' + (showWt ? '<th><select data-wtmode style="width:auto;font-size:13px;padding:2px;font-weight:700" title="總重量：單上寫「12 隻、總重 10.2 斤」照總重算錢；每單位重量：1 罐／1 包幾 g（規格）"><option value="tot"' + (totMode() ? ' selected' : '') + '>總重量</option><option value="per"' + (totMode() ? '' : ' selected') + '>每單位重量</option></select></th>' : '') + '<th>單價</th><th>金額</th><th></th></tr>' +
         pp.rows.map(function (r, j) {
           var a = function (f, ph, extra) { return '<input data-pi="' + i + '" data-pj="' + j + '" data-pf="' + f + '" value="' + esc(r[f] === undefined || r[f] === null ? '' : String(r[f])) + '" placeholder="' + ph + '"' + (extra || '') + '>'; };
@@ -1773,6 +1870,7 @@
   }
   // 每張小計、品項合計（跟叫貨量對照）、總計
   function paperTotals() {
+    try { clsRefresh(); } catch (e) {}
     var sl = cur.slip, by = {}, order = [];
     sl.papers.forEach(function (pp, i) {
       var sub = 0;
@@ -1857,6 +1955,8 @@
   $('slipBox').addEventListener('input', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
     if (t.hasAttribute && t.hasAttribute('data-pd')) { cur.slip.papers[Number(t.getAttribute('data-pd'))].date = t.value; saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-ptot')) { cur.slip.papers[Number(t.getAttribute('data-ptot'))].ptotal = t.value; clsRefresh(); saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); if (t.value !== '__keep') clsSet(ci, t.value); renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
     if (!f || f === 'pu' || f === 'wu') return;
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     if (f === 'wt' && totMode()) { r.tw = t.value; totApply(r); }
@@ -1908,7 +2008,16 @@
   });
   $('slipBox').addEventListener('click', function (e) {
     var t = e.target, sl = cur.slip, v;
-    if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll('[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
+    if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pgset')) { var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg) { gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; } renderPapers(); saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pnew')) {
+      var nk = t.getAttribute('data-pnew'), ng = clsGroups().filter(function (x) { return x.k === nk; })[0]; if (!ng) return;
+      var last = sl.papers[sl.papers.length - 1], blank = last && !last.cls && last.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
+      if (!blank) sl.papers.push(newPaper());
+      var ni = sl.papers.length - 1; clsSet(ni, nk); renderPapers(); saveDraft();
+      var nq = $('slipBox').querySelector('[data-pi="' + ni + '"][data-pj="0"][data-pf="qty"]'); if (nq) { nq.scrollIntoView({ block: 'center' }); nq.focus(); }
+      return;
+    }
     if ((v = t.getAttribute && t.getAttribute('data-padd')) !== null && v !== undefined && t.hasAttribute('data-padd')) { var i = Number(v); sl.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="' + (sl.papers[i].rows.length - 1) + '"][data-pf="name"]').focus(); return; }
     if (t.hasAttribute && t.hasAttribute('data-prdel')) { var p2 = t.getAttribute('data-prdel').split('-'), pp = sl.papers[Number(p2[0])]; pp.rows.splice(Number(p2[1]), 1); if (!pp.rows.length) pp.rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); return; }
     // ✂ 自己切開：這一行以下變成新的一張（日期、食材／器材跟原本那張一樣）；↩ 併回上一張
@@ -1993,7 +2102,7 @@
           else if (hasW) c = { qty: r.qty, unit: r.unit || '', price: r.price, pw: wt, pwu: r.wu || wtDefault() };
           else c = jinRow(r) ? { qty: slipQty(r) === null ? r.qty : Math.round(slipQty(r) * 10000) / 10000, unit: '斤', price: slipPrice(r) === null ? r.price : r2(slipPrice(r)) } : { qty: r.qty, unit: r.unit || '', price: r.price };
           c.price = fillPrice(c.price, c.qty, r.amount);
-          rows.push({ name: n, slipName: r.sn || n, qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: '', sheet: i + 1, date: pp.date || '', kind: pp.kind || '食材', pcs: c.pcs === undefined ? '' : c.pcs, pcsUnit: c.pcsUnit || '', pw: c.pw === undefined ? '' : c.pw, pwu: c.pwu || '' });
+          rows.push({ name: n, slipName: r.sn || n, qty: c.qty, unit: c.unit, price: c.price, amount: r.amount, code: '', sheet: i + 1, date: pp.date || '', kind: pp.kind || '食材', cls: pp.cls || '', teacher: pp.teacher || '', ptotal: pp.ptotal === undefined ? '' : pp.ptotal, pcs: c.pcs === undefined ? '' : c.pcs, pcsUnit: c.pcsUnit || '', pw: c.pw === undefined ? '' : c.pw, pwu: c.pwu || '' });
         });
       });
       return { total: sl.total, rows: rows };

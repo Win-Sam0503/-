@@ -4143,8 +4143,11 @@
     return v;
   }
   function allocCompute() {
-    var slipT = {}, items = {}, per = {}, noSlip = {};
-    slipTotals.forEach(function (x) { var k = x.wk + '|' + allocGroup(x.v); slipT[k] = (slipT[k] || 0) + x.amt; });
+    var slipT = {}, slipC = {}, items = {}, per = {}, noSlip = {}, byCls = {};
+    slipTotals.forEach(function (x) {
+      var k = x.wk + '|' + allocGroup(x.v); slipT[k] = (slipT[k] || 0) + x.amt;
+      Object.keys(x.cls || {}).forEach(function (c) { var m = slipC[k] = slipC[k] || {}; m[c] = (m[c] || 0) + x.cls[c]; });
+    });
     costAll.forEach(function (o) {
       var wk = isoDate(weekMon(o.useDate));
       (o.items || []).forEach(function (it) {
@@ -4163,11 +4166,27 @@
       var inRange = xs.some(function (x) { return costCache.indexOf(x.o) >= 0; });
       if (inRange) rows.push({ wk: a[0], g: a[1], T: T, W: Wk, n: xs.length, nk: known.length, has: !!slipT[k] });
       if (!T) { xs.forEach(function (x) { noSlip[x.o.orderNo] = true; }); return; }
-      xs.forEach(function (x) { per[x.o.orderNo] = (per[x.o.orderNo] || 0) + (W ? T * x.w / W : T / xs.length); });
+      var C = slipC[k], share = function (list, amt) { var w = list.reduce(function (t, x) { return t + x.w; }, 0); list.forEach(function (x) { per[x.o.orderNo] = (per[x.o.orderNo] || 0) + (w ? amt * x.w / w : amt / list.length); }); };
+      if (C && Object.keys(C).length) {
+        // 一班一張的銷貨單：那一班的單子金額直接分給那一班的料單；沒標班級的金額，分給其他料單
+        var keys = Object.keys(C), grp = {}, rest = [];
+        xs.forEach(function (x) {
+          var cls = String(x.o.className || '').trim(), tc = String(x.o.onBehalfOf || x.o.teacher || '').trim();
+          var ck = C[cls + '|' + tc] !== undefined ? cls + '|' + tc : (function () { var m = keys.filter(function (c) { return c.split('|')[0] === cls; }); return m.length === 1 ? m[0] : ''; })();
+          if (cls && ck) (grp[ck] = grp[ck] || []).push(x); else rest.push(x);
+        });
+        var used = 0;
+        Object.keys(grp).forEach(function (ck) { used += C[ck]; share(grp[ck], C[ck]); grp[ck].forEach(function (x) { byCls[x.o.orderNo] = true; }); });
+        var left = T - used;
+        if (rest.length) share(rest, left);
+        else if (Math.abs(left) > 0.5) share(xs, left);   // 剩下沒標班級的錢沒有料單可以分：照比例分給全部，總額還是等於銷貨單
+        return;
+      }
+      share(xs, T);
     });
     var orphan = Object.keys(slipT).filter(function (k) { return !items[k] && slipT[k]; }).map(function (k) { var a = k.split('|'); return { wk: a[0], g: a[1], T: slipT[k] }; });
     rows.sort(function (a, b) { return a.wk < b.wk ? -1 : a.wk > b.wk ? 1 : a.g.localeCompare(b.g, 'zh-Hant'); });
-    return { per: per, noSlip: noSlip, rows: rows, orphan: orphan };
+    return { per: per, noSlip: noSlip, rows: rows, orphan: orphan, byCls: byCls };
   }
   var allocOpen = true;   // 實際成本（依銷貨單分攤）是正式的，預設打開
   document.addEventListener('toggle', function (e) { if (e.target.id === 'costAlloc') allocOpen = e.target.open; }, true);
@@ -4183,7 +4202,7 @@
     order.sort(function (a, b) { return costBy === 'week' ? (a < b ? -1 : 1) : g[b].alloc - g[a].alloc; });
     var lab = function (k) { return costBy === 'week' ? shortDate(k) + ' 那週' : k; };
     var pct = function (a, b) { if (!b) return ''; var d = Math.round((a - b) / b * 100); return '<span class="' + (Math.abs(d) > 20 ? '' : 'muted') + '" style="' + (Math.abs(d) > 20 ? 'color:var(--warn)' : '') + '">' + (d > 0 ? '+' : '') + d + '%</span>'; };
-    return '<details class="panel" id="costAlloc"' + (allocOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>③ 實際成本（依銷貨單總額分攤）</b>　<span class="small muted">' + tot.n + ' 張料單分攤 <b>$' + money0(tot.alloc) + '</b>（依品項算 $' + money0(tot.item) + '）</span></summary>' +
+    return '<details class="panel" id="costAlloc"' + (allocOpen ? ' open' : '') + ' style="padding:12px 16px"><summary style="cursor:pointer"><b>③ 實際成本（依銷貨單總額分攤）</b>　<span class="small muted">' + tot.n + ' 張料單分攤 <b>$' + money0(tot.alloc) + '</b>（依品項算 $' + money0(tot.item) + '）' + (function () { var n = costCache.filter(function (o) { return A.byCls[o.orderNo]; }).length; return n ? '・其中 ' + n + ' 張直接用那班的銷貨單（菜商一班一張）' : ''; })() + '</span></summary>' +
       '<div class="muted small" style="margin:6px 0">每週每家廠商銷貨單的<b>食材金額（真的花的錢）</b>，照那週每張料單「依品項算」的比例分下去，所以加起來一定等於銷貨單。名稱、單位對不到（沒成本）的品項，用同一週同一家其他品項的平均當比重，錢不會不見，只是比例差一點。器材、自備、有貨不算。E中餐乾貨（銘哲）、E烘焙乾貨（旺來興）分開算，訂單上「E乾貨」的照單價是哪家來的（沒有就照科別）；蛋商烘焙、中餐合在一起（開勛蛋行）。分組照上面 ③ 選的（依老師、班級…）。</div>' +
       '<div class="tablewrap"><table><tr><th>' + { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy] + '</th><th style="text-align:right">料單</th><th style="text-align:right">依品項算</th><th style="text-align:right">依銷貨單分攤</th></tr>' +
       order.map(function (k) { var x = g[k];
