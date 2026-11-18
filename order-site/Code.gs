@@ -2799,7 +2799,10 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm, quiet) {
 }
 
 /** 管理者退單給老師：整張取消，LINE 告訴老師退單原因，請老師用「再訂一次」修改後重新送出 */
-function adminReturnOrder(token, orderNo, reason, notify) {
+/**
+ * 管理者退單。noClass＝這堂課不用上（月考、放假…）：通知寫「不用再訂」，這堂課自動標成「不用訂貨」（不會再提醒）。
+ */
+function adminReturnOrder(token, orderNo, reason, notify, noClass) {
   const admin = auth_(token, true);
   orderNo = String(orderNo || '').trim();
   reason = clean_(reason, 100);
@@ -2807,8 +2810,23 @@ function adminReturnOrder(token, orderNo, reason, notify) {
   updateOrderStatus_(orderNo, '已取消', function (rows) {
     if (rows.every(function (r) { return String(r['狀態']).trim() === '已取消'; })) throw new Error('這張訂單已經取消了。');
   }, null);
-  try { logOrderEdit_(orderNo, admin, ['退單'], reason); } catch (e) { console.error(e.message); }
-  return { ok: true, notify: notify === false ? '沒有通知老師。' : notifyTeacherOfEdit_(orderNo, admin, ['退單'], reason, 'return') };
+  try { logOrderEdit_(orderNo, admin, [noClass ? '退單（這堂課不用上，不用再訂）' : '退單'], reason); } catch (e) { console.error(e.message); }
+  let marked = '';
+  if (noClass) {
+    try {
+      const o = orderOf_(orderNo), d = o && parseDate_(o.useDate), teacher = o && (o.onBehalfOf || o.teacher), session = o && sessionOf_(o.classTime);
+      if (d && teacher) {
+        const sh = ensureSheet_(SHEET.skips, SKIP_HEADERS);
+        ensureHeaders_(sh, SKIP_HEADERS);
+        const t = readTable_(SHEET.skips, ['老師', '日期', '時段']);
+        const same = t.rows.some(function (r) { const rd = toDate_(r['日期']); return String(r['老師']).trim() === teacher && rd && dateStr_(rd) === dateStr_(d) && String(r['時段']).trim() === session; });
+        if (!same) appendRows_(SHEET.skips, [{ '老師': teacher, '日期': d, '時段': session, '課程': clean_(o.project, 40), '標記時間': new Date(), '備註': '不用訂貨原因：' + reason + '（退單）', '標記人': admin }],
+          { '日期': 'yyyy-mm-dd', '標記時間': 'yyyy/mm/dd hh:mm' });
+        marked = '這堂課已標成「不用訂貨」。';
+      }
+    } catch (e) { console.error('退單標不用訂貨 ' + e.message); }
+  }
+  return { ok: true, marked: marked, notify: notify === false ? '沒有通知老師。' : notifyTeacherOfEdit_(orderNo, admin, ['退單'], reason, noClass ? 'return-noclass' : 'return') };
 }
 
 /**
@@ -2832,13 +2850,14 @@ function notifyTeacherOfEdit_(orderNo, admin, changes, reason, kind) {
     const q = lineQuota_();
     if (q && q.limit && q.limit - q.used - 1 < LINE_RESERVE) return '本月 LINE 則數快用完，沒有通知 ' + teacher + ' 老師。';
     const d = parseDate_(o.useDate);
-    const ret = kind === 'return';
+    const ret = kind === 'return' || kind === 'return-noclass', noClass = kind === 'return-noclass';
     const text = (ret ? '【退單通知】' + teacher + ' 老師您好，管理者退回了您的訂單：\n' : '【訂單修改通知】' + teacher + ' 老師您好，管理者修改了您的訂單：\n') +
       (d ? shortDateTw_(d) + ' ' : '') + o.className + '「' + o.project + '」\n' +
       (reason ? (ret ? '退單原因：' : '修改原因：') + reason + '\n' : '') +
       (ret ? '' : changes.map(function (c) { return '・' + c; }).join('\n') + '\n') +
-      (ret ? '\n請到「我的訂單」找到這張，按「再訂一次」修改後重新送出（已過截止的話請找管理者）。' : '\n有問題請找管理者。') +
-      (lineUrl_('mine') ? '\n' + lineUrl_('mine') : '');
+      (noClass ? '\n這堂課不用上課，不需要再訂貨，系統已經幫您標成「不用訂貨」，不會再提醒。有問題請找管理者。'
+        : ret ? '\n請到「我的訂單」找到這張，按「再訂一次」修改後重新送出（已過截止的話請找管理者）。' : '\n有問題請找管理者。') +
+      (!noClass && lineUrl_('mine') ? '\n' + lineUrl_('mine') : '');
     return linePush_(uid, text) ? '已用 LINE 通知 ' + teacher + ' 老師。' : 'LINE 通知 ' + teacher + ' 老師失敗。';
   } catch (e) {
     console.error('通知老師失敗：' + e.message);

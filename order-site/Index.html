@@ -4716,15 +4716,19 @@
       ask('', '退單', { noText: '取消', html: '<div class="info-check"><h3>退單給 ' + esc(who) + ' 老師</h3>' +
         '<div class="muted small" style="margin-bottom:8px">' + esc(shortDate(o.useDate) + ' ' + o.className + '「' + o.project + '」') + '：整張訂單會取消，請老師用「再訂一次」修改後重新送出。勾「LINE 通知老師」會把原因傳給老師。</div>' +
         reasonHtml(RETURN_REASONS, '退單原因（必填）').replace('<option value="">（不寫原因）</option>', '<option value="">（請選擇）</option>') +
+        '<div style="margin-top:8px;text-align:left"><b>老師接下來要：</b>' +
+        '<label class="check" style="margin:4px 0"><input type="radio" name="retKind" value="redo" checked> 修改後重新送出（通知會請老師按「再訂一次」）</label>' +
+        '<label class="check" style="margin:4px 0"><input type="radio" name="retKind" value="noclass"> 這堂課不用上，不用再訂（月考、放假…；這堂課自動標成「不用訂貨」）</label></div>' +
         '<label class="check" style="margin-top:6px;text-align:left"><input type="checkbox" id="retNotify" checked> LINE 通知老師（' + esc(who) + '）</label></div>' }).then(function (ok) {
         if (!ok) return;
         var notifyT = !$('retNotify') || $('retNotify').checked;
+        var kindEl = document.querySelector('#askText input[name="retKind"]:checked'), noClass = !!(kindEl && kindEl.value === 'noclass');
         var reason = readReason($('askText'));
         // 沒選原因：用跳出視窗提醒（訊息在頁面最上面，捲到下面時看不到，會以為按了沒反應），按「知道了」再開一次退單視窗
         if (!reason) { notice('請選擇或填寫「退單原因」，老師才知道要改什麼。').then(function () { b.click(); }); return; }
         setBusy(b, true, '退單中…');
-        call('adminReturnOrder', token, o.orderNo, reason, notifyT).then(function (r) {
-          notice('訂單 ' + o.orderNo + ' 已退單給 ' + who + ' 老師（原因：' + reason + '）。' + (r && r.notify ? r.notify : ''));
+        call('adminReturnOrder', token, o.orderNo, reason, notifyT, noClass).then(function (r) {
+          notice('訂單 ' + o.orderNo + ' 已退單給 ' + who + ' 老師（原因：' + reason + '）。' + (r && r.marked ? r.marked : '') + (r && r.notify ? r.notify : ''));
           msg('sumMsg', 'ok', '訂單 ' + o.orderNo + ' 已退單給 ' + who + ' 老師（原因：' + reason + '）。' + (r && r.notify ? r.notify : ''));
           loadSummaryKeepMsg();
         }).catch(function (err) { notice('退單失敗：' + err.message); msg('sumMsg', 'error', err.message); setBusy(b, false); });
@@ -4743,7 +4747,8 @@
 
   // 修改原因／退單原因（會一起用 LINE 告訴老師）
   var EDIT_REASONS = ['單位錯誤，已修正', '數量異常，已修正', '品項錯誤，已修正', '食材和器具放錯，已修正', '上課資訊錯誤，已修正'];
-  var RETURN_REASONS = ['數量或單位有誤，請修改', '食材內容有誤，請修改', '上課日期或班級有誤，請修改', '重複訂單', '請改用其他方式處理'];
+  var RETURN_REASONS = ['數量或單位有誤，請修改', '食材內容有誤，請修改', '上課日期或班級有誤，請修改', '重複訂單', '請改用其他方式處理', '月考／段考，不用上課', '放假／停課，不用上課', '校外教學／活動，不用上課'];
+  var NO_CLASS_RE = /不用上|考|放假|停課|補假|校外|活動|請假|不上課/;   // 這種原因：預設選「這堂課不用上」
   // 常用原因做成按鈕：點一下就選好（可以再點取消），「其他」或補充寫在下面
   var SKIP_REASONS = ['校外教學／活動', '段考／考試', '改上理論課', '調課（改到別天）', '用上次剩的材料', '學生人數太少', '老師請假'];
   var CANCEL_REASONS = ['訂錯了，要重新訂', '重複訂單', '調課（改到別天）', '校外教學／活動', '段考／考試', '改上理論課', '老師請假'];
@@ -4762,6 +4767,13 @@
     b.classList.toggle('on');
     b.style.background = b.classList.contains('on') ? 'var(--brand)' : ''; b.style.color = b.classList.contains('on') ? '#fff' : '';
   });
+  ['change', 'input'].forEach(function (ev) { document.addEventListener(ev, retKindAuto); });
+  function retKindAuto(e) {   // 退單原因像「月考」「放假」：自動選「這堂課不用上」
+    var t = e.target; if (!t.closest || !t.closest('#askText') || !(t.hasAttribute('data-reason') || t.hasAttribute('data-reason-text'))) return;
+    var box = $('askText'), nc = box.querySelector('input[name="retKind"][value="noclass"]'), rd = box.querySelector('input[name="retKind"][value="redo"]');
+    if (!nc) return;
+    var txt = readReason(box); if (NO_CLASS_RE.test(txt)) nc.checked = true; else if (txt) rd.checked = true;
+  }
   function reasonHtml(list, label) {
     return '<div class="reason-box"><label>' + label + '</label><select data-reason><option value="">（不寫原因）</option>' +
       list.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '<option value="其他">其他（自己寫）</option></select>' +
