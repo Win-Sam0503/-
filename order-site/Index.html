@@ -937,11 +937,10 @@
         <div id="unMsg" class="small" style="margin-top:6px"></div>
         <div id="unList" class="small" style="margin-top:8px;line-height:2"></div>
         <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
-          <b>🔗 單位合併</b> <span class="muted small">兩個單位其實一樣（例如 隻／支）：合併後老師的選單只剩一個，舊的叫法自動換成留下來的那個，成本、叫貨單也當同一個算</span>
+          <b>🔗 單位合併</b> <span class="muted small">兩個單位其實一樣（例如 隻／支）：老師照樣打自己習慣的單位，<b>廠商訂貨單、叫貨單、成本</b>自動換成留下來的那個、合在一起算</span>
           <div class="newform" style="margin-top:6px">
             <div><label for="umFrom">這個單位（會拿掉）</label><select id="umFrom"></select></div>
             <div><label for="umTo">當成這個（留下來）</label><select id="umTo"></select></div>
-            <label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="umFix" checked style="width:auto"> 還沒叫貨的訂單、範本一起改</label>
             <button type="button" class="btn small" id="umGo">合併</button>
           </div>
           <div id="umMsg" class="small" style="margin-top:6px"></div>
@@ -2538,7 +2537,7 @@
     var SYN = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'ml', 'cc': 'ml', '毫升': 'ml', 'L': '公升',
       '個': '顆', '粒': '顆', '根': '條', '支': '條', '附': '付', '副': '付' };   // 同義的合併（跟伺服器 UNIT_SYNONYMS 一樣）
     u = String(u == null ? '' : u).trim();
-    return SYN[u] || (data && data.unitMerge || {})[u] || u;   // 管理者自己設的合併（單位管理 → 🔗 單位合併）
+    return SYN[u] || u;
   }
   function pendingUnits() {
     var out = (data.pendingUnits || []).slice();
@@ -5359,8 +5358,10 @@
   function isEgg(name) { return String(name || '').trim() === '雞蛋'; }
   // 乾貨、飲調的重量一律換成克（顯示時無條件進位到整數），學生扣貨、廠商都看克數
   function gramVendor(v) { return /^[EF]/.test(v || ''); }
+  function vendU(u) { u = String(u || '').trim(); return (data && data.unitMerge || {})[u] || u; }   // 管理者設的單位合併：老師打「隻」，廠商看到「條」
   function convertUnit(qty, unit, vendor, name, forStudents) {
-    if (data && vendor === data.selfVendor) return { qty: qty, unit: unit };   // 自備照老師訂的單位（冰塊用公斤、老麵用克）
+    if (data && vendor === data.selfVendor) return { qty: qty, unit: unit };
+    unit = vendU(unit);   // 自備照老師訂的單位（冰塊用公斤、老麵用克）
     if (GRAMS[unit] && isEgg(name)) return { qty: Math.round(qty * GRAMS[unit] / EGG_GRAMS * 100) / 100, unit: '顆' };
     if (!GRAMS[unit]) return { qty: qty, unit: COUNT_UNITS[unit] || unit };
     if (gramVendor(vendor)) return { qty: Math.round(qty * GRAMS[unit] * 100) / 100, unit: 'g' };   // 顯示時無條件進位到整數克
@@ -5372,7 +5373,7 @@
     if (gramVendor(vendor) && GRAMS[unit] && !isEgg(name)) return Math.ceil(Number(qty) * GRAMS[unit] - 1e-6) + ' g';
     var cv = convertUnit(Number(qty), unit, vendor, name);
     if (cv.unit === '兩' || (cv.unit === '顆' && isEgg(name) && GRAMS[unit])) return fmtTotal(cv.qty, cv.unit, name);
-    return fmtQty(qty) + ' ' + unit;
+    return fmtQty(qty) + ' ' + vendU(unit);
   }
   // 菜商、肉商用克或公斤訂的，換成斤兩給大家看（例如 500 g → 14 兩），跟給廠商的單子算法一樣；其他回傳空字串
   function jinOf(qty, unit, vendor, name) {
@@ -5512,15 +5513,14 @@
   }
   function umLoad() { return call('adminGetUnitMerge', token).then(umRender).catch(function (e) { $('umList').textContent = '載入失敗：' + e.message; }); }
   $('umGo').addEventListener('click', function () {
-    var f = $('umFrom').value, t = $('umTo').value, fix = $('umFix').checked, b = this;
+    var f = $('umFrom').value, t = $('umTo').value, fix = false, b = this;
     if (!f || !t) { $('umMsg').innerHTML = '<span style="color:var(--bad)">請選兩個單位。</span>'; return; }
     if (f === t) { $('umMsg').innerHTML = '<span style="color:var(--bad)">兩個單位一樣。</span>'; return; }
-    if (!window.confirm('把「' + f + '」合併到「' + t + '」？\n老師的單位選單不會再有「' + f + '」；打「' + f + '」會自動變成「' + t + '」。' + (fix ? '\n還沒叫貨的訂單、範本裡的「' + f + '」也會一起改成「' + t + '」。' : ''))) return;
+    if (!window.confirm('把「' + f + '」當成「' + t + '」？\n老師照樣可以打「' + f + '」，料單上也照老師打的；廠商訂貨單、叫貨單、成本會換成「' + t + '」合在一起算。')) return;
     setBusy(b, true, '合併中…');
     call('adminSetUnitMerge', token, f, t, false, fix).then(function (r) {
-      data.orderUnits = (data.orderUnits || []).filter(function (u) { return u !== f; }); data.recipeUnits = (data.recipeUnits || []).filter(function (u) { return u !== f; });
       umRender({ custom: r.custom, builtin: null }); umLoad();
-      $('umMsg').innerHTML = '<span style="color:var(--ok)">✓ 「' + esc(f) + '」已合併到「' + esc(t) + '」' + (fix ? '，還沒叫貨的訂單改了 ' + r.orders + ' 行、範本 ' + r.templates + ' 行' : '') + '。老師重新整理網頁就生效。</span>';
+      $('umMsg').innerHTML = '<span style="color:var(--ok)">✓ 以後廠商訂貨單、成本會把「' + esc(f) + '」當成「' + esc(t) + '」。老師照樣打「' + esc(f) + '」沒關係。已經產生過的廠商訂貨單請重新產生一次。</span>';
     }).catch(function (e) { $('umMsg').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>'; }).then(function () { setBusy(b, false); });
   });
   document.addEventListener('click', function (e) {

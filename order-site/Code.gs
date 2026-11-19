@@ -1361,8 +1361,10 @@ function qty_(v, name) {
 
 function normUnit_(u) {
   u = String(u == null ? '' : u).trim();
-  return UNIT_SYNONYMS[u] || unitMerge_()[u] || u;
+  return UNIT_SYNONYMS[u] || u;
 }
+/** 給廠商、算成本用的單位：再套管理者設的合併（老師打「隻」，廠商訂貨單看到「條」） */
+function vendUnit_(u) { u = normUnit_(u); return unitMerge_()[u] || u; }
 /** 管理者自己設的單位合併（例如 隻 → 支）：存在指令碼屬性 UNIT_MERGE，{ 被合併的: 留下來的 } */
 let UNIT_MERGE_ = null;
 function unitMerge_() {
@@ -1399,7 +1401,7 @@ function adminSetUnitMerge(token, from, to, remove, fixOrders) {
     PropertiesService.getScriptProperties().setProperty('UNIT_MERGE', JSON.stringify(m));
     UNIT_MERGE_ = m; UNIT_CACHE_ = null;
     try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
-    if (!remove && fixOrders) {
+    if (false && !remove && fixOrders) {   // 現在不改老師的訂單：老師打什麼就是什麼，廠商訂貨單、成本才換
       const target = m[from];
       const o = readTable_(SHEET.orders, ['訂單編號', '單位']);
       o.rows.forEach(function (x) {
@@ -1454,8 +1456,7 @@ function unitLists_() {
     if (r.status === '核准') (r.type === '配方' ? recipe : order).push(u);
     else if (r.status === '待審核') pending.push(u);
   });
-  const mg = unitMerge_(), keep = function (u) { return !mg[u]; };   // 合併掉的單位不出現在選單
-  UNIT_CACHE_ = { order: order.filter(keep), recipe: recipe.filter(keep), pending: pending.filter(keep), all: order.concat(recipe, pending) };
+  UNIT_CACHE_ = { order: order, recipe: recipe, pending: pending, all: order.concat(recipe, pending) };   // 合併的單位老師照樣可以選（後端換算）
   return UNIT_CACHE_;
 }
 
@@ -7139,6 +7140,7 @@ const COUNT_UNITS_ = { '個': '顆', '粒': '顆', '顆': '顆', '根': '條', '
 const EGG_GRAMS_ = 50;
 function isEgg_(name) { return String(name || '').trim() === '雞蛋'; }
 function convertUnit_(qty, unit, vendor, name) {
+  unit = vendUnit_(unit);   // 管理者設的單位合併（隻 → 條）
   if (GRAMS_[unit] && isEgg_(name)) return { qty: Math.round(qty * GRAMS_[unit] / EGG_GRAMS_ * 100) / 100, unit: '顆' };
   if (!GRAMS_[unit]) return { qty: qty, unit: COUNT_UNITS_[unit] || unit };
   const target = /^[AB]/.test(vendor || '') ? '兩' : /^[EF]/.test(vendor || '') ? 'g' : '公斤';   // 乾貨、飲調換成克（跟網頁一樣）
@@ -7148,7 +7150,7 @@ function convertUnit_(qty, unit, vendor, name) {
 function vendorLineQty_(qty, unit, vendor, name) {
   const cv = convertUnit_(Number(qty), unit, vendor, name);
   if (cv.unit === '兩' || (cv.unit === '顆' && isEgg_(name) && GRAMS_[unit])) return totalText_(cv.qty, cv.unit, name);
-  return { qty: qty, unit: unit };
+  return { qty: qty, unit: vendUnit_(unit) };
 }
 /** 合計顯示：{ qty, unit }；兩無條件進位到整兩、滿 16 兩進成斤，雞蛋進位到整顆 */
 function totalText_(qty, unit, name) {
