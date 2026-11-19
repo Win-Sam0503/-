@@ -524,6 +524,7 @@ function getBootstrap(token) {
     orderUnits: st.units.order,
     recipeUnits: st.units.recipe,
     pendingUnits: st.units.pending,
+    unitMerge: unitMerge_(),
     deptSubs: st.deptSubs,
     missingSetup: isAdmin ? st.missingSetup : [],
     vendorContacts: isAdmin ? st.vendorContacts : {},
@@ -1360,7 +1361,61 @@ function qty_(v, name) {
 
 function normUnit_(u) {
   u = String(u == null ? '' : u).trim();
-  return UNIT_SYNONYMS[u] || u;
+  return UNIT_SYNONYMS[u] || unitMerge_()[u] || u;
+}
+/** 管理者自己設的單位合併（例如 隻 → 支）：存在指令碼屬性 UNIT_MERGE，{ 被合併的: 留下來的 } */
+let UNIT_MERGE_ = null;
+function unitMerge_() {
+  if (UNIT_MERGE_) return UNIT_MERGE_;
+  try { UNIT_MERGE_ = JSON.parse(PropertiesService.getScriptProperties().getProperty('UNIT_MERGE') || '{}') || {}; } catch (e) { UNIT_MERGE_ = {}; }
+  return UNIT_MERGE_;
+}
+/** 管理者：單位合併清單（內建的＋自己設的） */
+function adminGetUnitMerge(token) {
+  auth_(token, true);
+  return { builtin: UNIT_SYNONYMS, custom: unitMerge_() };
+}
+/**
+ * 管理者：設定「from 當成 to」（remove＝true 取消）。fixOrders＝true：還沒叫貨的訂單（待處理、已審核）、範本裡的 from 一起改成 to。
+ * 改完清掉開網頁的快取，老師重新整理就只看得到 to。
+ */
+function adminSetUnitMerge(token, from, to, remove, fixOrders) {
+  const admin = auth_(token, true);
+  from = clean_(from, 10); to = clean_(to, 10);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const out = { orders: 0, templates: 0 };
+  try {
+    const m = Object.assign({}, unitMerge_());
+    if (remove) { delete m[from]; }
+    else {
+      if (!from || !to) throw new Error('請選兩個單位。');
+      if (from === to) throw new Error('兩個單位一樣。');
+      if (UNIT_SYNONYMS[from]) throw new Error('「' + from + '」系統已經當成「' + UNIT_SYNONYMS[from] + '」了。');
+      const t2 = UNIT_SYNONYMS[to] || m[to] || to;   // 留下來的如果也被合併過，直接指到最後那個
+      if (t2 === from) throw new Error('「' + to + '」已經合併到「' + from + '」，不能反過來再合併。');
+      m[from] = t2;
+      Object.keys(m).forEach(function (k) { if (m[k] === from) m[k] = t2; });   // 以前合併到 from 的，改指到新的
+    }
+    PropertiesService.getScriptProperties().setProperty('UNIT_MERGE', JSON.stringify(m));
+    UNIT_MERGE_ = m; UNIT_CACHE_ = null;
+    try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
+    if (!remove && fixOrders) {
+      const target = m[from];
+      const o = readTable_(SHEET.orders, ['訂單編號', '單位']);
+      o.rows.forEach(function (x) {
+        const st = String(x['狀態'] || '').trim();
+        if ((st === '待處理' || st === '已審核') && String(x['單位'] || '').trim() === from) { setCell_(o, x._row, '單位', target); out.orders++; }
+      });
+      const tsh = ss_().getSheetByName(SHEET.templates);
+      if (tsh && tsh.getLastRow() >= 2) {
+        const t = readTable_(SHEET.templates, ['名稱']);
+        if (t.cols['單位'] !== undefined) t.rows.forEach(function (x) { if (String(x['單位'] || '').trim() === from) { setCell_(t, x._row, '單位', target); out.templates++; } });
+      }
+      if (out.orders && ss_().getSheetByName(SHEET.edits)) { try { appendRows_(SHEET.edits, [{ '時間': new Date(), '訂單編號': '（單位合併）', '修改人': admin, '內容': '單位「' + from + '」合併到「' + target + '」，還沒叫貨的 ' + out.orders + ' 行一起改' }]); } catch (e) {} }
+    }
+  } finally { lock.releaseLock(); }
+  out.custom = unitMerge_();
+  return out;
 }
 
 /** 食材總表「可用單位」（、隔開，空白＝不限制）→ 合併同義後的陣列 */
@@ -1399,7 +1454,8 @@ function unitLists_() {
     if (r.status === '核准') (r.type === '配方' ? recipe : order).push(u);
     else if (r.status === '待審核') pending.push(u);
   });
-  UNIT_CACHE_ = { order: order, recipe: recipe, pending: pending, all: order.concat(recipe, pending) };
+  const mg = unitMerge_(), keep = function (u) { return !mg[u]; };   // 合併掉的單位不出現在選單
+  UNIT_CACHE_ = { order: order.filter(keep), recipe: recipe.filter(keep), pending: pending.filter(keep), all: order.concat(recipe, pending) };
   return UNIT_CACHE_;
 }
 
@@ -1672,7 +1728,7 @@ function attachSlipPrices_(list) {
 
 /** 同義的個數單位當成同一種（算成本用）：個、粒、顆 → 顆；支、根、隻、尾、條 → 條 */
 const UNIT_SYN_ = { '個': '顆', '粒': '顆', '顆': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條', '條': '條', '附': '付', '副': '付', 'cc': 'ml', 'CC': 'ml' };
-function unitSyn_(u) { u = String(u || '').trim(); return UNIT_SYN_[u] || u; }
+function unitSyn_(u) { u = String(u || '').trim(); u = unitMerge_()[u] || u; return UNIT_SYN_[u] || u; }   // 管理者設的合併（隻 → 支）也算同一個
 const UNIT_G_ = { 'g': 1, '公克': 1, '克': 1, '公斤': 1000, 'kg': 1000, 'KG': 1000, 'Kg': 1000, '斤': 600, '台斤': 600, '兩': 37.5 };
 
 /** 找訂單品項對到哪一樣銷貨單品項：回傳 { k: 「週|廠商|銷貨單品名」, u, p, via } 或 { np: 單價空白的說明 } 或 null */

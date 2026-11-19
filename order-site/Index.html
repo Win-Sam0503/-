@@ -936,6 +936,17 @@
         </div>
         <div id="unMsg" class="small" style="margin-top:6px"></div>
         <div id="unList" class="small" style="margin-top:8px;line-height:2"></div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+          <b>🔗 單位合併</b> <span class="muted small">兩個單位其實一樣（例如 隻／支）：合併後老師的選單只剩一個，舊的叫法自動換成留下來的那個，成本、叫貨單也當同一個算</span>
+          <div class="newform" style="margin-top:6px">
+            <div><label for="umFrom">這個單位（會拿掉）</label><select id="umFrom"></select></div>
+            <div><label for="umTo">當成這個（留下來）</label><select id="umTo"></select></div>
+            <label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="umFix" checked style="width:auto"> 還沒叫貨的訂單、範本一起改</label>
+            <button type="button" class="btn small" id="umGo">合併</button>
+          </div>
+          <div id="umMsg" class="small" style="margin-top:6px"></div>
+          <div id="umList" class="small" style="margin-top:6px;line-height:2"></div>
+        </div>
       </div>
       <div id="pendUnits"></div>
       <div id="pendList"></div>
@@ -2527,7 +2538,7 @@
     var SYN = { '公克': 'g', '克': 'g', 'G': 'g', 'kg': '公斤', 'KG': '公斤', 'Kg': '公斤', '台斤': '斤', '大匙': 'T', '小匙': 't', 'CC': 'ml', 'cc': 'ml', '毫升': 'ml', 'L': '公升',
       '個': '顆', '粒': '顆', '根': '條', '支': '條', '附': '付', '副': '付' };   // 同義的合併（跟伺服器 UNIT_SYNONYMS 一樣）
     u = String(u == null ? '' : u).trim();
-    return SYN[u] || u;
+    return SYN[u] || (data && data.unitMerge || {})[u] || u;   // 管理者自己設的合併（單位管理 → 🔗 單位合併）
   }
   function pendingUnits() {
     var out = (data.pendingUnits || []).slice();
@@ -2841,7 +2852,7 @@
   function convFor(name, u) { var x = ((data.prices || {})[name] || []).filter(function (y) { return su(y.u) === su(u) && y.c; })[0]; return x ? x.c : null; }
   // 同義的個數單位當成同一種（算成本用）：個、粒、顆 → 顆；支、根、隻、尾、條 → 條
   var UNIT_SYN = { '個': '顆', '粒': '顆', '支': '條', '根': '條', '隻': '條', '尾': '條', '附': '付', '副': '付', 'cc': 'ml', 'CC': 'ml' };
-  function su(u) { u = String(u || '').trim(); return UNIT_SYN[u] || u; }
+  function su(u) { u = String(u || '').trim(); var m = (data && data.unitMerge || {})[u]; if (m) u = m; return UNIT_SYN[u] || u; }
   function itemCost(it) {
     if (it.id === TOOL || it.noOrder || it.vendor === data.selfVendor || it.status === '已取消') return null;
     var q = toNum(it.qty);
@@ -5484,8 +5495,40 @@
       '<div class="muted">有 × 的是後來新增的，可以停用（舊訂單不受影響）；其他是系統內建的。</div>';
   }
   function loadUnitPanel() {
+    umLoad();
     return call('adminListUnits', token).then(renderUnitList).catch(function (e) { $('unList').textContent = '單位載入失敗：' + e.message; });
   }
+  // 🔗 單位合併
+  function umRender(r) {
+    data.unitMerge = r.custom || {};
+    var all = (data.orderUnits || []).concat(data.recipeUnits || []).filter(function (u, i, a) { return a.indexOf(u) === i; });
+    var opt = function (list) { return list.map(function (u) { return '<option>' + esc(u) + '</option>'; }).join(''); };
+    $('umFrom').innerHTML = '<option value="">選單位</option>' + opt(all);
+    $('umTo').innerHTML = '<option value="">選單位</option>' + opt(all);
+    var cu = Object.keys(data.unitMerge), bi = r.builtin || {};
+    var grp = {}; Object.keys(bi).forEach(function (k) { (grp[bi[k]] = grp[bi[k]] || []).push(k); });
+    $('umList').innerHTML = '<div><b>自己設的：</b>' + (cu.length ? cu.map(function (k) { return '<span class="badge" style="font-size:14px;margin:0 6px 4px 0">' + esc(k) + ' → ' + esc(data.unitMerge[k]) + ' <a href="#" data-umdel="' + esc(k) + '" title="取消合併" style="color:var(--bad);text-decoration:none">×</a></span>'; }).join('') : '<span class="muted">還沒有</span>') + '</div>' +
+      '<div class="muted"><b>系統內建（不能改）：</b>' + Object.keys(grp).map(function (k) { return esc(grp[k].join('、')) + ' → ' + esc(k); }).join('；') + '</div>';
+  }
+  function umLoad() { return call('adminGetUnitMerge', token).then(umRender).catch(function (e) { $('umList').textContent = '載入失敗：' + e.message; }); }
+  $('umGo').addEventListener('click', function () {
+    var f = $('umFrom').value, t = $('umTo').value, fix = $('umFix').checked, b = this;
+    if (!f || !t) { $('umMsg').innerHTML = '<span style="color:var(--bad)">請選兩個單位。</span>'; return; }
+    if (f === t) { $('umMsg').innerHTML = '<span style="color:var(--bad)">兩個單位一樣。</span>'; return; }
+    if (!window.confirm('把「' + f + '」合併到「' + t + '」？\n老師的單位選單不會再有「' + f + '」；打「' + f + '」會自動變成「' + t + '」。' + (fix ? '\n還沒叫貨的訂單、範本裡的「' + f + '」也會一起改成「' + t + '」。' : ''))) return;
+    setBusy(b, true, '合併中…');
+    call('adminSetUnitMerge', token, f, t, false, fix).then(function (r) {
+      data.orderUnits = (data.orderUnits || []).filter(function (u) { return u !== f; }); data.recipeUnits = (data.recipeUnits || []).filter(function (u) { return u !== f; });
+      umRender({ custom: r.custom, builtin: null }); umLoad();
+      $('umMsg').innerHTML = '<span style="color:var(--ok)">✓ 「' + esc(f) + '」已合併到「' + esc(t) + '」' + (fix ? '，還沒叫貨的訂單改了 ' + r.orders + ' 行、範本 ' + r.templates + ' 行' : '') + '。老師重新整理網頁就生效。</span>';
+    }).catch(function (e) { $('umMsg').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>'; }).then(function () { setBusy(b, false); });
+  });
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('[data-umdel]'); if (!a) return; e.preventDefault();
+    var k = a.getAttribute('data-umdel'); if (!window.confirm('取消「' + k + '」的合併？（已經改過的訂單不會改回來）')) return;
+    call('adminSetUnitMerge', token, k, '', true, false).then(function () { umLoad(); loadUnitPanel(); $('umMsg').innerHTML = '<span style="color:var(--ok)">已取消，重新整理網頁後「' + esc(k) + '」會回到選單。</span>'; })
+      .catch(function (er) { $('umMsg').innerHTML = '<span style="color:var(--bad)">' + esc(er.message) + '</span>'; });
+  });
   function syncLocalUnits(unit, type, active) {
     ['orderUnits', 'recipeUnits'].forEach(function (k) { data[k] = data[k].filter(function (u) { return u !== unit; }); });
     data.pendingUnits = data.pendingUnits.filter(function (u) { return u !== unit; });
