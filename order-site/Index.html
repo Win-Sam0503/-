@@ -1169,7 +1169,7 @@
             <button type="button" data-range="lastWeek">上週</button><button type="button" data-range="thisWeek">本週</button><button type="button" data-range="lastMonth">上個月</button><button type="button" data-range="thisMonth">本月</button><button type="button" data-range="last3">近 3 個月</button><button type="button" data-range="term">本學期</button><button type="button" data-range="lastTerm">上學期</button>
           </div></div>
         </div>
-        <div class="row noprint" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button type="button" class="btn" id="cLoad">查詢</button><span style="flex:1"></span><button type="button" class="btn ghost small" id="cCsvOrders">⬇ 下載：每張料單成本</button><button type="button" class="btn ghost small" id="cCsvItems">⬇ 下載：每個品項明細</button></div>
+        <div class="row noprint" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button type="button" class="btn" id="cLoad">查詢</button><span style="flex:1"></span><button type="button" class="btn ghost small" id="cPrint" title="開一個乾淨的視窗，列印或在「目的地」選「另存為 PDF」">🖨 列印／存 PDF</button><button type="button" class="btn ghost small" id="cCsvOrders">⬇ 下載：每張料單成本</button><button type="button" class="btn ghost small" id="cCsvItems">⬇ 下載：每個品項明細</button></div>
         <div id="costMsg"></div>
       </div>
       <div id="costTop"></div>
@@ -4258,6 +4258,40 @@
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
   function costFileTail() { var rg = costRange(); return rg[0] + (rg[1] !== rg[0] ? '～' + rg[1] : '') + '.csv'; }
+  // 🖨 成本報表：摘要＋依分組（老師／班級…）的實際成本＋每張料單＋各週各廠商（可勾選要印哪幾段）
+  $('cPrint').addEventListener('click', function () {
+    if (!costCache.length) { msg('costMsg', 'error', '先查詢再列印。'); return; }
+    var A = allocCompute(), rg = costRange(), tmp = document.createElement('div');
+    tmp.innerHTML = allocHtml();
+    var tbs = tmp.querySelectorAll('table');
+    var clean = function (t) { if (!t) return ''; var c = t.cloneNode(true); Array.prototype.forEach.call(c.querySelectorAll('button,input,select'), function (e) { e.remove(); }); return c.outerHTML; };
+    var byName = { teacher: '老師', class: '班級', project: '實作項目', week: '週', dept: '科別' }[costBy];
+    var tot = 0, item = 0, miss = 0;
+    var list = costCache.slice().sort(function (a, b) { return a.useDate < b.useDate ? -1 : a.useDate > b.useDate ? 1 : String(a.className || '').localeCompare(String(b.className || ''), 'zh-Hant'); });
+    var orows = list.map(function (o) {
+      var est = orderCost(o).sum, al = A.per[o.orderNo] || 0, ns = A.noSlip[o.orderNo];
+      tot += al; item += est; if (ns) miss++;
+      return '<tr><td>' + esc(shortDate(o.useDate)) + '</td><td>' + esc(o.className || '') + '</td><td>' + esc(o.project || '') + '</td><td>' + esc(o.onBehalfOf || o.teacher || '') + '</td><td>' + esc(o.dept || '') + '</td><td class="n"><b>$' + money0(al) + '</b>' + (A.byCls[o.orderNo] ? ' <span class="s">（班級單）</span>' : '') + (ns ? ' <span class="s">＊</span>' : '') + '</td><td class="n">$' + money0(est) + '</td></tr>';
+    }).join('');
+    var now = new Date(), today = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+    var sec = function (id, title, inner, on) { return '<section class="sec" id="s_' + id + '"' + (on ? '' : ' style="display:none"') + '><h2>' + title + '</h2>' + inner + '</section>'; };
+    var cb = function (id, label, on) { return '<label><input type="checkbox" data-sec="' + id + '"' + (on ? ' checked' : '') + ' onchange="document.getElementById(\'s_' + id + '\').style.display=this.checked?\'\':\'none\'"> ' + label + '</label>'; };
+    var html = '<!doctype html><html><head><meta charset="utf-8"><title>成本報表 ' + esc(rg[0] + '～' + rg[1]) + '</title><style>' +
+      'body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;margin:16px;color:#111;font-size:13px}h1{font-size:19px;margin:0 0 2px}h2{font-size:15px;margin:14px 0 4px;border-bottom:2px solid #333;padding-bottom:2px}.sub{font-size:12px;color:#555}' +
+      'table{width:100%;border-collapse:collapse;margin:4px 0}th,td{border:1px solid #999;padding:3px 6px;text-align:left;vertical-align:top}th{background:#eee}.n,.num,td[style*="right"]{text-align:right;white-space:nowrap}.s,.muted,.small{font-size:11px;color:#666}' +
+      'tr{page-break-inside:avoid}.sum{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}.sum div{border:1px solid #999;border-radius:6px;padding:6px 12px}.sum b{font-size:17px}' +
+      '.bar{margin-bottom:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:14px}.bar button{font-size:15px;padding:6px 14px}@media print{.bar{display:none}body{margin:0}}@page{size:A4;margin:12mm}</style></head><body>' +
+      '<div class="bar"><button onclick="window.print()">🖨 列印／存 PDF</button><button onclick="window.close()">關閉</button><span>要印：</span>' + cb('sum', '摘要', true) + cb('grp', '依' + byName, true) + cb('ord', '每張料單', true) + cb('wk', '各週各廠商', false) + '<span style="color:#555;font-size:12px">（存 PDF：目的地選「另存為 PDF」）</span></div>' +
+      '<h1>💰 成本報表</h1><div class="sub">上課日期 ' + esc(rg[0]) + '～' + esc(rg[1]) + '・分組：依' + byName + '・列印日期 ' + today + '</div>' +
+      sec('sum', '摘要', '<div class="sum"><div>料單<br><b>' + list.length + '</b> 張</div><div>實際成本（依銷貨單分攤）<br><b>$' + money0(tot) + '</b></div><div>逐項估算（參考）<br><b>$' + money0(item) + '</b></div>' + (miss ? '<div>有廠商那週沒銷貨單<br><b>' + miss + '</b> 張</div>' : '') + '</div><div class="s">正式成本＝實際成本：每週每家廠商銷貨單真的花的錢，照每張料單的比例分下去；菜商有選班級的銷貨單直接算給那一班。</div>', true) +
+      sec('grp', '依' + byName + '的實際成本', clean(tbs[0]), true) +
+      sec('ord', '每張料單', '<table><tr><th>上課日期</th><th>班級</th><th>實作項目</th><th>老師</th><th>科別</th><th class="n">實際成本</th><th class="n">逐項估算</th></tr>' + orows + '<tr style="background:#eee"><td colspan="5"><b>合計 ' + list.length + ' 張</b></td><td class="n"><b>$' + money0(tot) + '</b></td><td class="n">$' + money0(item) + '</td></tr></table>' + (miss ? '<div class="s">＊ 這張料單有廠商那週還沒有銷貨單，那家的錢還沒算進去。</div>' : ''), true) +
+      sec('wk', '各週各廠商：銷貨單 vs 依品項算', clean(tbs[1]), false) +
+      '</body></html>';
+    var w = window.open('', '_blank', 'width=1000,height=800');
+    if (!w) { msg('costMsg', 'error', '列印視窗被瀏覽器擋住了：請按網址列右邊的「已封鎖彈出式視窗」圖示 → 選「一律允許」，再按一次。'); return; }
+    w.document.open(); w.document.write(html); w.document.close(); w.focus();
+  });
   $('cCsvOrders').addEventListener('click', function () {
     if (!costCache.length) { msg('costMsg', 'error', '先查詢。'); return; }
     var A = allocCompute();
