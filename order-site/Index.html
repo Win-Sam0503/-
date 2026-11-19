@@ -4083,7 +4083,13 @@
     var conv = '';
     var wq = GRAMS[su(it.unit)] && GRAMS[c.u] ? toNum(it.qty) * GRAMS[su(it.unit)] : 0;   // 老師訂的總重（公克）
     var hint = wq >= 30000 ? '<div style="color:var(--bad)">老師訂了 ' + esc(fmtQty(it.qty) + ' ' + it.unit) + '（' + fmtQty(Math.round(wq / 600)) + ' 斤），數量或單位可能填錯（例如 600 g 打成 600 公斤）：請到「訂單彙整」找這張料單修改，或請老師改</div>' : '';
-    if (data.isAdmin && it.unit && su(it.unit) !== su(c.u) && !(GRAMS[su(it.unit)] && GRAMS[c.u])) {   // 老師的單位跟單價的單位不一樣（不是公斤／斤這種會自動換的）：多半是換算錯
+    // 老師用重量訂（g）、單價是一袋／一罐：換算是「1 袋 ＝ ? g」，把目前存的換算秀出來（例如 1 袋 ＝ 22 g 一看就知道少打 000）
+    if (data.isAdmin && GRAMS[su(it.unit)] && !GRAMS[c.u]) {
+      var curC = ((data.unitConv || {})[it.name] || []).filter(function (x) { return su(x.u) === su(c.u) && GRAMS[x.u2]; })[0], cg = curC ? curC.q * GRAMS[curC.u2] : 0;
+      var odd = cg && (cg < 100 && /袋|包|箱|桶|罐|瓶|盒/.test(c.u) || cg > 30000);
+      conv = '<div class="noprint" style="margin-top:2px">' + (curC ? '目前存的換算：<b' + (odd ? ' style="color:var(--bad)"' : '') + '>1 ' + esc(c.u) + ' ＝ ' + esc(fmtQty(curC.q) + ' ' + curC.u2) + '</b>' + (odd ? '（看起來打錯了）' : '') + '　' : '') +
+        '<span style="white-space:nowrap">改成 1 ' + esc(c.u) + ' ＝ <input data-uc-name="' + esc(it.name) + '" data-uc-u="' + esc(c.u) + '" data-uc-u2="g" list="qfConvList2" placeholder="例如 22000g、22公斤" style="width:120px;display:inline-block;padding:2px 4px"> <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></span></div>';
+    } else if (data.isAdmin && it.unit && su(it.unit) !== su(c.u) && !(GRAMS[su(it.unit)] && GRAMS[c.u])) {   // 老師的單位跟單價的單位不一樣（不是公斤／斤這種會自動換的）：多半是換算錯
       conv = '<div class="noprint" style="white-space:nowrap;margin-top:2px">單位換算錯了？1 ' + esc(it.unit) + ' ＝ <input data-uc-name="' + esc(it.name) + '" data-uc-u="' + esc(it.unit) + '" data-uc-u2="' + esc(c.u) + '" list="qfConvList2" placeholder="點選或打" style="width:96px;display:inline-block;padding:2px 4px"> ' + esc(c.u) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>';
     }
     return '<div style="border-top:1px dashed #d0d5dd;padding:4px 0"><b>' + esc(it.name) + '</b> <span class="muted">' + esc(how) + '</span>' + hint + (it.sp ? slipEdBtn(it.sp) : '') + conv + '</div>';

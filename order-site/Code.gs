@@ -595,7 +595,9 @@ function adminSaveUnitConv(token, name, unit, q, unit2) {
   try {
     const sh = ensureSheet_(UNIT_CONV_SHEET, UNIT_CONV_HEADERS);
     const t = readTable_(UNIT_CONV_SHEET, ['食材名稱', '單位']);
-    const old = t.rows.filter(function (r) { return String(r['食材名稱']).trim() === name && String(r['單位']).trim() === unit && String(r['換算單位'] || '').trim() === unit2; }).map(function (r) { return r._row; });
+    // 同一樣、同一個單位的重量換算只留一筆（改成「1 袋＝22 公斤」時，舊的「1 袋＝22 g」要一起刪掉，不然會用到舊的）
+    const isW = function (u) { return !!UNIT_G_[String(u || '').trim()]; };
+    const old = t.rows.filter(function (r) { const u2 = String(r['換算單位'] || '').trim(); return String(r['食材名稱']).trim() === name && String(r['單位']).trim() === unit && (u2 === unit2 || (isW(u2) && isW(unit2))); }).map(function (r) { return r._row; });
     if (old.length) deleteRows_(sh, old);
     if (raw !== '') appendRows_(UNIT_CONV_SHEET, [{ '食材名稱': name, '單位': unit, '等於': n, '換算單位': unit2, '更新時間': new Date(), '更新人': admin }], { '更新時間': 'yyyy/mm/dd hh:mm' });
     SpreadsheetApp.flush();
@@ -617,8 +619,9 @@ function adminSaveUnitConvs(token, list) {
   try {
     const sh = ensureSheet_(UNIT_CONV_SHEET, UNIT_CONV_HEADERS);
     const t = readTable_(UNIT_CONV_SHEET, ['食材名稱', '單位']);
-    const want = {}; list.forEach(function (x) { want[x.n + '|' + x.u + '|' + x.u2] = true; });
-    const old = t.rows.filter(function (r) { return want[String(r['食材名稱']).trim() + '|' + String(r['單位']).trim() + '|' + String(r['換算單位'] || '').trim()]; }).map(function (r) { return r._row; });
+    const wk = function (u2) { return UNIT_G_[u2] ? '#w' : u2; };   // 重量單位當同一種：新的「＝22 公斤」會蓋掉舊的「＝22 g」
+    const want = {}; list.forEach(function (x) { want[x.n + '|' + x.u + '|' + wk(x.u2)] = true; });
+    const old = t.rows.filter(function (r) { return want[String(r['食材名稱']).trim() + '|' + String(r['單位']).trim() + '|' + wk(String(r['換算單位'] || '').trim())]; }).map(function (r) { return r._row; });
     if (old.length) deleteRows_(sh, old);
     const now = new Date();
     appendRows_(UNIT_CONV_SHEET, list.map(function (x) { return { '食材名稱': x.n, '單位': x.u, '等於': x.q, '換算單位': x.u2, '更新時間': now, '更新人': admin }; }), { '更新時間': 'yyyy/mm/dd hh:mm' });
