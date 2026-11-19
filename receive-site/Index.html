@@ -3982,9 +3982,70 @@
     $('hxBox').innerHTML = '<div class="panel"><h2 style="margin-top:0">📜 簽核紀錄</h2><div class="muted small">每一關每一次確認都在這裡：誰、什麼時候、用系統按的還是主任用手機掃碼／LINE 按的。「停留」＝文件在這一關待了幾天（從上一關確認到這一關確認）。</div>' +
       '<div class="row noprint" style="margin-top:8px;gap:6px;flex-wrap:wrap;align-items:center"><label class="small">從 <input type="date" id="slgF" value="' + esc(slogF.from) + '" style="width:auto"></label><label class="small">到 <input type="date" id="slgT" value="' + esc(slogF.to) + '" style="width:auto"></label>' +
       '<select id="slgL" style="width:auto">' + opt(labels, slogF.label, '全部關卡') + '</select><select id="slgC" style="width:auto">' + opt(cats, slogF.cat, '全部類別') + '</select>' +
-      '<input id="slgQ" type="search" placeholder="🔍 核銷編號、廠商、發票、誰" value="' + esc(slogF.q) + '" style="width:160px"><button type="button" class="btn ghost small" id="slgAll">全部期間</button><button type="button" class="btn ghost small" id="slgCsv">⬇ 下載（Excel）</button><button type="button" class="btn ghost small" id="slgPrint">🖨 列印</button></div><div id="slgBox"></div></div>';
+      '<input id="slgQ" type="search" placeholder="🔍 核銷編號、廠商、發票、誰" value="' + esc(slogF.q) + '" style="width:160px"><button type="button" class="btn ghost small" id="slgAll">全部期間</button><button type="button" class="btn ghost small" id="slgCsv">⬇ 下載（Excel）</button><button type="button" class="btn ghost small" id="slgPrint">🖨 列印</button><button type="button" class="btn ghost small" id="slgHelp" title="簽核紀錄功能的說明文件，可以列印或存 PDF 給主任、同事看">📖 功能說明（列印）</button></div><div id="slgBox"></div></div>';
     slogRender();
   }
+  // 📖 簽核紀錄功能說明：開一個乾淨的視窗，可以列印或存 PDF
+  function slogHelpPrint() {
+    var now = new Date(), today = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+    var sec = function (t, body) { return '<h2>' + t + '</h2>' + body; };
+    var tb = function (head, rows) { return '<table><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</table>'; };
+    var html = '<!doctype html><html><head><meta charset="utf-8"><title>核銷系統 簽核紀錄 功能說明</title><style>' +
+      'body{font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;margin:24px auto;max-width:820px;color:#111;font-size:14px;line-height:1.75;padding:0 16px}' +
+      'h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:22px 0 6px;border-left:5px solid #8a2b1a;padding-left:8px}.sub{color:#555;font-size:12px}' +
+      'table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border:1px solid #999;padding:5px 8px;text-align:left;vertical-align:top}th{background:#eee;white-space:nowrap}' +
+      'ol,ul{margin:4px 0;padding-left:22px}.note{background:#fff8e6;border:1px solid #f0c36d;border-radius:6px;padding:8px 12px;margin:8px 0}.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.flow span{border:1px solid #8a2b1a;border-radius:16px;padding:2px 12px}' +
+      'tr,.note{page-break-inside:avoid}h2{page-break-after:avoid}.bar{margin-bottom:12px}.bar button{font-size:15px;padding:6px 14px}@media print{.bar{display:none}body{margin:0 auto}}@page{size:A4;margin:15mm}' +
+      '</style></head><body><div class="bar"><button onclick="window.print()">🖨 列印／存 PDF</button> <button onclick="window.close()">關閉</button> <span class="sub">存 PDF：列印視窗的「目的地」選「另存為 PDF」</span></div>' +
+      '<h1>📜 核銷系統「簽核紀錄」功能說明</h1><div class="sub">三信家商餐飲科　進貨驗收／核銷系統　｜　列印日期 ' + today + '</div>' +
+
+      sec('一、這是什麼', '<p>每一份核銷文件（發票分到各經費類別的那一份）送簽時，<b>每一關、每一次確認</b>都會被系統自動記下來：哪一份文件、哪一關、誰確認的、什麼時候、用什麼方式確認、在這一關停留了幾天。</p>' +
+        '<p>「📜 簽核紀錄」頁把這些紀錄集中列出來，用來：</p><ul><li>查某一份文件現在走到哪裡、每一關是誰簽的。</li><li>看哪一關常常卡比較久，方便追蹤、催簽。</li><li>需要時列印或匯出 Excel 留存、給主任或會計查核。</li></ul>') +
+
+      sec('二、送簽流程（關卡）', '<p>每一份要經過的關卡，照「⚙ 類別與餐飲科行政助理」裡的設定：</p>' +
+        '<div class="flow"><span>① 餐飲科行政助理</span>→<span>② 再確認第 1 位（例如組長）</span>→<span>③ 再確認第 2 位（例如主任）</span>→<span>…</span>→<span>✓ 已核銷</span></div>' +
+        '<ul><li><b>第一關</b>是該類別（或該經費編號）的餐飲科行政助理，可以設好幾位，誰按都可以，系統會記是誰按的。</li>' +
+        '<li><b>再確認</b>照設定的順序一關一關往下，前一關確認了才輪到下一關。</li>' +
+        '<li><b>全部關卡都確認完</b>，這一份才會變成「已核銷」，並記下核銷日期。</li></ul>') +
+
+      sec('三、三種確認方式', tb(['方式', '怎麼做', '紀錄上顯示'], [
+        ['💻 在系統按', '承辦人在「📄 發票」或「📋 送簽進度」按該關的「✓ 確認」。', '💻 系統，誰按的＝登入的帳號'],
+        ['📱 手機掃碼', '每份文件可以印一張「送簽單」夾在文件上，每一關簽完紙本後，用手機掃自己那一關的 QR code，按「已簽好」。', '📱 掃碼／LINE，誰按的＝那一關的名稱'],
+        ['💬 LINE', '主任、會計在核銷專用 LINE 官方帳號傳「待簽」，列出輪到他簽的文件，按「簽好後按」的連結確認。', '📱 掃碼／LINE']
+      ]) + '<p class="sub">掃碼和 LINE 不用登入系統，適合主任、會計、校長等不常用電腦的關卡。</p>') +
+
+      sec('四、每一筆紀錄的欄位', tb(['欄位', '說明'], [
+        ['時間', '這一關按確認的日期時間。'],
+        ['核銷編號', '這份核銷文件的編號，可以拿來搜尋。'],
+        ['關卡', '這次確認的是哪一關（例如餐飲科行政助理、組長、主任）。'],
+        ['誰按的', '系統按的記帳號；掃碼／LINE 記關卡名稱。'],
+        ['方式', '💻 系統，或 📱 掃碼／LINE。'],
+        ['廠商、發票、類別、金額', '這份文件是哪家廠商、哪張發票、分到哪個經費類別、多少錢。'],
+        ['第幾關', '例如「2／4」＝四關裡的第二關；最後一關確認完會打 ✓。'],
+        ['停留', '從上一關確認（第一關是從建立文件）到這一關確認，總共幾天。<b>超過 7 天會標紅色</b>。']
+      ])) +
+
+      sec('五、上面的統計表', '<p>依目前篩選的條件，每一關統計：<b>確認幾次</b>、其中幾次用<b>手機掃碼／LINE</b>、<b>平均停留幾天</b>（平均超過 7 天標紅）。可以一眼看出哪一關最容易卡住。</p>') +
+
+      sec('六、怎麼查', '<ol><li>到「核銷」→「📜 簽核紀錄」。預設列出<b>最近 30 天</b>。</li>' +
+        '<li>可以用「從／到」選日期，或按「全部期間」看全部。</li>' +
+        '<li>用下拉選單只看某一關、某一類別。</li>' +
+        '<li>搜尋框可以打核銷編號、廠商、發票號碼或人名。</li>' +
+        '<li>「⬇ 下載（Excel）」匯出目前篩選的紀錄；「🖨 列印」列印目前畫面。</li></ol>') +
+
+      sec('七、要注意的地方', '<div class="note"><ul>' +
+        '<li>紀錄是系統在按確認的當下自動寫入的，使用者不能在畫面上直接修改時間或人名。</li>' +
+        '<li>按錯時，承辦人可以按「取消」退回<b>最後一關</b>的確認；退回後，那一筆確認會從簽核紀錄中移除，需要重新確認。</li>' +
+        '<li>掃碼／LINE 的確認記的是「關卡名稱」，不是個人姓名；同一關有好幾位時，請以紙本簽名為準。</li>' +
+        '<li>「停留天數」包含假日。</li>' +
+        '<li>舊資料裡的「經手人」，現在都顯示為第一關「餐飲科行政助理」。</li>' +
+        '</ul></div>') +
+      '<p class="sub" style="margin-top:24px;text-align:center">© 2026 翁煒程 版權所有｜僅供三信家商餐飲科內部使用</p></body></html>';
+    var w = window.open('', '_blank', 'width=900,height=900');
+    if (!w) { alert('說明視窗被瀏覽器擋住了：請按網址列右邊的「已封鎖彈出式視窗」圖示 → 選「一律允許」，再按一次。'); return; }
+    w.document.open(); w.document.write(html); w.document.close(); w.focus();
+  }
+  document.addEventListener('click', function (e) { if (e.target && e.target.id === 'slgHelp') slogHelpPrint(); });
   function slogFiltered() {
     var f = slogF, from = f.from ? slogTime(f.from) : null, to = f.to ? slogTime(f.to) + 864e5 : null, q = f.q.trim().toLowerCase();
     return slogRows().filter(function (x) {
