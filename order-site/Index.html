@@ -3976,7 +3976,7 @@
           '<td class="num">' + (skip ? '<span class="muted small">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '，不算</span>' : c ? '<b>$' + money0(c.amt) + '</b>' : '<span class="muted small">沒有成本</span>' + (function (w) {
             return '<div class="small" style="color:var(--warn);text-align:left;white-space:normal">' + esc(w.text) + '</div>' + (w.conv && data.isAdmin && w.conv.u ? '<div class="small noprint" style="text-align:left;white-space:nowrap">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '');
           })(costWhy(it))) + '</td>' +
-          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') + srcLine(c) : (c.manual ? '<span style="color:#475467">✏ 手填單價</span>' : '<span class="muted">上次單價估</span>')) + '</td></tr>';
+          '<td class="small">' + (skip || !c ? '' : c.real ? (/^自動/.test(c.via) ? '<span style="color:#b54708" title="名稱相近、系統自動對應的，請核對；不對的話到系統設定「成本品項對應」改">銷貨單（' + esc(c.via) + '）⚠</span>' : '<span style="color:var(--ok)">銷貨單' + (c.via ? '（' + esc(c.via) + '）' : '') + '</span>') + (c.share ? '<div class="muted" title="老師用的單位跟銷貨單不同：那週銷貨單的總重，扣掉用重量訂的，照數量平分。要固定的換算，到系統設定「單位換算」填">' + esc(c.share) + '</div>' : '') + srcLine(c) + slipEdBtn(it.sp) : (c.manual ? '<span style="color:#475467">✏ 手填單價</span>' : '<span class="muted">上次單價估</span>')) + '</td></tr>';
       }).join('');
       return '<details style="margin:4px 0"><summary style="cursor:pointer">' + esc(shortDate(o.useDate)) + '　' + esc(o.className || '') + '「' + esc(o.project || '（沒填實作項目）') + '」　' + esc(o.onBehalfOf || o.teacher) +
         '　<b>$' + money0(e.c.sum) + '</b>' + (e.c.est || e.c.none ? '<span class="muted small">（' + (e.c.est ? '估 ' + e.c.est + ' 項' : '') + (e.c.est && e.c.none ? '・' : '') + (e.c.none ? e.c.none + ' 項沒有單價' : '') + '）</span>' : '') + '</summary>' +
@@ -4002,6 +4002,51 @@
     var t = x.q ? '那週 ' + x.n + ' 筆、共 ' + fmtQty(x.q) + ' ' + c.u + '、$' + money0(x.a) + ' → 平均' : '那週 ' + x.n + ' 筆單價平均';
     return '<div class="muted">' + esc(t) + '</div>' + (spreadOf(x) ? '<div style="color:var(--warn)">⚠ 那週單價 $' + esc(fmtQty(x.lo)) + '～$' + esc(fmtQty(x.hi)) + ' 差很多，請看銷貨單有沒有打錯</div>' : '');
   }
+  // ✏ 直接改銷貨單：成本頁上點「✏ 改銷貨單」，跳出那週那一樣的銷貨單明細（數量、單價、金額），改好按存，不用跳到驗收網
+  var slipEdMap = {};
+  function slipEdBtn(sp, label) {
+    if (!data.isAdmin || !sp || !sp.src || !(sp.src.rows || []).length) return '';
+    var k = sp.wk + '|' + sp.sv + '|' + sp.sn; slipEdMap[k] = sp;
+    return '<button type="button" class="btn ghost small noprint" data-sled="' + esc(k) + '" style="padding:1px 8px;margin-top:2px">' + (label || '✏ 改銷貨單') + '</button>';
+  }
+  function slipEdOpen(k) {
+    var sp = slipEdMap[k]; if (!sp) return;
+    var rows = sp.src.rows || [];
+    var box = document.createElement('div'); box.id = 'sledBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:90;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto';
+    box.innerHTML = '<div class="panel" style="max-width:760px;width:100%;margin:0"><h2 style="margin-top:0">✏ 改銷貨單：' + esc(sp.sn) + ' <span class="muted small">' + esc(shortDate(sp.wk)) + ' 那週・' + esc(sp.sv) + '</span></h2>' +
+      '<div class="muted small">這是驗收網「💰 銷貨單」上打的，在這裡改就會直接改到銷貨單（驗收網也會看到）。改數量或單價，金額自動算；也可以直接改金額。對照紙本銷貨單改。</div>' +
+      '<div class="tablewrap"><table class="small"><tr><th>哪一張</th><th>品名</th><th style="text-align:right">數量</th><th>單位</th><th style="text-align:right">單價</th><th style="text-align:right">金額</th></tr>' +
+      rows.map(function (r, i) {
+        var inp = function (f, v) { return '<input data-sle="' + i + '" data-f="' + f + '" value="' + esc(v === '' || v === undefined || v === null ? '' : String(v)) + '" inputmode="decimal" style="width:90px;text-align:right;padding:4px">'; };
+        return '<tr><td>' + esc(String(r.id).replace(/^R(\d{4})(\d{2})(\d{2})-/, function (m, y, mo, d) { return Number(mo) + '/' + Number(d) + ' 那批・'; })) + (r.d ? '<div class="muted">單子日期 ' + esc(shortDate(r.d)) + '</div>' : '') + '</td><td><b>' + esc(r.n) + '</b></td><td class="num">' + inp('q', r.q) + '</td><td>' + esc(r.u) + '</td><td class="num">' + inp('p', r.p) + '</td><td class="num">' + inp('a', r.a) + '</td></tr>';
+      }).join('') + '</table></div>' +
+      '<div id="sledMsg"></div><div class="row" style="margin-top:8px;gap:8px"><button type="button" class="btn" id="sledSave">💾 存</button><button type="button" class="btn ghost" id="sledX">取消</button><span class="muted small" style="align-self:center">存好後成本會自動重算</span></div></div>';
+    document.body.appendChild(box);
+    box.addEventListener('input', function (e) {
+      var t = e.target, i = t.getAttribute('data-sle'); if (i === null) return;
+      var f = t.getAttribute('data-f'), q = box.querySelector('[data-sle="' + i + '"][data-f="q"]'), p = box.querySelector('[data-sle="' + i + '"][data-f="p"]'), a = box.querySelector('[data-sle="' + i + '"][data-f="a"]');
+      var qn = toNum(q.value), pn = toNum(p.value), an = toNum(a.value);
+      if (f !== 'a' && qn > 0 && pn >= 0 && p.value.trim() !== '') a.value = String(Math.round(qn * pn));
+      else if (f === 'a' && qn > 0 && an >= 0 && a.value.trim() !== '') p.value = String(Math.round(an / qn * 100) / 100);
+    });
+    box.addEventListener('click', function (e) {
+      if (e.target === box || e.target.id === 'sledX') { box.remove(); return; }
+      if (e.target.id !== 'sledSave') return;
+      var ed = rows.map(function (r, i) {
+        var g = function (f) { return box.querySelector('[data-sle="' + i + '"][data-f="' + f + '"]').value.trim(); };
+        return { row: r.row, id: r.id, name: r.n, qty: g('q'), price: g('p'), amount: g('a'), old: r };
+      }).filter(function (x) { return String(x.qty) !== String(x.old.q === undefined ? '' : x.old.q) || String(x.price) !== String(x.old.p === undefined ? '' : x.old.p) || String(x.amount) !== String(x.old.a === undefined ? '' : x.old.a); });
+      if (!ed.length) { box.remove(); return; }
+      var btn = e.target; btn.disabled = true; btn.textContent = '存檔中…';
+      call('adminEditSlipRows', token, ed.map(function (x) { return { row: x.row, id: x.id, name: x.name, qty: x.qty, price: x.price, amount: x.amount }; })).then(function (r) {
+        box.remove();
+        costMsg('ok', '已改銷貨單「' + sp.sn + '」' + r.n + ' 行，成本重新算好了。');
+        costReload();
+      }).catch(function (err) { $('sledMsg').innerHTML = '<div class="msg error">' + esc(err.message) + '</div>'; btn.disabled = false; btn.textContent = '💾 存'; });
+    });
+  }
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-sled]'); if (b) { e.preventDefault(); e.stopPropagation(); slipEdOpen(b.getAttribute('data-sled')); } }, true);
   // ⚠ 可疑金額：一項特別貴、一張料單特別貴、分攤出來的「1 條＝幾斤」不合理、單價跟以前差很多
   function suspectHtml(list) {
     var rows = [];
@@ -4032,7 +4077,7 @@
       rows.slice(0, 80).map(function (r) {
         var it = r.it;
         return '<tr><td>' + esc(shortDate(r.o.useDate)) + '</td><td>' + esc(r.o.className || '') + '<div class="muted">' + esc(r.o.onBehalfOf || r.o.teacher) + '</div></td><td>' + (it ? '<b>' + esc(it.name) + '</b><div class="muted">' + esc(vco(it.vendor)) + '</div>' : '（整張）') + '</td>' +
-          '<td>' + (it ? esc(fmtQty(it.qty) + ' ' + (it.unit || '')) : '') + '</td><td class="num"><b>$' + money0(r.amt) + '</b></td><td style="white-space:normal;color:var(--bad)">' + esc(r.why) + '</td></tr>';
+          '<td>' + (it ? esc(fmtQty(it.qty) + ' ' + (it.unit || '')) : '') + '</td><td class="num"><b>$' + money0(r.amt) + '</b></td><td style="white-space:normal;color:var(--bad)">' + esc(r.why) + (it && it.sp ? '<div class="muted">用的單價 $' + esc(fmtQty(it.sp.p)) + '／' + esc(it.sp.u) + '（' + esc(shortDate(it.sp.wk)) + ' 那週銷貨單）</div>' + slipEdBtn(it.sp) : '') + '</td></tr>';
       }).join('') + '</table></div>' + (rows.length > 80 ? '<div class="muted small">只列金額最大的 80 筆</div>' : '') + '</details>';
   }
   // 同一週同一樣單價差很多（可能打錯單價、單位）
@@ -4050,7 +4095,7 @@
     return '<details class="panel" id="costSpread" open style="padding:12px 16px"><summary style="cursor:pointer;color:var(--warn)"><b>⚠ 同一週單價差很多（' + keys.length + ' 樣）</b> <span class="muted small">到驗收核銷的銷貨單看看是不是打錯單價或單位；成本先用那週的平均（總金額 ÷ 總量）</span></summary>' +
       '<div class="tablewrap" style="margin-top:6px"><table class="small"><tr><th>那週</th><th>廠商</th><th>銷貨單品項</th><th>筆數</th><th>最低～最高</th><th>用的平均單價</th></tr>' +
       keys.map(function (k) { var sp = m[k], x = sp.src;
-        return '<tr><td>' + esc(shortDate(sp.wk)) + '</td><td>' + esc(sp.sv) + '</td><td><b>' + esc(sp.sn) + '</b></td><td class="num">' + x.n + '</td><td class="num">$' + esc(fmtQty(x.lo)) + '～$' + esc(fmtQty(x.hi)) + '／' + esc(sp.u) + '</td><td class="num"><b>$' + esc(fmtQty(sp.p)) + '</b>／' + esc(sp.u) + '</td></tr>';
+        return '<tr><td>' + esc(shortDate(sp.wk)) + '</td><td>' + esc(sp.sv) + '</td><td><b>' + esc(sp.sn) + '</b></td><td class="num">' + x.n + '</td><td class="num">$' + esc(fmtQty(x.lo)) + '～$' + esc(fmtQty(x.hi)) + '／' + esc(sp.u) + '</td><td class="num"><b>$' + esc(fmtQty(sp.p)) + '</b>／' + esc(sp.u) + slipEdBtn(sp) + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
   // ---------------- 💰 成本 分頁 ----------------

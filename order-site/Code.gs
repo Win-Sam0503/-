@@ -1922,13 +1922,53 @@ function slipPriceMap_(weeks, noPrice, grams, last) {
     if (!(p > 0)) { if (noPrice) noPrice[key] = true; return; }   // 有這一樣、單價沒填
     const amt = Number(r['金額']);
     const pw = Number(r['每單位重量']), pwu = String(r['重量單位'] || '').trim();
-    (rows[key] = rows[key] || []).push({ u: unitSyn_(r['單位']), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0),
+    (rows[key] = rows[key] || []).push({ ref: { row: r._row, id: String(r['驗收編號'] || ''), n: raw, q: r['數量'] === '' ? '' : sq, u: String(r['單位'] || '').trim(), p: p, a: r['金額'] === '' ? '' : amt, d: sd ? dateStr_(sd) : '' },   // 成本頁可以直接改這幾行
+      u: unitSyn_(r['單位']), p: p, q: sq > 0 ? sq : 0, a: amt > 0 ? amt : (sq > 0 ? p * sq : 0),
       c: pw > 0 && UNIT_G_[pwu] && !UNIT_G_[String(r['單位'] || '').trim()] ? { u: pwu, q: pw } : null });   // 1 罐＝100 g（銷貨單填的規格），老師用 g 訂也算得到
   });
   // 同一週同一樣常常有好幾筆（每班一筆、有的單價是金額÷數量算的有小數）：
   // 單價＝那週加總的金額 ÷ 加總的數量（重量單位先換成公克再換回最常用的單位），不是隨便拿最後一筆
   Object.keys(rows).forEach(function (key) { map[key] = weekPrice_(rows[key]); });
   return map;
+}
+/**
+ * 管理者：成本頁直接改銷貨單明細的數量／單價／金額（不用跳到驗收網）。
+ * edits = [{ row, id, name, qty, price, amount }]：先核對那一行的驗收編號、品名還一樣才改（別人剛好改過、行數移動就不改）。
+ * 改完重算那張銷貨單的「銷貨單金額」，記到修改紀錄。
+ */
+function adminEditSlipRows(token, edits) {
+  const who = auth_(token, true);
+  edits = (edits || []).slice(0, 60);
+  if (!edits.length) throw new Error('沒有要改的。');
+  const numOrBlank = function (v) { const s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, ''); if (s === '') return ''; const n = Number(s); if (isNaN(n) || n < 0) throw new Error('「' + v + '」不是數字。'); return Math.round(n * 10000) / 10000; };
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const done = [], ids = {}, logs = [];
+  try {
+    memoClear_();
+    const t = readTable_('銷貨單明細', ['驗收編號', '食材名稱', '數量', '單價', '金額']);
+    const byRow = {}; t.rows.forEach(function (r) { byRow[r._row] = r; });
+    edits.forEach(function (e) {
+      const r = byRow[Number(e.row)];
+      if (!r || String(r['驗收編號']).trim() !== String(e.id || '').trim() || String(r['食材名稱']).trim() !== String(e.name || '').trim()) throw new Error('「' + e.name + '」那一行剛被改過或移動了，請按「查詢」重新整理再改。');
+      const q = numOrBlank(e.qty), p = numOrBlank(e.price), a = numOrBlank(e.amount);
+      const old = [r['數量'], r['單價'], r['金額']].map(function (v) { return v === '' ? '空白' : String(v); });
+      if (String(r['數量']) === String(q) && String(r['單價']) === String(p) && String(r['金額']) === String(a)) return;
+      setCells_(t, r._row, { '數量': q, '單價': p, '金額': a === '' ? '' : Math.round(a) });
+      ids[String(r['驗收編號']).trim()] = 1;
+      logs.push({ '時間': new Date(), '訂單編號': String(r['驗收編號']).trim(), '修改人': who, '內容': '成本頁改銷貨單「' + e.name + '」數量 ' + old[0] + '→' + (q === '' ? '空白' : q) + '、單價 ' + old[1] + '→' + (p === '' ? '空白' : p) + '、金額 ' + old[2] + '→' + (a === '' ? '空白' : Math.round(a)) });
+      done.push(e.name);
+    });
+    // 那張銷貨單的金額合計跟著更新（驗收網、核銷看到的才一致）
+    if (Object.keys(ids).length && ss_().getSheetByName('銷貨單紀錄')) {
+      memoClear_();
+      const t2 = readTable_('銷貨單明細', ['驗收編號', '金額']), sum = {};
+      t2.rows.forEach(function (r) { const id = String(r['驗收編號']).trim(); if (ids[id]) sum[id] = (sum[id] || 0) + (Number(r['金額']) || 0); });
+      const rec = readTable_('銷貨單紀錄', ['驗收編號']);
+      if (rec.cols['銷貨單金額']) rec.rows.forEach(function (r) { const id = String(r['驗收編號']).trim(); if (ids[id] && sum[id] !== undefined) setCell_(rec, r._row, '銷貨單金額', Math.round(sum[id] * 100) / 100); });
+    }
+    if (logs.length && ss_().getSheetByName(SHEET.edits)) { try { appendRows_(SHEET.edits, logs); } catch (e) {} }
+  } finally { lock.releaseLock(); }
+  return { n: done.length, names: done };
 }
 /** 一週同一樣的好幾筆 → { u, p, src: { n 筆數, q 總量, a 總金額, lo 最低, hi 最高 } } */
 function weekPrice_(list) {
@@ -1953,7 +1993,8 @@ function weekPrice_(list) {
   } else p = ps.reduce(function (t, v) { return t + v; }, 0) / ps.length;   // 都沒填數量：單價平均
   const r2 = function (v) { return Math.round(v * 100) / 100; };
   const cv = xs.filter(function (x) { return x.c; }).pop();
-  return { u: pu, p: r2(p), c: cv ? cv.c : null, src: { n: xs.length, q: r2(q), a: Math.round(a), lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)) } };
+  return { u: pu, p: r2(p), c: cv ? cv.c : null, src: { n: xs.length, q: r2(q), a: Math.round(a), lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)),
+    rows: list.filter(function (x) { return x.ref; }).slice(0, 40).map(function (x) { return x.ref; }) } };
 }
 
 /**
