@@ -4206,7 +4206,7 @@
       card('沒有成本', t.none + ' 項', t.none ? '下面「待處理」' : '都算得出來', t.none ? 'var(--warn)' : 'var(--ok)') + '</div>';
     if (!list.length) { $('costTodo').innerHTML = $('costAuto').innerHTML = $('costBox').innerHTML = ''; return; }
     var miss = missingCostHtml(list);
-    $('costTodo').innerHTML = miss ? '<div class="panel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
+    $('costTodo').innerHTML = miss ? '<div class="panel" id="costTodoPanel" style="padding:12px 16px"><h3 style="margin:0 0 4px">① 待處理</h3>' + miss + '</div>' : '<div class="panel" id="costTodoPanel" style="padding:12px 16px"><h3 style="margin:0">① 待處理</h3><div class="muted small" style="margin-top:4px">✓ 這段期間的品項都對到銷貨單了。</div></div>';
     costMissFilter();
     $('costAuto').innerHTML = suspectHtml(list) + spreadHtml(list);
     $('costTodo').insertAdjacentHTML('afterbegin', quickFixHtml(list));
@@ -4221,7 +4221,40 @@
       }).join('') + '</ul></div>');
     costOpen = true;
     $('costBox').innerHTML = allocHtml() + costStatsHtml(list, true).replace('<b>💰 成本統計</b>', '<b>④ 逐項估算（參考）</b>');
+    costSections();
   }
+  // 成本頁一次只開一塊（不用一直往下滑）：上面一排按鈕，點哪一塊就只顯示那一塊
+  var costSec = '';
+  function costSections() {
+    var nav = $('costNav');
+    if (!nav) { nav = document.createElement('div'); nav.id = 'costNav'; nav.className = 'noprint'; $('costTop').insertAdjacentElement('afterend', nav); }
+    if (!costCache.length) { nav.innerHTML = ''; return; }
+    var cnt = function (sel) { return document.querySelectorAll(sel).length; };
+    var secs = [
+      { id: 'qfBox', t: '⚡ 一次整理', n: cnt('#qfBox [data-qfn]') + cnt('#qfBox [data-qfc]'), todo: true },
+      { id: 'costTodoPanel', t: '① 待處理', n: cnt('#costTodoPanel tr[data-mq]'), todo: true },
+      { id: 'costSuspect', t: '⚠ 可疑金額', n: Math.max(0, cnt('#costSuspect table tr') - 1), todo: true },
+      { id: 'costSpread', t: '⚠ 單價差很多', n: Math.max(0, cnt('#costSpread table tr') - 1), todo: true },
+      { id: 'costAlloc', t: '③ 實際成本', n: -1 },
+      { id: 'costStats', t: '④ 逐項估算', n: -1 }
+    ].filter(function (x) { return $(x.id); });
+    if (costSec !== '__all' && !secs.some(function (x) { return x.id === costSec; })) costSec = (secs.filter(function (x) { return x.todo && x.n > 0; })[0] || secs.filter(function (x) { return x.id === 'costAlloc'; })[0] || secs[0] || {}).id || '';
+    nav.innerHTML = '<div class="status-chips" style="margin:0 0 10px;position:sticky;top:0;z-index:5;background:var(--bg,#f5f6f8);padding:6px 0">' + secs.map(function (x) {
+      return '<button type="button" data-csec="' + x.id + '" class="' + (x.id === costSec ? 'on' : '') + '">' + x.t + (x.n >= 0 ? ' <b style="' + (x.n && x.todo ? 'color:var(--bad)' : '') + '">' + (x.n ? x.n : '✓') + '</b>' : '') + '</button>';
+    }).join('') + '<button type="button" data-csec="__all" class="' + (costSec === '__all' ? 'on' : '') + '" title="全部展開（要從頭看到尾、或列印用）">全部</button></div>';
+    secs.forEach(function (x) {
+      var el = $(x.id), show = costSec === '__all' || x.id === costSec;
+      el.style.display = show ? '' : 'none';
+      if (show && el.tagName === 'DETAILS') el.open = true;
+    });
+    // 「剛剛存的」跟著一次整理、待處理那一塊才出現
+    var lg = $('costLogBox'); if (lg) lg.style.display = costSec === '__all' || costSec === 'qfBox' || costSec === 'costTodoPanel' ? '' : 'none';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-csec]'); if (!b) return;
+    costSec = b.getAttribute('data-csec'); costSections();
+    var nav = $('costNav'); if (nav && nav.getBoundingClientRect().top < 0) nav.scrollIntoView({ block: 'start' });
+  });
   // ---------- ④ 依銷貨單總額分攤 ----------
   // 每週每家廠商「銷貨單的食材金額」（真的花的錢）照那週料單「依品項算」的比例分給每張料單：加起來一定等於銷貨單
   // 廠商代號 → 公司名稱（銷貨單、發票上寫的）
