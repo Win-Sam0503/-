@@ -473,9 +473,9 @@
 
   // ---------------- 這週的叫貨單 ----------------
   // 廠商代號 → 公司名稱（銷貨單、發票上寫的）；打公司名稱也認得
-  var VENDOR_CO = { 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'C烘焙蛋': '開勛蛋行', 'C中餐蛋': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
-  var CO_VENDOR = { '杰善': 'A菜商', '進億': 'B肉商', '海鑫晟': 'D海鮮', '開勛蛋行': 'C蛋商', '開勛': 'C蛋商', '銘哲': 'E中餐乾貨', '旺來興': 'E烘焙乾貨', '五洲': 'F飲調' };
-  function vco(v) { v = String(v || ''); return VENDOR_CO[v] ? v + '（' + VENDOR_CO[v] + '）' : v; }
+  var VENDOR_CO = { 'G桶清': '桶清', 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'C烘焙蛋': '開勛蛋行', 'C中餐蛋': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
+  var CO_VENDOR = { '桶清': 'G桶清', '杰善': 'A菜商', '進億': 'B肉商', '海鑫晟': 'D海鮮', '開勛蛋行': 'C蛋商', '開勛': 'C蛋商', '銘哲': 'E中餐乾貨', '旺來興': 'E烘焙乾貨', '五洲': 'F飲調' };
+  function vco(v) { v = String(v || ''); return VENDOR_CO[v] && v.indexOf(VENDOR_CO[v]) < 0 ? v + '（' + VENDOR_CO[v] + '）' : v; }
   function coTag(v) { return VENDOR_CO[v] ? ' <span class="muted small" style="font-weight:normal">' + esc(VENDOR_CO[v]) + '</span>' : ''; }
   // 打的是公司名稱（「杰善」「杰善蔬果」「A菜商（杰善）」）→ 換成系統的廠商代號
   function vcode(v) {
