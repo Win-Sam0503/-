@@ -944,6 +944,7 @@
         <div class="muted small" style="margin:6px 0">按「照過去訂單自動建議」，系統把每樣食材以前最常用的單位挑出來（同義的已合併：個、粒→顆；根、支→條）。看一下、要改就直接改（用「、」隔開），勾好按「套用勾的」。空白＝不限制。老師列印的料單照老師選的單位；給廠商的單子重量一律換算（乾貨、飲調換成克）。</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button type="button" class="btn secondary small" id="iuLoad">照過去訂單自動建議</button>
+          <button type="button" class="btn small" id="iuLoadCost" title="菜、肉、海鮮（A、B、D）只留重量單位（斤、g…）和已經有換算的單位，老師就不會再訂到「顆、條」算不出成本">💰 成本好算的建議</button>
           <input id="iuQ" type="search" placeholder="🔍 找食材、廠商" autocomplete="off" style="max-width:200px">
           <select id="iuS" style="width:auto"><option value="">全部</option><option value="diff">建議跟目前不一樣的</option><option value="none">還沒設定的</option><option value="set">已經設定的</option></select>
           <span style="flex:1"></span>
@@ -3794,7 +3795,9 @@
     if (!nk.length && !ck.length && !ak.length) return '';
     var sortZh = function (a, b) { return a.localeCompare(b, 'zh-Hant'); };
     nk.sort(sortZh); ck.sort(sortZh); ak.sort(sortZh);
-    var h = '<div class="panel noprint" id="qfBox" style="padding:12px 16px;border:2px solid var(--brand)"><h3 style="margin:0 0 4px">⚡ 一次整理</h3><div class="muted small">系統先猜好、預設打勾，看一下不對的取消勾，按一次就全部存好；存過以後每週都會照這樣算，不用再處理。</div>';
+    var nAll = nk.length + ck.filter(function (k) { return convs[k].val; }).length;
+    var h = '<div class="panel noprint" id="qfBox" style="padding:12px 16px;border:2px solid var(--brand)"><h3 style="margin:0 0 4px">⚡ 一次整理</h3><div class="muted small">系統先猜好、預設打勾，看一下不對的取消勾，按一次就全部存好；存過以後每週都會照這樣算，不用再處理。</div>' +
+      (nAll ? '<div class="row" style="margin:8px 0;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="qfAllGo">⚡ 全部照系統猜的套用（' + nAll + ' 樣）</button><span class="muted small">太多筆打不完就按這個：名字對應、有數字的換算一次全部存。猜不到（空白）的先不管，成本會照同週比例分。之後在「⚠ 可疑金額」看到怪的再改就好。</span></div>' : '');
     if (nk.length) h += '<h4 style="margin:12px 0 4px">🔤 名字不一樣（' + nk.length + ' 樣）</h4><div class="tablewrap"><table class="small"><tr><th><input type="checkbox" data-qfall="n" checked title="全選"></th><th>老師訂的</th><th>廠商送的應該是</th><th>單價</th><th>次數</th></tr>' +
       nk.map(function (k) { var x = names[k]; return '<tr><td><input type="checkbox" data-qfn="' + esc(k) + '" checked></td><td><b>' + esc(x.n) + '</b><div class="muted">' + esc(vco(x.v)) + '</div></td><td>' + qfToSelect(k, x) + (x.sv !== x.v ? '<div class="muted">' + esc(vco(x.sv)) + '</div>' : '') + '</td><td class="num">$' + esc(fmtQty(x.p)) + '／' + esc(x.u) + '</td><td class="num">' + x.cnt + '</td></tr>'; }).join('') +
       '</table></div><button type="button" class="btn small" id="qfNameGo" style="margin-top:6px">✓ 套用勾的對應</button> <span class="muted small">沒勾的會留在下面「待處理」，可以自己選</span>';
@@ -3814,6 +3817,23 @@
     var k = e.target.getAttribute && e.target.getAttribute('data-qfv'); if (!k) return;
     var cb = Array.prototype.filter.call(document.querySelectorAll('#qfBox [data-qfc]'), function (c) { return c.getAttribute('data-qfc') === k; })[0];
     if (cb) cb.checked = !!e.target.value.trim();
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#qfAllGo'); if (!b || !qfData) return;
+    var toOf = function (k) { var sel = Array.prototype.filter.call(document.querySelectorAll('#qfBox [data-qfto]'), function (x) { return x.getAttribute('data-qfto') === k; })[0]; return sel && sel.value ? sel.value : qfData.names[k].to; };
+    var names = Object.keys(qfData.names).map(function (k) { var x = qfData.names[k]; return { vendor: x.v, order: x.n, slip: toOf(k) }; });
+    var convs = Object.keys(qfData.convs).map(function (k) {
+      var x = qfData.convs[k], inp = Array.prototype.filter.call(document.querySelectorAll('#qfBox [data-qfv]'), function (i) { return i.getAttribute('data-qfv') === k; })[0];
+      var pq = parseConvQty(inp ? inp.value : x.val, x.u2); return pq ? { name: x.name, unit: x.u, q: pq.q, unit2: pq.u2 } : null;
+    }).filter(Boolean);
+    if (!names.length && !convs.length) { msg('qfMsg', 'error', '沒有系統猜得到的可以套用，請自己填。'); return; }
+    if (!window.confirm('一次套用 ' + names.length + ' 樣名字對應、' + convs.length + ' 樣單位換算？\n存了以後每週都照這樣算；之後看到怪的可以再改。')) return;
+    setBusy(b, true, '存檔中…');
+    var p = names.length ? call('adminSaveCostMaps', token, names) : Promise.resolve(null);
+    p.then(function () { return convs.length ? call('adminSaveUnitConvs', token, convs) : null; }).then(function (r) {
+      if (r) data.unitConv = r;
+      costMsg('ok', '已一次套用 ' + names.length + ' 樣名字對應、' + convs.length + ' 樣單位換算。之後在「⚠ 可疑金額」看到怪的再改。'); costOpen = true; costReload();
+    }).catch(function (err) { msg('qfMsg', 'error', err.message); setBusy(b, false); });
   });
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('#qfNameGo, #qfConvGo');
@@ -3945,12 +3965,13 @@
   });
   document.getElementById('psQ').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); psSearch(); } });
   // ① 待處理的搜尋（重新算成本後保留）
-  var costMissQ = '', costMissS = '';
+  var costMissQ = '', costMissS = '', costMissSmall = false;
+  document.addEventListener('click', function (e) { if (e.target.id === 'costMissSmallBtn') { costMissSmall = !costMissSmall; e.target.textContent = costMissSmall ? '收起小額' : '顯示小額'; costMissFilter(); } });
   function costMissFilter() {
     var box = $('costMiss'); if (!box) return;
     var q = costMissQ.trim().toLowerCase().split(/\s+/).filter(Boolean), n = 0, all = 0;
     Array.prototype.forEach.call(box.querySelectorAll('tr[data-mq]'), function (tr) {
-      var t = tr.getAttribute('data-mq'), ok = (!costMissS || tr.getAttribute('data-ms') === costMissS) && q.every(function (w) { return t.indexOf(w) >= 0; });
+      var t = tr.getAttribute('data-mq'), ok = (!costMissS || tr.getAttribute('data-ms') === costMissS) && q.every(function (w) { return t.indexOf(w) >= 0; }) && (costMissSmall || q.length || costMissS || tr.getAttribute('data-small') !== '1');
       tr.style.display = ok ? '' : 'none'; all++; if (ok) n++;
     });
     var c = $('costMissN'); if (c) c.textContent = (q.length || costMissS) ? '符合 ' + n + '／' + all + ' 樣' : '';
@@ -3968,13 +3989,22 @@
         var c = itemCost(it);
         if (c && c.real) return;
         var k = it.name + '|' + su(it.unit) + '|' + (c ? (c.manual ? 'h' : 'e') : 'n');
-        if (!m[k]) { m[k] = { it: it, n: 0, est: !!c, man: !!(c && c.manual), c: c }; keys.push(k); }
-        m[k].n++;
+        if (!m[k]) { m[k] = { it: it, n: 0, est: !!c, man: !!(c && c.manual), c: c, amt: 0 }; keys.push(k); }
+        m[k].n++; if (c) m[k].amt += c.amt;
       });
     });
     if (!keys.length) return '';
+    // 影響多少錢：估得出來的用估的金額；沒有成本的用「一般一個品項」的平均金額 × 次數。排前面、佔 80% 的才要處理，其他小額收起來
+    var allAmt = [], avgItem;
+    list.forEach(function (o) { (o.items || []).forEach(function (it) { var c = itemCost(it); if (c && c.amt > 0) allAmt.push(c.amt); }); });
+    allAmt.sort(function (a, b) { return a - b; });
+    avgItem = allAmt.length ? allAmt[Math.floor(allAmt.length / 2)] : 100;   // 中位數，不會被一兩個超貴的拉高
+    keys.forEach(function (k) { var x = m[k]; x.imp = x.est ? x.amt : avgItem * x.n; });
+    var impTot = keys.reduce(function (t, k) { return t + m[k].imp; }, 0), acc = 0;
+    keys.sort(function (a, b) { return m[b].imp - m[a].imp; }).forEach(function (k, i) { m[k].big = i < 5 || acc < impTot * 0.8; acc += m[k].imp; });
+    var nSmall = keys.filter(function (k) { return !m[k].big; }).length;
     // 沒有成本的排前面，再照廠商、品名
-    keys.sort(function (a, b) { var x = m[a], y = m[b]; return (x.man - y.man) || (x.est - y.est) || String(x.it.vendor || '').localeCompare(String(y.it.vendor || ''), 'zh-Hant') || x.it.name.localeCompare(y.it.name, 'zh-Hant'); });
+    keys.sort(function (a, b) { return m[b].imp - m[a].imp; });   // 影響大的排前面
     var nNone = keys.filter(function (k) { return !m[k].est; }).length, nMan = keys.filter(function (k) { return m[k].man; }).length, nEst = keys.length - nNone - nMan;
     var whyOf = function (x) { if (x.c && x.c.last) return { text: '那週銷貨單沒有「' + x.it.name + '」，先用最近一次（' + shortDate(x.c.last.wk).replace(/（.*$/, '') + ' 那週 ' + vco(x.c.last.v) + '）的單價 $' + fmtQty(x.c.last.p) + '／' + x.c.last.u + ' 估' }; return x.man ? { text: '用你自己填的單價（$' + fmtQty(x.c.p) + '／' + x.c.u + '）；之後那家的銷貨單有這一樣，會自動改用銷貨單的單價' } : x.est ? { text: (x.it.spSug || x.it.spNP) && !x.it.sp ? costWhy(x.it).text + '（現在先用單價表的上次單價估）' : '那週銷貨單沒對到「' + x.it.name + '」，先用單價表的上次單價估；廠商叫法不一樣的，在下面選對應' } : costWhy(x.it); };
     lastMissRows = keys.map(function (k) { var x = m[k]; return [x.it.name, x.it.vendor || '', x.it.unit || '', x.n, x.man ? '手填單價' : x.est ? '用上次單價估' : '沒有成本', whyOf(x).text]; });
@@ -3983,14 +4013,15 @@
       '<div class="noprint" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="costMissQ" type="search" placeholder="🔍 找食材、廠商、原因" autocomplete="off" value="' + esc(costMissQ) + '" style="max-width:220px;padding:5px 8px">' +
       '<select id="costMissS" style="width:auto;padding:5px 8px">' + [['', '全部狀態'], ['n', '沒有成本'], ['e', '用上次單價估'], ['h', '手填單價']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === costMissS ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
       '<span id="costMissN" class="muted small"></span><span style="flex:1"></span><button type="button" class="btn ghost small" data-misscopy>📋 複製清單</button><button type="button" class="btn ghost small" data-misscsv>⬇ 下載清單（Excel）</button></div>' +
-      '<div class="tablewrap"><table class="small"><tr><th>食材</th><th>訂的單位</th><th>次數</th><th>狀態</th><th>原因／處理</th></tr>' +
+      '<div class="small" style="margin:4px 0;color:#344054">照<b>影響的金額</b>排：只要處理前面幾樣（佔約 80% 影響）就夠了。' + (nSmall ? '後面 <b>' + nSmall + '</b> 樣是小額，先收起來，不處理也沒關係（成本會照同週其他品項的比例分）。 <button type="button" class="btn ghost small" id="costMissSmallBtn" style="padding:1px 8px">' + (costMissSmall ? '收起小額' : '顯示小額 ' + nSmall + ' 樣') + '</button>' : '') + '</div>' +
+      '<div class="tablewrap"><table class="small"><tr><th>食材</th><th>訂的單位</th><th>次數／影響</th><th>狀態</th><th>原因／處理</th></tr>' +
       keys.map(function (k) {
         var x = m[k], w = whyOf(x);
         var sv = slipVendor(x.it.vendor), opts = (slipItemsCache.data || {})[sv] || [];
         var pick = !w.conv && data.isAdmin ? '<div class="noprint" style="margin-top:3px">' + (slipItemsCache.data ? (opts.length ? '廠商送的其實是：<input type="search" data-cm-f placeholder="🔍 打關鍵字找" autocomplete="off" style="width:120px;display:inline-block;padding:2px 6px"> <select data-cm-v="' + esc(sv) + '" data-cm-o="' + esc(x.it.name) + '" style="width:auto;max-width:220px;display:inline-block;padding:2px 4px">' +
           cmOptions(opts, '', x.it.name) + '</select> <button type="button" class="btn ghost small" data-cmsave style="padding:1px 8px">對應</button>'
           : '<span class="muted">這幾週 ' + esc(sv) + ' 的銷貨單還沒填品項</span>') : '<span class="muted">讀取銷貨單品項中…</span>') + '</div>' : '';
-        return '<tr data-mq="' + esc((x.it.name + ' ' + (x.it.vendor || '') + ' ' + vco(x.it.vendor || '') + ' ' + (x.it.unit || '') + ' ' + w.text).toLowerCase()) + '" data-ms="' + (x.man ? 'h' : x.est ? 'e' : 'n') + '"><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + '</td><td>' + (x.man ? '<span style="color:var(--ok)">✏ 手填單價</span>' : x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + (x.man ? '' : pick) + priceInput(x.it, x.man ? x.c : null) +
+        return '<tr data-small="' + (x.big ? '' : '1') + '" data-imp="' + Math.round(x.imp) + '" data-mq="' + esc((x.it.name + ' ' + (x.it.vendor || '') + ' ' + vco(x.it.vendor || '') + ' ' + (x.it.unit || '') + ' ' + w.text).toLowerCase()) + '" data-ms="' + (x.man ? 'h' : x.est ? 'e' : 'n') + '"><td><b>' + esc(x.it.name) + '</b><div class="muted">' + esc(vco(x.it.vendor || '')) + '</div></td><td>' + esc(x.it.unit || '') + '</td><td class="num">' + x.n + ' 次<div class="muted" title="大概影響多少錢（估不出來的用一般品項的金額估）">≈$' + money0(x.imp) + '</div></td><td>' + (x.man ? '<span style="color:var(--ok)">✏ 手填單價</span>' : x.est ? '<span class="muted">用上次單價估</span>' : '<b style="color:var(--warn)">沒有成本</b>') + '</td><td style="white-space:normal">' + esc(w.text) + (x.man ? '' : pick) + priceInput(x.it, x.man ? x.c : null) +
           (w.conv && data.isAdmin && w.conv.u ? '<div class="noprint" style="white-space:nowrap;margin-top:2px">1 ' + esc(w.conv.u) + ' ＝ <input data-uc-name="' + esc(w.conv.name) + '" data-uc-u="' + esc(w.conv.u) + '" data-uc-u2="' + esc(w.conv.u2) + '" placeholder="0.3 或 11g" style="width:90px;display:inline-block;padding:2px 4px"> ' + esc(w.conv.u2) + ' <button type="button" class="btn ghost small" data-ucsave style="padding:1px 8px">存</button></div>' : '') + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
@@ -4232,7 +4263,7 @@
     var cnt = function (sel) { return document.querySelectorAll(sel).length; };
     var secs = [
       { id: 'qfBox', t: '⚡ 一次整理', n: cnt('#qfBox [data-qfn]') + cnt('#qfBox [data-qfc]'), todo: true },
-      { id: 'costTodoPanel', t: '① 待處理', n: cnt('#costTodoPanel tr[data-mq]'), todo: true },
+      { id: 'costTodoPanel', t: '① 待處理', n: cnt('#costTodoPanel tr[data-mq]:not([data-small="1"])'), todo: true },
       { id: 'costSuspect', t: '⚠ 可疑金額', n: Math.max(0, cnt('#costSuspect table tr') - 1), todo: true },
       { id: 'costSpread', t: '⚠ 單價差很多', n: Math.max(0, cnt('#costSpread table tr') - 1), todo: true },
       { id: 'costAlloc', t: '③ 實際成本', n: -1 },
@@ -5838,6 +5869,11 @@
   $('iuLoad').addEventListener('click', function () {
     var b = this; setBusy(b, true, '分析中…');
     call('adminSuggestItemUnits', token).then(function (r) { iuData = r; iuRender(); msg('iuMsg', 'info', '已照過去訂單挑好建議。還沒設定的、有建議的已經先勾好；看一下再按「套用勾的」。'); })
+      .catch(function (e) { msg('iuMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
+  });
+  $('iuLoadCost').addEventListener('click', function () {
+    var b = this; setBusy(b, true, '分析中…');
+    call('adminSuggestItemUnits', token, 'cost').then(function (r) { iuData = r; $('iuS').value = 'diff'; iuRender(); msg('iuMsg', 'info', '已挑好「成本好算」的單位：菜、肉、海鮮只留重量（斤、兩、g）和已經有換算的單位（例如洋蔥已經存了 1 顆＝250 g，就留「顆」）。下面先列跟目前不一樣的，看一下再按「套用勾的」。之後老師訂這幾樣只能選這些單位，成本就算得出來，不用再一筆一筆補。'); })
       .catch(function (e) { msg('iuMsg', 'error', e.message); }).then(function () { setBusy(b, false); });
   });
   $('iuQ').addEventListener('input', function (e) { if (!e.isComposing) iuRender(); });

@@ -941,8 +941,10 @@ function clearItemsCache_() {
  * 管理者：每樣食材的單位建議。照訂單（含歷史）用過的單位（同義的合併），挑最常用的 1～3 個：
  * 用過 2 次以上、而且佔這樣食材 10% 以上的；預設單位一定放進去。回傳 [{ id, name, vendor, current, hist: [[單位, 次數]], suggest }]
  */
-function adminSuggestItemUnits(token) {
+function adminSuggestItemUnits(token, mode) {
   auth_(token, true);
+  // mode＝'cost'（成本好算）：菜、肉、海鮮（A、B、D 開頭，銷貨單照斤算）只留重量單位＋已經有換算的個數單位，老師就不會再訂「顆、條」換不過去
+  const conv = mode === 'cost' ? readUnitConv_() : null;
   const hist = {};
   [SHEET.orders, SHEET.history].forEach(function (name) {
     if (!ss_().getSheetByName(name)) return;
@@ -962,6 +964,15 @@ function adminSuggestItemUnits(token) {
     let sug = list.filter(function (x) { return x[1] >= 2 && x[1] >= total * 0.1; }).slice(0, 3).map(function (x) { return x[0]; });
     if (def && sug.indexOf(def) < 0) sug = [def].concat(sug).slice(0, 3);
     if (!sug.length && list.length) sug = [list[0][0]];
+    const vend = String(r['廠商'] || '').trim();
+    if (conv && /^[ABD]/.test(vend)) {
+      const nm = String(r['食材名稱']).trim(), cv = conv[nm] || [];
+      const hasConv = function (u) { return cv.some(function (c) { return normUnit_(c.u) === u && UNIT_G_[c.u2]; }); };
+      let w = list.map(function (x) { return x[0]; }).filter(function (u) { return UNIT_G_[u] || hasConv(u); }).slice(0, 4);
+      if (!w.some(function (u) { return UNIT_G_[u]; })) w = ['斤'].concat(w).slice(0, 4);   // 至少要有一個重量單位
+      if (w.indexOf('g') < 0 && w.length < 4) w.push('g');
+      sug = w;
+    }
     return { id: id, name: String(r['食材名稱']).trim(), vendor: String(r['廠商'] || '').trim(), current: itemUnits_(r['可用單位']), hist: list, total: total, suggest: sug };
   }).sort(function (a, b) { return b.total - a.total || a.name.localeCompare(b.name, 'zh-Hant'); });
 }
