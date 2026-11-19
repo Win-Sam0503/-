@@ -473,8 +473,8 @@
 
   // ---------------- 這週的叫貨單 ----------------
   // 廠商代號 → 公司名稱（銷貨單、發票上寫的）；打公司名稱也認得
-  var VENDOR_CO = { 'G桶清': '桶清', 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'C烘焙蛋': '開勛蛋行', 'C中餐蛋': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
-  var CO_VENDOR = { '桶清': 'G桶清', '杰善': 'A菜商', '進億': 'B肉商', '海鑫晟': 'D海鮮', '開勛蛋行': 'C蛋商', '開勛': 'C蛋商', '銘哲': 'E中餐乾貨', '旺來興': 'E烘焙乾貨', '五洲': 'F飲調' };
+  var VENDOR_CO = { 'G統清': '統清', 'A菜商': '杰善', 'B肉商': '進億', 'D海鮮': '海鑫晟', 'C蛋商': '開勛蛋行', 'C烘焙蛋': '開勛蛋行', 'C中餐蛋': '開勛蛋行', 'E中餐乾貨': '銘哲', 'E烘焙乾貨': '旺來興', 'F飲調': '五洲' };
+  var CO_VENDOR = { '統清': 'G統清', '杰善': 'A菜商', '進億': 'B肉商', '海鑫晟': 'D海鮮', '開勛蛋行': 'C蛋商', '開勛': 'C蛋商', '銘哲': 'E中餐乾貨', '旺來興': 'E烘焙乾貨', '五洲': 'F飲調' };
   function vco(v) { v = String(v || ''); return VENDOR_CO[v] && v.indexOf(VENDOR_CO[v]) < 0 ? v + '（' + VENDOR_CO[v] + '）' : v; }
   function coTag(v) { return VENDOR_CO[v] ? ' <span class="muted small" style="font-weight:normal">' + esc(VENDOR_CO[v]) + '</span>' : ''; }
   // 打的是公司名稱（「杰善」「杰善蔬果」「A菜商（杰善）」）→ 換成系統的廠商代號
@@ -760,7 +760,7 @@
     var today = iso(new Date()), d = today >= week.from && today <= week.to ? today : week.from;
     $('cards').insertAdjacentHTML('afterbegin', '<div class="panel" id="slNewForm" style="grid-column:1/-1"><b>＋ 新增銷貨單</b>' +
       '<div class="row" style="margin-top:8px"><input id="slNewV" list="slNewVl" placeholder="廠商或店名（例如：全聯、A菜商、杰善）" style="flex:1;min-width:200px" autocomplete="off">' +
-      '<datalist id="slNewVl">' + vOpts(Object.keys(vs)) + '</datalist>' +
+      '<datalist id="slNewVl">' + vOpts(Object.keys(vs).concat(Object.keys(VENDOR_CO).filter(function (v) { return !vs[v] && !/^C(烘焙|中餐)蛋$/.test(v); }))) + '</datalist>' +   // 常用廠商（例如新的 G統清）就算這週沒叫貨也列出來
       '<label class="small">送貨日期 <input id="slNewD" type="date" value="' + d + '" style="width:auto"></label>' +
       '<button type="button" class="btn" id="slNewGo">開始填</button><button type="button" class="btn ghost small" id="slNewCancel">取消</button></div><div id="slNewMsg"></div></div>');
     $('slNew').classList.add('hidden');
