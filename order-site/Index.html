@@ -2868,6 +2868,7 @@
     if (it.spSug && !it.sp) return { text: '名稱不一樣：可能是 ' + it.spSug.sv + ' 銷貨單上的「' + it.spSug.to + '」（$' + fmtQty(it.spSug.p) + '／' + it.spSug.u + '）。對的話在上面「⚡ 一次整理」打勾套用；不是的話在下面選正確的' };
     var x = it.sp ? { u: it.sp.u, p: it.sp.p } : priceOf(it);
     if (!x) return { text: '銷貨單、單價表都沒有「' + it.name + '」：那週銷貨單要有這一樣；廠商叫法不一樣的，在下面選銷貨單上的品項' };
+    if (qtyInPriceN(toNum(it.qty), it.unit, x, it.name) !== null) return { text: '單位換得過去（' + fmtQty(it.qty) + ' ' + (it.unit || '') + ' → 單價 $' + fmtQty(x.p) + '／' + x.u + '），只是那週銷貨單沒有這一樣，先用其他週的單價估' };
     var t = '單位換不過去：訂 ' + fmtQty(it.qty) + ' ' + (it.unit || '') + '，單價是 $' + fmtQty(x.p) + '／' + x.u;
     // 換算的方向照比較好填的：老師用重量、銷貨單一箱一袋 →「1 箱 ＝ ? g」；老師用顆、銷貨單用斤 →「1 顆 ＝ ? 斤」
     if (GRAMS[it.unit] && !GRAMS[x.u]) return { text: t, conv: { name: it.name, u: x.u, u2: 'g' } };
@@ -3780,7 +3781,7 @@
           var gu = GRAMS[c.u] && !GRAMS[it.unit] ? it.unit : c.u;   // 「1 顆 ＝ ? g」或「1 箱 ＝ ? g」
           var g = c.conv.src === 'hist' ? c.conv.g : builtinG(it.name, gu);
           cv = { name: it.name, u: gu, u2: 'g', val: g ? Math.round(g) + '' : '', src: c.conv.src === 'hist' ? '過去銷貨單推算' : '內建常見重量' };
-        } else if (!c || !c.real) {
+        } else if (!c) {   // 只列真的算不出來的（用上次單價估得出來的不算單位問題，存了換算也不會變成「照銷貨單」，以前會一直留在這裡）
           var w = costWhy(it);
           if (w.conv && w.conv.u) {
             var g0 = GRAMS[w.conv.u2] ? builtinG(w.conv.name, w.conv.u) : 0;
