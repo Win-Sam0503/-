@@ -1949,6 +1949,13 @@
       '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     var showWt = wtVendor() || sl.papers.some(function (pp) { return pp.rows.some(function (r) { return numv(r.wt) !== null; }); });
     if (cur.b.perClass) html += '<div id="clsProg"></div>';
+    // 📅 日期一次全部改：最多張用的日期當預設
+    if (sl.papers.length > 1) {
+      var dc = {}; sl.papers.forEach(function (pp) { if (pp.date) dc[pp.date] = (dc[pp.date] || 0) + 1; });
+      var dk = Object.keys(dc).sort(function (a, b) { return dc[b] - dc[a]; }), diff = dk.length > 1;
+      html += '<div class="row" style="align-items:center;gap:6px;margin:6px 0;flex-wrap:wrap;' + (diff ? 'background:#fffaeb;border:1px solid #f79009;border-radius:8px;padding:6px 10px' : '') + '"><span class="small">📅 ' + (diff ? '<b>這 ' + sl.papers.length + ' 張的日期不一樣</b>（' + dk.map(function (d) { return mdw(d) + ' ' + dc[d] + ' 張'; }).join('、') + '）' : '日期全部改成') + '</span>' +
+        '<input type="date" id="pAllDate" value="' + esc(dk[0] || '') + '" style="width:auto"><button type="button" class="btn ghost small" id="pAllDateGo">全部 ' + sl.papers.length + ' 張改成這天</button></div>';
+    }
     html += sl.papers.map(function (pp, i) {
       return (i ? '<div class="paper-sep"><span>✂ 第 ' + (i + 1) + ' 張銷貨單</span><button type="button" class="btn ghost small" data-pmerge="' + i + '" title="不用分開：這張的品項併回上一張" style="padding:1px 8px">↩ 併回上一張</button></div>' : '') +
         '<div class="paper' + (pp.kind === '器材' ? ' gear' : '') + '"><div class="row" style="align-items:center"><b>📄 第 ' + (i + 1) + ' 張</b>' +
@@ -2157,6 +2164,13 @@
   });
   $('slipBox').addEventListener('click', function (e) {
     var t = e.target, sl = cur.slip, v;
+    if (t.id === 'pAllDateGo') {
+      var nd = $('pAllDate').value; if (!nd) { $('pAllDate').focus(); return; }
+      if (!window.confirm('把這批 ' + sl.papers.length + ' 張銷貨單的日期全部改成 ' + mdw(nd) + '？')) return;
+      sl.papers.forEach(function (pp) { pp.date = nd; }); renderPapers(); saveDraft();
+      msg('slMsg', 'ok', '已經把 ' + sl.papers.length + ' 張的日期都改成 ' + mdw(nd) + '，按「💾 儲存銷貨單」才會存。');
+      return;
+    }
     if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
     if (t.id === 'clsAuto') { clsAutoAll(); return; }
     var pgb = t.closest && t.closest('[data-pgset]');   // 點到按鈕裡面的字也算
