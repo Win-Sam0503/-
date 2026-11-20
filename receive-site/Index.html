@@ -2981,7 +2981,8 @@
         f('no', '發票號碼', 'placeholder="AB12345678" autocomplete="off"') + f('date', '日期', 'type="date"') + f('amount', '金額', 'inputmode="decimal" placeholder="0"') +
         '<label class="hxf"><span>付款方式</span><select data-hl="pay" data-i="' + i + '">' + ['', '匯款', '現金', '回科辦現金', '老師先墊', '廠商月結', '其他'].map(function (o) { return '<option value="' + o + '"' + ((l.pay || '') === o ? ' selected' : '') + '>' + (o || '（選）') + '</option>'; }).join('') + '</select></label>' +
         f('payee', '付款對象', 'list="hxPayees" placeholder="例如 鎧澤老師、科辦、廠商" autocomplete="off"') + f('note', '備註', 'placeholder="選填"') +
-        '<span style="white-space:nowrap"><label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0">🧾 發票照片</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
+        '<span style="white-space:nowrap"><label class="btn ghost small" for="hxLc' + i + '" style="cursor:pointer;display:inline-flex;margin:0" title="手機開相機、電腦開視訊鏡頭直接拍">📷 拍發票</label><input id="hxLc' + i + '" data-hlph="' + i + '" type="file" accept="image/*" capture="environment" multiple class="hidden">' +
+          ' <label class="btn ghost small" for="hxLp' + i + '" style="cursor:pointer;display:inline-flex;margin:0" title="選手機相簿、電腦裡已經有的照片或掃描檔">🖼 選照片</label><input id="hxLp' + i + '" data-hlph="' + i + '" type="file" accept="image/*" multiple class="hidden">' +
           l.photos.map(function (u, k) { return ' <a href="' + esc(u) + '" target="_blank" class="small">🧾 發票' + (k + 1) + '</a>'; }).join('') + ' <span class="small muted" data-hlmsg="' + i + '"></span></span>' +
         (hxF.lines.length > 1 ? '<button type="button" class="btn ghost small" data-hldel="' + i + '" title="拿掉這張">✕</button>' : '') + '</div>';
     }).join('');
