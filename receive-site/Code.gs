@@ -96,7 +96,7 @@ const API_ = {
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, slipDraftSave: function (a) { return slipDraftSave_.apply(null, a); }, slipDraftGet: function (a) { return slipDraftGet_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
-  whoAmI: function () { return CURRENT_USER_; },
+  whoAmI: function () { return CURRENT_USER_; }, dataVer: function () { return CacheService.getScriptCache().get('rcvDataVer') || ''; },
   hxGet: function (a) { return hxGet_.apply(null, a); }, hxCandidates: function (a) { return hxCandidates_.apply(null, a); },
   hxRenameVendor: function (a) { return hxRenameVendor_.apply(null, a); },
   hxSaveInvoice: function (a) { return hxSaveInvoice_.apply(null, a); }, hxDeleteInvoice: function (a) { return hxDeleteInvoice_.apply(null, a); },
@@ -120,8 +120,12 @@ function api(token, fn, args) {
   // 有在用就延長登入（Google 暫存最多只放 6 小時，不延長的話用到一半會被登出）
   try { cache.put(sk, account, 21600); } catch (e) {}
   CURRENT_USER_ = account;
-  return API_[fn](args || []);
+  const out = API_[fn](args || []);
+  // 有存東西：記一個「資料版本」，別台電腦／平板每 15 秒問一次，變了就自動重新載入列表
+  if (!NO_WRITE_FN_.test(fn)) { try { cache.put('rcvDataVer', String(Date.now()) + ':' + account, 21600); } catch (e) {} }
+  return out;
 }
+const NO_WRITE_FN_ = /^(getWeek|getMonth|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
 
 /**
  * 授權跳不出來、或出現「你沒有呼叫 ○○ 的權限」時：在 Apps Script 編輯器選這個函式按「執行」。
