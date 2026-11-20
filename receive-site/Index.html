@@ -1808,7 +1808,7 @@
     var gs = clsGroups(), used = clsUsed(i), g = clsOfPaper(pp, gs);
     var opts = '<option value="">— 這張是哪一班？—</option>' + gs.map(function (x) { return '<option value="' + esc(x.k) + '"' + (g && g.k === x.k ? ' selected' : '') + '>' + esc(clsLabel(x)) + (used[x.k] ? '（已有 ' + used[x.k] + ' 張）' : '') + '</option>'; }).join('') +
       (pp.cls && !g ? '<option value="__keep" selected>' + esc(pp.cls + (pp.teacher ? ' ' + pp.teacher : '')) + '（叫貨單沒有）</option>' : '');
-    return '<div class="row" style="align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap"><label class="small">🏫 班級 <select data-pcls="' + i + '" style="width:auto;max-width:240px">' + opts + '</select></label>' +
+    return '<div class="row" style="align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap"><label class="small" title="菜商單子最下面有寫班級：打號碼（例如 307）按 Enter 就選好">單子寫的班級 <input data-pclsno="' + i + '" inputmode="numeric" placeholder="例如 307" style="width:84px;padding:3px 6px"></label><label class="small">🏫 班級 <select data-pcls="' + i + '" style="width:auto;max-width:240px">' + opts + '</select></label>' +
       '<span data-pguess="' + i + '" class="small"></span>' +
       '<span style="flex:1"></span><label class="small">單子合計 <input data-ptot="' + i + '" inputmode="decimal" style="width:90px" value="' + esc(String(pp.ptotal === undefined ? '' : pp.ptotal)) + '" placeholder="單子底下的"></label><span data-ptchk="' + i + '" class="small"></span></div><div data-pcmp="' + i + '"></div>';
   }
@@ -1841,7 +1841,7 @@
       var gEl = document.querySelector('[data-pguess="' + i + '"]'), tEl = document.querySelector('[data-ptchk="' + i + '"]');
       if (gEl) {
         if (pp.cls) { var cE0 = document.querySelector('[data-pcmp="' + i + '"]'); if (cE0) cE0.innerHTML = ''; }
-        if (pp.cls) gEl.innerHTML = pp.auto ? '<span style="color:#b45309;font-weight:600">🤖 自動猜的（對到 ' + pp.auto + '），請核對</span>' : '';
+        if (pp.cls) gEl.innerHTML = pp.auto ? '<span style="color:#b45309;font-weight:600">🤖 ' + (/^單子上寫/.test(pp.auto) ? esc(pp.auto) + '（辨識的），請核對' : '自動猜的（對到 ' + esc(pp.auto) + '），請核對') + '</span>' : '';
         else { var gu = clsGuess(pp, gs, clsUsed(i)); var cEl = document.querySelector('[data-pcmp="' + i + '"]'); if (cEl) cEl.innerHTML = clsCmpHtml(i, pp, gu);
           gEl.innerHTML = gu.length ? '可能是：' + gu.map(function (x) { return '<button type="button" class="btn ghost small" data-pgset="' + i + '" data-k="' + esc(x.g.k) + '" style="padding:1px 8px' + (x.used ? ';opacity:.55' : '') + '" title="對到 ' + x.hit + '／' + x.all + ' 樣' + (x.used ? '；這班已經有單子了' : '') + '">' + esc(clsLabel(x.g)) + ' <b>' + Math.round(Math.min(1, x.sc) * 100) + '%</b></button>'; }).join(' ') : (pp.rows.some(function (r) { return String(r.name || '').trim(); }) ? '<span class="muted">對不到哪一班</span>' : '<span class="muted">先選班級，系統會把那班叫的菜帶進來</span>'); }
       }
@@ -1876,6 +1876,31 @@
     var left = cur.slip.papers.filter(function (pp) { return !pp.cls && pp.rows.some(function (r) { return String(r.name || '').trim(); }); }).length;
     renderPapers(); saveDraft();
     msg('slMsg', n ? 'ok' : 'warn', n ? '自動選好 ' + n + ' 張的班級（標「🤖 自動猜的」），請一張一張核對，不對的直接改選單；按「💾 儲存銷貨單」才會存。' + (left ? '還有 ' + left + ' 張猜不出來，請自己選。' : '') : '猜不出來：這些單子的品項跟叫貨單差太多（或班級都已經有單子了），請自己選。');
+  }
+  // 單子上寫的班級號碼（「307」「309/310」「國技7」）→ 對到哪一班；同一班有好幾堂（不同天、不同老師）挑還沒有單子、品項最像的
+  function clsByNo(pp, no, gs, used) {
+    var norm = function (x) { return String(x || '').replace(/[\s　]/g, '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }); };
+    no = norm(no); if (!no) return null;
+    var hits = gs.filter(function (g) { var c = norm(g.cls); return c === no || c.split(/[\/、,.．]/).indexOf(no) >= 0; });
+    if (!hits.length) hits = gs.filter(function (g) { return norm(g.cls).indexOf(no) >= 0; });
+    if (!hits.length) return null;
+    if (hits.length === 1) return hits[0];
+    var free = hits.filter(function (g) { return !used[g.k]; }); if (free.length === 1) return free[0];
+    var gu = clsGuess(pp, free.length ? free : hits, {});
+    return gu.length ? gu[0].g : (free[0] || hits[0]);
+  }
+  // 辨識出來的文字裡找班級號碼：三位數（301～319、101～119、201～225）或「國技」「夜」開頭的
+  function clsFromText(pp, text, gs, used) {
+    var t = String(text || ''), found = [];
+    gs.forEach(function (g) {
+      String(g.cls).split(/[\/、,.．]/).forEach(function (c) { c = c.trim(); if (c.length >= 3 && t.indexOf(c) >= 0 && found.indexOf(g) < 0) found.push(g); });
+    });
+    if (!found.length) return null;
+    var free = found.filter(function (g) { return !used[g.k]; });
+    var pool = free.length ? free : found;
+    if (pool.length === 1) return pool[0];
+    var gu = clsGuess(pp, pool, {});
+    return gu.length ? gu[0].g : null;
   }
   function clsSet(i, k) {
     var pp = cur.slip.papers[i], g = clsGroups().filter(function (x) { return x.k === k; })[0];
@@ -1948,6 +1973,19 @@
     slipFooter();
   }
   function nameAmtOn() { try { return localStorage.getItem('rcvNameAmt') === '1'; } catch (e) { return false; } }
+  // 單子寫的班級：打號碼 → 選好那一班
+  function clsNoApply(t) {
+    var i = Number(t.getAttribute('data-pclsno')), pp = cur.slip.papers[i], v = t.value.trim(); if (!v) return;
+    var gs = clsGroups(), g = clsByNo(pp, v, gs, clsUsed(i));
+    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; return; }
+    var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
+    pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto;
+    if (!had) clsFill(i, g);
+    renderPapers(); saveDraft();
+    var nx = $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="0"][data-pf="' + (had ? 'name' : 'qty') + '"]'); if (nx) nx.focus();
+  }
+  $('slipBox').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.hasAttribute && e.target.hasAttribute('data-pclsno') && !e.isComposing) { e.preventDefault(); clsNoApply(e.target); } });
+  $('slipBox').addEventListener('change', function (e) { if (e.target.hasAttribute && e.target.hasAttribute('data-pclsno')) clsNoApply(e.target); });
   $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} } });
   // 數量是幾條、幾隻、幾包，價錢照總重量算 → 「總重量」欄（每家廠商都有，不用就空著）
   var WT_UNITS = ['公斤', '斤', '台斤', 'g', '兩'];
@@ -2002,6 +2040,7 @@
   $('slipBox').addEventListener('input', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
     if (t.hasAttribute && t.hasAttribute('data-pd')) { cur.slip.papers[Number(t.getAttribute('data-pd'))].date = t.value; saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pclsno')) return;   // 打完按 Enter 或離開才選（下面 change）
     if (t.hasAttribute && t.hasAttribute('data-ptot')) { cur.slip.papers[Number(t.getAttribute('data-ptot'))].ptotal = t.value; clsRefresh(); saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; if (t.value !== '__keep') clsSet(ci, t.value); renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
     if (!f || f === 'pu' || f === 'wu') return;
@@ -2450,7 +2489,12 @@
         var ps = cur.slip.papers, last = ps[ps.length - 1];
         if (ps.length && last.rows.every(function (y) { return !String(y.name || '').trim() && numv(y.amount) === null; })) ps[ps.length - 1] = pp; else ps.push(pp);
         cur.slip.text = r.text;
-        $('slipMsg').textContent = '讀到 ' + pp.rows.length + ' 行，放在第 ' + ps.length + ' 張。辨識不一定準，請對照銷貨單看一下。';
+        var gotCls = '';
+        if (cur.b.perClass) {   // 菜商單子最下面有寫班級：從辨識出來的字找
+          var gcl = clsFromText(pp, r.text, clsGroups(), clsUsed(ps.indexOf(pp)));
+          if (gcl) { pp.cls = gcl.cls; pp.teacher = gcl.teacher; pp.cdate = gcl.date; pp.auto = '單子上寫 ' + gcl.cls; gotCls = '，單子上寫的班級是 ' + gcl.cls + (gcl.teacher ? '（' + gcl.teacher + '）' : ''); }
+        }
+        $('slipMsg').textContent = '讀到 ' + pp.rows.length + ' 行，放在第 ' + ps.length + ' 張' + gotCls + '。辨識不一定準，請對照銷貨單看一下。';
         renderSlip(); saveDraft(); return;
       }
       var sl = cur.slip || { rows: {}, extras: [] };
