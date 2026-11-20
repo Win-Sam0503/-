@@ -8990,43 +8990,57 @@
 
   $('aRichMenu').addEventListener('click', function () {
     if (!safeConfirm('在官方帳號建立 6 個按鈕的選單（我的未訂貨課程、打開訂貨網站、我的訂單、截止時間說明、教學影片、我的課表）？\n管理者另外有管理者版選單（補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單）。\n這個不會用到則數。')) return;
-    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng(), crewMenuPng());
+    autoCall(this, 'adminSetupRichMenu', function () { return '選單已設定，老師打開官方帳號就會看到（可能要關掉聊天室再打開）。管理者綁定的 LINE 會看到管理者版選單：補訂貨、訂貨系統、驗收系統、查看課表、查看料單、查看叫貨單。'; }, adminMenuPng(), crewMenuPng(), teacherMenuPng());
   });
   $('aCrewClear').addEventListener('click', function () {
     if (!safeConfirm('清除全部校隊的 LINE？（換屆、畢業時用）\n之後要看的同學要重新傳新的綁定碼。')) return;
     autoCall(this, 'adminCrewLineClear', function () { loadCrewLine(); return '已清除全部校隊的 LINE（名單保留，要再用時按每個人的「重新給碼」）。'; });
   });
   // 校隊版 LINE 選單圖片（2×2）
-  function crewMenuPng() {
+  // LINE 選單圖片（2×3，七彩）：紅、橘、黃、綠、藍、紫，每格漸層＋圓角，在瀏覽器畫好傳上去
+  var RAINBOW = [['#ff5f6d', '#e5233b'], ['#ff9a3c', '#f26a0f'], ['#ffd23f', '#f2a900'], ['#3ddc84', '#12a150'], ['#4facfe', '#1f6fe5'], ['#b26bff', '#7b2ff7']];
+  function rainbowMenuPng(items) {
     var W = 2500, H = 1686, cw = Math.floor(W / 3), rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var g = cv.getContext('2d'), items = [['📋', '今天料單', '每張料單的食材', '#067647'], ['📋', '明天料單', '每張料單的食材', '#0e9f6e'], ['🔍', '查老師', '這週下週有沒有課', '#8a2b1a'],
-      ['👩‍🍳', '今天課表', '誰上課、哪一班', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、哪一班', '#3b5bdb'], ['🗓', '總課表', '網頁：課表＋料單', '#475467']];
-    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    var g = cv.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+    var rr = function (x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
     items.forEach(function (it, i) {
-      var c = i % 3, r = Math.floor(i / 3), x = c * cw, y = r * rh, w = c === 2 ? W - x : cw;
-      g.fillStyle = it[3]; g.fillRect(x + 16, y + 16, w - 32, rh - 32);
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.font = '210px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillText(it[0], x + w / 2, y + 250);
-      g.font = 'bold 130px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(it[1], x + w / 2, y + 520);
-      g.font = '72px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(it[2], x + w / 2, y + 680);
+      var c = i % 3, r = Math.floor(i / 3), x = c * cw, y = r * rh, w = c === 2 ? W - x : cw, col = RAINBOW[i % RAINBOW.length];
+      var gr = g.createLinearGradient(x, y, x + w, y + rh); gr.addColorStop(0, col[0]); gr.addColorStop(1, col[1]);
+      g.save(); g.shadowColor = 'rgba(0,0,0,.18)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
+      rr(x + 22, y + 22, w - 44, rh - 44, 60); g.fillStyle = gr; g.fill(); g.restore();
+      // 左上角一道亮光，看起來比較立體
+      g.save(); rr(x + 22, y + 22, w - 44, rh - 44, 60); g.clip();
+      var hl = g.createLinearGradient(x, y, x, y + rh * 0.55); hl.addColorStop(0, 'rgba(255,255,255,.28)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = hl; g.fillRect(x, y, w, rh * 0.55); g.restore();
+      // 圖示放在白色圓圈裡
+      g.fillStyle = 'rgba(255,255,255,.92)'; g.beginPath(); g.arc(x + w / 2, y + 250, 150, 0, Math.PI * 2); g.fill();
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = '170px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillStyle = '#000'; g.fillText(it[0], x + w / 2, y + 258);
+      g.save(); g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 12; g.shadowOffsetY = 4; g.fillStyle = '#fff';
+      var t = String(it[1]), fs = t.length > 5 ? 110 : 130;
+      g.font = 'bold ' + fs + 'px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(t, x + w / 2, y + 520);
+      g.font = '68px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.95)'; g.fillText(it[2], x + w / 2, y + 670);
+      g.restore();
     });
-    return cv.toDataURL('image/png');
+    // LINE 選單圖片最大 1 MB：漸層存成 PNG 太大，用 JPG（品質從 0.9 往下調到夠小）
+    for (var q = 0.9; q > 0.4; q -= 0.1) { var u = cv.toDataURL('image/jpeg', q); if (u.length < 1250000) return u; }
+    return cv.toDataURL('image/jpeg', 0.4);
   }
-  // 管理者版 LINE 選單圖片（2×3）：在瀏覽器畫好傳上去
+  // 校隊版（2×3）
+  function crewMenuPng() {
+    return rainbowMenuPng([['📋', '今天料單', '每張料單的食材'], ['📋', '明天料單', '每張料單的食材'], ['🔍', '查老師', '這週下週有沒有課'],
+      ['👩‍🍳', '今天課表', '誰上課、哪一班'], ['🧑‍🍳', '明天課表', '誰上課、哪一班'], ['🗓', '總課表', '網頁：課表＋料單']]);
+  }
+  // 管理者版（2×3）
   function adminMenuPng() {
-    var W = 2500, H = 1686, cw = Math.floor(W / 3), rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var g = cv.getContext('2d'), items = [['➕', '補訂貨', '不用登入，直接下單', '#8a2b1a'], ['🛒', '訂貨系統', '不用登入，直接打開', '#b45309'], ['✅', '驗收系統', '進貨驗收、核銷', '#475467'],
-      ['👩‍🍳', '查看課表', '誰上課、叫料了沒', '#1d4ed8'], ['📋', '查看料單', '每張料單的食材', '#067647'], ['🚚', '查看叫貨單', '各廠商要送什麼', '#7c3aed']];
-    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
-    items.forEach(function (it, i) {
-      var c = i % 3, r = Math.floor(i / 3), x = c * cw, y = r * rh, w = c === 2 ? W - x : cw;
-      g.fillStyle = it[3]; g.fillRect(x + 16, y + 16, w - 32, rh - 32);
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.font = '210px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.fillText(it[0], x + w / 2, y + 250);
-      g.font = 'bold 130px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillText(it[1], x + w / 2, y + 520);
-      g.font = '72px "Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(it[2], x + w / 2, y + 680);
-    });
-    return cv.toDataURL('image/png');
+    return rainbowMenuPng([['➕', '補訂貨', '不用登入，直接下單'], ['🛒', '訂貨系統', '不用登入，直接打開'], ['✅', '驗收系統', '進貨驗收、核銷'],
+      ['👩‍🍳', '查看課表', '誰上課、叫料了沒'], ['📋', '查看料單', '每張料單的食材'], ['🚚', '查看叫貨單', '各廠商要送什麼']]);
+  }
+  // 老師版（2×3，按鈕順序跟伺服器一樣）
+  function teacherMenuPng() {
+    return rainbowMenuPng([['❗', '未訂貨課程', '我還沒叫料的課'], ['🛒', '訂貨網站', '打開就能訂'], ['📄', '我的訂單', '送出的料單'],
+      ['⏰', '截止時間', '什麼時候要訂好'], ['▶️', '教學影片', '不會用看這裡'], ['🗓', '我的課表', '我哪幾堂課']]);
   }
 
   // ------------------------------------------------------------------

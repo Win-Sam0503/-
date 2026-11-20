@@ -6614,7 +6614,7 @@ function lineAutoReply_(text, userId) {
 }
 
 /** 管理者：建立官方帳號圖文選單（6 個按鈕，上下兩排）並設為預設 */
-function adminSetupRichMenu(token, adminPng, crewPng) {
+function adminSetupRichMenu(token, adminPng, crewPng, teacherPng) {
   auth_(token, true);
   const props = PropertiesService.getScriptProperties();
   const lineToken = props.getProperty('LINE_TOKEN');
@@ -6641,9 +6641,11 @@ function adminSetupRichMenu(token, adminPng, crewPng) {
   });
   if (res.getResponseCode() !== 200) throw new Error('建立選單失敗：' + res.getContentText().slice(0, 200));
   const id = JSON.parse(res.getContentText()).richMenuId;
-  const png = Utilities.base64Decode(HtmlService.createHtmlOutputFromFile('RichMenu').getContent().replace(/\s+/g, ''));
+  // 老師版圖片：網頁畫好傳上來的（七彩）；沒有就用舊的 RichMenu 檔
+  const tb = String(teacherPng || '').replace(/^data:image\/(png|jpeg);base64,/, ''), tMime = /^data:image\/jpeg/.test(String(teacherPng || '')) ? 'image/jpeg' : 'image/png';
+  const png = tb.length > 1000 && tb.length < 1300000 ? Utilities.base64Decode(tb) : Utilities.base64Decode(HtmlService.createHtmlOutputFromFile('RichMenu').getContent().replace(/\s+/g, ''));
   const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', {
-    method: 'post', contentType: 'image/png', muteHttpExceptions: true, headers: auth, payload: png,
+    method: 'post', contentType: tb.length > 1000 && tb.length < 1300000 ? tMime : 'image/png', muteHttpExceptions: true, headers: auth, payload: png,
   });
   if (up.getResponseCode() !== 200) throw new Error('上傳選單圖片失敗：' + up.getContentText().slice(0, 200));
   const def = UrlFetchApp.fetch('https://api.line.me/v2/bot/user/all/richmenu/' + id, { method: 'post', muteHttpExceptions: true, headers: auth });
@@ -6927,7 +6929,7 @@ function lineLinkMenu_(userId, key) {
 /** 校隊選單（2×2）：今天料單、明天料單、今天課表、明天課表 */
 function lineSetupCrewMenu_(png) {
   const props = PropertiesService.getScriptProperties(), lineToken = props.getProperty('LINE_TOKEN');
-  const b64 = String(png || '').replace(/^data:image\/png;base64,/, '');
+  const b64 = String(png || '').replace(/^data:image\/(png|jpeg);base64,/, ''), mime = /^data:image\/jpeg/.test(String(png || '')) ? 'image/jpeg' : 'image/png';   // 七彩的用 JPG（LINE 選單圖片最大 1 MB）
   if (!lineToken || b64.length < 1000 || b64.length > 1300000) return;
   const auth = { Authorization: 'Bearer ' + lineToken };
   const w = 2500, h = 1686, cw = Math.floor(w / 3), rh = h / 2;
@@ -6939,7 +6941,7 @@ function lineSetupCrewMenu_(png) {
     payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統校隊選單', chatBarText: '校隊選單', areas: areas }) });
   if (res.getResponseCode() !== 200) throw new Error('建立校隊選單失敗：' + res.getContentText().slice(0, 200));
   const id = JSON.parse(res.getContentText()).richMenuId;
-  const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: 'image/png', muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
+  const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: mime, muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
   if (up.getResponseCode() !== 200) throw new Error('上傳校隊選單圖片失敗：' + up.getContentText().slice(0, 200));
   const old = props.getProperty('CREW_RICH_MENU_ID');
   if (old && old !== id) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
@@ -6950,7 +6952,7 @@ function lineSetupCrewMenu_(png) {
 /** 管理者專用選單（2×3）：補訂貨、訂貨系統、驗收系統／查看課表、查看料單、查看叫貨單。圖片在瀏覽器畫好傳上來 */
 function lineSetupAdminMenu_(png) {
   const props = PropertiesService.getScriptProperties(), lineToken = props.getProperty('LINE_TOKEN');
-  const b64 = String(png || '').replace(/^data:image\/png;base64,/, '');
+  const b64 = String(png || '').replace(/^data:image\/(png|jpeg);base64,/, ''), mime = /^data:image\/jpeg/.test(String(png || '')) ? 'image/jpeg' : 'image/png';   // 七彩的用 JPG（LINE 選單圖片最大 1 MB）
   if (!lineToken || b64.length < 1000 || b64.length > 1300000) return;
   const auth = { Authorization: 'Bearer ' + lineToken };
   const w = 2500, h = 1686, cw = Math.floor(w / 3), rh = h / 2;
@@ -6966,7 +6968,7 @@ function lineSetupAdminMenu_(png) {
     payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統管理者選單', chatBarText: '管理者選單', areas: areas }) });
   if (res.getResponseCode() !== 200) throw new Error('建立管理者選單失敗：' + res.getContentText().slice(0, 200));
   const id = JSON.parse(res.getContentText()).richMenuId;
-  const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: 'image/png', muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
+  const up = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/' + id + '/content', { method: 'post', contentType: mime, muteHttpExceptions: true, headers: auth, payload: Utilities.base64Decode(b64) });
   if (up.getResponseCode() !== 200) throw new Error('上傳管理者選單圖片失敗：' + up.getContentText().slice(0, 200));
   const old = props.getProperty('ADMIN_RICH_MENU_ID');
   if (old && old !== id) UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu/' + old, { method: 'delete', muteHttpExceptions: true, headers: auth });
