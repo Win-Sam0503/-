@@ -1105,7 +1105,7 @@
     $('doCls').innerHTML = '<option value="">全部班級</option>' + cl.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
     $('doCls').classList.toggle('hidden', cl.length < 2);
     $('doTitle').textContent = vco(b.vendor) + (b.group ? '　送貨組別 ' + b.group : '');
-    $('doSub').textContent = mdw(week.from) + '～' + mdw(week.to) + '・' + b.lines.length + ' 項・' + (b.perClass ? '照班級點' : '點品項總量') +
+    $('doSub').textContent = mdw(bFrom(b)) + '～' + mdw(bTo(b)) + '・' + b.lines.length + ' 項・' + (b.perClass ? '照班級點' : '點品項總量') +
       (b.check ? '・上次驗收 ' + b.check.time + '（重新存會蓋掉）' : '');
     $('doNote').value = d ? d.note : b.check ? b.check.note : '';
     msg('doMsg', '', '');
@@ -1406,7 +1406,8 @@
     var items = b.lines.map(function (x) { var m = cur.marks[x.key]; return { cls: x.cls, name: x.name, expect: x.expect, got: m.got || '', status: m.status, note: m.note || '', photos: m.photos || [] }; });
     var btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveCheck', { from: week.from, to: week.to, vendor: b.vendor, group: b.group, note: $('doNote').value, items: items,
+    call('saveCheck', { from: bFrom(b), to: bTo(b), vendor: b.vendor,   // 提早送的（下週一二組）要存在下週那張，不是這週
+      group: b.group, note: $('doNote').value, items: items,
       signer: $('sigName').value.trim(), signature: cur.sig || '', signatureUrl: cur.sig ? '' : cur.sigUrl }).then(function (r) {
       dropDraft(b);
       msg('doneMsg', r.issues ? 'warn' : 'ok', b.vendor + (allStop ? ' 已標成停送（' + r.items + ' 項，不算錢）。' : ' 驗收完成：' + r.items + ' 項' + (r.issues ? '，' + r.issues + ' 項有問題，已列進「問題追蹤」。' + r.mail : stopN ? '，其他都到齊。' : '，全部到齊。') + (stopN ? '停送 ' + stopN + ' 項（不算錢）。' : '')) +
