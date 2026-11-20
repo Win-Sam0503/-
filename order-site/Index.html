@@ -6978,7 +6978,7 @@
       var cd = $('clD').value;
       $('clD').innerHTML = '<option value="">每一天</option>' + ds.map(function (d) { return '<option value="' + d + '"' + (d === cd ? ' selected' : '') + '>' + esc(shortDate(d)) + '</option>'; }).join('');
       clRender();
-    }).catch(function (e) { msg('clMsg', 'error', /SESSION_EXPIRED/.test(e.message) ? '連結過期了，請在 LINE 再按一次「📱 網頁查詢」。' : e.message); });
+    }).catch(function (e) { msg('clMsg', 'error', /SESSION_EXPIRED/.test(e.message) ? '連結過期了，請在 LINE 再按一次「🗓 總課表」。' : e.message); });
   }
   // 這次查的每一天（週末沒有課也沒有料單就不列）
   function clDays(r) {
@@ -7309,7 +7309,7 @@
     cb.disabled = true;
     call('adminCrewRosterEdit', token, on ? 'order-on' : 'order-off', row.getAttribute('data-crid'), tm, nm).then(function (list) {
       renderCrewLine(list);
-      msg('autoMsg', 'ok', on ? '「' + nm + '」可以訂貨了：他在 LINE 按「📱 網頁查詢」會多「🛒 校隊訂貨」，用「' + tm + '校隊」帳號訂，訂單記他的名字。' : '已取消「' + nm + '」的訂貨權限。');
+      msg('autoMsg', 'ok', on ? '「' + nm + '」可以訂貨了：他在 LINE 按「🗓 總課表」會多「🛒 校隊訂貨」，用「' + tm + '校隊」帳號訂，訂單記他的名字。' : '已取消「' + nm + '」的訂貨權限。');
     }).catch(function (err) { cb.checked = !on; cb.disabled = false; notice(err.message); });
   });
   $('aCrewList').addEventListener('click', function (e) {
@@ -9000,7 +9000,7 @@
   function crewMenuPng() {
     var W = 2500, H = 1686, cw = Math.floor(W / 3), rh = H / 2, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var g = cv.getContext('2d'), items = [['📋', '今天料單', '每張料單的食材', '#067647'], ['📋', '明天料單', '每張料單的食材', '#0e9f6e'], ['🔍', '查老師', '這週下週有沒有課', '#8a2b1a'],
-      ['👩‍🍳', '今天課表', '誰上課、哪一班', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、哪一班', '#3b5bdb'], ['📱', '網頁查詢', '上週這週下週料單', '#475467']];
+      ['👩‍🍳', '今天課表', '誰上課、哪一班', '#1d4ed8'], ['🧑‍🍳', '明天課表', '誰上課、哪一班', '#3b5bdb'], ['🗓', '總課表', '網頁：課表＋料單', '#475467']];
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     items.forEach(function (it, i) {
       var c = i % 3, r = Math.floor(i / 3), x = c * cw, y = r * rh, w = c === 2 ? W - x : cw;
