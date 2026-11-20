@@ -1789,10 +1789,17 @@
     var empty = pp.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
     if (!empty && !window.confirm('這張已經有打品項，要換成「' + clsLabel(g) + '」叫的菜嗎？（原本打的會清掉）')) return false;
     pp.rows = g.lines.map(function (x) {
-      var e = String(x.expect || '').trim(), m, q = '', u = '';
+      var e = String(x.expect || '').trim(), m, q = '', u = '', hint = '';
+      var lp = (cur.b.prices || {})[x.name];
       if ((m = e.match(/^(\d+(?:\.\d+)?)\s*斤(?:\s*(\d+(?:\.\d+)?)\s*兩)?$/))) { q = m[2] ? m[1] + '斤' + m[2] + '兩' : m[1]; u = '斤'; }
-      else if ((m = e.match(/^(\d+(?:\.\d+)?)\s*(\S+)$/))) { q = m[1]; u = m[2]; }
-      var lp = (cur.b.prices || {})[x.name], r = { name: x.name, qty: q, unit: u, price: '', amount: '' };
+      else if ((m = e.match(/^(\d+(?:\.\d+)?)\s*兩$/))) { q = m[1] + '兩'; u = '斤'; }
+      else if ((m = e.match(/^(\d+(?:\.\d+)?)\s*(\S+)$/))) {
+        // 老師用支、個、條、顆訂的：菜商、肉商、海鮮的單子是秤重（台斤），數量不能照叫貨帶，留空讓你照單子打；單位用上次單子的（沒有就斤）
+        if (/^[ABD]/.test(cur.b.vendor || '') && !W[m[2]] && !(lp && lp.unit === m[2])) { q = ''; u = lp && lp.unit ? lp.unit : '斤'; hint = '叫 ' + m[1] + ' ' + m[2]; }
+        else { q = m[1]; u = m[2]; }
+      }
+      var r = { name: x.name, qty: q, unit: u, price: '', amount: '' };
+      if (hint) r.hint = hint;
       if (lp && lp.price !== '' && lp.price !== undefined && (!lp.unit || lp.unit === u || (isJin(lp.unit) && isJin(u)))) {
         r.price = String(lp.price);
         var qq = slipQty(r), pr = numv(r.price);
@@ -1925,7 +1932,7 @@
         '<div class="slipwrap"><table class="slipt"><tr><th>品名</th><th>數量</th><th>單位</th>' + (showWt ? '<th><select data-wtmode style="width:auto;font-size:13px;padding:2px;font-weight:700" title="總重量：單上寫「12 隻、總重 10.2 斤」照總重算錢；每單位重量：1 罐／1 包幾 g（規格）"><option value="tot"' + (totMode() ? ' selected' : '') + '>總重量</option><option value="per"' + (totMode() ? '' : ' selected') + '>每單位重量</option></select></th>' : '') + '<th>單價</th><th>金額</th><th></th></tr>' +
         pp.rows.map(function (r, j) {
           var a = function (f, ph, extra) { return '<input data-pi="' + i + '" data-pj="' + j + '" data-pf="' + f + '" value="' + esc(r[f] === undefined || r[f] === null ? '' : String(r[f])) + '" placeholder="' + ph + '"' + (extra || '') + '>'; };
-          return '<tr><td>' + a('name', '品名', ' list="itemList" autocomplete="off" style="min-width:140px"') + pmapHtml(i, j, r.name) + '</td><td class="w2">' + a('qty', '數量', ' inputmode="decimal"') + '</td>' +
+          return '<tr><td>' + a('name', '品名', ' list="itemList" autocomplete="off" style="min-width:140px"') + pmapHtml(i, j, r.name) + '</td><td class="w2">' + a('qty', r.hint || '數量', ' inputmode="decimal"' + (r.hint ? ' title="老師' + esc(r.hint) + '，單子是秤重的，照單子打幾斤"' : '')) + '</td>' +
             '<td class="w1">' + a('unit', '單位', ' list="unitList" autocomplete="off"') + '</td>' +
             (showWt ? '<td class="w2">' + (totMode() ? '<input data-pi="' + i + '" data-pj="' + j + '" data-pf="wt" value="' + esc(totShow(r)) + '" placeholder="總重量" inputmode="decimal">' : a('wt', '每1' + (r.unit || '單位'), ' inputmode="decimal"')) + '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="wu" style="width:auto;font-size:13px;padding:2px;margin-top:2px">' + WT_UNITS.map(function (u) { return '<option' + ((r.wu || wtDefault()) === u ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select></td>' : '') +
             '<td class="w2">' + a('price', '單價', ' inputmode="decimal"') + pbSelect(i, j, r) + '<select data-pi="' + i + '" data-pj="' + j + '" data-pf="pu" style="width:auto;font-size:13px;padding:2px;margin-top:2px' + (jinRow(r) && numv(r.wt) === null ? '' : ';display:none') + '"><option value="斤">元／斤</option><option value="兩"' + (r.pu === '兩' ? ' selected' : '') + '>元／兩</option></select></td>' +
