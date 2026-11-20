@@ -1993,10 +1993,21 @@
     if (viaEnter) clsNextFocus(i, 'no');
   }
   var clsNoBusy = false;
+  // 中文輸入法開著時，打數字也會在「選字中」，第一下 Enter 被輸入法吃掉：等放開 Enter（keyup）再處理
+  var clsEnterIme = false;
+  function clsEnter(t) {
+    if (t.hasAttribute('data-pclsno')) { clsNoBusy = true; clsNoApply(t, true); clsNoBusy = false; }
+    else if (t.hasAttribute('data-ptot')) clsNextFocus(Number(t.getAttribute('data-ptot')), 'tot');
+  }
   $('slipBox').addEventListener('keydown', function (e) {
-    var t = e.target; if (e.key !== 'Enter' || e.isComposing || !t.hasAttribute) return;
-    if (t.hasAttribute('data-pclsno')) { e.preventDefault(); clsNoBusy = true; clsNoApply(t, true); clsNoBusy = false; }
-    else if (t.hasAttribute('data-ptot')) { e.preventDefault(); clsNextFocus(Number(t.getAttribute('data-ptot')), 'tot'); }
+    var t = e.target; if (!t.hasAttribute || !(t.hasAttribute('data-pclsno') || t.hasAttribute('data-ptot'))) return;
+    if (e.key !== 'Enter' && e.keyCode !== 13 && e.keyCode !== 229) return;
+    if (e.isComposing || e.keyCode === 229) { clsEnterIme = true; return; }
+    e.preventDefault(); clsEnterIme = false; clsEnter(t);
+  });
+  $('slipBox').addEventListener('keyup', function (e) {
+    var t = e.target; if (!clsEnterIme || (e.key !== 'Enter' && e.keyCode !== 13) || !t.hasAttribute) return;
+    clsEnterIme = false; if (t.hasAttribute('data-pclsno') || t.hasAttribute('data-ptot')) clsEnter(t);
   });
   $('slipBox').addEventListener('change', function (e) { if (!clsNoBusy && e.target.hasAttribute && e.target.hasAttribute('data-pclsno')) clsNoApply(e.target, false); });
   $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} } });
