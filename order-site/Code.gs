@@ -6609,13 +6609,13 @@ function adminCrewLineClear(token) {
   const list = crewRoster_(); list.forEach(function (x) { x.uid = ''; x.t = ''; }); crewRosterSave_(list);   // 名單留著，要用時再給新的碼
   return automationStatus_();
 }
-const CREW_TEAMS = ['中餐', '烘焙', '飲調', '西餐'];
+const CREW_TEAMS = ['中餐', '烘焙', '飲調', '咖啡', '餐飲服務', '西餐'];
 /** 「中餐 王同學」「烘焙校隊 李同學」→ { team, name }（組別認不出來就是空的） */
 function crewWho_(s) {
   s = String(s || '').replace(/[，,、:：]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 30);
   let team = '';
   CREW_TEAMS.forEach(function (t) { if (!team && s.indexOf(t) >= 0) team = t; });
-  const name = s.replace(/(中餐|烘焙|飲調|西餐)\s*(校隊|組)?/, '').replace(/^我是\s*/, '').trim().slice(0, 12);
+  const name = s.replace(/(中餐|烘焙|飲調|咖啡|餐飲服務|西餐)\s*(校隊|組)?/, '').replace(/^我是\s*/, '').trim().slice(0, 12);
   return { team: team, name: name };
 }
 /** 校隊 LINE：{ t: 綁定時間, team, name }（舊的只存時間） */
@@ -6725,6 +6725,25 @@ function adminCrewRosterEdit(token, action, id, team, names) {
       if (lineToken) { try { UrlFetchApp.fetch('https://api.line.me/v2/bot/user/' + uid + '/richmenu', { method: 'delete', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + lineToken } }); } catch (e) {} }
       props.deleteProperty('CL:' + uid);
     };
+    if (action === 'import') {
+      // 一次貼整份名單：每一行「組別 名字 名字…」或「組別：名字、名字」；同組已經有的跳過，不會重複
+      let cur = '', added = 0, skipped = 0;
+      String(names || '').split(/\n+/).forEach(function (line) {
+        line = String(line).replace(/[（(][^）)]*[）)]/g, ' ').replace(/[，,、:：\t]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!line) return;
+        const tm = CREW_TEAMS.filter(function (t) { return line.indexOf(t) === 0; }).sort(function (a, b) { return b.length - a.length; })[0];
+        if (tm) { cur = tm; line = line.slice(tm.length).replace(/^\s*(校隊|組)/, '').trim(); }
+        if (!cur) throw new Error('第一行要先寫組別（' + CREW_TEAMS.join('、') + '）。');
+        line.split(' ').map(function (n) { return clean_(n.replace(/^\d+$/, ''), 12); }).filter(Boolean).forEach(function (n) {
+          if (list.some(function (x) { return x.team === cur && x.name === n; })) { skipped++; return; }
+          list.push({ id: Utilities.getUuid().slice(0, 8), team: cur, name: n, code: crewNewCode_(list), until: until, uid: '', t: '' });
+          added++;
+        });
+      });
+      if (!added && !skipped) throw new Error('沒有讀到名字。');
+      crewRosterSave_(list);
+      return { list: adminCrewRoster(token), imported: { added: added, skipped: skipped } };
+    }
     if (action === 'add') {
       if (!team) throw new Error('請選組別。');
       const ns = String(names || '').split(/[、,，\s\n]+/).map(function (n) { return clean_(n, 12); }).filter(Boolean);

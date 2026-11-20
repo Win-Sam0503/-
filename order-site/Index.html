@@ -1343,9 +1343,13 @@
           <b>🏅 校隊 LINE（每人一組綁定碼）</b> <span id="aCrewInfo" class="small muted"></span>
           <div class="muted small" style="margin:2px 0 6px">先新增名字，系統給每個人自己的 6 位數碼（7 天內有效、用一次）。同學加官方 LINE 後傳「校隊 碼」，就會綁成那個名字；不在名單上的人綁不了。可以一次打好幾個名字，用「、」或空格隔開。</div>
           <div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap">
-            <div><label for="aCrewTeam" class="small">組別</label><select id="aCrewTeam" style="width:auto"><option value="">請選</option><option>中餐</option><option>烘焙</option><option>飲調</option><option>西餐</option></select></div>
+            <div><label for="aCrewTeam" class="small">組別</label><select id="aCrewTeam" style="width:auto"><option value="">請選</option><option>中餐</option><option>烘焙</option><option>飲調</option><option>咖啡</option><option>餐飲服務</option><option>西餐</option></select></div>
             <div style="flex:1;min-width:180px"><label for="aCrewNames" class="small">名字</label><input id="aCrewNames" maxlength="200" placeholder="例如：王同學、陳同學"></div>
             <button type="button" class="btn secondary small" id="aCrewAdd">新增</button>
+            <details style="flex-basis:100%;margin-top:4px"><summary class="small" style="cursor:pointer">📋 一次貼上整份名單（很多人時用）</summary>
+              <div class="muted small" style="margin:4px 0">每一組先寫組別，後面接名字（空白、頓號都可以），可以換行。同一組已經有的人會跳過，不會重複。例如：<br>中餐 田哲安 蕭丞軒 洪翊婷<br>烘焙 廖苡彤 郭禹彤</div>
+              <textarea id="aCrewBulk" rows="6" style="width:100%" placeholder="中餐 王小明 陳小華&#10;烘焙 李小美"></textarea>
+              <button type="button" class="btn small" id="aCrewBulkGo" style="margin-top:4px">匯入</button></details>
             <button type="button" class="btn ghost small" id="aCrewCopy">📋 複製還沒綁定的碼</button>
             <button type="button" class="btn ghost small" id="aCrewClear" style="color:var(--bad)">清除全部校隊 LINE</button>
           </div>
@@ -7188,7 +7192,7 @@
     });
   });
   // 校隊名單：每人一組綁定碼；照組別列出，可以改組別、名字、重新給碼、移除
-  var CREW_TEAMS = ['中餐', '烘焙', '飲調', '西餐'], crewRoster = [];
+  var CREW_TEAMS = ['中餐', '烘焙', '飲調', '咖啡', '餐飲服務', '西餐'], crewRoster = [];
   function renderCrewLine(list) {
     crewRoster = list;
     if (!list.length) { $('aCrewList').innerHTML = '<span class="muted">名單是空的，先在上面新增校隊的名字。</span>'; return; }
@@ -7219,6 +7223,16 @@
     call('adminCrewRosterEdit', token, 'add', '', tm, ns).then(function (list) {
       renderCrewLine(list); $('aCrewNames').value = '';
       msg('autoMsg', 'ok', '已新增，每個人的綁定碼在名單上（7 天內有效）。可以按「📋 複製還沒綁定的碼」貼給同學。');
+    }).catch(function (err) { notice(err.message); }).then(function () { setBusy(b, false); });
+  });
+  $('aCrewBulkGo').addEventListener('click', function () {
+    var b = this, txt = $('aCrewBulk').value.trim();
+    if (!txt) { notice('請貼上名單。'); return; }
+    setBusy(b, true, '匯入中…');
+    call('adminCrewRosterEdit', token, 'import', '', '', txt).then(function (r) {
+      renderCrewLine(r.list); $('aCrewBulk').value = '';
+      var im = r.imported || {};
+      msg('autoMsg', 'ok', '已匯入 ' + (im.added || 0) + ' 位' + (im.skipped ? '（' + im.skipped + ' 位已經在名單上，跳過）' : '') + '。每個人的綁定碼在名單上（7 天內有效），按「📋 複製還沒綁定的碼」可以一次貼給同學。');
     }).catch(function (err) { notice(err.message); }).then(function () { setBusy(b, false); });
   });
   $('aCrewCopy').addEventListener('click', function () {
