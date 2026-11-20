@@ -1785,10 +1785,11 @@
     return used;
   }
   // 選了班級、這張還沒打：把那班叫的菜帶進來（數量照叫貨，單價用上次的），只要改不一樣的
-  function clsFill(i, g) {
+  function clsFill(i, g, force) {
     var pp = cur.slip.papers[i];
     var empty = pp.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
-    if (!empty && !window.confirm('這張已經有打品項，要換成「' + clsLabel(g) + '」叫的菜嗎？（原本打的會清掉）')) return false;
+    if (!empty && !force && !window.confirm('這張已經有打品項，要換成「' + clsLabel(g) + '」叫的菜嗎？\n（按「確定」：換成新班級叫的菜，原本打的會清掉；按「取消」：班級照樣換，品項不動）')) return false;
+    pp.filledK = g.k; pp.edited = false;
     pp.rows = g.lines.map(function (x) {
       var e = String(x.expect || '').trim(), m, q = '', u = '', hint = '';
       var lp = (cur.b.prices || {})[x.name];
@@ -1934,12 +1935,19 @@
     if (!at.length) return true;
     return window.confirm('⚠「' + clsLabel(g) + '」已經在第 ' + at.join('、') + ' 張打過了！\n\n是不是重複打了同一張單子？\n同一班真的分兩張送才按「確定」，不然按「取消」。');
   }
+  // 換班級：品項也跟著換成新班級叫的菜（是系統帶入、還沒改過的直接換；自己打過、改過的先問）
+  function clsRefill(i, g) {
+    var pp = cur.slip.papers[i];
+    var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
+    if (!had) return clsFill(i, g, true);
+    if (pp.filledK === g.k) return false;   // 同一班，不用換
+    return clsFill(i, g, !!pp.filledK && !pp.edited);
+  }
   function clsSet(i, k) {
     var pp = cur.slip.papers[i], g = clsGroups().filter(function (x) { return x.k === k; })[0];
     if (!g) { if (k === '') { pp.cls = ''; pp.teacher = ''; pp.cdate = ''; } return; }
-    var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
     pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date;
-    if (!had) clsFill(i, g);
+    clsRefill(i, g);
   }
   function renderPapers() {
     var sl = cur.slip;
@@ -2033,7 +2041,7 @@
     if (!clsDupOk(i, g)) { t.value = ''; t.focus(); return; }
     var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
     pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto; delete pp.multiNo;
-    if (!had) clsFill(i, g);
+    clsRefill(i, g); had = pp.rows.some(function (r) { return String(r.name || '').trim(); }) && !pp.filledK;
     renderPapers(); saveDraft();
     var ni = $('slipBox').querySelector('[data-pclsno="' + i + '"]'); if (ni) ni.value = v;
     if (viaEnter) clsNextFocus(i, 'no');
@@ -2114,6 +2122,7 @@
     if (t.hasAttribute && t.hasAttribute('data-ptot')) { cur.slip.papers[Number(t.getAttribute('data-ptot'))].ptotal = t.value; clsRefresh(); saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; delete cur.slip.papers[ci].multiNo; if (t.value !== '__keep') { var cg = clsGroups().filter(function (x) { return x.k === t.value; })[0]; if (cg && !clsDupOk(ci, cg)) { renderPapers(); return; } clsSet(ci, t.value); } renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
     if (!f || f === 'pu' || f === 'wu') return;
+    var epi = cur.slip.papers[Number(t.getAttribute('data-pi'))]; if (epi) epi.edited = true;   // 自己改過了：換班級時先問
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     if (f === 'wt' && totMode()) { r.tw = t.value; totApply(r); }
     else r[f] = t.value;
@@ -2174,7 +2183,7 @@
     if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
     if (t.id === 'clsAuto') { clsAutoAll(); return; }
     var pgb = t.closest && t.closest('[data-pgset]');   // 點到按鈕裡面的字也算
-    if (pgb) { t = pgb; var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { var gHad = gp.rows.some(function (r) { return String(r.name || '').trim(); }); gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; delete gp.auto; delete gp.multiNo; if (!gHad) clsFill(gi, gg); } renderPapers(); saveDraft(); var gn = $('slipBox').querySelector('[data-ptot="' + gi + '"]'); if (gn) gn.focus(); return; }
+    if (pgb) { t = pgb; var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { var gHad = gp.rows.some(function (r) { return String(r.name || '').trim(); }); gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; delete gp.auto; delete gp.multiNo; clsRefill(gi, gg); } renderPapers(); saveDraft(); var gn = $('slipBox').querySelector('[data-ptot="' + gi + '"]'); if (gn) gn.focus(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pnew')) {
       var nk = t.getAttribute('data-pnew'), ng = clsGroups().filter(function (x) { return x.k === nk; })[0]; if (!ng) return;
       var last = sl.papers[sl.papers.length - 1], blank = last && !last.cls && last.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
