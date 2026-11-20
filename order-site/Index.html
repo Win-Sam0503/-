@@ -2791,9 +2791,10 @@
   function priceOf(c) {
     var list = (data.prices || {})[c.name];
     if (!list || !list.length) return null;
-    var v = dispVendor(c.vendor), mine = list.filter(function (x) { return x.v === v; });
+    var v = dispVendor(c.vendor), mine = list.filter(function (x) { return x.v === v || x.v === c.vendor; });   // C蛋商 顯示成 C烘焙蛋：單價表記的是 C蛋商，也算同一家
     var pool = mine.length ? mine : list;
-    var ok = pool.filter(function (x) { return qtyInPriceN(1, c.unit, x, c.name) !== null; });
+    var ok = pool.filter(function (x) { return qtyInPriceN(1, c.unit, x, c.name) !== null; })
+      .sort(function (a, b) { return String(b.d || '').localeCompare(String(a.d || '')); });   // 換得過去的有好幾筆：用最新的價錢
     return ok.filter(function (x) { return x.m; })[0] || ok[0] || pool[0];   // 管理者手填的優先
   }
   // q 個 unit 換成單價的單位：同單位、重量互換、或用換算（1 K＝190 顆、1 袋＝22000 g）
