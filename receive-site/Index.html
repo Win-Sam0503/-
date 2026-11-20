@@ -819,10 +819,35 @@
   function saveSlipDraft() {
     try {
       if (!cur.photos.length && !cur.slip && !$('slNote').value && !invsUsed().length && !$('slCode').value) { localStorage.removeItem(slipDraftKey(cur.b)); return; }
-      var t = new Date();
-      localStorage.setItem(slipDraftKey(cur.b), JSON.stringify({ photos: cur.photos, slip: cur.slip, note: $('slNote').value, invs: cur.invs, code: $('slCode').value,
-        at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) }));
+      var t = new Date(), body = JSON.stringify({ photos: cur.photos, slip: cur.slip, note: $('slNote').value, invs: cur.invs, code: $('slCode').value, ts: t.getTime(),
+        at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) });
+      localStorage.setItem(slipDraftKey(cur.b), body);
+      slipDraftRemote(cur.b, body);
     } catch (e) {}
+  }
+  // 打到一半的銷貨單：停手 4 秒就自動存一份到試算表，換電腦、換手機打開也接得下去
+  var slipRemoteT = null;
+  function slipDraftRemote(b, body) {
+    if (!b || !b.id) return;   // 新的臨時銷貨單還沒有編號：存檔後才同步
+    clearTimeout(slipRemoteT);
+    slipRemoteT = setTimeout(function () { call('slipDraftSave', b.id, body).catch(function () {}); }, 4000);
+  }
+  // 打開銷貨單：試算表有比這台新的暫存（別台打的）→ 問要不要接著用
+  function slipDraftCheckRemote(b) {
+    if (!b || !b.id) return;
+    call('slipDraftGet', b.id).then(function (r) {
+      if (!r || !r.data || !cur || cur.b !== b) return;
+      var mine = readSlipDraft(b), mts = mine && mine.ts || 0;
+      if (mine && (r.ts <= mts + 3000 || JSON.stringify(mine.slip) === JSON.stringify((JSON.parse(r.data) || {}).slip))) return;   // 這台的比較新或一樣
+      if (b.slip && b.slip.time && !mine) {
+        // 已經存過：暫存比存檔舊就不用提
+        var sp = String(b.slip.time).match(/(\d{4})\D(\d{1,2})\D(\d{1,2})\D+(\d{1,2}):(\d{2})/);
+        if (sp && new Date(+sp[1], sp[2] - 1, +sp[3], +sp[4], +sp[5]).getTime() >= r.ts - 60000) return;
+      }
+      $('slDraftMsg').insertAdjacentHTML('afterbegin', '<div class="msg warn" id="slRemoteDraft">📱 另一台電腦／手機在 <b>' + esc(r.at) + '</b> 打了這張銷貨單（還沒按儲存）。 <button type="button" class="btn small" id="slRemoteUse">接著用那台打的</button> <button type="button" class="btn ghost small" id="slRemoteNo">不用</button></div>');
+      $('slRemoteUse').onclick = function () { try { localStorage.setItem(slipDraftKey(b), r.data); } catch (e) {} openSlip(b); msg('slMsg', 'ok', '已經換成另一台 ' + r.at + ' 打的內容，打完記得按「💾 儲存銷貨單」。'); };
+      $('slRemoteNo').onclick = function () { var x = $('slRemoteDraft'); if (x) x.remove(); };
+    }).catch(function () {});
   }
   function openSlip(b) {
     msg('doneMsg', '', ''); msg('slMsg', '', '');
@@ -834,6 +859,7 @@
       $('slDraftMsg').innerHTML = '<div class="msg info">已恢復這台 ' + esc(d.at) + ' 還沒存的內容，按「💾 儲存銷貨單」才會存。 <button type="button" class="btn ghost small" id="slDraftDrop">清掉、用已存的</button></div>';
     } else $('slDraftMsg').innerHTML = '';
     $('slNote').value = d ? d.note || '' : sl ? sl.note || '' : '';
+    setTimeout(function () { slipDraftCheckRemote(b); }, 0);
     cur.invs = (d && d.invs ? d.invs : d && (d.invNo || d.invDate) ? [{ no: d.invNo || '', date: d.invDate || '', amount: '' }] : sl && sl.invs ? sl.invs : [])
       .map(function (x) { return { no: x.no || '', date: x.date || '', amount: x.amount === undefined || x.amount === null ? '' : String(x.amount), code: x.code || '', photos: (x.photos || []).slice() }; });
     renderInvs();
@@ -1075,8 +1101,17 @@
     }
     var b = cur.b, btn = this;
     btn.disabled = true; btn.textContent = '儲存中…';
-    call('saveSlip', { from: bFrom(b), vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave(), invs: invsUsed(), code: slipCodeVal() }).then(function (r) {
+    var payload = { from: bFrom(b), vendor: b.vendor, group: b.group, extra: !!b.extra, id: b.id || '', date: b.date || '', photos: cur.photos, note: $('slNote').value, slip: slipToSave(), invs: invsUsed(), code: slipCodeVal(),
+      baseTime: b.slip && b.slip.time ? b.slip.time : '' };
+    clearTimeout(slipRemoteT);
+    var go = function (p) { return call('saveSlip', p).catch(function (e) {
+      var m = String(e && e.message || e);
+      if (/^CONFLICT:/.test(m) && window.confirm(m.replace(/^CONFLICT:/, '⚠ ') + '\n\n按「確定」：用你現在這份蓋過去（別人存的會不見）。\n按「取消」：先不存，回列表重新打開看別人存了什麼。')) { p.force = true; return call('saveSlip', p); }
+      throw /^CONFLICT:/.test(m) ? new Error('沒有存：' + m.replace(/^CONFLICT:/, '') + '請回列表重新打開這張，看過再改。') : e;
+    }); };
+    go(payload).then(function (r) {
       try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
+      if (b.slip && r.time) b.slip.time = r.time;
       if (b.extra) b.id = r.id;
       msg('doneMsg', 'ok', b.vendor + ' 銷貨單已儲存：' + (r.amount !== '' ? '金額 $' + money(r.amount) + '（' + r.rows + ' 行）' : '還沒填金額') + '，照片 ' + r.photos + ' 張。');
       show('vCheck'); loadWeek();

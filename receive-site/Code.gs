@@ -94,7 +94,7 @@ const API_ = {
   aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
   aiModelSet: function (a) { return aiModelSet_.apply(null, a); },
   getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
-  saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
+  saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, slipDraftSave: function (a) { return slipDraftSave_.apply(null, a); }, slipDraftGet: function (a) { return slipDraftGet_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
   whoAmI: function () { return CURRENT_USER_; },
   hxGet: function (a) { return hxGet_.apply(null, a); }, hxCandidates: function (a) { return hxCandidates_.apply(null, a); },
@@ -508,10 +508,18 @@ function saveSlip_(p) {
   const lock = waitLock_();
   try {
     const rt = readTable_(SLIP_REC, ['驗收編號']);
+    // 有人（或另一台）在你打開之後已經存過這張：先擋下來，免得蓋掉別人的（p.force＝確定要蓋）
+    if (!p.force && p.baseTime !== undefined) {
+      const ex = rt.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; })[0];
+      const exTime = ex ? fmtDateTime_(ex['更新時間']) : '';
+      if (exTime && exTime !== String(p.baseTime || '')) throw new Error('CONFLICT:這張銷貨單在你打開之後，' + (String(ex['更新人'] || '') || '別人') + ' 在 ' + exTime + ' 已經存過了。');
+    }
     const old = rt.rows.filter(function (r) { return String(r['驗收編號']).trim() === id; });
+    var savedAt = new Date();
+    try { dropDraft_('S:' + id); } catch (e) {}   // 打到一半的暫存（跨裝置的）用不到了
     if (old.length) deleteRows_(rt.sheet, old.map(function (r) { return r._row; }));
     appendRows_(SLIP_REC, [{ '驗收編號': id, '送貨日期（起）': from, '廠商': vendor, '送貨組別': group, '銷貨單照片': photos.join('\n'),
-      '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': new Date(), '更新人': CURRENT_USER_ || '', '沒有銷貨單': noSlip,
+      '銷貨單金額': slip.length ? sum : total !== '' ? Number(total) : '', '銷貨單合計': total, '備註': clean_(p.note, 200), '更新時間': savedAt, '更新人': CURRENT_USER_ || '', '沒有銷貨單': noSlip,
       '發票號碼': invs.length ? "'" + invs.map(function (x) { return x.no; }).join('\n') : '', '發票日期': invs.length ? "'" + invs.map(function (x) { return x.date; }).join('\n') : '',
       '發票金額': invs.some(function (x) { return x.amount !== ''; }) ? "'" + invs.map(function (x) { return x.amount; }).join('\n') : '',
       '經費編號': clean_(p.code, 20).toUpperCase(), '發票經費編號': invs.some(function (x) { return x.code; }) ? "'" + invs.map(function (x) { return x.code; }).join('\n') : '',
@@ -530,7 +538,7 @@ function saveSlip_(p) {
   } finally {
     lock.releaseLock();
   }
-  return { id: id, amount: slip.length ? sum : total !== '' ? Number(total) : '', rows: slip.length, photos: photos.length, noSlip: noSlip };   // 只填合計：金額＝合計
+  return { id: id, amount: slip.length ? sum : total !== '' ? Number(total) : '', rows: slip.length, photos: photos.length, noSlip: noSlip, time: fmtDateTime_(savedAt) };   // 只填合計：金額＝合計
 }
 
 /**
@@ -1393,6 +1401,30 @@ function saveDraftRemote_(id, data) {
   }
 }
 
+/**
+ * 銷貨單打到一半：自動存一份到試算表（「驗收暫存」分頁，編號前面加 S:），換電腦、換手機打開也接得下去。
+ * 按「儲存銷貨單」後刪掉。
+ */
+function slipDraftSave_(id, data) {
+  id = String(id || '').trim();
+  if (!/^[RS]\d{8}-/.test(id)) return { skip: true };
+  data = String(data || '');
+  if (data.length > 45000) return { skip: true, tooBig: true };
+  try { JSON.parse(data); } catch (e) { throw new Error('內容格式不正確。'); }
+  const lock = waitLock_();
+  try {
+    ensureSheet_(SHEET.drafts, DRAFT_HEADERS);
+    dropDraft_('S:' + id);
+    const now = new Date();
+    appendRows_(SHEET.drafts, [{ '驗收編號': 'S:' + id, '暫存時間': now, '內容': data }]);
+    return { ts: now.getTime(), at: Utilities.formatDate(now, tz_(), 'M/d HH:mm') };
+  } finally { lock.releaseLock(); }
+}
+function slipDraftGet_(id) {
+  id = String(id || '').trim();
+  const d = readDrafts_()['S:' + id];
+  return d ? d : null;
+}
 /** 「清掉、重新點」：刪掉試算表裡的暫存 */
 function dropDraftRemote_(id) {
   id = String(id || '').trim();
