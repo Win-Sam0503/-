@@ -1979,12 +1979,12 @@
     var box = $('slipBox'), pp = cur.slip.papers[i];
     var nx = from === 'no' ? box.querySelector('[data-ptot="' + i + '"]') : null;
     if (!nx) { var filled = pp && pp.rows.some(function (r) { return String(r.name || '').trim(); }); nx = box.querySelector('[data-pi="' + i + '"][data-pj="0"][data-pf="' + (filled ? 'qty' : 'name') + '"]'); }
-    if (nx) { nx.focus(); if (nx.select) nx.select(); }
+    if (nx) { nx.focus(); try { var L = String(nx.value || '').length; nx.setSelectionRange(L, L); } catch (e) {} }   // 游標放最後面，不反白
   }
   function clsNoApply(t, viaEnter) {
     var i = Number(t.getAttribute('data-pclsno')), pp = cur.slip.papers[i], v = t.value.trim(); if (!v) { if (viaEnter) clsNextFocus(i, 'no'); return; }
     var gs = clsGroups(), g = clsByNo(pp, v, gs, clsUsed(i));
-    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; t.select(); return; }
+    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; return; }
     var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
     pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto;
     if (!had) clsFill(i, g);
