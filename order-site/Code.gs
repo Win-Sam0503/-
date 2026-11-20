@@ -7472,6 +7472,7 @@ function groupOrders_(rows, account) {
     }
     const iid = String(r['食材ID'] || '').trim(), self = !!selfIds[iid];
     map[no].items.push({
+      d: map[no].useDate,   // 上課日期：估成本時用「那時候」的單價（雞蛋 10 月 840、11 月 880 要分開看）
       id: String(r['食材ID'] || ''),
       name: String(r['食材名稱'] || ''),
       vendor: self ? SELF_VENDOR : String(r['廠商'] || ''),
