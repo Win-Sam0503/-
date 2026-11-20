@@ -5502,6 +5502,72 @@ function crewSetPlace(token, orderNo, place, photo) {
   return { place: place, photo: url, by: account, time: fmtDateTime_(new Date()) };
 }
 
+/** 管理者：老師帳號清單（不含校隊；不回傳密碼，只說還是不是預設密碼） */
+function adminListTeachers(token) {
+  auth_(token, true);
+  const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
+  return t.rows.filter(function (r) { return String(r['帳號']).trim() && !isTrue_(r['校隊']); }).map(function (r) {
+    const a = String(r['帳號']).trim();
+    return { account: a, enabled: isTrue_(r['啟用']), admin: ADMIN_ACCOUNTS.indexOf(a) >= 0 || isTrue_(r['管理者']), builtin: ADMIN_ACCOUNTS.indexOf(a) >= 0, isDefault: String(r['密碼']) === DEFAULT_PASSWORD };
+  }).sort(function (a, b) { return (b.enabled - a.enabled) || a.account.localeCompare(b.account, 'zh-Hant'); });
+}
+
+/**
+ * 管理者：新增老師帳號（可以一次好幾位，用「、」或空白隔開；預設密碼 0000，第一次登入要自己改）、停用／啟用、重設密碼（改回 0000）。
+ * 帳號就是老師的名字（登入、代訂、課表都用這個名字）。
+ */
+function adminSetTeacher(token, account, action) {
+  const me = auth_(token, true);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  const out = { added: [], existed: [] };
+  try {
+    const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
+    const find = function (a) { return t.rows.find(function (x) { return String(x['帳號']).trim() === a; }); };
+    if (action === 'add') {
+      const names = String(account || '').split(/[、,，\s\n]+/).map(function (n) { return clean_(n, 30); }).filter(Boolean);
+      if (!names.length) throw new Error('請輸入老師的名字。');
+      const add = [];
+      names.forEach(function (n) {
+        if (/[0-9]{3,}|[<>"'=]/.test(n)) throw new Error('「' + n + '」不像名字，請檢查。');
+        const r = find(n) || t.rows.find(function (x) { return accountKey_(x['帳號']) === accountKey_(n); });
+        if (r) {
+          if (isTrue_(r['校隊'])) throw new Error('「' + n + '」已經是校隊帳號，老師請換一個名字。');
+          if (!isTrue_(r['啟用'])) setCell_(t, r._row, '啟用', true);
+          out.existed.push(String(r['帳號']).trim());
+        } else if (add.indexOf(n) < 0) add.push(n);
+      });
+      if (add.length) {
+        appendRows_(SHEET.accounts, add.map(function (n) { return { '帳號': n, '密碼': DEFAULT_PASSWORD, '啟用': true }; }));
+        // 密碼欄設成純文字，0000 才不會變成數字 0
+        const t2 = readTable_(SHEET.accounts, ['帳號', '密碼']);
+        t2.rows.forEach(function (x) { if (add.indexOf(String(x['帳號']).trim()) >= 0) { const c = t2.sheet.getRange(x._row, t2.cols['密碼']); c.setNumberFormat('@'); c.setValue(DEFAULT_PASSWORD); } });
+      }
+      out.added = add;
+    } else {
+      account = clean_(account, 30);
+      const r = find(account);
+      if (!r || isTrue_(r['校隊'])) throw new Error('找不到老師帳號「' + account + '」。');
+      if (action === 'disable') {
+        if (ADMIN_ACCOUNTS.indexOf(account) >= 0) throw new Error('「' + account + '」是內建的管理者，不能停用。');
+        if (account === me) throw new Error('不能停用自己的帳號。');
+        setCell_(t, r._row, '啟用', false);
+      } else if (action === 'enable') setCell_(t, r._row, '啟用', true);
+      else if (action === 'reset') {
+        const cell = t.sheet.getRange(r._row, t.cols['密碼']);
+        cell.setNumberFormat('@');
+        cell.setValue(DEFAULT_PASSWORD);
+      } else throw new Error('不明的動作。');
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  try { CacheService.getScriptCache().removeAll([BOOT_CACHE_KEY, 'extraAdmins']); } catch (e) {}
+  out.list = adminListTeachers(token);
+  return out;
+}
+
 /** 管理者：校隊帳號清單 */
 function adminListCrew(token) {
   auth_(token, true);

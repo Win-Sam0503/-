@@ -1307,6 +1307,15 @@
           <div><label for="admPick">新增管理者</label><select id="admPick"></select></div>
           <button type="button" class="btn secondary small" id="admAdd">設為管理者</button>
         </div>
+        <h3 style="font-size:16px;margin:18px 0 6px">👤 老師帳號</h3>
+        <div class="muted small">帳號就是老師的名字（登入、代訂、課表都用這個名字）。新帳號的密碼是 <b>0000</b>，第一次登入一定要自己改密碼。老師忘記密碼按「重設密碼」改回 0000；離職、不用了按「停用」（舊訂單不受影響）。</div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div style="flex:1;min-width:200px"><label for="tchNew">新增老師（可以一次好幾位，用「、」隔開）</label><input id="tchNew" type="text" maxlength="200" autocomplete="off" placeholder="例如：王小明、陳美華"></div>
+          <button type="button" class="btn secondary small" id="tchAdd">新增帳號</button>
+        </div>
+        <div id="tchMsg" class="small" style="margin-top:4px"></div>
+        <div class="row" style="margin-top:6px;gap:6px"><input id="tchQ" type="search" placeholder="🔍 找老師" style="max-width:180px"><label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="tchOff" style="width:auto"> 顯示停用的</label></div>
+        <div id="tchList" class="hol-list small"></div>
         <h3 style="font-size:16px;margin:18px 0 6px">校隊帳號</h3>
         <div class="muted small">校隊登入後只看得到「放置登記」（登記每班的東西放在哪裡），看不到金額、不能訂貨。新帳號的密碼是 0000，第一次登入要自己改密碼。畢業或不做了就按「停用」。</div>
         <label class="check" style="margin:8px 0"><input type="checkbox" id="auditOn"> <b>選單顯示「抽查」</b>（今日抽查、指定抽查；目前沒在用先藏起來，要用再打勾）</label>
@@ -8508,7 +8517,44 @@
     var opts = r.teachers.filter(function (t) { return r.extra.indexOf(t) < 0; });
     $('admPick').innerHTML = '<option value="">選擇老師</option>' + opts.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('');
   }
-  function loadAdmins() { call('adminListAdmins', token).then(renderAdmins).catch(function (e) { $('admList').textContent = '讀取失敗：' + e.message; }); }
+  // 👤 老師帳號：新增、停用／啟用、重設密碼（不顯示密碼）
+  var tchData = [];
+  function renderTeachers(list) {
+    if (list) tchData = list;
+    var q = ($('tchQ').value || '').trim(), off = $('tchOff').checked;
+    var rows = tchData.filter(function (x) { return (off || x.enabled) && (!q || x.account.indexOf(q) >= 0); });
+    var nOn = tchData.filter(function (x) { return x.enabled; }).length;
+    $('tchList').innerHTML = '<div class="muted" style="margin:4px 0">啟用中 ' + nOn + ' 位' + (tchData.length > nOn ? '・停用 ' + (tchData.length - nOn) + ' 位' : '') + '</div>' + rows.map(function (x) {
+      return '<div class="hol-item" data-tch="' + esc(x.account) + '" style="' + (x.enabled ? '' : 'opacity:.55') + '"><span><b>' + esc(x.account) + '</b>' + (x.admin ? ' <span class="badge ok">管理者</span>' : '') + (!x.enabled ? ' <span class="badge none">停用</span>' : x.isDefault ? ' <span class="badge warn" title="還在用預設密碼 0000，第一次登入會要求改密碼">還沒改密碼</span>' : '') + '</span>' +
+        '<span>' + (x.enabled ? '<button type="button" class="btn ghost small" data-tchact="reset">重設密碼</button>' + (x.builtin ? '' : '<button type="button" class="btn ghost small" data-tchact="disable" style="color:var(--bad)">停用</button>') : '<button type="button" class="btn ghost small" data-tchact="enable">啟用</button>') + '</span></div>';
+    }).join('') || '<div class="muted">沒有符合的老師</div>';
+  }
+  function loadTeachers() { call('adminListTeachers', token).then(renderTeachers).catch(function (e) { $('tchList').textContent = '讀取失敗：' + e.message; }); }
+  $('tchQ').addEventListener('input', function () { renderTeachers(); });
+  $('tchOff').addEventListener('change', function () { renderTeachers(); });
+  $('tchAdd').addEventListener('click', function () {
+    var v = $('tchNew').value.trim(), b = this;
+    if (!v) { $('tchMsg').innerHTML = '<span style="color:var(--bad)">請輸入老師的名字。</span>'; return; }
+    setBusy(b, true, '新增中…');
+    call('adminSetTeacher', token, v, 'add').then(function (r) {
+      renderTeachers(r.list); $('tchNew').value = '';
+      $('tchMsg').innerHTML = '<span style="color:var(--ok)">' + (r.added.length ? '✓ 已新增 ' + esc(r.added.join('、')) + '，密碼 0000（第一次登入要改）。' : '') + (r.existed.length ? ' 「' + esc(r.existed.join('、')) + '」本來就有帳號' + '（停用的已經重新啟用）。' : '') + '</span>';
+      if (data.teachers) r.added.forEach(function (n) { if (data.teachers.indexOf(n) < 0) data.teachers.push(n); });
+    }).catch(function (e) { $('tchMsg').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>'; }).then(function () { setBusy(b, false); });
+  });
+  $('tchList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-tchact]'); if (!b) return;
+    var a = b.closest('[data-tch]').getAttribute('data-tch'), act = b.getAttribute('data-tchact');
+    var ask = act === 'reset' ? '把「' + a + '」的密碼重設成 0000？\n（老師下次登入要自己改新密碼）' : act === 'disable' ? '停用「' + a + '」的帳號？\n（不能登入了，舊訂單不受影響，之後可以再啟用）' : '';
+    if (ask && !window.confirm(ask)) return;
+    setBusy(b, true, '…');
+    call('adminSetTeacher', token, a, act).then(function (r) {
+      renderTeachers(r.list);
+      $('tchMsg').innerHTML = '<span style="color:var(--ok)">✓ ' + esc(a) + (act === 'reset' ? ' 的密碼已重設成 0000' : act === 'disable' ? ' 已停用' : ' 已啟用') + '。</span>';
+    }).catch(function (er) { $('tchMsg').innerHTML = '<span style="color:var(--bad)">' + esc(er.message) + '</span>'; setBusy(b, false); });
+  });
+  function loadAdmins() {
+    loadTeachers(); call('adminListAdmins', token).then(renderAdmins).catch(function (e) { $('admList').textContent = '讀取失敗：' + e.message; }); }
   $('admAdd').addEventListener('click', function () {
     var who = $('admPick').value, b = this;
     if (!who) { msg('autoMsg', 'error', '請先選擇老師。'); return; }
