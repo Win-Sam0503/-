@@ -1909,6 +1909,14 @@
     var gu = clsGuess(pp, pool, {});
     return gu.length ? gu[0].g : null;
   }
+  // 這班已經在別張打過了：跳警告（同一班分兩張送才需要再打）
+  function clsDupOk(i, g) {
+    if (!g) return true;
+    var gs = clsGroups(), at = [];
+    cur.slip.papers.forEach(function (pp, j) { if (j !== i) { var x = clsOfPaper(pp, gs); if (x && x.k === g.k) at.push(j + 1); } });
+    if (!at.length) return true;
+    return window.confirm('⚠「' + clsLabel(g) + '」已經在第 ' + at.join('、') + ' 張打過了！\n\n是不是重複打了同一張單子？\n同一班真的分兩張送才按「確定」，不然按「取消」。');
+  }
   function clsSet(i, k) {
     var pp = cur.slip.papers[i], g = clsGroups().filter(function (x) { return x.k === k; })[0];
     if (!g) { if (k === '') { pp.cls = ''; pp.teacher = ''; pp.cdate = ''; } return; }
@@ -1992,6 +2000,7 @@
     var i = Number(t.getAttribute('data-pclsno')), pp = cur.slip.papers[i], v = t.value.trim(); if (!v) { if (viaEnter) clsNextFocus(i, 'no'); return; }
     var gs = clsGroups(), g = clsByNo(pp, v, gs, clsUsed(i));
     if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; return; }
+    if (!clsDupOk(i, g)) { t.value = ''; t.focus(); return; }
     var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
     pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto;
     if (!had) clsFill(i, g);
@@ -2073,7 +2082,7 @@
     if (t.hasAttribute && t.hasAttribute('data-pd')) { cur.slip.papers[Number(t.getAttribute('data-pd'))].date = t.value; saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pclsno')) return;   // 打完按 Enter 或離開才選（下面 change）
     if (t.hasAttribute && t.hasAttribute('data-ptot')) { cur.slip.papers[Number(t.getAttribute('data-ptot'))].ptotal = t.value; clsRefresh(); saveDraft(); return; }
-    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; if (t.value !== '__keep') clsSet(ci, t.value); renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; if (t.value !== '__keep') { var cg = clsGroups().filter(function (x) { return x.k === t.value; })[0]; if (cg && !clsDupOk(ci, cg)) { renderPapers(); return; } clsSet(ci, t.value); } renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
     if (!f || f === 'pu' || f === 'wu') return;
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     if (f === 'wt' && totMode()) { r.tw = t.value; totApply(r); }
@@ -2127,7 +2136,7 @@
     var t = e.target, sl = cur.slip, v;
     if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
     if (t.id === 'clsAuto') { clsAutoAll(); return; }
-    if (t.hasAttribute && t.hasAttribute('data-pgset')) { var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg) { gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; } renderPapers(); saveDraft(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pgset')) { var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; } renderPapers(); saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pnew')) {
       var nk = t.getAttribute('data-pnew'), ng = clsGroups().filter(function (x) { return x.k === nk; })[0]; if (!ng) return;
       var last = sl.papers[sl.papers.length - 1], blank = last && !last.cls && last.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
