@@ -1850,7 +1850,7 @@
       if (gEl) {
         if (pp.cls) { var cE0 = document.querySelector('[data-pcmp="' + i + '"]'); if (cE0) cE0.innerHTML = ''; }
         if (pp.cls) gEl.innerHTML = pp.auto ? '<span style="color:#b45309;font-weight:600">🤖 ' + (/^單子上寫/.test(pp.auto) ? esc(pp.auto) + '（辨識的），請核對' : '自動猜的（對到 ' + esc(pp.auto) + '），請核對') + '</span>' : '';
-        else { var gu = clsGuess(pp, gs, clsUsed(i)); var cEl = document.querySelector('[data-pcmp="' + i + '"]'); if (cEl) cEl.innerHTML = clsCmpHtml(i, pp, gu);
+        else { var gu = clsGuess(pp, gs, clsUsed(i)); var cEl = document.querySelector('[data-pcmp="' + i + '"]'); if (cEl) { var ch = clsCmpHtml(i, pp, gu); if (pp.multiNo) { var mr = clsByNo(pp, pp.multiNo, gs, clsUsed(i)); if (mr && mr.multi) ch = clsMultiHtml(i, pp, mr, pp.multiNo) + ch; } cEl.innerHTML = ch; }
           gEl.innerHTML = gu.length ? '可能是：' + gu.map(function (x) { return '<button type="button" class="btn ghost small" data-pgset="' + i + '" data-k="' + esc(x.g.k) + '" style="padding:1px 8px' + (x.used ? ';opacity:.55' : '') + '" title="對到 ' + x.hit + '／' + x.all + ' 樣' + (x.used ? '；這班已經有單子了' : '') + '">' + esc(clsLabel(x.g)) + ' <b>' + Math.round(Math.min(1, x.sc) * 100) + '%</b></button>'; }).join(' ') : (pp.rows.some(function (r) { return String(r.name || '').trim(); }) ? '<span class="muted">對不到哪一班</span>' : '<span class="muted">先選班級，系統會把那班叫的菜帶進來</span>'); }
       }
       if (tEl) {
@@ -1894,8 +1894,24 @@
     if (!hits.length) return null;
     if (hits.length === 1) return hits[0];
     var free = hits.filter(function (g) { return !used[g.k]; }); if (free.length === 1) return free[0];
-    var gu = clsGuess(pp, free.length ? free : hits, {});
-    return gu.length ? gu[0].g : (free[0] || hits[0]);
+    // 同一班有好幾堂：已經打了品項、而且某一堂明顯最像（對到的比第二名多 2 樣以上）才自動選；不然列出來讓人選
+    var pool = free.length ? free : hits, gu = clsGuess(pp, pool, {});
+    if (gu.length && gu[0].hit >= 2 && (!gu[1] || gu[0].hit - gu[1].hit >= 2)) return gu[0].g;
+    return { multi: pool, guess: gu };
+  }
+  // 同一班有好幾堂：列出每一堂（日期、老師、叫了什麼）讓人對照單子選
+  function clsMultiHtml(i, pp, r, no) {
+    var sc = {}; (r.guess || []).forEach(function (x) { sc[x.g.k] = x; });
+    var used = clsUsed(i);
+    return '<div class="hxcard" style="margin:4px 0 6px;padding:8px 10px;border:2px solid #f79009;background:#fffaeb">' +
+      '<b>「' + esc(no) + '」班這批有 ' + r.multi.length + ' 堂，是哪一堂的單子？</b>' +
+      '<div class="small muted" style="margin:2px 0 6px">對照單子上的品項選；看不出來的話，先打 2～3 樣品名，系統會算哪一堂最像。單子日期是送貨那天，通常是上課前一兩天。</div>' +
+      r.multi.map(function (g) {
+        var x = sc[g.k], names = g.lines.map(function (l) { return l.name; });
+        return '<button type="button" class="btn ghost small" data-pgset="' + i + '" data-k="' + esc(g.k) + '" style="display:block;width:100%;text-align:left;margin:4px 0;padding:6px 10px;white-space:normal;line-height:1.5">' +
+          '<b>' + esc(clsLabel(g)) + '</b>' + (used[g.k] ? ' <span class="badge warn">已經有單子了</span>' : '') + (x ? ' <span class="badge ok">對到 ' + x.hit + ' 樣</span>' : '') +
+          '<div class="small muted">' + esc(names.slice(0, 8).join('、')) + (names.length > 8 ? '…共 ' + names.length + ' 樣' : '') + '</div></button>';
+      }).join('') + '</div>';
   }
   // 辨識出來的文字裡找班級號碼：三位數（301～319、101～119、201～225）或「國技」「夜」開頭的
   function clsFromText(pp, text, gs, used) {
@@ -2000,10 +2016,16 @@
   function clsNoApply(t, viaEnter) {
     var i = Number(t.getAttribute('data-pclsno')), pp = cur.slip.papers[i], v = t.value.trim(); if (!v) { if (viaEnter) clsNextFocus(i, 'no'); return; }
     var gs = clsGroups(), g = clsByNo(pp, v, gs, clsUsed(i));
+    if (g && g.multi) {
+      pp.multiNo = v;
+      var cEl = document.querySelector('[data-pcmp="' + i + '"]'); if (cEl) { cEl.innerHTML = clsMultiHtml(i, pp, g, v); cEl.scrollIntoView({ block: 'nearest' }); }
+      t.style.outline = '2px solid #f79009'; t.title = '這班有好幾堂，請在下面選';
+      return;
+    }
     if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; return; }
     if (!clsDupOk(i, g)) { t.value = ''; t.focus(); return; }
     var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
-    pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto;
+    pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto; delete pp.multiNo;
     if (!had) clsFill(i, g);
     renderPapers(); saveDraft();
     var ni = $('slipBox').querySelector('[data-pclsno="' + i + '"]'); if (ni) ni.value = v;
@@ -2083,7 +2105,7 @@
     if (t.hasAttribute && t.hasAttribute('data-pd')) { cur.slip.papers[Number(t.getAttribute('data-pd'))].date = t.value; saveDraft(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pclsno')) return;   // 打完按 Enter 或離開才選（下面 change）
     if (t.hasAttribute && t.hasAttribute('data-ptot')) { cur.slip.papers[Number(t.getAttribute('data-ptot'))].ptotal = t.value; clsRefresh(); saveDraft(); return; }
-    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; if (t.value !== '__keep') { var cg = clsGroups().filter(function (x) { return x.k === t.value; })[0]; if (cg && !clsDupOk(ci, cg)) { renderPapers(); return; } clsSet(ci, t.value); } renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-pcls')) { var ci = Number(t.getAttribute('data-pcls')); delete cur.slip.papers[ci].auto; delete cur.slip.papers[ci].multiNo; if (t.value !== '__keep') { var cg = clsGroups().filter(function (x) { return x.k === t.value; })[0]; if (cg && !clsDupOk(ci, cg)) { renderPapers(); return; } clsSet(ci, t.value); } renderPapers(); saveDraft(); var nx = $('slipBox').querySelector('[data-pi="' + ci + '"][data-pj="0"][data-pf="qty"]'); if (nx) nx.focus(); return; }
     if (!f || f === 'pu' || f === 'wu') return;
     var r = paperRowOf(t), tr = t.closest('tr'), sib = function (g) { return tr.querySelector('[data-pf="' + g + '"]'); };
     if (f === 'wt' && totMode()) { r.tw = t.value; totApply(r); }
@@ -2137,7 +2159,8 @@
     var t = e.target, sl = cur.slip, v;
     if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
     if (t.id === 'clsAuto') { clsAutoAll(); return; }
-    if (t.hasAttribute && t.hasAttribute('data-pgset')) { var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; } renderPapers(); saveDraft(); return; }
+    var pgb = t.closest && t.closest('[data-pgset]');   // 點到按鈕裡面的字也算
+    if (pgb) { t = pgb; var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { var gHad = gp.rows.some(function (r) { return String(r.name || '').trim(); }); gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; delete gp.auto; delete gp.multiNo; if (!gHad) clsFill(gi, gg); } renderPapers(); saveDraft(); var gn = $('slipBox').querySelector('[data-ptot="' + gi + '"]'); if (gn) gn.focus(); return; }
     if (t.hasAttribute && t.hasAttribute('data-pnew')) {
       var nk = t.getAttribute('data-pnew'), ng = clsGroups().filter(function (x) { return x.k === nk; })[0]; if (!ng) return;
       var last = sl.papers[sl.papers.length - 1], blank = last && !last.cls && last.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
