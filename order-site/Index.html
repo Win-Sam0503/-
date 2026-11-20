@@ -1439,7 +1439,8 @@
           <button type="button" class="btn small" id="clGo">查詢</button>
         </div>
         <div id="clRange" style="font-weight:700;margin:2px 0 8px"></div>
-        <div class="status-chips" id="clTabs" style="margin:0 0 8px"><button type="button" data-clt="lessons">📅 課表（誰上課、叫料了沒）</button><button type="button" data-clt="orders">📋 料單（食材、數量）</button></div>
+        <div class="status-chips" id="clKs" style="margin:0 0 6px"><b class="small" style="align-self:center">科別：</b><button type="button" data-clk="" class="on">全部</button><button type="button" data-clk="中餐">🍳 中餐</button><button type="button" data-clk="烘焙">🍞 烘焙</button><button type="button" data-clk="飲調">🥤 飲調</button></div>
+        <div class="status-chips" id="clTabs" style="margin:0 0 8px"><button type="button" data-clt="grid">🗓 總課表</button><button type="button" data-clt="lessons">📅 課表（誰上課、叫料了沒）</button><button type="button" data-clt="orders">📋 料單（食材、數量）</button></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <input id="clQ" type="search" placeholder="🔍 搜尋老師、班級、菜名、食材" autocomplete="off" style="flex:1;min-width:180px;max-width:320px">
           <select id="clT" style="width:auto"><option value="">全部老師</option></select>
@@ -6955,7 +6956,7 @@
   // ------------------------------------------------------------------
   // 🏅 校隊查詢（LINE「📱 網頁查詢」打開、或校隊帳號登入）：上週／這週／下週的課表和每張料單，只能看
   // ------------------------------------------------------------------
-  var cl = { off: 0, from: '', to: '', tab: 'lessons', data: null, open: {} };   // off：第幾週（指定日期時 from／to 有值）
+  var cl = { off: 0, from: '', to: '', tab: 'grid', data: null, open: {}, k: '' };   // off：第幾週（指定日期時 from／to 有值）
   function clMonday(off) { var t = new Date(); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() - (t.getDay() + 6) % 7 + 7 * off); return isoDate(t); }
   function crewLookOpen() { if (!cl.data) clLoad(); else clRender(); }
   function clLoad() {
@@ -6991,6 +6992,21 @@
   function clStatus(x) {
     return x.status === 'ordered' ? '<span class="badge ok">✓ 有料單</span>' : x.status === 'skipped' ? '<span class="badge none">不用訂</span>' : x.status === 'holiday' ? '<span class="badge none">放假' + (x.holiday ? '・' + esc(x.holiday) : '') + '</span>' : '<b style="color:var(--bad)">✗ 還沒叫料</b>';
   }
+  // 科別篩選：料單照料單科別，課照教室／課程猜的
+  function clDeptOf(d) { d = String(d || ''); return /烘焙|西點/.test(d) ? '烘焙' : /飲|調|咖啡/.test(d) ? '飲調' : /中餐|中式|西餐|餐/.test(d) ? '中餐' : d; }
+  function clKOk(d) { return !cl.k || clDeptOf(d) === cl.k; }
+  // 點一堂課：跳出完整資料（誰、哪一班、教室、課程、狀態、全部料單）
+  function clDetail(x, os) {
+    var box = document.createElement('div'); box.id = 'clDet';
+    box.style.cssText = 'position:fixed;inset:0;z-index:90;background:rgba(16,24,40,.5);display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow:auto';
+    box.innerHTML = '<div class="panel" style="max-width:720px;width:100%;margin:0"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h2 style="margin:0">' + esc(shortDate(x.date)) + ' ' + esc(x.session === '晚上' ? '夜間' : x.session) + '</h2><button type="button" class="btn ghost small" id="clDetX">✕ 關閉</button></div>' +
+      '<div class="tablewrap" style="margin:8px 0"><table class="small"><tr><th style="width:70px">老師</th><td><b style="font-size:16px">' + esc(x.teacher) + '</b></td></tr><tr><th>班級</th><td>' + esc(x.className || '—') + '</td></tr>' +
+      '<tr><th>課程</th><td>' + esc(x.course || (os[0] && os[0].project) || '—') + '</td></tr><tr><th>教室</th><td>' + esc(x.room || (os[0] && os[0].room) || '—') + '</td></tr>' +
+      (x.dept ? '<tr><th>科別</th><td>' + esc(x.dept) + '</td></tr>' : '') + '<tr><th>狀態</th><td>' + (x.status ? clStatus(x) : '<span class="badge warn">課表沒有的課</span>') + '</td></tr></table></div>' +
+      (os.length ? '<h3 style="margin:10px 0 4px">📋 料單（' + os.length + ' 張）</h3>' + os.map(function (o) { return clOrderHtml(o, false); }).join('') : '<div class="muted">這堂課還沒有料單。</div>') + '</div>';
+    document.body.appendChild(box);
+    box.addEventListener('click', function (e) { if (e.target === box || e.target.id === 'clDetX') box.remove(); });
+  }
   function clOrderHtml(o, compact) {
     var food = o.items.filter(function (i) { return !i.tool; }), tools = o.items.filter(function (i) { return i.tool; });
     var row = function (i) { return '<tr' + (i.noOrder ? ' class="muted"' : '') + '><td>' + esc(i.name) + (i.noOrder ? '（有貨）' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td class="num" style="white-space:nowrap">' + esc(fmtQty(i.qty)) + ' ' + esc(i.unit) + '</td></tr>'; };
@@ -7003,7 +7019,7 @@
   function clRender() {
     var r = cl.data; if (!r) return;
     Array.prototype.forEach.call(document.querySelectorAll('#clTabs [data-clt]'), function (b) { b.classList.toggle('on', b.getAttribute('data-clt') === cl.tab); });
-    $('clTodoBox').classList.toggle('hidden', cl.tab !== 'lessons');
+    $('clTodoBox').classList.toggle('hidden', cl.tab === 'orders');
     $('clRange').textContent = (r.mon === r.fri ? shortDate(r.mon) : shortDate(r.mon) + '～' + shortDate(r.fri)) + (r.holidays && r.holidays.length ? '　（放假：' + r.holidays.map(function (h) { return h.name; }).join('、') + '）' : '');
     var q = $('clQ').value.trim().toLowerCase().split(/\s+/).filter(Boolean), tf = $('clT').value, df = $('clD').value, todo = $('clTodo').checked;
     var byNo = {}; r.orders.forEach(function (o) { byNo[o.orderNo] = o; });
@@ -7011,15 +7027,48 @@
     var days = clDays(r);
     if (df) days = days.filter(function (d) { return d === df; });
     var SS = ['上午', '下午', '晚上'], html = '', total = 0;
-    if (cl.tab === 'lessons') {
+    cl.cells = [];
+    Array.prototype.forEach.call(document.querySelectorAll('#clKs [data-clk]'), function (b) { b.classList.toggle('on', b.getAttribute('data-clk') === cl.k); });
+    if (cl.tab === 'grid') {
+      // 🗓 總課表：一天一欄、上午／下午／夜間一列，每一格列出那時段的課，點一下看完整資料
+      var lessonOk = function (x) {
+        if ((tf && x.teacher !== tf) || (todo && x.status !== 'todo') || !clKOk(x.dept)) return false;
+        var os = x.orders.map(function (n) { return byNo[n]; }).filter(Boolean);
+        return !q.length || hit([x.teacher, x.className, x.course, x.room].concat(os.map(function (o) { return o.project + ' ' + o.items.map(function (i) { return i.name; }).join(' '); })).join(' '));
+      };
+      var chip = function (x, os, extra) {
+        var i = cl.cells.push({ x: x, os: os }) - 1;
+        var col = extra ? '#b54708' : x.status === 'ordered' ? '#027a48' : x.status === 'todo' ? '#b42318' : '#667085';
+        var bg = extra ? '#fffaeb' : x.status === 'ordered' ? '#ecfdf3' : x.status === 'todo' ? '#fef3f2' : '#f2f4f7';
+        return '<button type="button" data-clcell="' + i + '" style="display:block;width:100%;text-align:left;margin:3px 0;padding:5px 7px;border:1px solid ' + col + '33;border-left:4px solid ' + col + ';border-radius:6px;background:' + bg + ';cursor:pointer;font:inherit;font-size:13px;line-height:1.35">' +
+          '<b>' + esc(x.teacher) + '</b> ' + esc(x.className || '') + '<div style="color:#475467">' + esc(x.course || (os[0] && os[0].project) || '') + (x.room ? '・' + esc(x.room) : '') + '</div>' +
+          (os.length ? '<div style="color:' + col + '">📝 ' + esc(os.map(function (o) { return o.project || '料單'; }).join('、')) + '</div>' : x.status === 'todo' ? '<div style="color:' + col + '">還沒叫料</div>' : x.status === 'skipped' ? '<div style="color:' + col + '">不用訂</div>' : '') + '</button>';
+      };
+      var gdays = days.filter(function (d) { var wd = new Date(d + 'T00:00:00').getDay(); return wd !== 0 && wd !== 6 || r.lessons.some(function (x) { return x.date === d; }); });
+      var ses = SS.filter(function (s0) { return r.lessons.some(function (x) { return x.session === s0; }) || r.orders.some(function (o) { return o.session === s0; }); });
+      if (!ses.length) ses = ['上午', '下午'];
+      html = '<div class="panel" style="padding:8px"><div class="muted small" style="margin:0 0 6px">點一格看詳細（老師、班級、教室、料單）。<span style="color:#027a48">■ 有料單</span>　<span style="color:#b42318">■ 還沒叫料</span>　<span style="color:#667085">■ 不用訂／放假</span>　<span style="color:#b54708">■ 課表沒有的課</span></div>' +
+        '<div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:' + Math.max(600, gdays.length * 150) + 'px;width:100%;table-layout:fixed"><tr><th style="width:52px"></th>' +
+        gdays.map(function (d) { return '<th style="padding:6px;background:#f2f4f7;border:1px solid var(--line);font-size:14px">' + esc(shortDate(d)) + '</th>'; }).join('') + '</tr>' +
+        ses.map(function (s0) {
+          return '<tr><th style="border:1px solid var(--line);background:#f9fafb;font-size:13px;padding:6px 2px;white-space:nowrap">' + esc(s0 === '晚上' ? '夜間' : s0) + '</th>' + gdays.map(function (d) {
+            var ls = r.lessons.filter(function (x) { return x.date === d && x.session === s0 && lessonOk(x); }).sort(function (a, b) { return a.teacher.localeCompare(b.teacher, 'zh-Hant'); });
+            var ex = r.orders.filter(function (o) { return o.date === d && o.session === s0 && !r.lessons.some(function (x) { return x.orders.indexOf(o.orderNo) >= 0; }) && (!tf || o.teacher === tf) && !todo && clKOk(o.dept) && (!q.length || hit([o.teacher, o.className, o.project].concat(o.items.map(function (i) { return i.name; })).join(' '))); });
+            total += ls.length + ex.length;
+            return '<td style="vertical-align:top;border:1px solid var(--line);padding:3px">' + ls.map(function (x) { return chip(x, x.orders.map(function (n) { return byNo[n]; }).filter(Boolean), false); }).join('') +
+              ex.map(function (o) { return chip({ date: o.date, session: o.session, teacher: o.teacher, className: o.className, course: o.project, room: o.room, dept: o.dept, status: '' }, [o], true); }).join('') + '</td>';
+          }).join('') + '</tr>';
+        }).join('') + '</table></div></div>';
+      $('clOut').innerHTML = total ? html : '<div class="panel muted">' + (q.length || tf || todo || cl.k ? '沒有符合的課。' : '這段期間沒有課。') + '</div>';
+    } else if (cl.tab === 'lessons') {
       days.forEach(function (d) {
         var ls = r.lessons.filter(function (x) {
-          if (x.date !== d || (tf && x.teacher !== tf) || (todo && x.status !== 'todo')) return false;
+          if (x.date !== d || (tf && x.teacher !== tf) || (todo && x.status !== 'todo') || !clKOk(x.dept)) return false;
           var os = x.orders.map(function (n) { return byNo[n]; }).filter(Boolean);
           return !q.length || hit([x.teacher, x.className, x.course, x.room].concat(os.map(function (o) { return o.project + ' ' + o.items.map(function (i) { return i.name; }).join(' '); })).join(' '));
         }).sort(function (a, b) { return SS.indexOf(a.session) - SS.indexOf(b.session) || a.teacher.localeCompare(b.teacher, 'zh-Hant'); });
         // 沒有對到課表的料單（臨時加的課）也列出來
-        var extra = r.orders.filter(function (o) { return o.date === d && !r.lessons.some(function (x) { return x.orders.indexOf(o.orderNo) >= 0; }) && (!tf || o.teacher === tf) && !todo &&
+        var extra = r.orders.filter(function (o) { return o.date === d && !r.lessons.some(function (x) { return x.orders.indexOf(o.orderNo) >= 0; }) && (!tf || o.teacher === tf) && !todo && clKOk(o.dept) &&
           (!q.length || hit([o.teacher, o.className, o.project].concat(o.items.map(function (i) { return i.name; })).join(' '))); });
         if (!ls.length && !extra.length) return;
         total += ls.length + extra.length;
@@ -7030,7 +7079,7 @@
             return '<div style="border-top:1px solid var(--line);padding:8px 0"><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:flex-start">' +
               '<div><span class="muted small">' + esc(x.session) + '</span> <b>' + esc(x.teacher) + '</b>　' + esc(x.className) + '<div class="small">' + esc(x.course) + (x.room ? ' <span class="muted">' + esc(x.room) + '</span>' : '') + '</div>' +
               (os.length ? os.map(function (o) { return '<div class="small">📝 ' + esc(o.project || '（沒填實作項目）') + '</div>'; }).join('') : '') + '</div>' +
-              '<div style="text-align:right">' + clStatus(x) + (os.length ? '<div><button type="button" class="btn ghost small" data-clopen="' + esc(k) + '" style="margin-top:4px">' + (cl.open[k] ? '收起料單 ▲' : '看料單 ▼') + '</button></div>' : '') + '</div></div>' +
+              '<div style="text-align:right">' + clStatus(x) + '<div><button type="button" class="btn ghost small" data-clcell="' + (cl.cells.push({ x: x, os: os }) - 1) + '" style="margin-top:4px">🔍 詳細</button></div>' + (os.length ? '<div><button type="button" class="btn ghost small" data-clopen="' + esc(k) + '" style="margin-top:4px">' + (cl.open[k] ? '收起料單 ▲' : '看料單 ▼') + '</button></div>' : '') + '</div></div>' +
               (cl.open[k] ? os.map(function (o) { return clOrderHtml(o, true); }).join('') : '') + '</div>';
           }).join('') +
           extra.map(function (o) { return '<div style="border-top:1px solid var(--line);padding:8px 0"><span class="badge warn">課表沒有的課</span>' + clOrderHtml(o, false) + '</div>'; }).join('') + '</div>';
@@ -7038,7 +7087,7 @@
       $('clOut').innerHTML = html || '<div class="panel muted">' + (q.length || tf || todo || df ? '沒有符合的課。' : '這段期間沒有課。') + '</div>';
     } else {
       days.forEach(function (d) {
-        var os = r.orders.filter(function (o) { return o.date === d && (!tf || o.teacher === tf) && (!q.length || hit([o.teacher, o.className, o.project, o.room].concat(o.items.map(function (i) { return i.name; })).join(' '))); })
+        var os = r.orders.filter(function (o) { return o.date === d && (!tf || o.teacher === tf) && clKOk(o.dept) && (!q.length || hit([o.teacher, o.className, o.project, o.room].concat(o.items.map(function (i) { return i.name; })).join(' '))); })
           .sort(function (a, b) { return SS.indexOf(a.session) - SS.indexOf(b.session) || a.teacher.localeCompare(b.teacher, 'zh-Hant'); });
         if (!os.length) return;
         total += os.length;
@@ -7063,10 +7112,12 @@
   });
   $('clFrom').addEventListener('change', function () { if (!$('clTo').value || $('clTo').value < this.value) $('clTo').value = ''; });
   $('clTabs').addEventListener('click', function (e) { var b = e.target.closest('[data-clt]'); if (!b) return; cl.tab = b.getAttribute('data-clt'); clRender(); });
+  $('clKs').addEventListener('click', function (e) { var b = e.target.closest('[data-clk]'); if (!b) return; cl.k = b.getAttribute('data-clk'); clRender(); });
   $('clReload').addEventListener('click', clLoad);
   $('clQ').addEventListener('input', function (e) { if (!e.isComposing) clRender(); });
   $('clQ').addEventListener('compositionend', clRender);
   ['clT', 'clD', 'clTodo'].forEach(function (id) { $(id).addEventListener('change', clRender); });
+  $('clOut').addEventListener('click', function (e) { var c = e.target.closest('[data-clcell]'); if (c && cl.cells) { var z = cl.cells[Number(c.getAttribute('data-clcell'))]; if (z) clDetail(z.x, z.os); return; } });
   $('clOut').addEventListener('click', function (e) { var b = e.target.closest('[data-clopen]'); if (!b) return; var k = b.getAttribute('data-clopen'); cl.open[k] = !cl.open[k]; clRender(); });
   // LINE 連結打開（不用帳號密碼）：只有校隊查詢這一頁
   function startCrewLook(res) {

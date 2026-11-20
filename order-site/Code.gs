@@ -6901,9 +6901,16 @@ function crewWeek(token, mon, to) {
     m = addDays_(m, -((m.getDay() + 6) % 7));
     fri = addDays_(m, 4);
   }
+  // 科別（中餐／烘焙／飲調）：有料單照料單的科別，沒有就照教室、課程名稱猜
+  const deptOf = function (room, course, os) {
+    const d = (os || []).map(function (o) { return String(o.dept || ''); }).filter(Boolean)[0];
+    if (d) return /烘焙|西點/.test(d) ? '烘焙' : /飲|調|咖啡/.test(d) ? '飲調' : /中餐|中式|西餐|餐/.test(d) ? '中餐' : d;
+    const t = String(room || '') + ' ' + String(course || '');
+    return /烘|麵包|西點|蛋糕|點心/.test(t) ? '烘焙' : /飲調|飲料|調酒|咖啡|吧檯|茶|調[一二三四五六]|迦/.test(t) ? '飲調' : /中|餐|廚|烹|料理/.test(t) ? '中餐' : '';   // 「烹調」不算飲調
+  };
   const lessons = lessonsWithStatus_(m, fri, null).map(function (x) {
     return { date: x.date, session: x.session, teacher: x.teacher, className: x.className || '', course: x.course || '', room: x.room || '', status: x.status, holiday: x.holiday || '',
-      orders: (x.orders || []).map(function (o) { return o.orderNo; }) };
+      dept: deptOf(x.room, x.course, x.orders), orders: (x.orders || []).map(function (o) { return o.orderNo; }) };
   });
   const orders = ordersBetween_(m, fri).filter(function (o) { return o.status !== '已取消'; }).map(function (o) {
     return { orderNo: o.orderNo, date: o.useDate, session: o.classTime, teacher: o.onBehalfOf || o.teacher, className: o.className || '', project: o.project || '', groups: o.groups || '', room: o.room || '', status: o.status, dept: o.dept || '',
