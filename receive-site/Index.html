@@ -1974,18 +1974,31 @@
   }
   function nameAmtOn() { try { return localStorage.getItem('rcvNameAmt') === '1'; } catch (e) { return false; } }
   // 單子寫的班級：打號碼 → 選好那一班
-  function clsNoApply(t) {
-    var i = Number(t.getAttribute('data-pclsno')), pp = cur.slip.papers[i], v = t.value.trim(); if (!v) return;
+  // Enter 之後跳到下一格：班級 → 單子合計 → 第一行（還沒打的跳品名，帶入的跳數量）
+  function clsNextFocus(i, from) {
+    var box = $('slipBox'), pp = cur.slip.papers[i];
+    var nx = from === 'no' ? box.querySelector('[data-ptot="' + i + '"]') : null;
+    if (!nx) { var filled = pp && pp.rows.some(function (r) { return String(r.name || '').trim(); }); nx = box.querySelector('[data-pi="' + i + '"][data-pj="0"][data-pf="' + (filled ? 'qty' : 'name') + '"]'); }
+    if (nx) { nx.focus(); if (nx.select) nx.select(); }
+  }
+  function clsNoApply(t, viaEnter) {
+    var i = Number(t.getAttribute('data-pclsno')), pp = cur.slip.papers[i], v = t.value.trim(); if (!v) { if (viaEnter) clsNextFocus(i, 'no'); return; }
     var gs = clsGroups(), g = clsByNo(pp, v, gs, clsUsed(i));
-    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; return; }
+    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; t.select(); return; }
     var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
     pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto;
     if (!had) clsFill(i, g);
     renderPapers(); saveDraft();
-    var nx = $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="0"][data-pf="' + (had ? 'name' : 'qty') + '"]'); if (nx) nx.focus();
+    var ni = $('slipBox').querySelector('[data-pclsno="' + i + '"]'); if (ni) ni.value = v;
+    if (viaEnter) clsNextFocus(i, 'no');
   }
-  $('slipBox').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.hasAttribute && e.target.hasAttribute('data-pclsno') && !e.isComposing) { e.preventDefault(); clsNoApply(e.target); } });
-  $('slipBox').addEventListener('change', function (e) { if (e.target.hasAttribute && e.target.hasAttribute('data-pclsno')) clsNoApply(e.target); });
+  var clsNoBusy = false;
+  $('slipBox').addEventListener('keydown', function (e) {
+    var t = e.target; if (e.key !== 'Enter' || e.isComposing || !t.hasAttribute) return;
+    if (t.hasAttribute('data-pclsno')) { e.preventDefault(); clsNoBusy = true; clsNoApply(t, true); clsNoBusy = false; }
+    else if (t.hasAttribute('data-ptot')) { e.preventDefault(); clsNextFocus(Number(t.getAttribute('data-ptot')), 'tot'); }
+  });
+  $('slipBox').addEventListener('change', function (e) { if (!clsNoBusy && e.target.hasAttribute && e.target.hasAttribute('data-pclsno')) clsNoApply(e.target, false); });
   $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} } });
   // 數量是幾條、幾隻、幾包，價錢照總重量算 → 「總重量」欄（每家廠商都有，不用就空著）
   var WT_UNITS = ['公斤', '斤', '台斤', 'g', '兩'];
