@@ -3334,7 +3334,7 @@
       if (c && v && v > hxCodeLeft(c) + 0.5) over.push(c.code + ' 超過 $' + money(r2(v - hxCodeLeft(c))));
     });
     setHtml($('hxSum'), (over.length ? '<div class="badge bad" style="margin-bottom:4px">⚠ 經費編號 ' + esc(over.join('、')) + '（還是可以存）</div><br>' : '') + '發票合計 <b>$' + money(inv) + '</b>（' + hxF.lines.length + ' 張）　各類別合計 <b>$' + money(cat) + '</b> ' +
-      (bad === 'cat' ? '<span class="badge bad">另外叫料有一項還沒選類別</span>' : bad ? '<span class="badge bad">有金額看不懂</span>' : !inv && !cat ? '' : Math.abs(left) < 1 ? '<span class="badge ok">✓ 剛好</span>' : '<span class="badge bad">' + (left > 0 ? '還剩 $' + money(left) + ' 沒分' : '多分了 $' + money(-left)) + '</span>'));
+      (bad === 'cat' ? '<span class="badge bad">另外叫料有一項還沒選類別</span>' : bad ? '<span class="badge bad">有金額看不懂</span>' : !inv && !cat ? '' : !inv ? '<span class="badge warn">還沒填發票金額</span> <button type="button" class="btn small" data-hxinvfill="' + cat + '" title="發票金額跟各類別合計一樣的話，按這裡直接帶入">發票金額填 $' + money(cat) + '</button><div class="muted small" style="margin-top:2px">上面「🧾 發票」的金額還是空的，所以分出去的 $' + money(cat) + ' 都算「多分」。照發票上的金額填好就對了。</div>' : Math.abs(left) < 1 ? '<span class="badge ok">✓ 剛好</span>' : '<span class="badge bad">' + (left > 0 ? '還剩 $' + money(left) + ' 沒分' : '多分了 $' + money(-left)) + '</span>'));
   }
   // 內容一樣就不重畫（打字、離開欄位時畫面不會跳，按鈕不會被移走）
   function setHtml(el, h) { if (el && el.innerHTML !== h) el.innerHTML = h; }
@@ -4406,6 +4406,15 @@
       hxRenderExtras(); hxSumUp(); msg('hxMsg', 'ok', '整批設定已套用到 ' + hxF.extras.length + ' 項（空白的格子不會蓋掉）。'); return;
     }
     if ((b = t.closest('[data-hedel]'))) { hxF.extras.splice(Number(b.getAttribute('data-hedel')), 1); hxRenderExtras(); hxSumUp(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-hxinvfill')) {   // 發票金額還空著：直接帶入各類別合計
+      var fv = t.getAttribute('data-hxinvfill'), li = hxF.lines.length ? hxF.lines.length - 1 : 0;
+      if (!hxF.lines.length) hxF.lines.push({ no: '', date: iso(new Date()), amount: '', photos: [] });
+      hxF.lines[li].amount = String(fv); hxF.autoAmt = false;
+      hxRenderLines(); hxSumUp();
+      var fi = document.querySelector('[data-hl="no"][data-i="' + li + '"]'); if (fi) { fi.scrollIntoView({ block: 'center' }); fi.focus(); }
+      msg('hxMsg', 'info', '已經把發票金額填成 $' + money(Number(fv)) + '，請對照發票確認金額，順便填發票號碼。');
+      return;
+    }
     if (t.id === 'hxLineAdd') { hxF.autoAmt = false; hxF.lines.push({ no: '', date: iso(new Date()), amount: '', photos: [] }); hxRenderLines(); hxSumUp(); var ins = document.querySelectorAll('[data-hl="no"]'); ins[ins.length - 1].focus(); return; }
     if ((b = t.closest('[data-hldel]'))) {
       var li = Number(b.getAttribute('data-hldel')), ln = hxF.lines[li];
