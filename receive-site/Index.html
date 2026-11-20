@@ -1745,6 +1745,8 @@
   });
   function itemUnit(n) { var r = (hxItemList || []).filter(function (x) { return x[0] === n; })[0]; return r && r[3] || ''; }
   // ---- 菜商（照班級點的廠商）：一班一張銷貨單，每張選是哪一班 ----
+  // 銷貨單一班一張（每張選班級）：只有菜商（杰善一班開一張）；肉商、海鮮是全部班級混在一張收據，不用選班級
+  function clsSlip() { return !!(cur && cur.b && cur.b.perClass && /^A/.test(cur.b.vendor || '')); }
   function clsGroups() {
     var by = {}, out = [];
     slipLines().forEach(function (x) {
@@ -1813,7 +1815,7 @@
     return true;
   }
   function clsHead(i, pp) {
-    if (!cur.b.perClass) return '';
+    if (!clsSlip()) return '';
     var gs = clsGroups(), used = clsUsed(i), g = clsOfPaper(pp, gs);
     var opts = '<option value="">— 這張是哪一班？—</option>' + gs.map(function (x) { return '<option value="' + esc(x.k) + '"' + (g && g.k === x.k ? ' selected' : '') + '>' + esc(clsLabel(x)) + (used[x.k] ? '（已有 ' + used[x.k] + ' 張）' : '') + '</option>'; }).join('') +
       (pp.cls && !g ? '<option value="__keep" selected>' + esc(pp.cls + (pp.teacher ? ' ' + pp.teacher : '')) + '（叫貨單沒有）</option>' : '');
@@ -1844,7 +1846,7 @@
   }
   // 每張：猜班級、單子合計對不對；最上面：哪幾班打了、哪幾班還沒
   function clsRefresh() {
-    if (!cur || !cur.b || !cur.b.perClass || !cur.slip || !cur.slip.papers) return;
+    if (!cur || !cur.b || !clsSlip() || !cur.slip || !cur.slip.papers) return;
     var gs = clsGroups(), usedAll = clsUsed(-1);
     cur.slip.papers.forEach(function (pp, i) {
       var gEl = document.querySelector('[data-pguess="' + i + '"]'), tEl = document.querySelector('[data-ptchk="' + i + '"]');
@@ -1956,7 +1958,7 @@
     var html = '<datalist id="itemList">' + itemOpts() + '</datalist>' +
       '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     var showWt = wtVendor() || sl.papers.some(function (pp) { return pp.rows.some(function (r) { return numv(r.wt) !== null; }); });
-    if (cur.b.perClass) html += '<div id="clsProg"></div>';
+    if (clsSlip()) html += '<div id="clsProg"></div>';
     // 📅 日期一次全部改：最多張用的日期當預設
     if (sl.papers.length > 1) {
       var dc = {}; sl.papers.forEach(function (pp) { if (pp.date) dc[pp.date] = (dc[pp.date] || 0) + 1; });
@@ -2180,7 +2182,7 @@
       msg('slMsg', 'ok', '已經把 ' + sl.papers.length + ' 張的日期都改成 ' + mdw(nd) + '，按「💾 儲存銷貨單」才會存。');
       return;
     }
-    if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(cur.b.perClass ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
+    if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(clsSlip() ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
     if (t.id === 'clsAuto') { clsAutoAll(); return; }
     var pgb = t.closest && t.closest('[data-pgset]');   // 點到按鈕裡面的字也算
     if (pgb) { t = pgb; var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { var gHad = gp.rows.some(function (r) { return String(r.name || '').trim(); }); gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; delete gp.auto; delete gp.multiNo; clsRefill(gi, gg); } renderPapers(); saveDraft(); var gn = $('slipBox').querySelector('[data-ptot="' + gi + '"]'); if (gn) gn.focus(); return; }
@@ -2577,7 +2579,7 @@
         if (ps.length && last.rows.every(function (y) { return !String(y.name || '').trim() && numv(y.amount) === null; })) ps[ps.length - 1] = pp; else ps.push(pp);
         cur.slip.text = r.text;
         var gotCls = '';
-        if (cur.b.perClass) {   // 菜商單子最下面有寫班級：從辨識出來的字找
+        if (clsSlip()) {   // 菜商單子最下面有寫班級：從辨識出來的字找
           var gcl = clsFromText(pp, r.text, clsGroups(), clsUsed(ps.indexOf(pp)));
           if (gcl) { pp.cls = gcl.cls; pp.teacher = gcl.teacher; pp.cdate = gcl.date; pp.auto = '單子上寫 ' + gcl.cls; gotCls = '，單子上寫的班級是 ' + gcl.cls + (gcl.teacher ? '（' + gcl.teacher + '）' : ''); }
         }
