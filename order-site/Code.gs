@@ -482,6 +482,7 @@ function orderPrices_() {
 }
 
 function bootDirty_(name) {
+  if (DATA_VER_SHEETS_.indexOf(String(name)) >= 0) dataBump_();
   if (BOOT_SHEETS.indexOf(String(name)) < 0) return;
   try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
 }
@@ -555,9 +556,13 @@ function readUnitConv_() {
  * 同一家同一樣同一單位只留一筆；price 空白＝刪掉手填的那筆（銷貨單記的不動）。
  * 之後那家廠商的銷貨單有這一樣，成本會自動改用銷貨單的單價。回傳最新的單價表（給畫面用）
  */
-function adminSavePrice(token, vendor, name, unit, price) {
+function adminSavePrice(token, vendor, name, unit, price, spec) {
   const admin = auth_(token, true);
   vendor = clean_(vendor, 30); name = clean_(name, 40); unit = clean_(unit, 10);
+  // 規格（選填）：一個單位有多少，例如「1000 g」「25 包」，算成本時用來換老師訂的單位
+  spec = String(spec == null ? '' : spec).replace(/\s+/g, ' ').trim().slice(0, 20);
+  if (spec && !/^[\d.]+\s*[^\d\s.]+/.test(spec)) throw new Error('規格請寫「數字＋單位」，例如 1000 g、25 包。');
+  if (spec) spec = spec.replace(/^([\d.]+)\s*/, '$1 ');
   if (!vendor || !name || !unit) throw new Error('資料不完整（廠商、品名、單位都要有）。');
   const raw = String(price == null ? '' : price).replace(/[,，$＄\s]/g, ''), p = Number(raw);
   if (raw !== '' && !(p > 0 && p < 1000000)) throw new Error('單價請填大於 0 的數字。');
@@ -575,7 +580,8 @@ function adminSavePrice(token, vendor, name, unit, price) {
     } else if (same.length) {
       const r = same[same.length - 1];
       setCell_(t, r._row, '單價', p); setCell_(t, r._row, '更新日期', today); setCell_(t, r._row, '驗收編號', tag);
-    } else appendRows_('單價表', [{ '廠商': vendor, '食材名稱': name, '單位': unit, '單價': p, '更新日期': today, '驗收編號': tag }]);
+      if (spec && t.cols['換算']) setCell_(t, r._row, '換算', spec);
+    } else appendRows_('單價表', [{ '廠商': vendor, '食材名稱': name, '單位': unit, '單價': p, '更新日期': today, '驗收編號': tag, '換算': spec }]);
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
   } finally {
@@ -2883,7 +2889,7 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm, quiet) {
         live.forEach(function (x) { statusVals[x._row - 2][0] = '已叫貨'; });
         changedOrders++;
       });
-      if (changedOrders) t.sheet.getRange(2, col, statusVals.length, 1).setValues(statusVals);
+      if (changedOrders) { t.sheet.getRange(2, col, statusVals.length, 1).setValues(statusVals); dataBump_(); }
     }
     SpreadsheetApp.flush();
   } finally {
@@ -3458,7 +3464,7 @@ function adminSetItemVendors(token, changes) {
       if (og) { og.values[x._row - 2][0] = deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups); og.dirty = true; }
       lines++;
     });
-    if (ov.dirty) ov.range.setValues(ov.values);
+    if (ov.dirty) { ov.range.setValues(ov.values); dataBump_(); }
     if (og && og.dirty) og.range.setValues(og.values);
     return { items: items, lines: lines };
   } finally {
@@ -7737,12 +7743,17 @@ function adminPriceSearch(token, q, vendor) {
   auth_(token, true);
   return priceSearch_(q, vendor);
 }
+/** 📈 單價漲跌一覽：銷貨單上每一樣（同一家）的全部單價紀錄（每週），畫面照月份排 */
+function adminPriceTrend(token) {
+  auth_(token, true);
+  return priceSearch_('', '', true);
+}
 /**
  * 🔎 查單價：從「銷貨單明細」找食材（名稱或銷貨單品名有關鍵字，空白隔開＝都要有）。
  * 同一樣、同一家一組：最近一次單價、每週單價（近 26 週）、最高最低。回傳最多 40 組，最近買的排前面。
  * 訂貨系統和驗收系統都用同一份（兩邊程式各一份，改的時候兩邊一起改）。
  */
-function priceSearch_(q, vendor) {
+function priceSearch_(q, vendor, all) {
   const words = String(q || '').toLowerCase().replace(/[（）()]/g, ' ').split(/\s+/).filter(Boolean);
   vendor = String(vendor || '').trim();
   if (!ss_().getSheetByName('銷貨單明細')) return { groups: [], vendors: [] };
@@ -7761,7 +7772,7 @@ function priceSearch_(q, vendor) {
     const vv = String(r['廠商'] || '').trim();
     if (vv && Number(r['單價']) > 0) vens[vv] = (vens[vv] || 0) + 1;
     if (vendor && vv !== vendor) return;
-    if (!words.length && !vendor) return;
+    if (!words.length && !vendor && !all) return;
     const name = String(r['食材名稱'] || '').trim(), sn = String(r['銷貨單品名'] || '').trim();
     const hay = (name + ' ' + sn).toLowerCase();
     if (!name || !words.every(function (w) { return hay.indexOf(w) >= 0; })) return;
@@ -7805,12 +7816,74 @@ function priceSearch_(q, vendor) {
       last: { p: r2(unitP(last)), date: ds(last.d) },
       lo: r2(Math.min.apply(null, ps)), hi: r2(Math.max.apply(null, ps)), n: rows.length,
       other: g.rows.length - rows.length,   // 用別的單位買的筆數（例如有時候用箱）
-      weeks: (recent.length ? recent : weeks.slice(-6))
+      weeks: all ? weeks : (recent.length ? recent : weeks.slice(-6))
     };
   });
   out.sort(function (a, b) { return a.last.date < b.last.date ? 1 : a.last.date > b.last.date ? -1 : a.name.localeCompare(b.name, 'zh-Hant'); });
   const vendors = Object.keys(vens).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+  if (all) return { groups: out, vendors: vendors };
   if (!words.length && !vendor) return { groups: [], vendors: vendors };
   const lim = vendor ? 400 : 40;   // 選廠商＝看這家全部品項的時價
   return { groups: out.slice(0, lim), more: Math.max(0, out.length - lim), vendors: vendors, vendor: vendor };
+}
+
+
+// ---- 🔄 自動同步：訂單有新增或修改，記一個「資料版本」；別台開著的訂單彙整、審核每 20 秒問一次，變了就自動更新 ----
+const DATA_VER_SHEETS_ = ['訂單總表', '待審核食材', '歷史訂單'];
+var DATA_BUMPED_ = false;   // 同一次執行只記一次（寫很多格時不要每格都記）
+function dataBump_() {
+  if (DATA_BUMPED_) return;
+  DATA_BUMPED_ = true;
+  try { CacheService.getScriptCache().put('ordDataVer', String(Date.now()), 21600); } catch (e) {}
+}
+function getDataVer(token) {
+  return CacheService.getScriptCache().get('ordDataVer') || '';
+}
+
+/**
+ * 💲 缺單價清單：最近 60 天到之後 45 天有人訂、可是銷貨單和單價表都沒有價錢的食材（同義的叫法、成本對應過的不算缺）。
+ * 回傳 [{ name, vendor, units: [[單位, 次數]], n: 幾張料單, next: 最近一次上課日, unit: 食材總表的單位 }]
+ */
+function adminMissingPrices(token) {
+  auth_(token, true);
+  const has = {};
+  if (ss_().getSheetByName('單價表')) readTable_('單價表', ['食材名稱', '單價']).rows.forEach(function (r) { if (Number(r['單價']) > 0) has[String(r['食材名稱']).trim()] = true; });
+  if (ss_().getSheetByName('銷貨單明細')) readTable_('銷貨單明細', ['食材名稱', '單價']).rows.forEach(function (r) {
+    if (!(Number(r['單價']) > 0)) return;
+    has[String(r['食材名稱']).trim()] = true;
+    const sn = String(r['銷貨單品名'] || '').trim(); if (sn) has[sn] = true;
+  });
+  const cmap = readCostMap_();
+  const priced = function (vendor, name) {
+    if (has[name]) return true;
+    const m = cmap[vendor + '|' + name] || cmap['|' + name];
+    if (m && m !== '✗' && has[m]) return true;
+    if ((COST_SYN[name] || []).some(function (x) { return has[x]; })) return true;
+    // 銷貨單上多了括號、多一兩個字（乾辣椒(進口)、紅蔥頭仁）：成本頁會自動對到，不算缺
+    if (name.length < 2) return false;
+    return hasKeys().some(function (k) { const base = k.replace(/[（(].*?[)）]/g, '').trim(); return base === name || (k.indexOf(name) === 0 && k.length - name.length <= 2); });
+  };
+  let keys = null;
+  const hasKeys = function () { return keys || (keys = Object.keys(has)); };
+  const today = today_(), from = addDays_(today, -60), to = addDays_(today, 45), out = {};
+  readTable_(SHEET.orders, ['訂單編號', '使用日期', '食材名稱', '廠商']).rows.forEach(function (r) {
+    const d = toDate_(r['使用日期']);
+    if (!d || d < from || d > to) return;
+    if (/取消|退/.test(String(r['狀態'] || '')) || String(r['不叫貨'] || '').trim()) return;
+    const id = String(r['食材ID'] || '').trim(), name = String(r['食材名稱'] || '').trim(), vendor = String(r['廠商'] || '').trim();
+    if (!name || id === TOOL_ID || vendor === TOOL_ID || vendor === SELF_VENDOR || !vendor) return;
+    if (priced(vendor, name)) return;
+    const k = vendor + '|' + name, x = out[k] = out[k] || { name: name, vendor: vendor, id: id, units: {}, orders: {}, next: '' };
+    const u = String(r['單位'] || '').trim(); if (u) x.units[u] = (x.units[u] || 0) + 1;
+    x.orders[String(r['訂單編號'])] = true;
+    const ds = dateStr_(d);
+    if (ds >= dateStr_(today) && (!x.next || ds < x.next)) x.next = ds;
+  });
+  const itemUnit = {};
+  readTable_(SHEET.items, ['食材ID', '食材名稱']).rows.forEach(function (r) { itemUnit[String(r['食材名稱']).trim()] = String(r['單位'] || '').trim(); });
+  return Object.keys(out).map(function (k) {
+    const x = out[k];
+    return { name: x.name, vendor: x.vendor, n: Object.keys(x.orders).length, next: x.next, unit: itemUnit[x.name] || '',
+      units: Object.keys(x.units).map(function (u) { return [u, x.units[u]]; }).sort(function (a, b) { return b[1] - a[1]; }) };
+  }).sort(function (a, b) { return (a.next ? 0 : 1) - (b.next ? 0 : 1) || b.n - a.n || a.vendor.localeCompare(b.vendor, 'zh-Hant'); });
 }

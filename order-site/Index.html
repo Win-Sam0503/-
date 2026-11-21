@@ -1180,6 +1180,19 @@
         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><select id="psV" style="width:auto;max-width:200px"><option value="">全部廠商</option></select><input id="psQ" type="search" placeholder="例如：洋蔥、奶油、雞胸（選了廠商可以不打）" autocomplete="off" style="max-width:280px;flex:1"><button type="button" class="btn small" id="psGo">查詢</button>
         <select id="psSort" style="width:auto" title="排序"><option value="date">最近買的排前面</option><option value="name">照名稱</option><option value="up">漲最多的排前面</option><option value="down">跌最多的排前面</option></select></div>
         <div id="psOut"></div></details>
+      <details class="panel noprint" id="ptBox" style="padding:12px 16px"><summary style="cursor:pointer"><b>📈 單價漲跌一覽</b> <span class="muted small">每樣食材每個月的單價（照銷貨單，價錢不會改），漲超過 10% 紅色、跌超過 10% 綠色</span></summary>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
+          <select id="ptV" style="width:auto;max-width:200px"><option value="">全部廠商</option></select>
+          <input id="ptQ" type="search" placeholder="找食材" autocomplete="off" style="max-width:180px">
+          <select id="ptN" style="width:auto" title="看幾個月"><option value="3">最近 3 個月</option><option value="6" selected>最近 6 個月</option><option value="12">最近 12 個月</option></select>
+          <select id="ptSort" style="width:auto" title="排序"><option value="up">漲最多的排前面</option><option value="down">跌最多的排前面</option><option value="vendor">照廠商、名稱</option></select>
+          <label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="ptOnly"> 只看有漲跌的</label>
+          <button type="button" class="btn ghost small" id="ptPrint">🖨 列印／存 PDF</button>
+        </div>
+        <div id="ptOut" style="margin-top:8px"></div></details>
+      <details class="panel noprint" id="mpBox" style="padding:12px 16px"><summary style="cursor:pointer"><b>💲 缺單價清單</b> <span id="mpCount" class="muted small">有人訂、可是銷貨單和單價表都沒有價錢的食材，一次補好</span></summary>
+        <div class="muted small" style="margin-top:6px">打廠商的單價就好；「規格」選填（一個單位有多少，例如一罐 1000 g、一包 25 片），老師訂的單位跟單價的單位不一樣時才換得過去。存了之後成本先用這個算，之後銷貨單有這一樣會自動改用銷貨單的價錢。</div>
+        <div id="mpOut" style="margin-top:8px"></div></details>
       <div class="panel">
         <h2>💰 成本 <details class="vhelp noprint"><summary>？說明</summary><div><b>正式成本＝「實際成本（依銷貨單分攤）」</b>：每週每家廠商銷貨單上真的花的錢，照每張料單的比例分下去，加起來一定等於銷貨單金額；個別品項算錯也不會影響總額。<br>「逐項估算」＝老師訂的數量 × 那一週那家廠商銷貨單上的單價，只拿來決定比例和找問題。<br><br>每週看最上面的「⚡ 一次整理」就好：名字不一樣、單位不一樣的，系統先猜好打勾，按一次全部存好，以後每週都照這樣算。名字幾乎一樣的（只差括號）系統直接算，列在「🤖 系統自動對應」給你核對。<br>老師用條、隻、盒訂，菜商用台斤算的：先照那週銷貨單的總重分攤，分不出來用過去幾週推算，再不行用內建常見重量（洋蔥 1 顆約 250 g）估。<br>那週銷貨單沒有的，用最近一次銷貨單的單價估。<br>還是算不出來的在「待處理」，每一行都可以直接處理。</div></details></h2>
         <div class="grid2">
@@ -4010,6 +4023,122 @@
     PS_CALL('', '').then(function (r) { psVendors(r.vendors); }).catch(function () {});
   });
   document.getElementById('psQ').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); psSearch(); } });
+
+  // ---- 📈 單價漲跌一覽：銷貨單上每一樣每個月的單價（同一週的照數量加權），跟前一個有買的月比 ----
+  var ptData = null;
+  function ptMonths(g) {
+    var m = {};
+    (g.weeks || []).forEach(function (w) { var k = String(w.wk).slice(0, 7), x = m[k] = m[k] || { a: 0, q: 0, s: 0, n: 0 }; if (w.q > 0) { x.a += w.p * w.q; x.q += w.q; } x.s += w.p; x.n++; });
+    var out = {}; Object.keys(m).forEach(function (k) { var x = m[k]; out[k] = Math.round((x.q > 0 ? x.a / x.q : x.s / x.n) * 100) / 100; });
+    return out;
+  }
+  function ptRender() {
+    var out = document.getElementById('ptOut');
+    if (!ptData) return;
+    var v = document.getElementById('ptV').value, q = document.getElementById('ptQ').value.trim().toLowerCase(), n = Number(document.getElementById('ptN').value) || 6;
+    var how = document.getElementById('ptSort').value, only = document.getElementById('ptOnly').checked;
+    var now = new Date(), cols = [];
+    for (var i = n - 1; i >= 0; i--) { var d = new Date(now.getFullYear(), now.getMonth() - i, 1); cols.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2)); }
+    var rows = (ptData.groups || []).filter(function (g) { return (!v || g.vendor === v) && (!q || (g.name + ' ' + (g.alias || []).join(' ')).toLowerCase().indexOf(q) >= 0); }).map(function (g) {
+      var ms = ptMonths(g), ks = Object.keys(ms).sort(), last = ks[ks.length - 1], prev = ks[ks.length - 2];
+      var chg = prev && ms[prev] ? ms[last] / ms[prev] - 1 : null;
+      return { g: g, ms: ms, chg: chg, last: last, prev: prev, any: cols.some(function (c) { return ms[c] !== undefined; }) };
+    }).filter(function (r) { return r.any && (!only || (r.chg !== null && Math.abs(r.chg) >= 0.005)); });
+    var cv = function (r) { return r.chg === null ? 0 : r.chg; };
+    rows.sort(function (a, b) {
+      if (how === 'up') return cv(b) - cv(a) || a.g.name.localeCompare(b.g.name, 'zh-Hant');
+      if (how === 'down') return cv(a) - cv(b) || a.g.name.localeCompare(b.g.name, 'zh-Hant');
+      return a.g.vendor.localeCompare(b.g.vendor, 'zh-Hant') || a.g.name.localeCompare(b.g.name, 'zh-Hant');
+    });
+    if (!rows.length) { out.innerHTML = '<div class="muted">這段期間沒有' + (only ? '漲跌的' : '') + '品項。</div>'; return; }
+    var up = rows.filter(function (r) { return r.chg !== null && r.chg >= 0.1; }).length, dn = rows.filter(function (r) { return r.chg !== null && r.chg <= -0.1; }).length;
+    var mLabel = function (c) { return Number(c.slice(5)) + ' 月'; };
+    var money = function (p) { return '$' + (Math.round(p * 100) / 100).toLocaleString('en-US'); };
+    out.innerHTML = '<div class="small" style="margin-bottom:6px">共 ' + rows.length + ' 樣' + (up ? '・<b style="color:#b42318">漲超過 10%：' + up + ' 樣</b>' : '') + (dn ? '・<b style="color:#067647">跌超過 10%：' + dn + ' 樣</b>' : '') +
+      '<span class="muted">（漲跌＝最近一個有買的月跟前一個有買的月比；同一個月好幾週照數量平均）</span></div>' +
+      '<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:14px;border-collapse:collapse"><thead><tr><th style="text-align:left">食材</th><th style="text-align:left">廠商</th><th>單位</th>' +
+      cols.map(function (c) { return '<th style="text-align:right;white-space:nowrap">' + mLabel(c) + '</th>'; }).join('') + '<th style="text-align:right">漲跌</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        var bg = r.chg !== null && r.chg >= 0.1 ? 'background:#fef3f2' : r.chg !== null && r.chg <= -0.1 ? 'background:#ecfdf3' : '';
+        var ch = r.chg === null ? '<span class="muted">—</span>' : Math.abs(r.chg) < 0.005 ? '<span class="muted">持平</span>' :
+          '<b style="color:' + (r.chg > 0 ? '#b42318' : '#067647') + '">' + (r.chg > 0 ? '↑' : '↓') + ' ' + money(Math.abs(r.ms[r.last] - r.ms[r.prev])) + '（' + (r.chg > 0 ? '+' : '−') + Math.round(Math.abs(r.chg) * 1000) / 10 + '%）</b><div class="muted small">' + Number(r.prev.slice(5)) + '月→' + Number(r.last.slice(5)) + '月</div>';
+        return '<tr style="border-top:1px solid var(--line);' + bg + '"><td>' + esc(r.g.name) + '</td><td class="small">' + esc(r.g.vendor) + '</td><td class="small" style="text-align:center">' + esc(r.g.unit) + '</td>' +
+          cols.map(function (c) { return '<td style="text-align:right;white-space:nowrap">' + (r.ms[c] !== undefined ? money(r.ms[c]) : '<span class="muted">·</span>') + '</td>'; }).join('') +
+          '<td style="text-align:right;white-space:nowrap">' + ch + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function ptLoad() {
+    var out = document.getElementById('ptOut');
+    out.innerHTML = '<div class="muted">載入中…（全部銷貨單一起算，要幾秒）</div>';
+    call('adminPriceTrend', token).then(function (r) {
+      ptData = r;
+      var sel = document.getElementById('ptV'), cur = sel.value;
+      sel.innerHTML = '<option value="">全部廠商</option>' + (r.vendors || []).map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+      ptRender();
+    }).catch(function (e) { out.innerHTML = '<div class="msg error">載入失敗：' + esc(e.message) + '</div>'; });
+  }
+  document.getElementById('ptBox').addEventListener('toggle', function () { if (this.open && !ptData) ptLoad(); });
+  ['ptV', 'ptN', 'ptSort', 'ptOnly'].forEach(function (id) { document.getElementById(id).addEventListener('change', ptRender); });
+  document.getElementById('ptQ').addEventListener('input', ptRender);
+  document.getElementById('ptPrint').addEventListener('click', function () {   // 面板本身是 noprint：另外組一份只有標題＋表格的
+    var v = document.getElementById('ptV').value, d = document.createElement('div');
+    d.innerHTML = '<h2 style="margin:0 0 4px">📈 單價漲跌一覽' + (v ? '（' + esc(v) + '）' : '') + '</h2><div class="small muted" style="margin-bottom:6px">列印日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '・照銷貨單上的單價，每個月照數量平均</div>' + document.getElementById('ptOut').innerHTML;
+    printSection(d);
+  });
+
+  // ---- 💲 缺單價清單：有人訂、沒有任何價錢的食材，一次補單價（＋規格） ----
+  var mpList = null;
+  function mpRender() {
+    var out = document.getElementById('mpOut');
+    if (!mpList) return;
+    document.getElementById('mpCount').textContent = mpList.length ? '現在有 ' + mpList.length + ' 樣沒有價錢（最近 60 天到之後 45 天的料單）' : '目前每一樣都有價錢 👍';
+    if (!mpList.length) { out.innerHTML = '<div class="msg ok">最近的料單裡，每一樣都有價錢了。</div>'; return; }
+    out.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;font-size:14px;border-collapse:collapse"><thead><tr><th style="text-align:left">食材</th><th style="text-align:left">廠商</th><th style="text-align:left">老師訂的</th><th>單價</th><th>單位</th><th>規格（選填）</th><th></th></tr></thead><tbody>' +
+      mpList.map(function (x, i) {
+        var u0 = x.unit || (x.units[0] && x.units[0][0]) || '';
+        return '<tr data-mp="' + i + '" style="border-top:1px solid var(--line)"><td><b>' + esc(x.name) + '</b><div class="muted small">' + x.n + ' 張料單' + (x.next ? '・下次 ' + esc(shortDate(x.next)) : '') + '</div></td>' +
+          '<td class="small">' + esc(x.vendor) + '</td><td class="small">' + x.units.map(function (u) { return esc(u[0]) + (u[1] > 1 ? '×' + u[1] : ''); }).join('、') + '</td>' +
+          '<td><input data-mpf="p" inputmode="decimal" placeholder="$" style="width:80px"></td>' +
+          '<td><input data-mpf="u" value="' + esc(u0) + '" style="width:64px" maxlength="10"></td>' +
+          '<td><input data-mpf="s" placeholder="例如 1000 g" style="width:110px" maxlength="20"></td>' +
+          '<td><button type="button" class="btn secondary small" data-mpsave="' + i + '">存</button></td></tr>';
+      }).join('') + '</tbody></table></div><div class="row" style="margin-top:8px;gap:8px"><button type="button" class="btn small" id="mpAll">💾 有打單價的全部存</button><span id="mpMsg" class="small"></span></div>';
+  }
+  function mpLoad() {
+    document.getElementById('mpOut').innerHTML = '<div class="muted">載入中…</div>';
+    call('adminMissingPrices', token).then(function (r) { mpList = r; mpRender(); })
+      .catch(function (e) { document.getElementById('mpOut').innerHTML = '<div class="msg error">載入失敗：' + esc(e.message) + '</div>'; });
+  }
+  function mpSaveRow(tr) {
+    var i = Number(tr.getAttribute('data-mp')), x = mpList[i], f = function (k) { return tr.querySelector('[data-mpf="' + k + '"]').value.trim(); };
+    var p = f('p').replace(/[,，$＄\s]/g, ''), u = f('u'), sp = f('s');
+    if (!p) return Promise.resolve(false);
+    if (!(Number(p) > 0)) return Promise.reject(new Error(x.name + '：單價請打大於 0 的數字。'));
+    if (!u) return Promise.reject(new Error(x.name + '：請打單位（例如 罐、包、斤）。'));
+    return call('adminSavePrice', token, x.vendor, x.name, u, p, sp).then(function (r) {
+      data.prices = r; x.done = true; tr.style.opacity = '.45';
+      tr.querySelector('[data-mpsave]').outerHTML = '<span class="small" style="color:#067647">✓ 已存</span>';
+      return true;
+    });
+  }
+  document.getElementById('mpBox').addEventListener('toggle', function () { if (this.open && !mpList) mpLoad(); });
+  document.getElementById('mpOut').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-mpsave]');
+    if (b) {
+      setBusy(b, true, '…');
+      mpSaveRow(b.closest('tr')).then(function (ok) { if (!ok) { setBusy(b, false); notice('請先打單價。'); } }).catch(function (err) { setBusy(b, false); notice(err.message); });
+      return;
+    }
+    if (e.target.id === 'mpAll') {
+      var trs = Array.prototype.filter.call(document.querySelectorAll('#mpOut tr[data-mp]'), function (tr) { return !mpList[Number(tr.getAttribute('data-mp'))].done && tr.querySelector('[data-mpf="p"]').value.trim(); });
+      if (!trs.length) { notice('還沒有打任何單價。'); return; }
+      var btn = e.target, n = 0; setBusy(btn, true, '存檔中…');
+      trs.reduce(function (pr, tr) { return pr.then(function () { return mpSaveRow(tr).then(function (ok) { if (ok) n++; document.getElementById('mpMsg').textContent = '已存 ' + n + '／' + trs.length; }); }); }, Promise.resolve())
+        .then(function () { document.getElementById('mpMsg').innerHTML = '<span style="color:#067647">✓ 存好 ' + n + ' 樣，成本會用這些價錢算。</span>'; })
+        .catch(function (err) { notice(err.message); })
+        .then(function () { setBusy(btn, false); });
+    }
+  });
   // ① 待處理的搜尋（重新算成本後保留）
   var costMissQ = '', costMissS = '', costMissSmall = false;
   document.addEventListener('click', function (e) { if (e.target.id === 'costMissSmallBtn') { costMissSmall = !costMissSmall; e.target.textContent = costMissSmall ? '收起小額' : '顯示小額'; costMissFilter(); } });
@@ -11037,6 +11166,49 @@
       });
     } catch (e) { go(); }
   })();
+
+  // ---------------- 🔄 自動同步：老師新送出、別台改了訂單，這台的訂單彙整／審核食材／我的訂單自己更新 ----------------
+  // 每 20 秒問一次伺服器的「資料版本」，畫面切回來時馬上問；正在打字、勾了料單時不自動重畫，只顯示「按這裡更新」
+  var liveVer = null, liveBusy = false, liveT = null;
+  var vis = function (id) { var el = document.getElementById(id); return el && !el.classList.contains('hidden'); };
+  var typingIn = function (id) { var a = document.activeElement, v = document.getElementById(id); return a && v && v.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox'; };
+  var liveNote = function (boxId, fn) {
+    var box = document.getElementById(boxId); if (!box || box.querySelector('.live-note')) return;
+    var d = document.createElement('div'); d.className = 'msg info live-note noprint';
+    d.innerHTML = '🔄 有新的訂單或修改。 <button type="button" class="btn small">更新</button>';
+    d.querySelector('button').onclick = function () { d.remove(); fn(); };
+    box.insertBefore(d, box.firstChild);
+  };
+  var keepScroll = function (p) { var y = window.scrollY; return p.then(function () { setTimeout(function () { window.scrollTo(0, y); }, 0); }); };
+  function liveSummary() {
+    if (!$('sFrom').value) return;
+    keepScroll(call('adminGetOrders', token, $('sFrom').value, $('sTo').value || $('sFrom').value).then(function (list) { sumCache = list; markDups(sumCache); renderSummary(); })).catch(function () {});
+  }
+  function liveMine() { keepScroll(call('getMyOrders', token, mineDays).then(function (list) { mineCache = list; renderMine(); })).catch(function () {}); }
+  function liveApply() {
+    if (!data || !token) return;
+    if (data.isAdmin) call('adminGetPending', token).then(function (list) { refreshPendingCount(list); }).catch(function () {});
+    if (vis('viewSummary') && sumCache) {
+      var picked = document.querySelector('#viewSummary .pick input:checked, #pickAll:checked');
+      if (picked || typingIn('viewSummary')) liveNote('sumMsg', liveSummary); else liveSummary();
+    }
+    if (vis('viewPending')) { if (typingIn('viewPending')) liveNote('pendMsg', function () { loadPending(null, true); }); else keepScroll(loadPending(null, true) || Promise.resolve()); }
+    if (vis('viewMine') && typeof mineCache !== 'undefined' && mineCache) { if (typingIn('viewMine')) liveNote('mineMsg', liveMine); else liveMine(); }
+  }
+  function liveCheck() {
+    if (liveBusy || document.hidden || !token || !data) return;
+    liveBusy = true;
+    call('getDataVer', token).then(function (v) {
+      v = v || '';
+      if (liveVer === null) { liveVer = v; return; }
+      if (v === liveVer) return;
+      liveVer = v;
+      clearTimeout(liveT); liveT = setTimeout(liveApply, 4000);   // 等 4 秒：對方可能還在寫同一張的其他列
+    }).catch(function () {}).then(function () { liveBusy = false; });
+  }
+  setInterval(liveCheck, 20000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) liveCheck(); });
+  window.addEventListener('focus', liveCheck);
 
   // ---------------- 系統設定：每一區收合（預設收起來，按標題打開） ----------------
   (function settingsFold() {
