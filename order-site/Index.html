@@ -167,6 +167,15 @@
   .ordbtns + .ordbtns { margin-top: 6px; }
   .ordbtns .ob-name { font-size: 13px; color: var(--muted); max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px; }
   .ordbtns .btn { white-space: nowrap; } .ordbtns .ob-gap { visibility: hidden; }
+  /* 系統設定：每一區可以收合（預設收起來） */
+  details.sfold { border-top: 1px solid var(--line); padding: 2px 0; }
+  details.sfold:first-of-type { border-top: 0; }
+  details.sfold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; }
+  details.sfold > summary::-webkit-details-marker { display: none; }
+  details.sfold > summary::before { content: '▸'; color: var(--muted); transition: transform .15s; display: inline-block; }
+  details.sfold[open] > summary::before { transform: rotate(90deg); }
+  details.sfold > summary h2, details.sfold > summary h3 { margin: 0 !important; display: inline; }
+  details.sfold > .sf-body { padding: 0 0 10px 18px; }
   details.lweek > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   details.lweek > summary::-webkit-details-marker { display: none; }
   details.lweek > summary h2 { margin: 0; } details.lweek > summary .lw-arrow { color: var(--muted); transition: transform .15s; }
@@ -11027,6 +11036,52 @@
         }).catch(function (err) { showLogin(''); msg('loginMsg', 'error', err.message); });
       });
     } catch (e) { go(); }
+  })();
+
+  // ---------------- 系統設定：每一區收合（預設收起來，按標題打開） ----------------
+  (function settingsFold() {
+    var view = document.getElementById('viewSettings');
+    if (!view) return;
+    var mk = function (head, nodes) {
+      var d = document.createElement('details'); d.className = 'sfold';
+      var sm = document.createElement('summary'), body = document.createElement('div'); body.className = 'sf-body';
+      sm.appendChild(head); nodes.forEach(function (n) { body.appendChild(n); });
+      d.appendChild(sm); d.appendChild(body); return d;
+    };
+    // 一個面板：從每個 h2／h3 標題切開，標題到下一個標題之間的東西收進去
+    var foldPanel = function (panel) {
+      var kids = Array.prototype.slice.call(panel.childNodes), groups = [], cur = null;
+      kids.forEach(function (n) {
+        if (n.nodeType === 1 && /^H[23]$/.test(n.tagName)) { cur = { head: n, nodes: [] }; groups.push(cur); }
+        else if (cur) cur.nodes.push(n);
+      });
+      groups.forEach(function (g) {
+        var ph = document.createComment('');
+        panel.insertBefore(ph, g.head);
+        panel.replaceChild(mk(g.head, g.nodes), ph);
+      });
+    };
+    ['autoPanel', 'speedPanel', 'updPanel'].forEach(function (id) { var p = document.getElementById(id); if (p) foldPanel(p); });
+    // 標題裡的按鈕（重新整理、清除）：按了只做那件事，不要順便收合／打開
+    view.addEventListener('click', function (e) {
+      var b = e.target.closest('details.sfold > summary button, details.sfold > summary input, details.sfold > summary select');
+      if (b) e.preventDefault();
+    });
+    // 全部展開／全部收合
+    var bar = document.createElement('div');
+    bar.className = 'panel noprint'; bar.style.cssText = 'padding:8px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+    bar.innerHTML = '<span class="muted small">按標題打開或收起</span><button type="button" class="btn ghost small" data-sfall="1">全部展開</button><button type="button" class="btn ghost small" data-sfall="0">全部收合</button>';
+    view.insertBefore(bar, view.firstChild);
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-sfall]'); if (!b) return;
+      var on = b.getAttribute('data-sfall') === '1';
+      Array.prototype.forEach.call(view.querySelectorAll('details.sfold, #csPanel, #ucPanel'), function (d) { d.open = on; });
+    });
+    // 程式要捲到、聚焦到收起來的地方（例如「設定官方帳號選單」）：自動打開
+    var openUp = function (el) { for (var p = el && el.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS' && !p.open) p.open = true; };
+    var sv = Element.prototype.scrollIntoView, fc = HTMLElement.prototype.focus;
+    Element.prototype.scrollIntoView = function () { if (view.contains(this)) openUp(this); return sv.apply(this, arguments); };
+    HTMLElement.prototype.focus = function () { if (view.contains(this)) openUp(this); return fc.apply(this, arguments); };
   })();
 })();
 </script>
