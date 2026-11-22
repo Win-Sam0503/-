@@ -254,7 +254,7 @@ function changePassword(token, oldPassword, newPassword) {
   if (newPassword === DEFAULT_PASSWORD) throw new Error('新密碼不能是預設密碼 ' + DEFAULT_PASSWORD + '。');
   if (newPassword === oldPassword) throw new Error('新密碼不能跟目前的密碼一樣。');
 
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
@@ -299,7 +299,7 @@ function lineLoginLink_(account, page) {
 /** 驗收系統的一次性登入碼：兩個網站是不同的程式，透過試算表「LINE登入碼」分頁交給驗收系統（10 分鐘、用一次） */
 function rcvLoginCode_(account) {
   const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
-  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const lock = scriptLock_(); lock.waitLock(20000);
   try {
     const sh = ensureSheet_('LINE登入碼', ['碼', '帳號', '系統', '期限']);
     const t = readTable_('LINE登入碼', ['碼', '期限']), now = Date.now();
@@ -371,7 +371,7 @@ function adminSetAdmin(token, account, on) {
   const me = auth_(token, true);
   account = clean_(account, 30);
   if (ADMIN_ACCOUNTS.indexOf(account) >= 0) throw new Error('「' + account + '」是內建的管理者，不能取消。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(sheet_(SHEET.accounts), ['管理者']);
@@ -486,6 +486,7 @@ function orderPrices_() {
 }
 
 function bootDirty_(name) {
+  tblCacheDrop_(name);
   if (DATA_VER_SHEETS_.indexOf(String(name)) >= 0) dataBump_();
   if (BOOT_SHEETS.indexOf(String(name)) < 0) return;
   try { CacheService.getScriptCache().remove(BOOT_CACHE_KEY); } catch (e) {}
@@ -571,7 +572,7 @@ function adminSavePrice(token, vendor, name, unit, price, spec) {
   const raw = String(price == null ? '' : price).replace(/[,，$＄\s]/g, ''), p = Number(raw);
   if (raw !== '' && !(p > 0 && p < 1000000)) throw new Error('單價請填大於 0 的數字。');
   const H = ['廠商', '食材名稱', '單位', '單價', '銷貨單品名', '更新日期', '驗收編號', '貨品編號', '換算'];
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_('單價表', H);
@@ -601,7 +602,7 @@ function adminSaveUnitConv(token, name, unit, q, unit2) {
   if (!name || !unit || !unit2) throw new Error('資料不完整。');
   const raw = String(q == null ? '' : q).trim(), n = Number(raw);
   if (raw !== '' && !(n > 0 && n < 100000)) throw new Error('請填大於 0 的數字。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(UNIT_CONV_SHEET, UNIT_CONV_HEADERS);
@@ -625,7 +626,7 @@ function adminSaveUnitConvs(token, list) {
   list = (list || []).map(function (x) { return { n: clean_(x && x.name, 40), u: clean_(x && x.unit, 10), q: Number(x && x.q), u2: clean_(x && x.unit2, 10) }; })
     .filter(function (x) { return x.n && x.u && x.u2 && x.q > 0 && x.q < 100000; });
   if (!list.length) throw new Error('沒有要存的換算（數字要大於 0）。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(UNIT_CONV_SHEET, UNIT_CONV_HEADERS);
@@ -703,7 +704,7 @@ function adminSaveClassSizes(token, list, deleted) {
     seen[k] = true;
     rows.push({ '班級': c, '課程': co, '人數': n, '備註': clean_(x.note, 50), '更新時間': new Date(), '更新人': admin });
   });
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(CLASS_SIZE_SHEET, CLASS_SIZE_HEADERS);
@@ -805,7 +806,7 @@ function adminQuickPurchase(token, date, rows) {
     return { id: it ? it.id : '', name: name, vendor: vendor, qty: Math.round(qty * 100) / 100, unit: unit, note: clean_(x.note, 40), addItem: !it && !!x.addItem };
   });
   const vg = readVendorGroups_(), contacts = readVendorContacts_(), now = new Date(), out = {};
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.purchase, PURCHASE_HEADERS);
@@ -843,7 +844,7 @@ function adminSaveVendorContact(token, vendor, f) {
   if (!v) throw new Error('沒有廠商名稱。');
   f = f || {};
   const set = { '傳真': clean_(f.fax, 30), '電話': clean_(f.phone, 30), '聯絡人': clean_(f.person, 30), '備註': clean_(f.note, 100) };
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(SHEET.contacts, CONTACT_HEADERS);
@@ -925,7 +926,7 @@ function adminSetItemsActive(token, ids, on) {
   auth_(token, true);
   ids = [].concat(ids || []).map(function (x) { return String(x || '').trim(); }).filter(Boolean).slice(0, 300);
   if (!ids.length) throw new Error('請選食材。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   try {
     ensureHeaders_(sheet_(SHEET.items), ['啟用']);
@@ -997,7 +998,7 @@ function adminSetItemUnits(token, changes) {
     us.forEach(function (u) { if (ok.indexOf(u) < 0) throw new Error('沒有「' + u + '」這個單位（先到單位管理新增）。'); });
     want[id] = us.join('、');
   });
-  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  const lock = scriptLock_(); lock.waitLock(30000);
   let n = 0;
   try {
     ensureHeaders_(sheet_(SHEET.items), ['可用單位']);
@@ -1120,7 +1121,7 @@ function submitOrder(token, payload) {
   const account = auth_(token);
   const o = validateOrder_(payload, account, isAdmin_(account));
 
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const orderNo = nextOrderNo_();
@@ -1141,7 +1142,7 @@ function updateOrder(token, orderNo, payload) {
   const account = auth_(token);
   const isAdmin = isAdmin_(account);
   orderNo = String(orderNo || '').trim();
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   let res, before;
   try {
@@ -1395,7 +1396,7 @@ function adminGetUnitMerge(token) {
 function adminSetUnitMerge(token, from, to, remove, fixOrders) {
   const admin = auth_(token, true);
   from = clean_(from, 10); to = clean_(to, 10);
-  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const lock = scriptLock_(); lock.waitLock(20000);
   const out = { orders: 0, templates: 0 };
   try {
     const m = Object.assign({}, unitMerge_());
@@ -1515,7 +1516,7 @@ function adminGetPendingUnits(token) {
 /** decision: 'approve'（type: '叫貨' 或 '配方'）或 'reject' */
 function adminReviewUnit(token, row, decision, type) {
   const admin = auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.units, ['單位', '狀態']);
@@ -1553,7 +1554,7 @@ function adminAddUnit(token, unit, type) {
   if (/[0-9０-９]/.test(u)) throw new Error('單位不能包含數字。');
   if (u.length > 4) throw new Error('單位最多 4 個字。');
   type = type === '配方' ? '配方' : '叫貨';
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     UNIT_CACHE_ = null;
@@ -1586,7 +1587,7 @@ function adminAddUnit(token, unit, type) {
 /** 管理者停用／恢復自訂單位（內建單位不能停用）。舊訂單不受影響。 */
 function adminSetUnitActive(token, row, active) {
   const admin = auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.units, ['單位', '狀態']);
@@ -1883,7 +1884,7 @@ function adminSaveCostMap(token, vendor, orderName, slipName) {
   const admin = auth_(token, true);
   vendor = clean_(vendor, 30); orderName = clean_(orderName, 40); slipName = clean_(slipName, 40);
   if (!orderName) throw new Error('資料不完整。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(COST_MAP_SHEET, COST_MAP_HEADERS);
@@ -1902,7 +1903,7 @@ function adminSaveCostMaps(token, list) {
   const admin = auth_(token, true);
   list = (list || []).map(function (x) { return { v: clean_(x && x.vendor, 30), o: clean_(x && x.order, 40), s: clean_(x && x.slip, 40) }; }).filter(function (x) { return x.o && x.s; });
   if (!list.length) throw new Error('沒有要存的對應。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(COST_MAP_SHEET, COST_MAP_HEADERS);
@@ -2023,7 +2024,7 @@ function adminEditSlipRows(token, edits) {
   edits = (edits || []).slice(0, 60);
   if (!edits.length) throw new Error('沒有要改的。');
   const numOrBlank = function (v) { const s = String(v === undefined || v === null ? '' : v).replace(/[,，\s]/g, ''); if (s === '') return ''; const n = Number(s); if (isNaN(n) || n < 0) throw new Error('「' + v + '」不是數字。'); return Math.round(n * 10000) / 10000; };
-  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const lock = scriptLock_(); lock.waitLock(20000);
   const done = [], ids = {}, logs = [];
   try {
     memoClear_();
@@ -2300,7 +2301,7 @@ function adminSetIssueDone(token, id, on) {
   const who = auth_(token, true);
   id = String(id || '').slice(0, 200);
   if (!id) throw new Error('缺少事件。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(ensureSheet_(SHEET.issuesDone, ISSUE_DONE_HEADERS), ISSUE_DONE_HEADERS);
@@ -2346,7 +2347,7 @@ function deleteMyOrder(token, orderNo) {
     cancelOrderChecked_(account, false, orderNo);   // 已過截止會擋下來
     try { logOrderEdit_(orderNo, account, ['老師刪除訂單']); } catch (e) { console.error(e.message); }
   }
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(ensureSheet_(SHEET.hidden, HIDDEN_HEADERS), HIDDEN_HEADERS);
@@ -2366,7 +2367,7 @@ function deleteMyCancelled(token) {
   });
   const nos = groupOrders_(rows, account).filter(function (o) { return o.status === '已取消' && !hidden[o.orderNo]; }).map(function (o) { return o.orderNo; });
   if (!nos.length) return { count: 0 };
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(ensureSheet_(SHEET.hidden, HIDDEN_HEADERS), HIDDEN_HEADERS);
@@ -2519,7 +2520,7 @@ function adminSetItemFlag(token, orderNo, item, on, note) {
   const who = auth_(token, true);
   orderNo = clean_(orderNo, 30); item = clean_(item, 40); note = clean_(note, 200);
   if (!orderNo || !item) throw new Error('缺少訂單編號或食材。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(ensureSheet_(SHEET.flags, FLAG_HEADERS), FLAG_HEADERS);
@@ -2541,7 +2542,7 @@ function adminSetFlag(token, orderNo, note, resolve) {
   if (!orderNo) throw new Error('缺少訂單編號。');
   note = clean_(note, 200);
   if (!resolve && !note) throw new Error('請寫異常說明，例如：數量看起來不對、要問老師。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.flags, FLAG_HEADERS);
@@ -2584,7 +2585,7 @@ function adminMarkPrinted(token, orderNos) {
   if (!nos.length) return {};
   if (nos.length > 500) throw new Error('一次最多記錄 500 張。');
   const now = new Date();
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.prints, PRINT_HEADERS);
@@ -2734,7 +2735,7 @@ function adminApproveMany(token, orderNos) {
   const admin = auth_(token, true);
   const want = {};
   (orderNos || []).slice(0, 300).forEach(function (no) { want[String(no).trim()] = true; });
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.orders, ['訂單編號', '狀態']);
@@ -2845,7 +2846,7 @@ function adminSavePurchase(token, from, to, vendor, rows, confirm, quiet) {
     };
   });
 
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   let changedOrders = 0;
   try {
@@ -3003,7 +3004,7 @@ function adminUpdateOrder(token, orderNo, changes, info, reason, notify) {
   const infoSet = orderInfoSet_(info);
   if (!changes.length && !infoSet) throw new Error('沒有要修改的內容。');
   let changesDone = [];
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.orders, ['訂單編號', '數量', '單位', '狀態']);
@@ -3211,7 +3212,7 @@ function createItem_(it, dupMessage) {
 function adminAddItem(token, item) {
   auth_(token, true);
   item = item || {};
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const id = createItem_(item);
@@ -3230,7 +3231,7 @@ function adminAddItem(token, item) {
 function adminReviewItem(token, row, decision, edits, name) {
   auth_(token, true);
   edits = edits || {};
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const pend = readTable_(SHEET.pending, ['食材名稱', '審核狀態']);
@@ -3322,7 +3323,7 @@ function adminSetDryGoods(token, base, changes) {
   const sp = VENDOR_SPLIT[base];
   if (!sp) throw new Error('「' + base + '」沒有分科。');
   const to = { both: base, baking: sp.baking, other: sp.other };
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']);
@@ -3395,7 +3396,7 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
   const vendorGroups = readVendorGroups_();
   let lines = 0, id = '';
   const moved = [];
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.orders, ['訂單編號', '食材名稱', '廠商']);
@@ -3435,7 +3436,7 @@ function adminSetItemVendors(token, changes) {
     want[id] = v;
   });
   const vendorGroups = readVendorGroups_();
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   try {
     // 整欄讀、整欄寫（一格一格寫幾百格太慢）
@@ -3480,7 +3481,7 @@ function adminSetItemVendors(token, changes) {
 /** 食材總表的廠商改成 vendor（訂單上的廠商名稱，例如 E烘焙乾貨、A菜商），還沒叫貨的訂單（今天以後、待處理或已審核）也跟著改。回傳改了的訂單品項 [{ orderNo, vendor, group }] */
 function setItemVendor_(id, vendor) {
   const vendorGroups = readVendorGroups_();
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.items, ['食材ID', '食材名稱', '廠商']);
@@ -3538,7 +3539,7 @@ function adminSetDeptSub(token, dept, from, to, note) {
   if (learnKey_(from) === learnKey_(to)) throw new Error('「食材」和「換成」不能一樣。');
   const ok = cachedItems_().some(function (it) { return it.name === to; });
   if (!ok) throw new Error('食材總表沒有「' + to + '」（或已停用），請用正式名稱。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.subs, SUB_HEADERS);
@@ -3554,7 +3555,7 @@ function adminSetDeptSub(token, dept, from, to, note) {
 
 function adminDeleteDeptSub(token, row) {
   auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ss_().getSheetByName(SHEET.subs);
@@ -3599,7 +3600,7 @@ function adminAddPickup(token, rec) {
   if (!name) throw new Error('請填食材。');
   const qty = Number(rec.qty);
   if (!(qty > 0)) throw new Error('數量要大於 0。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.pickups, PICKUP_HEADERS);
@@ -3614,7 +3615,7 @@ function adminAddPickup(token, rec) {
 
 function adminDeletePickup(token, row) {
   auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ss_().getSheetByName(SHEET.pickups);
@@ -3635,7 +3636,7 @@ function adminRenameItem(token, id, newName) {
   auth_(token, true);
   id = String(id || '').trim(); newName = clean_(newName, 40);
   if (!newName) throw new Error('請填新名稱。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   let res;
   try {
@@ -3662,7 +3663,7 @@ function adminMergeItem(token, fromId, toId) {
   auth_(token, true);
   fromId = String(fromId || '').trim(); toId = String(toId || '').trim();
   if (!fromId || !toId || fromId === toId) throw new Error('請選兩項不同的食材。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   let res;
   try {
@@ -3800,7 +3801,7 @@ function adminGetAliases(token) {
 function adminAddAliases(token, name, text) {
   auth_(token, true);
   name = clean_(name, 40);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   const out = { added: [], skipped: [], shared: [] };
   try {
@@ -3832,7 +3833,7 @@ function adminAddAliases(token, name, text) {
 /** 管理者：刪掉一個學錯的叫法 */
 function adminRemoveAlias(token, id, alias) {
   auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.items, ['食材ID', '食材名稱']);
@@ -3957,7 +3958,7 @@ function saveTemplate(token, t) {
       '備註': clean_(it.note, 100), '段落': clean_(it.section, 20), '不叫貨': it.noOrder ? true : '', '建立時間': now,
     };
   });
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     templateSheet_();
@@ -3973,7 +3974,7 @@ function saveTemplate(token, t) {
 function deleteTemplate(token, name) {
   const account = auth_(token);
   name = clean_(name, 30);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     templateSheet_();
@@ -4588,7 +4589,7 @@ function adminRunUpdate(token, branch, sha, code) {
   branch = clean_(branch, 100) || UPDATE_DEFAULT_BRANCH;
   if (!/^[0-9a-f]{40}$/.test(String(sha || ''))) throw new Error('版本不正確，請重新整理。');
   verifyUpdateCode_('update', sha, code, who);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   if (!lock.tryLock(5000)) throw new Error('有人正在更新，請稍等一下再試。');
   const short = sha.slice(0, 7);
   try {
@@ -4652,7 +4653,7 @@ function adminReceiveSite(token, branch, sha, code) {
   branch = clean_(branch, 100) || UPDATE_DEFAULT_BRANCH;
   if (!/^[0-9a-f]{40}$/.test(String(sha || ''))) throw new Error('版本不正確，請重新整理。');
   verifyUpdateCode_('receive', sha, code, who);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   if (!lock.tryLock(5000)) throw new Error('有人正在更新，請稍等一下再試。');
   const p = PropertiesService.getScriptProperties(), short = sha.slice(0, 7);
   try {
@@ -4694,7 +4695,7 @@ function adminRollbackUpdate(token, code) {
   const st = updateState_();
   if (!st.prevVersion) throw new Error('沒有可以還原的上一版。');
   verifyUpdateCode_('rollback', '', code, who);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   if (!lock.tryLock(5000)) throw new Error('有人正在更新，請稍等一下再試。');
   try {
     const old = gas_('get', '/content?versionNumber=' + st.prevVersion);
@@ -4801,7 +4802,7 @@ const PENDING_ARCHIVE_NAME = '待審核食材紀錄';
 function archivePendingReviews_() {
   const sh = ss_().getSheetByName(SHEET.pending);
   if (!sh || sh.getLastRow() < 2) return null;
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   try {
     const t = readTable_(SHEET.pending, ['食材名稱', '審核狀態']);
@@ -4856,7 +4857,7 @@ function exportHistoryMonths_() {
   const sh = ss_().getSheetByName(SHEET.history);
   if (!sh || sh.getLastRow() < 2) return out;
 
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   try {
     const t = readTable_(SHEET.history, ['訂單編號', '使用日期']);
@@ -4988,7 +4989,7 @@ function backupSpreadsheet_() {
 /** 上課日期早於 (今天 − ARCHIVE_AFTER_DAYS) 的訂單整張搬到「歷史訂單」分頁。 */
 function archiveOldOrders_() {
   const before = addDays_(today_(), -ARCHIVE_AFTER_DAYS);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   try {
     const t = readTable_(SHEET.orders, ['訂單編號', '使用日期']);
@@ -5276,6 +5277,7 @@ function scheduleKind_(v) {
 /** 分頁缺少的標題補在最右邊（舊版建立的分頁也能存新欄位） */
 function ensureHeaders_(sh, headers) {
   memoClear_();
+  try { tblCacheDrop_(sh.getName()); } catch (e) {}
   const lastCol = Math.max(sh.getLastColumn(), 1);
   const have = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
   const missing = headers.filter(function (h) { return have.indexOf(h) < 0; });
@@ -5347,7 +5349,7 @@ function adminSaveAudit(token, a) {
       });
     });
   });
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(ensureSheet_(SHEET.audits, AUDIT_HEADERS), AUDIT_HEADERS);
@@ -5506,7 +5508,7 @@ function crewSetPlace(token, orderNo, place, photo) {
     }
   }
   const d = toDate_(r['使用日期']);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(ensureSheet_(SHEET.places, PLACE_HEADERS), PLACE_HEADERS);
@@ -5552,7 +5554,7 @@ function adminRevealPasswords(token, myPassword) {
  */
 function adminSetTeacher(token, account, action) {
   const me = auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   const out = { added: [], existed: [] };
   try {
@@ -5617,7 +5619,7 @@ function adminSetCrew(token, account, action) {
   auth_(token, true);
   account = clean_(account, 30);
   if (!account) throw new Error('請輸入校隊的名字。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(sheet_(SHEET.accounts), ['校隊']);
@@ -5726,7 +5728,7 @@ function adminAddHoliday(token, from, to, name, cancel) {
   const n = clean_(name, 30);
   if (!n) throw new Error('請填寫放假名稱，例如：國慶日、校慶補假。');
   let canceled = 0;
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.holidays, HOLIDAY_HEADERS);
@@ -5755,7 +5757,7 @@ function adminAddHoliday(token, from, to, name, cancel) {
 /** 管理者：刪除放假日（expect 是畫面上看到的開始日期，避免刪錯列） */
 function adminDeleteHoliday(token, row, expectFrom) {
   auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ss_().getSheetByName(SHEET.holidays);
@@ -5921,7 +5923,7 @@ function fixOrderLesson(token, orderNo, lesson, as) {
   const mon = addDays_(d, -((d.getDay() + 6) % 7));
   const L = lessonsBetween_(d, d, account).filter(function (x) { return x.session === session && String(x.className || '') === String(lesson.className || '') && String(x.room || '') === String(lesson.room || ''); })[0];
   if (!L) throw new Error('課表上找不到這堂課，請重新整理。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   let before, changes = [];
   try {
@@ -5966,7 +5968,7 @@ function setNoOrder(token, date, session, course, skip, as, reason) {
   reason = clean_(reason, 80);
   const d = parseDate_(date);
   if (!d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(SHEET.skips, SKIP_HEADERS);
@@ -6006,7 +6008,7 @@ function addMyLesson(token, l, as) {
     if (!date) throw new Error('請選擇日期。');
     if (date.getDay() === 0 || date.getDay() === 6) throw new Error('日期是週末，廠商不送貨，請改選平日。');
   }
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureSheet_(SHEET.myLessons, MY_LESSON_HEADERS);
@@ -6023,7 +6025,7 @@ function addMyLesson(token, l, as) {
 
 function deleteMyLesson(token, row, as) {
   const account = lessonAccount_(token, as);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.myLessons, ['老師']);
@@ -6085,7 +6087,7 @@ function adminImportGuoji(token, rows) {
   });
   const classes = {};
   clean.forEach(function (r) { classes[r['班級']] = true; });
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(30000);
   let removed = 0;
   try {
@@ -6110,7 +6112,7 @@ function adminImportGuoji(token, rows) {
 /** 管理者：某一週的國技課換老師、取消或恢復。action: 'teacher' | 'cancel' | 'restore' */
 function adminUpdateGuoji(token, row, expect, action, teacherName, as) {
   const admin = auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.guoji, ['日期', '班級', '老師']);
@@ -6229,7 +6231,7 @@ function scheduleFields_(f) {
  */
 function adminUpdateSchedule(token, row, expect, action, fields, as) {
   const admin = auth_(token, true);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(sheet_(SHEET.schedule), SCHEDULE_HEADERS);
@@ -6353,7 +6355,7 @@ function adminSetLessonMark(token, teacher, date, session, course, mark, note, w
   const t0 = clean_(teacher, 30), d = parseDate_(date);
   if (!t0 || !d || SESSIONS.indexOf(session) < 0) throw new Error('資料不正確，請重新整理。');
   if (['auto', 'ordered', 'skipped'].indexOf(mark) < 0) throw new Error('狀態不正確。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(SHEET.skips, SKIP_HEADERS);
@@ -6383,7 +6385,7 @@ function adminSetLessonMark(token, teacher, date, session, course, mark, note, w
 function adminGridSchedule(token, row, expect, fields, weekOf) {
   const admin = auth_(token, true);
   const set = scheduleFields_(fields);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     ensureHeaders_(sheet_(SHEET.schedule), SCHEDULE_HEADERS);
@@ -6429,7 +6431,7 @@ function adminAddSchedule(token, fields, as) {
 
 function addScheduleRow_(fields) {
   const set = scheduleFields_(fields);
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_(SHEET.schedule, SCHEDULE_HEADERS);
@@ -6741,7 +6743,7 @@ function crewNewCode_(list) {
 }
 function lineCrewBind_(code, src) {
   if (!src || src.type !== 'user' || !src.userId) return '請用個人聊天室（不是群組）傳「校隊 綁定碼」。';
-  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const lock = scriptLock_(); lock.waitLock(20000);
   try {
     const list = crewRoster_(), now = Date.now();
     const r = list.find(function (x) { return x.code && x.code === code; });
@@ -6818,7 +6820,7 @@ function adminCrewRoster(token) {
 function adminCrewRosterEdit(token, action, id, team, names) {
   auth_(token, true);
   if (CREW_TEAMS.indexOf(String(team || '')) < 0) team = '';
-  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  const lock = scriptLock_(); lock.waitLock(20000);
   try {
     const list = crewRoster_(), until = Date.now() + CREW_CODE_DAYS * 86400000, props = PropertiesService.getScriptProperties();
     const unlink = function (uid) {
@@ -7542,7 +7544,7 @@ function groupOrders_(rows, account) {
 function updateOrderStatus_(orderNo, status, check, reviewer) {
   orderNo = String(orderNo || '').trim();
   if (!orderNo) throw new Error('缺少訂單編號。');
-  const lock = LockService.getScriptLock();
+  const lock = scriptLock_();
   lock.waitLock(20000);
   try {
     const t = readTable_(SHEET.orders, ['訂單編號', '狀態']);
@@ -7614,7 +7616,8 @@ function fastReads_() { TABLE_MEMO_ON_ = true; }
 function readTable_(name, required) {
   const sh = sheet_(name);
   // 一次讀完（以前是先問最後一列、最後一欄再讀，要連 Google 三次）
-  const values = (TABLE_MEMO_ON_ && TABLE_RAW_[name]) || retry_(function () { return sh.getDataRange().getValues(); });
+  let values = (TABLE_MEMO_ON_ && TABLE_RAW_[name]) || tblCacheGet_(name);
+  if (!values) { values = retry_(function () { return sh.getDataRange().getValues(); }); tblCachePut_(name, values); }
   if (TABLE_MEMO_ON_) TABLE_RAW_[name] = values;
   const cols = {};
   values[0].forEach(function (h, i) {
@@ -8110,4 +8113,48 @@ function deductNotes_(orders) {
     else if (!x.mixed && x.unit === x.nu && x.qty < x.need) out[k] = '扣貨扣掉 ' + f(x.need - x.qty) + ' ' + x.nu + '，只叫 ' + f(x.qty) + ' ' + x.unit;
   });
   return out;
+}
+
+
+// ---- ⚡ 少讀試算表：很少改的分頁（課表、單位換算…）讀過就放在 Google 暫存 5 分鐘，下一次直接拿（快 0.2～1 秒／分頁） ----
+// 系統自己寫這些分頁時馬上丟掉暫存（bootDirty_）；這次執行有拿鎖（要存東西）就一律直接讀試算表，免得照舊的列號寫錯列。
+// 直接在試算表手動改的，最慢 5 分鐘後生效；急的話系統設定按「🔄 重新讀取試算表」。
+const TBL_CACHE_SHEETS_ = ['課表', '老師課表', '國技排班', '放假日', '不用訂貨', '單位換算', '成本對應', '科別替換', '班級人數', '廠商設定', '廠商聯絡', '單位', '範本', '修改紀錄', '老師刪除', '放置位置'];
+const TBL_CACHE_SEC_ = 300, TBL_CHUNK_ = 90000;
+var TBL_NO_CACHE_ = false;
+function scriptLock_() { TBL_NO_CACHE_ = true; return LockService.getScriptLock(); }
+function tblCacheOk_(name) { return !TBL_NO_CACHE_ && TBL_CACHE_SHEETS_.indexOf(String(name)) >= 0; }
+function tblCacheGet_(name) {
+  if (!tblCacheOk_(name)) return null;
+  try {
+    const c = CacheService.getScriptCache(), n = Number(c.get('tbl:' + name + ':n'));
+    if (!(n > 0)) return null;
+    const keys = []; for (let i = 0; i < n; i++) keys.push('tbl:' + name + ':' + i);
+    const got = c.getAll(keys); let s = '';
+    for (let i = 0; i < n; i++) { if (got[keys[i]] == null) return null; s += got[keys[i]]; }
+    return JSON.parse(s, function (k, v) { return v && typeof v === 'object' && v.__d !== undefined && Object.keys(v).length === 1 ? new Date(v.__d) : v; });
+  } catch (e) { return null; }
+}
+function tblCachePut_(name, values) {
+  if (!tblCacheOk_(name)) return;
+  try {
+    const s = JSON.stringify(values, function (k, v) { const raw = this[k]; return raw instanceof Date ? { __d: raw.getTime() } : v; });
+    if (s.length > TBL_CHUNK_ * 40) return;   // 太大就不放
+    const parts = {}; let n = 0;
+    for (let i = 0; i < s.length; i += TBL_CHUNK_) parts['tbl:' + name + ':' + (n++)] = s.slice(i, i + TBL_CHUNK_);
+    const c = CacheService.getScriptCache();
+    c.putAll(parts, TBL_CACHE_SEC_);
+    c.put('tbl:' + name + ':n', String(n), TBL_CACHE_SEC_);
+  } catch (e) {}
+}
+function tblCacheDrop_(name) {
+  if (TBL_CACHE_SHEETS_.indexOf(String(name)) < 0) return;
+  try { CacheService.getScriptCache().remove('tbl:' + name + ':n'); } catch (e) {}
+}
+/** 管理者：直接在試算表改了課表、單位換算…，按這個讓網站馬上讀新的 */
+function adminClearSheetCache(token) {
+  auth_(token, true);
+  const c = CacheService.getScriptCache();
+  c.removeAll(TBL_CACHE_SHEETS_.map(function (n) { return 'tbl:' + n + ':n'; }).concat([BOOT_CACHE_KEY]));
+  return TBL_CACHE_SHEETS_.length;
 }

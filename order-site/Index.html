@@ -11468,9 +11468,15 @@
     // 全部展開／全部收合
     var bar = document.createElement('div');
     bar.className = 'panel noprint'; bar.style.cssText = 'padding:8px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
-    bar.innerHTML = '<span class="muted small">按標題打開或收起</span><button type="button" class="btn ghost small" data-sfall="1">全部展開</button><button type="button" class="btn ghost small" data-sfall="0">全部收合</button>';
+    bar.innerHTML = '<span class="muted small">按標題打開或收起</span><button type="button" class="btn ghost small" data-sfall="1">全部展開</button><button type="button" class="btn ghost small" data-sfall="0">全部收合</button>' +
+      '<span style="flex:1"></span><button type="button" class="btn ghost small" id="sfCache" title="直接在試算表改了課表、單位換算、放假日…，網站最慢 5 分鐘才會讀到；按這個馬上讀新的">🔄 重新讀取試算表</button>';
     view.insertBefore(bar, view.firstChild);
     bar.addEventListener('click', function (e) {
+      if (e.target.id === 'sfCache') {
+        var cb = e.target; setBusy(cb, true, '…');
+        call('adminClearSheetCache', token).then(function () { setBusy(cb, false); toast('好了，網站會重新讀試算表（課表、單位換算、放假日…）。'); }).catch(function (er) { setBusy(cb, false); notice(er.message); });
+        return;
+      }
       var b = e.target.closest('[data-sfall]'); if (!b) return;
       var on = b.getAttribute('data-sfall') === '1';
       Array.prototype.forEach.call(view.querySelectorAll('details.sfold, #csPanel, #ucPanel'), function (d) { d.open = on; });
