@@ -6995,12 +6995,12 @@ function lineSetupAdminMenu_(png) {
   const auth = { Authorization: 'Bearer ' + lineToken };
   const w = 2500, h = 1686, cw = Math.floor(w / 3), rh = h / 2;
   const areas = [
-    { action: { type: 'message', label: '補訂貨', text: '補訂貨' } },
-    { action: { type: 'message', label: '訂貨系統', text: '訂貨系統' } },
-    { action: { type: 'message', label: '驗收系統', text: '驗收系統' } },
-    { action: { type: 'message', label: '查看課表', text: '課表' } },
-    { action: { type: 'message', label: '查看料單', text: '料單' } },
-    { action: { type: 'message', label: '查看叫貨單', text: '叫貨單' } },
+    { action: { type: 'message', label: '還沒叫料的老師', text: '還沒叫料' } },
+    { action: { type: 'message', label: '下週訂貨進度', text: '訂貨進度' } },
+    { action: { type: 'message', label: '驗證碼', text: '驗證碼' } },
+    { action: { type: 'message', label: '訂貨網', text: '訂貨系統' } },
+    { action: { type: 'message', label: '驗收網', text: '驗收系統' } },
+    { action: { type: 'message', label: '快速補訂貨', text: '補訂貨' } },
   ].map(function (a, i) { const c = i % 3, r = Math.floor(i / 3); a.bounds = { x: c * cw, y: r * rh, width: c === 2 ? w - 2 * cw : cw, height: rh }; return a; });
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/richmenu', { method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: auth,
     payload: JSON.stringify({ size: { width: w, height: h }, selected: true, name: '訂貨系統管理者選單', chatBarText: '管理者選單', areas: areas }) });
@@ -7098,6 +7098,8 @@ function lineTeacherMsgs_(q) {
 }
 function lineAdminReply_(text, userId) {
   const t = String(text || '').trim();
+  if (/^(❗\s*)?(還沒叫料|未叫料|還沒訂貨|沒叫料的老師|還沒叫料的老師)(\s*下下週)?$/.test(t) && isAdmin_(lineAccountOf_(userId))) return lineTodoTeachersMsgs_(/下下週/.test(t));
+  if (/^(📊\s*)?(下週)?訂貨進度(\s*下下週)?$/.test(t) && isAdmin_(lineAccountOf_(userId))) return lineWeekProgressMsgs_(/下下週/.test(t));
   const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單|叫貨單)\s*(.{0,20})$/);
   const help = /^管理者說明$/.test(t), go = /^(補訂貨|訂貨系統)$/.test(t);
   if (t === '驗收系統' && isAdmin_(lineAccountOf_(userId))) {
@@ -8158,4 +8160,77 @@ function adminClearSheetCache(token) {
   // 連食材總表、自備食材、管理者名單、教學影片清單一起清（登入狀態不動，不會把大家登出）
   c.removeAll(TBL_CACHE_SHEETS_.map(function (n) { return 'tbl:' + n + ':n'; }).concat([BOOT_CACHE_KEY, 'items:n', 'selfIds', 'extraAdmins', 'helpVideos']));
   return TBL_CACHE_SHEETS_.length;
+}
+
+
+// ---- 管理者 LINE：❗ 還沒叫料的老師、📊 下週訂貨進度（「下週」＝老師現在正在訂的那一週；回覆不算則數） ----
+function adminOrderWeek_(later) {
+  const first = earliestClassDate_(new Date());
+  const mon = addDays_(first, -((first.getDay() + 6) % 7) + (later ? 7 : 0));
+  return { mon: mon, fri: addDays_(mon, 4), from: later ? addDays_(first, -((first.getDay() + 6) % 7) + 7) : first };
+}
+function lineTodoTeachersMsgs_(later) {
+  const w = adminOrderWeek_(later);
+  const ls = lessonsWithStatus_(w.from, w.fri, null).filter(function (x) { return x.status === 'todo'; });
+  const title = (later ? '下下週' : '下週') + ' ' + shortDateTw_(w.from) + '～' + shortDateTw_(w.fri);
+  const dl = currentDeadline_(new Date()), dlText = '截止：' + shortDateTw_(dl > new Date() ? dl : addDays_(dl, 7)) + ' ' + lockTime_();
+  const qr = { items: [['下下週', '還沒叫料 下下週'], ['下週', '還沒叫料'], ['📊 訂貨進度', '訂貨進度']].map(function (a) { return { type: 'action', action: { type: 'message', label: a[0], text: a[1] } }; }) };
+  if (!ls.length) return [Object.assign({ type: 'text', text: '👍 ' + title + ' 的課都叫料了（或標了不用訂貨）。\n' + dlText }, { quickReply: qr })];
+  const by = {};
+  ls.forEach(function (x) { (by[x.teacher] = by[x.teacher] || []).push(x); });
+  const SO = { '上午': 1, '下午': 2, '晚上': 3 };
+  const names = Object.keys(by).sort(function (a, b) { return by[b].length - by[a].length || a.localeCompare(b, 'zh-Hant'); });
+  const rows = [];
+  names.forEach(function (n, i) {
+    if (i) rows.push({ type: 'separator' });
+    rows.push(fxT_(n + '（' + by[n].length + ' 堂）', { size: 'sm', weight: 'bold', color: FX_BAD }));
+    by[n].sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (SO[a.session] || 9) - (SO[b.session] || 9); }).slice(0, 8).forEach(function (x) {
+      rows.push(fxT_('・' + shortDateTw_(parseDate_(x.date)) + x.session + ' ' + (x.course || '') + (x.className ? ' ' + x.className : ''), { size: 'xs', color: '#333333' }));
+    });
+    if (by[n].length > 8) rows.push(fxT_('…還有 ' + (by[n].length - 8) + ' 堂', { size: 'xs', color: FX_MUTED }));
+  });
+  if (rows.length > 70) { rows.length = 70; rows.push(fxT_('…太多了，其他請到網站「總課表」看。', { size: 'xs', color: FX_MUTED })); }
+  return [Object.assign(fxFlexMsg_('還沒叫料：' + names.length + ' 位老師、' + ls.length + ' 堂', [fxB_('❗ 還沒叫料的老師', title + '・' + names.length + ' 位、' + ls.length + ' 堂\n' + dlText, rows)]), { quickReply: qr })];
+}
+function lineWeekProgressMsgs_(later) {
+  const w = adminOrderWeek_(later);
+  const ls = lessonsWithStatus_(w.from, w.fri, null);
+  const cnt = { ordered: 0, skipped: 0, todo: 0, holiday: 0 };
+  ls.forEach(function (x) { cnt[x.status] = (cnt[x.status] || 0) + 1; });
+  const need = ls.length - cnt.holiday, done = cnt.ordered + cnt.skipped, pct = need ? Math.round(done / need * 100) : 100;
+  // 那週的訂單：待處理（還沒審核）幾張
+  const orders = ordersBetween_(w.mon, w.fri).filter(function (o) { return o.status !== '已取消'; });
+  const waiting = orders.filter(function (o) { return o.status === '待處理'; }).length;
+  let pend = 0;
+  try { readTable_(SHEET.pending, ['食材名稱']).rows.forEach(function (r) { const st = String(r['審核狀態'] || '').trim(); if (!st || st === '待審核') pend++; }); } catch (e) {}
+  // 叫貨：哪幾家確定了、哪幾家還是草稿
+  const vs = {};
+  try {
+    const sh = ss_().getSheetByName(SHEET.purchase);
+    if (sh && sh.getLastRow() > 1) readTable_(SHEET.purchase, ['送貨日期', '廠商']).rows.forEach(function (r) {
+      const d = toDate_(r['送貨日期']); if (!d || d < addDays_(w.mon, -4) || d > w.fri) return;
+      const v = String(r['廠商'] || '').trim(); if (!v) return;
+      if (String(r['狀態'] || '').trim() === '草稿') vs[v] = vs[v] || '草稿'; else vs[v] = '確定';
+    });
+  } catch (e) {}
+  const conf = Object.keys(vs).filter(function (v) { return vs[v] === '確定'; }), draft = Object.keys(vs).filter(function (v) { return vs[v] === '草稿'; });
+  const dl = currentDeadline_(new Date()), dlDate = dl > new Date() ? dl : addDays_(dl, 7);
+  const bar = function (p) { const n = Math.round(p / 10); return '▓'.repeat(n) + '░'.repeat(10 - n); };
+  const line = function (a, b, color) { return { type: 'box', layout: 'horizontal', contents: [fxT_(a, { size: 'sm', flex: 6 }), fxT_(b, { size: 'sm', flex: 4, align: 'end', weight: 'bold', color: color || '#111111' })] }; };
+  const rows = [
+    fxT_(bar(pct) + '  ' + pct + '%', { size: 'md', weight: 'bold', color: pct >= 100 ? FX_OK : FX_BRAND }),
+    line('要上課', need + ' 堂'),
+    line('✅ 已叫料', cnt.ordered + ' 堂', FX_OK),
+    line('➖ 不用訂貨', cnt.skipped + ' 堂', FX_MUTED),
+    line('❗ 還沒叫料', cnt.todo + ' 堂', cnt.todo ? FX_BAD : FX_OK),
+  ].concat(cnt.holiday ? [line('📅 放假', cnt.holiday + ' 堂', FX_MUTED)] : []).concat([
+    { type: 'separator' },
+    line('⏳ 待處理訂單（還沒審核）', waiting + ' 張', waiting ? '#b54708' : FX_OK),
+    line('🆕 待審核食材', pend + ' 樣', pend ? '#b54708' : FX_OK),
+    { type: 'separator' },
+    fxT_('🚚 叫貨：' + (conf.length ? '已確定 ' + conf.join('、') : '還沒確定任何一家') + (draft.length ? '\n📝 草稿：' + draft.join('、') : ''), { size: 'xs', color: '#333333' }),
+    fxT_('截止：' + shortDateTw_(dlDate) + ' ' + lockTime_(), { size: 'xs', color: FX_MUTED }),
+  ]);
+  const qr = { items: [['❗ 還沒叫料', later ? '還沒叫料 下下週' : '還沒叫料'], [later ? '下週' : '下下週', later ? '訂貨進度' : '訂貨進度 下下週']].map(function (a) { return { type: 'action', action: { type: 'message', label: a[0], text: a[1] } }; }) };
+  return [Object.assign(fxFlexMsg_('訂貨進度 ' + pct + '%', [fxB_('📊 ' + (later ? '下下週' : '下週') + '訂貨進度', shortDateTw_(w.from) + '～' + shortDateTw_(w.fri), rows)]), { quickReply: qr })];
 }
