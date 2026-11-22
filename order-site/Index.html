@@ -167,6 +167,31 @@
   .ordbtns + .ordbtns { margin-top: 6px; }
   .ordbtns .ob-name { font-size: 13px; color: var(--muted); max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px; }
   .ordbtns .btn { white-space: nowrap; } .ordbtns .ob-gap { visibility: hidden; }
+  /* ---- 動畫（都很短；系統設定「減少動態效果」的人自動關掉） ---- */
+  @keyframes popIn { 0% { opacity: 0; transform: scale(.94) translateY(8px); } 100% { opacity: 1; transform: none; } }
+  @keyframes ckCircle { to { stroke-dashoffset: 0; } }
+  @keyframes ckMark { to { stroke-dashoffset: 0; } }
+  @keyframes ckPulse { 0% { transform: scale(1); } 50% { transform: scale(1.08); } 100% { transform: scale(1); } }
+  @keyframes stripes { from { background-position: 0 0; } to { background-position: 28px 0; } }
+  @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+  @keyframes rowFlash { 0% { background: #fff4c2; box-shadow: 0 0 0 2px #f5c242 inset; } 100% { background: transparent; box-shadow: none; } }
+  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.35); color: var(--brand); } 100% { transform: scale(1); } }
+  #viewDone:not(.hidden) .panel.success { animation: popIn .35s ease-out both; }
+  .ck-anim { width: 76px; height: 76px; display: block; margin: 0 auto 4px; }
+  .ck-anim circle { fill: none; stroke: var(--ok); stroke-width: 5; stroke-dasharray: 220; stroke-dashoffset: 220; animation: ckCircle .5s ease-out .05s forwards; }
+  .ck-anim path { fill: none; stroke: var(--ok); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: ckMark .35s ease-out .5s forwards; }
+  .ck-anim { animation: ckPulse .35s ease-in-out .85s; }
+  .send-bar { height: 100%; transition: width .9s linear; background-color: var(--brand, #8a2b1a);
+    background-image: linear-gradient(45deg, rgba(255,255,255,.22) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.22) 50%, rgba(255,255,255,.22) 75%, transparent 75%);
+    background-size: 28px 28px; animation: stripes .8s linear infinite; }
+  .skel { border-radius: 10px; margin: 10px 0; padding: 14px 16px; background: var(--card, #fff); border: 1px solid var(--line); }
+  .skel i { display: block; height: 12px; border-radius: 6px; margin: 8px 0; background: linear-gradient(90deg, #eef0f3 0, #f8f9fb 40%, #eef0f3 80%); background-size: 800px 100%; animation: shimmer 1.2s linear infinite; }
+  .cart-row.flash { animation: rowFlash 1.1s ease-out; }
+  .bump { display: inline-block; animation: bump .45s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    #viewDone .panel.success, .ck-anim, .send-bar, .skel i, .cart-row.flash, .bump { animation: none !important; }
+    .ck-anim circle, .ck-anim path { animation: none !important; stroke-dashoffset: 0; }
+  }
   /* 系統設定：每一區可以收合（預設收起來） */
   details.sfold { border-top: 1px solid var(--line); padding: 2px 0; }
   details.sfold:first-of-type { border-top: 0; }
@@ -855,12 +880,13 @@
     <!-- 送出成功 -->
     <section id="viewDone" class="hidden">
       <div class="panel success">
-        <div style="font-size:40px;color:var(--ok)">✓</div>
+        <svg class="ck-anim" viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="34"/><path d="M24 41 l11 11 l22 -24"/></svg>
         <h2 style="justify-content:center">訂單已送出</h2>
         <div class="muted">訂單編號</div>
         <div class="no" id="doneNo"></div>
         <div id="doneWhen" style="font-weight:700;margin:4px 0 8px"></div>
         <div id="doneInfo" class="muted"></div>
+        <div id="doneLine"></div>
         <div class="small" style="margin-top:10px;padding:8px 10px;border:1px dashed var(--ok);border-radius:8px;background:#f0fdf4">📸 這個畫面就是<b>送出收據</b>，可以截圖留存。<b>有訂單編號才代表系統收到料單</b>；之後在「我的訂單」也查得到。</div>
         <div class="actions" style="justify-content:center;margin-top:20px">
           <button type="button" class="btn secondary" id="printNew">列印請料單</button>
@@ -2360,6 +2386,9 @@
     focusCartRow(row.key);
   });
   function focusCartRow(key) {
+    var rowEl = document.querySelector('.cart-row[data-key="' + key + '"]'), cc = $('cartCount');
+    if (rowEl) { rowEl.classList.remove('flash'); void rowEl.offsetWidth; rowEl.classList.add('flash'); }   // 剛加入的那一行亮一下
+    if (cc) { cc.classList.remove('bump'); void cc.offsetWidth; cc.classList.add('bump'); }
     var el = document.querySelector('.cart-row[data-key="' + key + '"] input[data-f="qty"]');
     if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   }
@@ -3337,6 +3366,7 @@
         (all.extra.length ? '。同一份材料也送出：' + all.extra.join('、') : '') +
         (all.fail.length ? '。⚠ 沒有送出：' + all.fail.join('；') + '（請到「我的課」再訂一次）' : '');
       lastSubmitted = res.orderNo;
+      $('doneLine').innerHTML = doneLineHtml(res.line);
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
       var keepMode = draft.qtyMode;
       payload.newUnits.forEach(function (u) { if (data.pendingUnits.indexOf(u) < 0) data.pendingUnits.push(u); });
@@ -3360,6 +3390,17 @@
     });
   });
 
+  // 送出成功畫面：這張料單已經可以在 LINE 查（老師在官方帳號按「我的訂單」，回覆不算則數）
+  function doneLineHtml(ln) {
+    if (!ln || !ln.enabled) return '';
+    var box = 'margin-top:10px;padding:10px 12px;border-radius:10px;text-align:left;';
+    if (!ln.bound) return '<div class="small" style="' + box + 'border:1px dashed #06c755;background:#f3fcf6">💬 綁定 LINE 之後，送出的料單在 LINE 就能直接看材料。到「我的課」按「綁定我的 LINE」（只要一次）。</div>';
+    var link = ln.oa ? 'https://line.me/R/oaMessage/' + encodeURIComponent(ln.oa) + '/?' + encodeURIComponent('我的訂單') : '';
+    return '<div style="' + box + 'border:2px solid #06c755;background:#f3fcf6">' +
+      '<b style="color:#05a847">✅ 已同步到 LINE</b><div class="small" style="margin-top:4px;color:#344054">打開官方帳號，按下方選單「<b>我的訂單</b>」，就能看到這張料單的全部材料（最新送出的在第一張）。</div>' +
+      (link ? '<a class="btn small" href="' + esc(link) + '" target="_blank" rel="noopener" style="margin-top:8px;display:inline-block;background:#06c755;border-color:#06c755;color:#fff;text-decoration:none">📱 打開 LINE 查看</a><span class="muted small" style="margin-left:6px">（會帶出「我的訂單」，按傳送就好）</span>' : '') +
+      '</div>';
+  }
   // ---- 送出／儲存進度：畫面下方固定一條，顯示已經等了幾秒；等久了告訴老師「還在送、不要關、不用重按」 ----
   var sendingNow = false;
   function sendProgress(label) {
@@ -3375,7 +3416,7 @@
       var hint = sec < 8 ? '請稍候，通常 5～10 秒。' : sec < 20 ? '主機比較忙，還在處理中。<b>不要關掉網頁，也不用再按一次。</b>' : sec < 45 ? '比平常久（可能很多老師同時在送，或網路比較慢），還在等主機回覆。<b>請不要關掉網頁、不要重按。</b>' : '真的很久了。再等一下；如果最後顯示失敗，先到「我的訂單」看有沒有送出，<b>不要直接重送</b>，免得送兩張。';
       var pct = Math.min(95, Math.round(100 * (1 - Math.exp(-sec / 9))));
       box.innerHTML = '<div style="display:flex;justify-content:space-between;gap:8px"><b>⏳ ' + esc(label) + (part ? '（' + esc(part) + '）' : '') + '</b><span class="muted">已經 ' + sec + ' 秒</span></div>' +
-        '<div style="height:8px;background:#f2f4f7;border-radius:99px;margin:8px 0;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:var(--brand,#8a2b1a);transition:width .9s linear"></div></div>' +
+        '<div style="height:10px;background:#f2f4f7;border-radius:99px;margin:8px 0;overflow:hidden"><div class="send-bar" style="width:' + pct + '%"></div></div>' +
         '<div class="small" style="color:' + (sec < 20 ? '#475467' : '#b54708') + '">' + hint + '</div>';
     };
     draw();
@@ -3607,13 +3648,13 @@
   $('mineList').addEventListener('toggle', function (e) { if (e.target.classList && e.target.classList.contains('mine-past') && !mineQ.trim()) minePastOpen = e.target.open; }, true);
   function loadMine(note) {
     msg('mineMsg', 'info', '載入中…');
-    $('mineList').innerHTML = '';
+    $('mineList').innerHTML = skeleton(3);
     call('getMyOrders', token, mineDays).then(function (list) {
       mineCache = list;
       if (note) msg('mineMsg', 'ok', note);
       else msg('mineMsg', list.length ? '' : 'info', list.length ? '' : (mineDays > 60 ? '最近一年沒有訂單。' : '最近 60 天沒有訂單。'));
       renderMine();
-    }).catch(function (e) { msg('mineMsg', 'error', '載入失敗：' + e.message); });
+    }).catch(function (e) { $('mineList').innerHTML = ''; msg('mineMsg', 'error', '載入失敗：' + e.message); });
   }
   $('mineList').addEventListener('click', function (e) {
     var cc = e.target.closest('#mineClearCancel');
@@ -3700,13 +3741,13 @@
     if (to < from) { msg('sumMsg', 'error', '迄日不能早於起日。'); return; }
     markRange();
     msg('sumMsg', 'info', '載入中…');
-    $('sumVendors').innerHTML = ''; $('sumOrders').innerHTML = '';
+    $('sumVendors').innerHTML = ''; $('sumOrders').innerHTML = skeleton(4);
     var btn = $('sLoad');
     setBusy(btn, true, '查詢中…');
     call('adminGetOrders', token, from, to).then(function (list) {
       sumCache = list; markDups(sumCache);
       renderSummary();
-    }).catch(function (e) { msg('sumMsg', 'error', '載入失敗：' + e.message); })
+    }).catch(function (e) { $('sumOrders').innerHTML = ''; msg('sumMsg', 'error', '載入失敗：' + e.message); })
       .then(function () { setBusy(btn, false); });
   }
   // 「查詢老師」選單：列出這段期間有訂單的老師（上課老師和操作老師都算），保留目前選的
@@ -10175,12 +10216,15 @@
     call('getMyLessons', token).then(function (r) { lessonsCache = r; setLessonCount(r.nextWeek.todo); }).catch(function () {});
   }
   var lessonAs = '';   // 管理者正在查看的老師（空白 = 自己）
+  // 載入中：先放幾個灰色方塊（閃爍），比只有「載入中…」三個字看起來快
+  function skeleton(n) { var h = ''; for (var i = 0; i < (n || 3); i++) h += '<div class="skel" aria-hidden="true"><i style="width:45%"></i><i style="width:80%"></i><i style="width:65%"></i></div>'; return h; }
   function loadLessons(note) {
     if (!note) msg('lessonsMsg', 'info', '載入中…');
+    if (!note && $('lessonsList') && !$('lessonsList').children.length) $('lessonsList').innerHTML = skeleton(3);
     if (!data) return Promise.resolve();   // 還在載入（剛登入、重新整理）時點到「我的課」：等載入完再看
     if (data.isAdmin && !$('lessonsAs')._filled) fillLessonsAs();
     return call('getMyLessons', token, lessonAs).then(function (r) { renderLessons(r, note); })
-      .catch(function (e) { msg('lessonsMsg', 'error', '載入失敗：' + e.message); });
+      .catch(function (e) { if ($('lessonsList').querySelector('.skel')) $('lessonsList').innerHTML = ''; msg('lessonsMsg', 'error', '載入失敗：' + e.message); });
   }
   function fillLessonsAs() {
     var sel = $('lessonsAs');

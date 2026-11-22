@@ -1122,6 +1122,7 @@ function submitOrder(token, payload) {
     const orderNo = nextOrderNo_();
     const res = writeOrder_(o, orderNo, new Date(), account, account, {});
     SpreadsheetApp.flush();
+    res.line = lineSyncInfo_(account);   // 送出成功畫面：告訴老師可以在 LINE 查看這張料單
     return res;
   } finally {
     lock.releaseLock();
@@ -4262,6 +4263,8 @@ function doPost(e) {
         if (ev.source && ev.source.type === 'user') {
           const adm = lineAdminReply_(ev.message.text, userId);   // 管理者：課表、料單、補訂貨（卡片，回覆不算則數）
           if (adm) { lineReplyMsgs_(ev.replyToken, adm); return; }
+          const om = lineMyOrdersMsgs_(ev.message.text, userId);   // 老師：我的訂單（卡片列出每張的材料）
+          if (om) { lineReplyMsgs_(ev.replyToken, om); return; }
           const ans = lineAutoReply_(ev.message.text, userId);
           if (ans) lineReply_(ev.replyToken, ans);
           // 看起來是要綁定（有 6 位數字或「綁」字）但格式不對：告訴他怎麼打，不要完全沒反應
@@ -7886,4 +7889,53 @@ function adminMissingPrices(token) {
     return { name: x.name, vendor: x.vendor, n: Object.keys(x.orders).length, next: x.next, unit: itemUnit[x.name] || '',
       units: Object.keys(x.units).map(function (u) { return [u, x.units[u]]; }).sort(function (a, b) { return b[1] - a[1]; }) };
   }).sort(function (a, b) { return (a.next ? 0 : 1) - (b.next ? 0 : 1) || b.n - a.n || a.vendor.localeCompare(b.vendor, 'zh-Hant'); });
+}
+
+
+// ---- LINE「我的訂單」：最近送出的訂單一張一張卡片，列出全部材料（回覆不算則數；網站送出後馬上查得到） ----
+function lineSyncInfo_(account) {
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('LINE_TOKEN')) return { enabled: false };
+  let oa = props.getProperty('LINE_BASIC_ID') || '';
+  if (!oa) { try { lineFriendUrl_(); oa = props.getProperty('LINE_BASIC_ID') || ''; } catch (e) {} }
+  return { enabled: true, bound: !!lineUserOf_(account), oa: oa };
+}
+function lineMyOrdersMsgs_(text, userId) {
+  const t = String(text || '').trim();
+  if (!(/我的訂單|訂單狀態|最近訂單|我的料單/.test(t) && t.length <= 12)) return null;
+  const account = lineAccountOf_(userId);
+  if (!account) return null;   // 沒綁定：交給一般回覆（會告訴他怎麼綁定）
+  const since = addDays_(today_(), -7);
+  const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
+    const d = toDate_(r['使用日期']);
+    return (String(r['操作老師']).trim() === account || String(r['代訂對象老師'] || '').trim() === account) && d && d >= since;
+  });
+  const hidden = hiddenOrders_();   // 老師自己從「我的訂單」刪掉的不列
+  const orders = groupOrders_(rows, account).filter(function (o) { return !hidden[o.orderNo]; })
+    .sort(function (a, b) { return String(b.submitted).localeCompare(String(a.submitted)); });   // 最新送出的排第一張
+  const url = lineUrl_('mine');
+  if (!orders.length) return [{ type: 'text', text: account + ' 老師，最近（上課日在 7 天前以後）沒有訂單。' + (url ? '\n' + url : '') }];
+  const fmtQ = function (q) { return String(Math.round(Number(q) * 100) / 100); };
+  const bubbles = orders.slice(0, 10).map(function (o) {
+    const live = o.items.filter(function (i) { return i.status !== '已取消'; });
+    const food = live.filter(function (i) { return i.id !== TOOL_ID; }), tools = live.filter(function (i) { return i.id === TOOL_ID; });
+    const line = function (i) {
+      return { type: 'box', layout: 'horizontal', contents: [fxT_(i.name + (i.noOrder ? '（有貨）' : ''), { size: 'sm', flex: 6, color: i.noOrder ? FX_MUTED : '#111111' }),
+        fxT_(fmtQ(i.qty) + ' ' + i.unit, { size: 'sm', flex: 3, align: 'end', color: '#111111' })] };
+    };
+    const rowsOut = [];
+    food.slice(0, 35).forEach(function (i) { rowsOut.push(line(i)); });
+    if (food.length > 35) rowsOut.push(fxT_('…還有 ' + (food.length - 35) + ' 樣，請到網站看。', { size: 'xs', color: FX_MUTED }));
+    if (tools.length) {
+      rowsOut.push({ type: 'separator', margin: 'md' });
+      rowsOut.push(fxT_('🍳 器具', { size: 'xs', color: FX_MUTED, weight: 'bold' }));
+      tools.slice(0, 15).forEach(function (i) { rowsOut.push(line(i)); });
+    }
+    const st = o.status === '已取消' ? '❌ 已取消' : o.status === '待處理' ? '⏳ 待處理' : '✅ ' + o.status;
+    const sub = st + '・' + food.length + ' 樣' + (tools.length ? '＋器具 ' + tools.length : '') + '\n' + o.orderNo + '・送出 ' + String(o.submitted).replace(/^\d{4}\//, '').replace(/(\d{1,2}:\d{2}):\d{2}$/, '$1');
+    return fxB_(shortDateTw_(parseDate_(o.useDate)) + ' ' + (o.className || '') + '「' + (o.project || '') + '」', sub, rowsOut,
+      url ? [{ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '打開我的訂單', uri: url } }] : null);
+  });
+  return [{ type: 'text', text: account + ' 老師最近送出的訂單（最新的在第一張' + (orders.length > 1 ? '，左右滑動看其他張' : '') + '）：' },
+    fxFlexMsg_(account + ' 老師的訂單', bubbles)];
 }
