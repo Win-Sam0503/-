@@ -773,6 +773,7 @@
 
   <main class="wrap">
     <div id="globalMsg"></div>
+    <div id="todayChip" class="noprint" style="margin:0 0 8px"></div>
 
     <!-- 訂貨 -->
     <section id="viewOrder">
@@ -2076,7 +2077,58 @@
     if (startPage !== 'lessons') refreshLessonCount();
     startPage = '';
     if (data.isAdmin) refreshPendingCount();
+    todayCheck();
   }
+
+  // ---- 📋 今天的料單：老師今天有課（有訂單）就跳出來，列出每堂課的材料、放在哪；一天只自動跳一次，上面留一個按鈕可以再打開 ----
+  var todayData = null;
+  function todayKey() { var d = new Date(); return 'ckOrder.todaySeen.' + data.account + '.' + d.getFullYear() + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function todayCheck() {
+    if (!data || !token) return;
+    var d = new Date(); if (d.getDay() === 0 || d.getDay() === 6) return;
+    call('getTodayOrders', token).then(function (r) {
+      todayData = r;
+      var chip = $('todayChip');
+      if (!r.orders.length) { if (chip) chip.innerHTML = ''; return; }
+      chip.innerHTML = '<button type="button" class="btn small" id="todayOpen" style="background:#fff7e6;color:#8a2b1a;border-color:#f5c242">📋 今天有 ' + r.orders.length + ' 堂課的料單，點這裡看</button>';
+      var seen = false; try { seen = localStorage.getItem(todayKey()) === '1'; } catch (e) {}
+      if (!seen) todayShow();
+    }).catch(function () {});
+  }
+  function todayShow() {
+    var r = todayData; if (!r || !r.orders.length || $('todayModal')) return;
+    // 別的對話框（例如「要恢復上次沒送出的訂購清單嗎？」）還開著：等它關掉再跳，不要蓋住
+    if (!$('askBox').classList.contains('hidden') || $('sendProg') && $('sendProg').style.display === 'block') { setTimeout(todayShow, 600); return; }
+    var fq = function (q) { return String(Math.round(Number(q) * 100) / 100); };
+    var body = r.orders.map(function (o) {
+      var live = (o.items || []).filter(function (i) { return i.status !== '已取消'; });
+      var food = live.filter(function (i) { return i.id !== TOOL; }), tools = live.filter(function (i) { return i.id === TOOL; });
+      var li = function (i) { return '<tr style="border-top:1px solid #eee"><td style="padding:4px 0">' + esc(i.name) + (i.noOrder ? ' <span class="muted small">（有貨・自備）</span>' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td style="text-align:right;white-space:nowrap;padding:4px 0 4px 10px"><b>' + fq(i.qty) + '</b> ' + esc(i.unit) + '</td></tr>'; };
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0;background:#fff">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b style="font-size:17px">' + esc(o.classTime || '') + '　' + esc(o.className || '') + '「' + esc(o.project || '') + '」</b><span class="muted small">' + esc(o.room || '') + '・' + esc(o.status) + '</span></div>' +
+        (o.place ? '<div class="small" style="margin-top:4px;color:#05603a">📍 冷藏食材放在：<b>' + esc(o.place.place) + '</b>' + (o.place.photo ? ' <a href="' + esc(o.place.photo) + '" target="_blank" rel="noopener">看照片</a>' : '') + '</div>' : '') +
+        '<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:15px">' + food.map(li).join('') + '</table>' +
+        (tools.length ? '<div class="small muted" style="margin-top:8px;font-weight:700">🍳 器具</div><table style="width:100%;border-collapse:collapse;font-size:14px">' + tools.map(li).join('') + '</table>' : '') + '</div>';
+    }).join('');
+    var ov = document.createElement('div');
+    ov.id = 'todayModal'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:900;background:rgba(16,24,40,.55);display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto';
+    ov.innerHTML = '<div class="panel" style="max-width:620px;width:100%;margin:0;animation:popIn .3s ease-out both;background:#fffdf7">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">📋 今天的料單 <span class="muted small" style="font-weight:400">' + esc(shortDate(r.date)) + '・' + r.orders.length + ' 堂課</span></h2>' +
+      '<button type="button" class="btn ghost small" data-tdclose aria-label="關閉">✕</button></div>' + body +
+      '<div class="actions" style="justify-content:flex-end;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn ghost" id="tdPrint">🖨 列印料單</button><button type="button" class="btn" data-tdclose>知道了</button></div>' +
+      '<div class="muted small" style="text-align:right;margin-top:4px">今天不會再自動跳出來；要再看按上面「📋 今天的料單」。</div></div>';
+    document.body.appendChild(ov);
+    try { localStorage.setItem(todayKey(), '1'); } catch (e) {}
+    var close = function () { ov.remove(); document.removeEventListener('keydown', esck); };
+    var esck = function (e) { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', esck);
+    ov.addEventListener('click', function (e) {
+      if (e.target === ov || e.target.closest('[data-tdclose]')) { close(); return; }
+      if (e.target.id === 'tdPrint') { close(); printOrders(r.orders, 'viewOrder', '今天的料單 '); }
+    });
+  }
+  document.addEventListener('click', function (e) { if (e.target && e.target.id === 'todayOpen') todayShow(); });
 
   // ➕ 快速補訂貨（LINE 管理者選單打開）：日期＋食材＋數量，加到那天廠商的叫貨單
   var qkSeq = 0;
@@ -3407,7 +3459,7 @@
     var t0 = Date.now(), part = '', box = document.getElementById('sendProg');
     if (!box) {
       box = document.createElement('div'); box.id = 'sendProg'; box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite');
-      box.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;width:min(520px,calc(100% - 32px));background:#fff;border:2px solid var(--brand,#8a2b1a);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:12px 16px;font-size:15px;line-height:1.5';
+      box.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:950;width:min(520px,calc(100% - 32px));background:#fff;border:2px solid var(--brand,#8a2b1a);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:12px 16px;font-size:15px;line-height:1.5';
       document.body.appendChild(box);
     }
     box.style.display = 'block'; sendingNow = true;

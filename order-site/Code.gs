@@ -7919,19 +7919,21 @@ function lineSyncInfo_(account) {
 }
 function lineMyOrdersMsgs_(text, userId) {
   const t = String(text || '').trim();
-  if (!(/我的訂單|訂單狀態|最近訂單|我的料單/.test(t) && t.length <= 12)) return null;
+  const todayOnly = /今天|今日/.test(t) && /料單|訂單|材料/.test(t) && t.length <= 12;
+  if (!todayOnly && !(/我的訂單|訂單狀態|最近訂單|我的料單/.test(t) && t.length <= 12)) return null;
   const account = lineAccountOf_(userId);
-  if (!account) return null;   // 沒綁定：交給一般回覆（會告訴他怎麼綁定）
-  const since = addDays_(today_(), -7);
+  if (!account) return todayOnly ? [{ type: 'text', text: '還沒綁定帳號，請先登入訂貨網站 →「我的課」→「綁定我的 LINE」。' }] : null;
+  const since = addDays_(today_(), -7), td = dateStr_(today_());
   const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
     const d = toDate_(r['使用日期']);
-    return (String(r['操作老師']).trim() === account || String(r['代訂對象老師'] || '').trim() === account) && d && d >= since;
+    return (String(r['操作老師']).trim() === account || String(r['代訂對象老師'] || '').trim() === account) && d && (todayOnly ? dateStr_(d) === td : d >= since);
   });
   const hidden = hiddenOrders_();   // 老師自己從「我的訂單」刪掉的不列
-  const orders = groupOrders_(rows, account).filter(function (o) { return !hidden[o.orderNo]; })
+  const orders = groupOrders_(rows, account).filter(function (o) { return !hidden[o.orderNo] && (!todayOnly || o.status !== '已取消'); })
     .sort(function (a, b) { return String(b.submitted).localeCompare(String(a.submitted)); });   // 最新送出的排第一張
   const url = lineUrl_('mine');
-  if (!orders.length) return [{ type: 'text', text: account + ' 老師，最近（上課日在 7 天前以後）沒有訂單。' + (url ? '\n' + url : '') }];
+  if (!orders.length) return [{ type: 'text', text: account + ' 老師，' + (todayOnly ? '今天沒有料單。' : '最近（上課日在 7 天前以後）沒有訂單。') + (url ? '\n' + url : '') }];
+  if (todayOnly) { const places = placesFor_(orders.map(function (o) { return o.orderNo; })); orders.forEach(function (o) { o.place = places[o.orderNo] || null; }); }
   const fmtQ = function (q) { return String(Math.round(Number(q) * 100) / 100); };
   const bubbles = orders.slice(0, 10).map(function (o) {
     const live = o.items.filter(function (i) { return i.status !== '已取消'; });
@@ -7943,6 +7945,7 @@ function lineMyOrdersMsgs_(text, userId) {
     const rowsOut = [];
     food.slice(0, 35).forEach(function (i) { rowsOut.push(line(i)); });
     if (food.length > 35) rowsOut.push(fxT_('…還有 ' + (food.length - 35) + ' 樣，請到網站看。', { size: 'xs', color: FX_MUTED }));
+    if (o.place) rowsOut.unshift(fxT_('📍 冷藏食材放在：' + o.place.place, { size: 'sm', color: FX_OK, weight: 'bold' }));
     if (tools.length) {
       rowsOut.push({ type: 'separator', margin: 'md' });
       rowsOut.push(fxT_('🍳 器具', { size: 'xs', color: FX_MUTED, weight: 'bold' }));
@@ -7953,6 +7956,27 @@ function lineMyOrdersMsgs_(text, userId) {
     return fxB_(shortDateTw_(parseDate_(o.useDate)) + ' ' + (o.className || '') + '「' + (o.project || '') + '」', sub, rowsOut,
       url ? [{ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '打開我的訂單', uri: url } }] : null);
   });
-  return [{ type: 'text', text: account + ' 老師最近送出的訂單（最新的在第一張' + (orders.length > 1 ? '，左右滑動看其他張' : '') + '）：' },
+  return [{ type: 'text', text: todayOnly ? account + ' 老師今天的料單（' + orders.length + ' 堂' + (orders.length > 1 ? '，左右滑動' : '') + '）：' : account + ' 老師最近送出的訂單（最新的在第一張' + (orders.length > 1 ? '，左右滑動看其他張' : '') + '）：' },
     fxFlexMsg_(account + ' 老師的訂單', bubbles)];
+}
+
+/**
+ * 老師：今天（或指定日期）上課的料單，打開網站時跳出來看。
+ * 自己訂的、別人代訂給自己的都算；取消的、老師自己刪掉的不算。放置登記有開放就附上位置。
+ */
+function getTodayOrders(token, dateStr) {
+  const account = auth_(token);
+  const day = parseDate_(dateStr) || today_(), ds = dateStr_(day);
+  const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
+    if (String(r['操作老師']).trim() !== account && String(r['代訂對象老師'] || '').trim() !== account) return false;
+    const d = toDate_(r['使用日期']);
+    return d && dateStr_(d) === ds;
+  });
+  const hidden = hiddenOrders_();
+  const order = { '上午': 1, '下午': 2, '晚上': 3 };
+  const list = groupOrders_(rows, account).filter(function (o) { return o.status !== '已取消' && !hidden[o.orderNo]; })
+    .sort(function (a, b) { return (order[String(a.classTime).slice(0, 2)] || 9) - (order[String(b.classTime).slice(0, 2)] || 9) || String(a.classTime).localeCompare(String(b.classTime)); });
+  const places = placesFor_(list.map(function (o) { return o.orderNo; }));
+  list.forEach(function (o) { o.place = places[o.orderNo] || null; });
+  return { date: ds, orders: list };
 }
