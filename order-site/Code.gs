@@ -4541,7 +4541,9 @@ function updateCodeText_(action, sha, code) {
 /** LINE 傳「驗證碼」：只有綁定成管理者通知的那個聊天室（LINE_TO）會回覆，回覆不算則數 */
 function updateCodeReply_(ev, props) {
   const src = ev.source && (ev.source.groupId || ev.source.roomId || ev.source.userId);
-  if (!src || src !== props.getProperty('LINE_TO')) return null;
+  // 綁定管理者通知的聊天室；或內建管理者帳號本人的個人聊天（管理者選單「🔑 驗證碼」）
+  const owner = ev.source && ev.source.type === 'user' && ADMIN_ACCOUNTS.indexOf(lineAccountOf_(ev.source.userId)) >= 0;
+  if (!src || (src !== props.getProperty('LINE_TO') && !owner)) return null;
   const s = JSON.parse(CacheService.getScriptCache().get('updCode') || 'null');
   if (!s) return '目前沒有要更新或還原的動作。請先到網站「更新程式」按「⟳ 更新到…」，再傳「驗證碼」。';
   return updateCodeText_(s.action, s.sha, s.code);
