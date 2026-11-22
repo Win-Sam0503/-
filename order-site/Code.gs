@@ -4267,6 +4267,8 @@ function doPost(e) {
         if (ev.source && ev.source.type === 'user') {
           const adm = lineAdminReply_(ev.message.text, userId);   // 管理者：課表、料單、補訂貨（卡片，回覆不算則數）
           if (adm) { lineReplyMsgs_(ev.replyToken, adm); return; }
+          const tl = lineTodayLessonsMsgs_(ev.message.text, userId);   // 老師：今天的課＋每堂的料單
+          if (tl) { lineReplyMsgs_(ev.replyToken, tl); return; }
           const fp = lineForgotPw_(ev.message.text, userId);   // 忘記密碼：回一次性的重設連結
           if (fp) { lineReplyMsgs_(ev.replyToken, fp); return; }
           const om = lineMyOrdersMsgs_(ev.message.text, userId);   // 老師：我的訂單（卡片列出每張的材料）
@@ -6660,7 +6662,7 @@ function adminSetupRichMenu(token, adminPng, crewPng, teacherPng) {
     { action: { type: 'uri', label: '打開訂貨網站', uri: lineUrl_('') } },
     { action: { type: 'message', label: '我的訂單', text: '我的訂單' } },
     { action: { type: 'message', label: '截止時間說明', text: '截止時間說明' } },
-    { action: { type: 'uri', label: '教學影片', uri: lineUrl_('help') } },
+    { action: { type: 'message', label: '今天的課', text: '今天的課' } },
     { action: { type: 'uri', label: '我的課表', uri: lineUrl_('lessons') } },
   ].map(function (a, i) {
     const c = i % 3, r = Math.floor(i / 3);
@@ -8022,4 +8024,56 @@ function loginByResetLink(code) {
   cache.put('pwresettok:' + token, '1', 30 * 60);
   try { logLogin_(account, '成功（LINE 忘記密碼連結）'); } catch (e) {}
   return { token: token, account: account, mustChange: true, reset: true };
+}
+
+
+// ---- LINE「今天的課」：老師今天每一堂課（課表＋自訂＋國技）一張卡片，附上那堂的料單材料、放哪裡；沒訂、不用訂也寫出來（回覆不算則數） ----
+function lineTodayLessonsMsgs_(text, userId) {
+  const t = String(text || '').replace(/\s/g, '');
+  if (!(/今天的?課|今日課|今天上什麼|今天有什麼課/.test(t) && t.length <= 10)) return null;
+  const account = lineAccountOf_(userId);
+  if (!account) return [{ type: 'text', text: '還沒綁定帳號，請先登入訂貨網站 →「我的課」→「綁定我的 LINE」，再把綁定碼傳給我。' }];
+  const day = today_(), ds = dateStr_(day), url = lineUrl_('lessons');
+  const wd = day.getDay();
+  const lessons = (wd === 0 || wd === 6) ? [] : lessonsWithStatus_(day, day, account);
+  // 今天的訂單（含別人代訂給我的）
+  const rows = readTable_(SHEET.orders, ['訂單編號', '操作老師']).rows.filter(function (r) {
+    if (String(r['操作老師']).trim() !== account && String(r['代訂對象老師'] || '').trim() !== account) return false;
+    const d = toDate_(r['使用日期']); return d && dateStr_(d) === ds;
+  });
+  const hidden = hiddenOrders_();
+  const orders = groupOrders_(rows, account).filter(function (o) { return o.status !== '已取消' && !hidden[o.orderNo]; });
+  const places = placesFor_(orders.map(function (o) { return o.orderNo; }));
+  const byNo = {}; orders.forEach(function (o) { o.place = places[o.orderNo] || null; byNo[o.orderNo] = o; });
+  const used = {};
+  const fmtQ = function (q) { return String(Math.round(Number(q) * 100) / 100); };
+  const itemRows = function (o) {
+    const live = o.items.filter(function (i) { return i.status !== '已取消'; });
+    const food = live.filter(function (i) { return i.id !== TOOL_ID; }), tools = live.filter(function (i) { return i.id === TOOL_ID; });
+    const line = function (i) { return { type: 'box', layout: 'horizontal', contents: [fxT_(i.name + (i.noOrder ? '（有貨）' : ''), { size: 'sm', flex: 6, color: i.noOrder ? FX_MUTED : '#111111' }), fxT_(fmtQ(i.qty) + ' ' + i.unit, { size: 'sm', flex: 3, align: 'end', color: '#111111' })] }; };
+    const out = [fxT_('📄 「' + (o.project || '') + '」' + o.status, { size: 'sm', weight: 'bold', color: FX_BRAND })];
+    if (o.place) out.push(fxT_('📍 冷藏食材放在：' + o.place.place, { size: 'sm', color: FX_OK, weight: 'bold' }));
+    food.slice(0, 30).forEach(function (i) { out.push(line(i)); });
+    if (food.length > 30) out.push(fxT_('…還有 ' + (food.length - 30) + ' 樣，請到網站看。', { size: 'xs', color: FX_MUTED }));
+    if (tools.length) { out.push(fxT_('🍳 器具', { size: 'xs', color: FX_MUTED, weight: 'bold' })); tools.slice(0, 12).forEach(function (i) { out.push(line(i)); }); }
+    return out;
+  };
+  const SO = { '上午': 1, '下午': 2, '晚上': 3 };
+  const bubbles = lessons.slice().sort(function (a, b) { return (SO[a.session] || 9) - (SO[b.session] || 9); }).map(function (x) {
+    let body = [];
+    if (x.status === 'holiday') body.push(fxT_('📅 放假' + (x.holiday ? '：' + x.holiday : ''), { color: FX_MUTED }));
+    else if (x.status === 'skipped') body.push(fxT_('✔ 不用訂貨' + (x.skipNote ? '（' + x.skipNote + '）' : ''), { color: FX_MUTED }));
+    else if (x.status === 'todo') body.push(fxT_('⚠ 這堂課沒有訂貨', { color: FX_BAD, weight: 'bold' }));
+    (x.orders || []).forEach(function (oo) { const o = byNo[oo.orderNo]; if (!o) return; used[o.orderNo] = true; if (body.length) body.push({ type: 'separator', margin: 'md' }); body = body.concat(itemRows(o)); });
+    if (x.status === 'ordered' && !(x.orders || []).length) body.push(fxT_('✔ 已標記叫料', { color: FX_MUTED }));
+    return fxB_(x.session + '　' + (x.course || ''), [x.className, x.room].filter(Boolean).join('・'), body);
+  });
+  // 今天的訂單對不到課表的（代課、補課）也列出來
+  orders.filter(function (o) { return !used[o.orderNo]; }).forEach(function (o) {
+    bubbles.push(fxB_((o.classTime || '') + '　' + (o.className || ''), '另外訂的料單', itemRows(o)));
+  });
+  if (!bubbles.length) return [{ type: 'text', text: account + ' 老師，今天（' + shortDateTw_(day) + '）沒有課。' }];
+  const foot = url ? [{ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '打開我的課', uri: url } }] : null;
+  if (foot) bubbles.forEach(function (b) { b.footer = { type: 'box', layout: 'horizontal', paddingAll: '8px', contents: foot }; });
+  return [{ type: 'text', text: account + ' 老師，今天 ' + shortDateTw_(day) + ' 有 ' + bubbles.length + ' 堂' + (bubbles.length > 1 ? '（左右滑動）' : '') + '：' }, fxFlexMsg_(account + ' 老師今天的課', bubbles)];
 }
