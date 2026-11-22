@@ -6948,9 +6948,11 @@ function crewWeek(token, mon, to) {
     return { date: x.date, session: x.session, teacher: x.teacher, className: x.className || '', course: x.course || '', room: x.room || '', status: x.status, holiday: x.holiday || '',
       dept: deptOf(x.room, x.course, x.orders), orders: (x.orders || []).map(function (o) { return o.orderNo; }) };
   });
-  const orders = ordersBetween_(m, fri).filter(function (o) { return o.status !== '已取消'; }).map(function (o) {
+  const orders0 = ordersBetween_(m, fri).filter(function (o) { return o.status !== '已取消'; });
+  const ded = deductNotes_(orders0);   // 扣貨扣掉的：旁邊標「扣貨已扣掉」，校隊才不會以為廠商沒送
+  const orders = orders0.map(function (o) {
     return { orderNo: o.orderNo, date: o.useDate, session: o.classTime, teacher: o.onBehalfOf || o.teacher, className: o.className || '', project: o.project || '', groups: o.groups || '', room: o.room || '', status: o.status, dept: o.dept || '',
-      items: o.items.filter(function (i) { return i.status !== '已取消' && i.name; }).map(function (i) { return { name: i.name, qty: Math.round(Number(i.qty) * 100) / 100, unit: i.unit || '', vendor: i.vendor || '', noOrder: !!i.noOrder, tool: i.id === TOOL_ID, note: i.note || '' }; }) };
+      items: o.items.filter(function (i) { return i.status !== '已取消' && i.name; }).map(function (i) { return { name: i.name, qty: Math.round(Number(i.qty) * 100) / 100, unit: i.unit || '', vendor: i.vendor || '', noOrder: !!i.noOrder, tool: i.id === TOOL_ID, note: i.note || '', ded: ded[o.orderNo + '|' + i.name] || '' }; }) };
   });
   return { who: who, mon: dateStr_(m), fri: dateStr_(fri), lessons: lessons, orders: orders, holidays: holidaysBetween_(m, fri) };
 }
@@ -7196,10 +7198,12 @@ function lineOrdersMsgs_(from, to, teacher) {
   const one = dateStr_(from) === dateStr_(to);
   const title = '📋 ' + (teacher ? teacher + ' 的料單（' + shortDateTw_(from) + '～' + shortDateTw_(to) + '）' : shortDateTw_(from) + ' 料單');
   if (!orders.length) return [{ type: 'text', text: (teacher ? teacher + ' 接下來 7 天沒有料單（名字要跟帳號一樣）。' : shortDateTw_(from) + ' 沒有料單。') }];
+  const ded = deductNotes_(orders.slice(0, 12));
   const bubbles = orders.slice(0, 12).map(function (o) {
     const its = o.items.filter(function (i) { return i.status !== '已取消' && i.name; });
     const rows = its.slice(0, 25).map(function (i) {
-      return { type: 'box', layout: 'horizontal', contents: [fxT_(i.name + (i.noOrder ? '（有貨）' : ''), { size: 'sm', flex: 6, color: i.noOrder ? FX_MUTED : '#111111' }), fxT_((Math.round(i.qty * 100) / 100) + ' ' + i.unit, { size: 'sm', align: 'end', flex: 3 })] };
+      const dn = ded[o.orderNo + '|' + i.name];
+      return { type: 'box', layout: 'horizontal', contents: [fxT_(i.name + (i.noOrder ? '（有貨）' : dn ? '（' + dn + '）' : ''), { size: 'sm', flex: 6, color: i.noOrder ? FX_MUTED : '#111111' }), fxT_((Math.round(i.qty * 100) / 100) + ' ' + i.unit, { size: 'sm', align: 'end', flex: 3 })] };
     });
     if (its.length > 25) rows.push(fxT_('…還有 ' + (its.length - 25) + ' 項', { size: 'xs', color: FX_MUTED }));
     return fxB_((o.onBehalfOf || o.teacher) + '　' + o.className, (one ? '' : shortDateTw_(parseDate_(o.useDate)) + ' ') + (o.classTime === '晚上' ? '夜間' : o.classTime) + '・' + (o.project || '（沒填實作項目）') + (o.groups ? '・' + o.groups + ' 組' : '') + '・' + o.status,
@@ -7984,8 +7988,8 @@ function getTodayOrders(token, dateStr) {
   const order = { '上午': 1, '下午': 2, '晚上': 3 };
   const list = groupOrders_(rows, account).filter(function (o) { return o.status !== '已取消' && !hidden[o.orderNo]; })
     .sort(function (a, b) { return (order[String(a.classTime).slice(0, 2)] || 9) - (order[String(b.classTime).slice(0, 2)] || 9) || String(a.classTime).localeCompare(String(b.classTime)); });
-  const places = placesFor_(list.map(function (o) { return o.orderNo; }));
-  list.forEach(function (o) { o.place = places[o.orderNo] || null; });
+  const places = placesFor_(list.map(function (o) { return o.orderNo; })), ded = deductNotes_(list);
+  list.forEach(function (o) { o.place = places[o.orderNo] || null; o.items.forEach(function (i) { i.ded = ded[o.orderNo + '|' + i.name] || ''; }); });
   return { date: ds, orders: list };
 }
 
@@ -8050,7 +8054,8 @@ function lineTodayLessonsMsgs_(text, userId) {
   const itemRows = function (o) {
     const live = o.items.filter(function (i) { return i.status !== '已取消'; });
     const food = live.filter(function (i) { return i.id !== TOOL_ID; }), tools = live.filter(function (i) { return i.id === TOOL_ID; });
-    const line = function (i) { return { type: 'box', layout: 'horizontal', contents: [fxT_(i.name + (i.noOrder ? '（有貨）' : ''), { size: 'sm', flex: 6, color: i.noOrder ? FX_MUTED : '#111111' }), fxT_(fmtQ(i.qty) + ' ' + i.unit, { size: 'sm', flex: 3, align: 'end', color: '#111111' })] }; };
+    const dd = deductNotes_([o]);
+    const line = function (i) { const dn = dd[o.orderNo + '|' + i.name]; return { type: 'box', layout: 'horizontal', contents: [fxT_(i.name + (i.noOrder ? '（有貨）' : dn ? '（' + dn + '）' : ''), { size: 'sm', flex: 6, color: i.noOrder ? FX_MUTED : '#111111' }), fxT_(fmtQ(i.qty) + ' ' + i.unit, { size: 'sm', flex: 3, align: 'end', color: '#111111' })] }; };
     const out = [fxT_('📄 「' + (o.project || '') + '」' + o.status, { size: 'sm', weight: 'bold', color: FX_BRAND })];
     if (o.place) out.push(fxT_('📍 冷藏食材放在：' + o.place.place, { size: 'sm', color: FX_OK, weight: 'bold' }));
     food.slice(0, 30).forEach(function (i) { out.push(line(i)); });
@@ -8076,4 +8081,33 @@ function lineTodayLessonsMsgs_(text, userId) {
   const foot = url ? [{ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '打開我的課', uri: url } }] : null;
   if (foot) bubbles.forEach(function (b) { b.footer = { type: 'box', layout: 'horizontal', paddingAll: '8px', contents: foot }; });
   return [{ type: 'text', text: account + ' 老師，今天 ' + shortDateTw_(day) + ' 有 ' + bubbles.length + ' 堂' + (bubbles.length > 1 ? '（左右滑動）' : '') + '：' }, fxFlexMsg_(account + ' 老師今天的課', bubbles)];
+}
+
+
+/**
+ * 扣貨扣掉的品項：照「叫貨紀錄」（② 訂貨單填的實際叫貨），每一班每一樣比老師訂的少就標出來。
+ * 回傳 { '訂單編號|食材名稱': '扣貨已扣掉' | '扣貨扣掉 2 斤，只叫 1 斤' }
+ */
+function deductNotes_(orders) {
+  const out = {}, want = {};
+  (orders || []).forEach(function (o) { want[o.orderNo] = true; });
+  const sh = ss_().getSheetByName(SHEET.purchase);
+  if (!sh || sh.getLastRow() < 2 || !Object.keys(want).length) return out;
+  const sum = {};
+  readTable_(SHEET.purchase, ['訂單編號', '食材名稱', '叫貨量']).rows.forEach(function (r) {
+    const no = String(r['訂單編號'] || '').trim();
+    if (!want[no] || String(r['類型'] || '訂單').trim() !== '訂單') return;
+    const k = no + '|' + String(r['食材名稱'] || '').trim();   // 單位不比（乾貨的需求會換成克）
+    const x = sum[k] = sum[k] || { need: 0, qty: 0, unit: String(r['叫貨單位'] || '').trim(), nu: String(r['需求單位'] || '').trim(), mixed: false };
+    x.need += Number(r['需求量']) || 0; x.qty += Number(r['叫貨量']) || 0;
+    if (String(r['叫貨單位'] || '').trim() !== x.unit || String(r['需求單位'] || '').trim() !== x.nu) x.mixed = true;
+  });
+  const f = function (n) { return String(Math.round(n * 100) / 100); };
+  Object.keys(sum).forEach(function (k) {
+    const x = sum[k];
+    if (!(x.need > 0)) return;
+    if (x.qty <= 0) out[k] = '扣貨已扣掉';
+    else if (!x.mixed && x.unit === x.nu && x.qty < x.need) out[k] = '扣貨扣掉 ' + f(x.need - x.qty) + ' ' + x.nu + '，只叫 ' + f(x.qty) + ' ' + x.unit;
+  });
+  return out;
 }

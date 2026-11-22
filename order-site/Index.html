@@ -2105,7 +2105,7 @@
     var body = r.orders.map(function (o) {
       var live = (o.items || []).filter(function (i) { return i.status !== '已取消'; });
       var food = live.filter(function (i) { return i.id !== TOOL; }), tools = live.filter(function (i) { return i.id === TOOL; });
-      var li = function (i) { return '<tr style="border-top:1px solid #eee"><td style="padding:4px 0">' + esc(i.name) + (i.noOrder ? ' <span class="muted small">（有貨・自備）</span>' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td style="text-align:right;white-space:nowrap;padding:4px 0 4px 10px"><b>' + fq(i.qty) + '</b> ' + esc(i.unit) + '</td></tr>'; };
+      var li = function (i) { return '<tr style="border-top:1px solid #eee"><td style="padding:4px 0">' + esc(i.name) + (i.noOrder ? ' <span class="muted small">（有貨・自備）</span>' : '') + (i.ded ? ' <span style="color:#1d4ed8;font-weight:700">（' + esc(i.ded) + '）</span>' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td style="text-align:right;white-space:nowrap;padding:4px 0 4px 10px"><b>' + fq(i.qty) + '</b> ' + esc(i.unit) + '</td></tr>'; };
       return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0;background:#fff">' +
         '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b style="font-size:17px">' + esc(o.classTime || '') + '　' + esc(o.className || '') + '「' + esc(o.project || '') + '」</b><span class="muted small">' + esc(o.room || '') + '・' + esc(o.status) + '</span></div>' +
         (o.place ? '<div class="small" style="margin-top:4px;color:#05603a">📍 冷藏食材放在：<b>' + esc(o.place.place) + '</b>' + (o.place.photo ? ' <a href="' + esc(o.place.photo) + '" target="_blank" rel="noopener">看照片</a>' : '') + '</div>' : '') +
@@ -7295,7 +7295,7 @@
   }
   function clOrderHtml(o, compact) {
     var food = o.items.filter(function (i) { return !i.tool; }), tools = o.items.filter(function (i) { return i.tool; });
-    var row = function (i) { return '<tr' + (i.noOrder ? ' class="muted"' : '') + '><td>' + esc(i.name) + (i.noOrder ? '（有貨）' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td class="num" style="white-space:nowrap">' + esc(fmtQty(i.qty)) + ' ' + esc(i.unit) + '</td></tr>'; };
+    var row = function (i) { return '<tr' + (i.noOrder ? ' class="muted"' : '') + '><td>' + esc(i.name) + (i.noOrder ? '（有貨）' : '') + (i.ded ? ' <span style="color:#1d4ed8;font-weight:700;white-space:nowrap">（' + esc(i.ded) + '）</span>' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td class="num" style="white-space:nowrap">' + esc(fmtQty(i.qty)) + ' ' + esc(i.unit) + '</td></tr>'; };
     return '<div class="cl-order" style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:#fff">' +
       (compact ? '' : '<div><b>' + esc(o.teacher) + '</b>　' + esc(o.className) + '　<span class="muted small">' + esc(shortDate(o.date)) + ' ' + esc(o.session === '晚上' ? '夜間' : o.session) + (o.room ? '・' + esc(o.room) : '') + '</span></div>') +
       '<div style="margin:2px 0 4px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b>' + (o.groups ? '・' + esc(o.groups) + ' 組' : '') + ' <span class="muted small">' + esc(o.status) + '</span></div>' +
