@@ -2229,7 +2229,7 @@
     if (view === 'viewSummary' && !$('sFrom').value) {
       $('sFrom').value = data.minDate; $('sTo').value = data.minDate; loadSummary();
     }
-    if (view === 'viewPending') loadPending(note);
+    if (view === 'viewPending') { if (!note && $('pendList').children.length) { loadPending(null, true); loadPendingUnits(); } else loadPending(note); }   // 再回來：留著上次的清單，背景更新
     if (view === 'viewPassword') resetPwForm();
     if (view === 'viewSettings') { loadAuto(); renderSpeed(); loadCrewAdm(); }
     if (view === 'viewAudit') auditOpen();
@@ -3700,10 +3700,15 @@
   ['mineFrom', 'mineTo'].forEach(function (id) { $(id).addEventListener('change', mineDateRun); });
   $('mineDateClr').addEventListener('click', function () { $('mineFrom').value = ''; $('mineTo').value = ''; renderMine(); });
   $('mineList').addEventListener('toggle', function (e) { if (e.target.classList && e.target.classList.contains('mine-past') && !mineQ.trim()) minePastOpen = e.target.open; }, true);
+  var mineLoadedDays = 0;   // 這次登入已經載入過的天數（再回來「我的訂單」先顯示上次的，背景更新）
   function loadMine(note) {
-    msg('mineMsg', 'info', '載入中…');
-    $('mineList').innerHTML = skeleton(3);
+    var quick = !note && mineLoadedDays === mineDays && mineCache.length;
+    if (quick) { renderMine(); msg('mineMsg', 'info', '🔄 更新中…（先顯示剛才的內容）'); }
+    else { msg('mineMsg', 'info', '載入中…'); $('mineList').innerHTML = skeleton(3); }
+    var y = window.scrollY;
     call('getMyOrders', token, mineDays).then(function (list) {
+      mineLoadedDays = mineDays;
+      if (quick) setTimeout(function () { window.scrollTo(0, y); }, 0);
       mineCache = list;
       if (note) msg('mineMsg', 'ok', note);
       else msg('mineMsg', list.length ? '' : 'info', list.length ? '' : (mineDays > 60 ? '最近一年沒有訂單。' : '最近 60 天沒有訂單。'));
@@ -10330,7 +10335,7 @@
   // ------------------------------------------------------------------
   // 我的課：未訂貨的課、不用訂貨、自訂上課時間
   // ------------------------------------------------------------------
-  var lessonsCache = null;
+  var lessonsCache = null, lessonsCacheAs = null;
   var LESSON_STATUS = { ordered: '<span class="badge ok">已訂貨</span>', skipped: '<span class="badge">不用訂貨</span>', todo: '<span class="badge warn">未訂貨</span>', holiday: '<span class="badge holiday">放假</span>' };
   function holidayText(list) {
     return list.map(function (h) { return shortDate(h.from) + (h.to !== h.from ? '～' + shortDate(h.to) : '') + ' ' + h.name; }).join('、');
@@ -10347,7 +10352,9 @@
   function skeleton(n) { var h = ''; for (var i = 0; i < (n || 3); i++) h += '<div class="skel" aria-hidden="true"><i style="width:45%"></i><i style="width:80%"></i><i style="width:65%"></i></div>'; return h; }
   function loadLessons(note) {
     if (!note) msg('lessonsMsg', 'info', '載入中…');
-    if (!note && $('lessonsList') && !$('lessonsList').children.length) $('lessonsList').innerHTML = skeleton(3);
+    if (!note && lessonsCache && lessonsCacheAs === lessonAs) { renderLessons(lessonsCache); msg('lessonsMsg', 'info', '🔄 更新中…（先顯示剛才的內容）'); }   // 再回來：先顯示上次的
+    else if (!note && $('lessonsList') && !$('lessonsList').children.length) $('lessonsList').innerHTML = skeleton(3);
+    lessonsCacheAs = lessonAs;
     if (!data) return Promise.resolve();   // 還在載入（剛登入、重新整理）時點到「我的課」：等載入完再看
     if (data.isAdmin && !$('lessonsAs')._filled) fillLessonsAs();
     return call('getMyLessons', token, lessonAs).then(function (r) { renderLessons(r, note); })
@@ -10820,14 +10827,17 @@
   function saveGridMark(x, m) {
     return call('adminSetLessonMark', token, x.teacher, x.date, x.session, x.course, m.mark, m.note, gridWeekOf());
   }
+  var gridCache = {};
   function loadGrid(note) {
     if (!$('gridWeek').value) {   // 預設：下週（老師正在訂的那一週）
       var t = new Date();
       $('gridWeek').value = isoDate(new Date(mondayOf(t).getTime() + 7 * 864e5));
     }
     $('gridWeek').value = isoDate(mondayOf(parseDate($('gridWeek').value) || new Date()));
-    msg('gridMsg', 'info', '載入中…');
-    call('adminGetSchedule', token, gridWeekOf()).then(function (r) { msg('gridMsg', '', ''); renderGrid(r, note); }).catch(function (err) { msg('gridMsg', 'error', err.message); });
+    var wk = gridWeekOf(), wkKey = JSON.stringify(wk);
+    if (gridCache[wkKey] && !note) { renderGrid(gridCache[wkKey]); msg('gridMsg', 'info', '🔄 更新中…（先顯示剛才的內容）'); }   // 看過的週：先顯示，背景更新
+    else msg('gridMsg', 'info', '載入中…');
+    call('adminGetSchedule', token, wk).then(function (r) { gridCache[wkKey] = r; msg('gridMsg', '', ''); renderGrid(r, note); }).catch(function (err) { msg('gridMsg', 'error', err.message); });
   }
   function renderHolidays(list) {
     data.holidays = list.slice();
