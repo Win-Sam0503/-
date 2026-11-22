@@ -1182,6 +1182,7 @@
           <div class="status-chips" id="gridWeeks" style="margin:0 0 4px"><button type="button" data-gw="-7">上週</button><button type="button" data-gw="0">本週</button><button type="button" data-gw="7">下週</button><button type="button" data-gw="14">下下週</button></div>
           <div><label for="gridTeacher">標出老師</label><select id="gridTeacher"><option value="">（不標）</option></select></div>
           <label class="check"><input type="checkbox" id="gridShowOff" checked> 顯示已取消的課</label>
+          <button type="button" class="btn small" id="gridPrintT" title="這一週每位老師一張：每堂課的課程、班級、教室、實作項目">🖨 列印老師課表</button>
         </div>
       </div>
       <details class="panel noprint" id="holBox" style="padding:10px 16px">
@@ -10990,6 +10991,54 @@
     doPrint();
   });
   $('gridTeacher').addEventListener('change', drawGrid);
+  // ---- 🖨 列印老師課表：這一週每位老師一張（課程、班級、教室、節次、實作項目／叫料狀態），不用再印學校課表 ----
+  function teacherSheetsHtml(r, who) {
+    var wk = r.week; if (!wk) return '';
+    var lessons = [];
+    (r.rows || []).forEach(function (x) { if (x.need && !x.skipped && !x.outOfWeek && x.date) lessons.push(x); });
+    (r.extras || []).forEach(function (x) { if (x.date) lessons.push(x); });
+    var names = []; lessons.forEach(function (x) { if (x.teacher && names.indexOf(x.teacher) < 0) names.push(x.teacher); });
+    names.sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+    if (who) names = names.filter(function (n) { return n === who; });
+    var md = function (d) { var p = d.split('-'); return Number(p[1]) + '/' + Number(p[2]); };
+    var ST = { todo: '<span style="color:#b42318;font-weight:700">⚠ 還沒叫料</span>', skipped: '不用訂貨', holiday: '放假' };
+    return names.map(function (t) {
+      var mine = lessons.filter(function (x) { return x.teacher === t; });
+      var sess = ['上午', '下午'].concat(mine.some(function (x) { return x.session === '晚上'; }) ? ['晚上'] : []);
+      var cell = function (d, se) {
+        return mine.filter(function (x) { return x.date === d && x.session === se; }).map(function (x) {
+          var pjs = []; (x.orders || []).forEach(function (o) { var t2 = o.project || '（沒填實作項目）'; if (pjs.indexOf(t2) < 0) pjs.push(t2); });
+          var pj = pjs.map(function (t2) { return '📝 <b>' + esc(t2) + '</b>'; }).join('<br>');
+          var st = x.status === 'ordered' ? (pj || (x.manual ? '已叫料（手動）' : '已叫料')) : x.status === 'holiday' ? '放假' + (x.holiday ? '：' + esc(x.holiday) : '') : (ST[x.status] || '');
+          return '<div style="margin-bottom:6px"><div style="font-weight:700">' + esc(x.course || '') + (x.period ? ' <span style="font-weight:400;color:#555">' + esc(x.period) + '</span>' : '') + '</div>' +
+            '<div style="color:#333">' + esc([x.className, x.room].filter(Boolean).join('・')) + '</div><div style="margin-top:2px">' + st + '</div></div>';
+        }).join('');
+      };
+      return '<div class="tsheet" style="page-break-after:always;break-after:page;padding:4px 0">' +
+        '<h2 style="margin:0 0 2px;font-size:22px">' + esc(t) + ' 老師　課表</h2><div style="color:#555;margin-bottom:8px">' + md(wk.from) + '（一）～' + md(wk.to) + '（五）・印出日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '</div>' +
+        '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px"><thead><tr><th style="width:56px;border:1px solid #999;background:#f2f2f2"></th>' +
+        wk.dates.map(function (d, i) { return '<th style="border:1px solid #999;background:#f2f2f2;padding:4px">星期' + '一二三四五'.charAt(i) + '<br><span style="font-weight:400">' + md(d) + (wk.holidays && wk.holidays[i] ? '・放假' : '') + '</span></th>'; }).join('') + '</tr></thead><tbody>' +
+        sess.map(function (se) { return '<tr><th style="border:1px solid #999;background:#f7f7f7">' + se + '</th>' + wk.dates.map(function (d) { return '<td style="border:1px solid #999;vertical-align:top;padding:6px;height:110px">' + cell(d, se) + '</td>'; }).join('') + '</tr>'; }).join('') +
+        '</tbody></table></div>';
+    }).join('');
+  }
+  $('gridPrintT').addEventListener('click', function () {
+    if (!gridData || !gridData.week) { notice('請先選一週，等課表載入好再印。'); return; }
+    var names = []; (gridData.rows || []).concat(gridData.extras || []).forEach(function (x) { if (x.teacher && names.indexOf(x.teacher) < 0) names.push(x.teacher); });
+    names.sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+    var cur = $('gridTeacher').value;
+    var html = '<div style="text-align:left"><b>列印哪一週、哪位老師？</b><div class="muted small" style="margin:4px 0 8px">週：' + esc(gridData.week.from) + ' 起（要換週，先在上面「哪一週」選）</div>' +
+      '<select id="gptWho" style="width:100%"><option value="">全部老師（每位一張）</option>' + names.map(function (n) { return '<option' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select></div>';
+    ask('', '列印', { html: html }).then(function (ok) {
+      if (!ok) return;
+      var who = ($('gptWho') || {}).value || '';
+      var body = teacherSheetsHtml(gridData, who);
+      if (!body) { notice('這一週沒有課。'); return; }
+      var d = document.createElement('div');
+      d.innerHTML = '<style>@page{size:A4 landscape;margin:10mm}.tsheet:last-child{page-break-after:auto;break-after:auto}</style>' + body;
+      printSection(d);
+    });
+  });
   $('gridShowOff').addEventListener('change', drawGrid);
   $('gridBox').addEventListener('click', function (e) {
     var a = e.target.closest('button[data-gadd]');
