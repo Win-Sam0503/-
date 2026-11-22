@@ -11014,12 +11014,58 @@
             '<div style="color:#333">' + esc([x.className, x.room].filter(Boolean).join('・')) + '</div><div style="margin-top:2px">' + st + '</div></div>';
         }).join('');
       };
+      // 學校課表的版面：一節一列（第一～八節，第四節後面是午休），連堂合成一格；有夜間課再加夜間第一～四節
+      var NUM = '一二三四五六七八';
+      var span = function (x) {
+        var m = String(x.period || '').match(/(\d+)\s*[-~～－]\s*(\d+)/), one = String(x.period || '').match(/^\D*(\d+)\D*$/);
+        var a = m ? Number(m[1]) : one ? Number(one[1]) : 0, b = m ? Number(m[2]) : a;
+        if (x.session === '晚上') return { night: true, a: a || 1, b: b || 4 };
+        if (!a) return x.session === '下午' ? { a: 5, b: 7 } : { a: 1, b: 4 };   // 沒寫節次：上午當 1～4、下午當 5～7
+        return { a: Math.max(1, Math.min(8, a)), b: Math.max(1, Math.min(8, b || a)) };
+      };
+      var hasNight = mine.some(function (x) { return x.session === '晚上'; });
+      var slots = [];   // { key, label, night, p }
+      for (var p = 1; p <= 8; p++) { slots.push({ key: 'd' + p, label: '第' + NUM.charAt(p - 1) + '節', p: p }); if (p === 4) slots.push({ key: 'lunch', label: '午休' }); }
+      if (hasNight) for (var q = 1; q <= 4; q++) slots.push({ key: 'n' + q, label: '夜間<br>第' + NUM.charAt(q - 1) + '節', p: q, night: true });
+      // 每天：哪一節開始一格、往下合幾列；同一節兩堂課就放在同一格
+      var grid = wk.dates.map(function (d) {
+        var g = {}, cover = {};
+        mine.filter(function (x) { return x.date === d; }).sort(function (a, b) { return span(a).a - span(b).a; }).forEach(function (x) {
+          var sp = span(x), pre = sp.night ? 'n' : 'd', k0 = pre + sp.a;
+          if (cover[k0]) { g[cover[k0]].list.push(x); return; }
+          var rows = 0;
+          for (var i = sp.a; i <= sp.b; i++) { if (cover[pre + i]) break; cover[pre + i] = k0; rows++; if (!sp.night && i === 4 && sp.b > 4) { cover.lunch = k0; rows++; } }
+          g[k0] = { list: [x], rows: rows };
+        });
+        return { g: g, cover: cover };
+      });
+      var cellHtml = function (list) {
+        return list.map(function (x) {
+          var pjs = []; (x.orders || []).forEach(function (o) { var t2 = o.project || '（沒填實作項目）'; if (pjs.indexOf(t2) < 0) pjs.push(t2); });
+          var st = x.status === 'ordered' ? (pjs.length ? pjs.map(function (t2) { return '📝 <b>' + esc(t2) + '</b>'; }).join('<br>') : (x.manual ? '已叫料（手動）' : '已叫料')) :
+            x.status === 'holiday' ? '放假' + (x.holiday ? '：' + esc(x.holiday) : '') : (ST[x.status] || '');
+          return '<div style="margin-bottom:4px"><div style="font-weight:700;font-size:15px">' + esc(x.course || '') + '</div>' +
+            '<div>' + esc(x.className || '') + '</div><div style="color:#444">' + esc(x.room || '') + '</div><div style="margin-top:2px;font-size:13px">' + st + '</div></div>';
+        }).join('');
+      };
+      var body = slots.map(function (sl) {
+        if (sl.key === 'lunch') {
+          return '<tr><th style="border:1px solid #777;background:#eee;font-weight:400;font-size:12px;padding:2px">午休</th>' + wk.dates.map(function (d, i) {
+            var c = grid[i].cover.lunch; return c ? '' : '<td style="border:1px solid #777;background:#f7f7f7;height:14px"></td>';
+          }).join('') + '</tr>';
+        }
+        return '<tr><th style="border:1px solid #777;background:#f2f2f2;padding:4px;font-size:13px;width:56px">' + sl.label + '</th>' + wk.dates.map(function (d, i) {
+          var gd = grid[i], c = gd.g[sl.key];
+          if (c) return '<td rowspan="' + c.rows + '" style="border:1px solid #777;vertical-align:middle;text-align:center;padding:4px;background:#fff">' + cellHtml(c.list) + '</td>';
+          if (gd.cover[sl.key]) return '';
+          return '<td style="border:1px solid #777;height:44px"></td>';
+        }).join('') + '</tr>';
+      }).join('');
       return '<div class="tsheet" style="page-break-after:always;break-after:page;padding:4px 0">' +
-        '<h2 style="margin:0 0 2px;font-size:22px">' + esc(t) + ' 老師　課表</h2><div style="color:#555;margin-bottom:8px">' + md(wk.from) + '（一）～' + md(wk.to) + '（五）・印出日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '</div>' +
-        '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px"><thead><tr><th style="width:56px;border:1px solid #999;background:#f2f2f2"></th>' +
-        wk.dates.map(function (d, i) { return '<th style="border:1px solid #999;background:#f2f2f2;padding:4px">星期' + '一二三四五'.charAt(i) + '<br><span style="font-weight:400">' + md(d) + (wk.holidays && wk.holidays[i] ? '・放假' : '') + '</span></th>'; }).join('') + '</tr></thead><tbody>' +
-        sess.map(function (se) { return '<tr><th style="border:1px solid #999;background:#f7f7f7">' + se + '</th>' + wk.dates.map(function (d) { return '<td style="border:1px solid #999;vertical-align:top;padding:6px;height:110px">' + cell(d, se) + '</td>'; }).join('') + '</tr>'; }).join('') +
-        '</tbody></table></div>';
+        '<h2 style="margin:0 0 2px;font-size:22px;text-align:center">' + esc(t) + ' 老師　課表</h2><div style="color:#555;margin-bottom:6px;text-align:center">' + md(wk.from) + '（一）～' + md(wk.to) + '（五）・印出日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '</div>' +
+        '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px"><thead><tr><th style="width:56px;border:1px solid #777;background:#e8e8e8">節次</th>' +
+        wk.dates.map(function (d, i) { return '<th style="border:1px solid #777;background:#e8e8e8;padding:4px">星期' + '一二三四五'.charAt(i) + '<br><span style="font-weight:400">' + md(d) + (wk.holidays && wk.holidays[i] ? '・放假' : '') + '</span></th>'; }).join('') + '</tr></thead><tbody>' +
+        body + '</tbody></table></div>';
     }).join('');
   }
   $('gridPrintT').addEventListener('click', function () {
