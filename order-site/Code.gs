@@ -260,7 +260,9 @@ function changePassword(token, oldPassword, newPassword) {
     const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
     const r = t.rows.find(function (x) { return String(x['帳號']).trim() === account; });
     if (!r || !isTrue_(r['啟用'])) throw new Error('找不到你的帳號，請聯絡管理者。');
-    if (String(r['密碼']) !== oldPassword) throw new Error('目前的密碼不正確。');
+    const viaReset = !!CacheService.getScriptCache().get('pwresettok:' + token);   // LINE「忘記密碼」連結登入的：不用舊密碼
+    if (!viaReset && String(r['密碼']) !== oldPassword) throw new Error('目前的密碼不正確。');
+    if (viaReset && String(r['密碼']) === newPassword) throw new Error('新密碼不能跟原本的密碼一樣。');
     // 純文字格式，避免「0123」被試算表變成數字 123
     const cell = t.sheet.getRange(r._row, t.cols['密碼']);
     cell.setNumberFormat('@');
@@ -269,8 +271,10 @@ function changePassword(token, oldPassword, newPassword) {
   } finally {
     lock.releaseLock();
   }
+  const wasReset = !!CacheService.getScriptCache().get('pwresettok:' + token);
   CacheService.getScriptCache().remove('mustchange:' + token);
-  logLogin_(account, '改密碼');
+  CacheService.getScriptCache().remove('pwresettok:' + token);
+  logLogin_(account, wasReset ? '改密碼（LINE 忘記密碼）' : '改密碼');
   return true;
 }
 
@@ -4263,6 +4267,8 @@ function doPost(e) {
         if (ev.source && ev.source.type === 'user') {
           const adm = lineAdminReply_(ev.message.text, userId);   // 管理者：課表、料單、補訂貨（卡片，回覆不算則數）
           if (adm) { lineReplyMsgs_(ev.replyToken, adm); return; }
+          const fp = lineForgotPw_(ev.message.text, userId);   // 忘記密碼：回一次性的重設連結
+          if (fp) { lineReplyMsgs_(ev.replyToken, fp); return; }
           const om = lineMyOrdersMsgs_(ev.message.text, userId);   // 老師：我的訂單（卡片列出每張的材料）
           if (om) { lineReplyMsgs_(ev.replyToken, om); return; }
           const ans = lineAutoReply_(ev.message.text, userId);
@@ -7979,4 +7985,41 @@ function getTodayOrders(token, dateStr) {
   const places = placesFor_(list.map(function (o) { return o.orderNo; }));
   list.forEach(function (o) { o.place = places[o.orderNo] || null; });
   return { date: ds, orders: list };
+}
+
+
+// ---- 🔑 忘記密碼：綁定 LINE 的老師在官方帳號傳「忘記密碼」，回一個一次性的連結（10 分鐘、用一次），打開就設定新密碼 ----
+// LINE 帳號只有老師本人拿得到，所以用它來確認身分；回覆不算則數。沒綁定的請管理者「重設密碼」改回 0000。
+const PW_RESET_MINUTES = 10;
+function lineForgotPw_(text, userId) {
+  const t = String(text || '').replace(/\s/g, '');
+  if (!(/忘記密碼|忘了密碼|密碼忘了|密碼忘記|重設密碼|找回密碼/.test(t) && t.length <= 12)) return null;
+  const account = lineAccountOf_(userId);
+  if (!account) return [{ type: 'text', text: '這個 LINE 還沒綁定訂貨系統的帳號，沒辦法用 LINE 重設密碼。\n請找管理者在「系統設定 → 👤 老師帳號」按「重設密碼」（改回 0000），登入後再自己改。' }];
+  const r = readTable_(SHEET.accounts, ['帳號', '啟用']).rows.find(function (x) { return String(x['帳號']).trim() === account; });
+  if (!r || !isTrue_(r['啟用'])) return [{ type: 'text', text: '「' + account + '」這個帳號已經停用，請找管理者。' }];
+  const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  CacheService.getScriptCache().put('pwreset:' + code, account, PW_RESET_MINUTES * 60);
+  const u = lineUrl_('');
+  if (!u) return [{ type: 'text', text: '訂貨網站還沒部署，請找管理者。' }];
+  try { logLogin_(account, 'LINE 忘記密碼：已傳重設連結'); } catch (e) {}
+  return [fxFlexMsg_('重設訂貨系統密碼', [fxB_('🔑 重設密碼', account + '（訂貨系統）', [
+    fxT_('按下面的按鈕，會打開訂貨網站，直接請你設定新密碼（不用舊密碼）。', { size: 'sm' }),
+    fxT_('⏱ ' + PW_RESET_MINUTES + ' 分鐘內有效、只能用一次。不是你本人要求的話，不用理它，原本的密碼不會變。', { size: 'xs', color: FX_MUTED })
+  ], [{ type: 'button', style: 'primary', color: FX_BRAND, action: { type: 'uri', label: '設定新密碼', uri: u + '&rp=' + code } }])])];
+}
+/** 打開忘記密碼的連結：登入，但只能先設定新密碼 */
+function loginByResetLink(code) {
+  code = String(code || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
+  const cache = CacheService.getScriptCache(), account = code ? cache.get('pwreset:' + code) : null;
+  if (!account) throw new Error('這個重設密碼連結已經過期或用過了。請在 LINE 再傳一次「忘記密碼」。');
+  cache.remove('pwreset:' + code);
+  const r = readTable_(SHEET.accounts, ['帳號', '啟用']).rows.find(function (x) { return String(x['帳號']).trim() === account; });
+  if (!r || !isTrue_(r['啟用'])) throw new Error('這個帳號已經停用，請找管理者。');
+  const token = Utilities.getUuid();
+  cache.put('session:' + token, account, SESSION_HOURS * 3600);
+  cache.put('mustchange:' + token, '1', SESSION_HOURS * 3600);   // 設定好新密碼之前，什麼都不能做
+  cache.put('pwresettok:' + token, '1', 30 * 60);
+  try { logLogin_(account, '成功（LINE 忘記密碼連結）'); } catch (e) {}
+  return { token: token, account: account, mustChange: true, reset: true };
 }

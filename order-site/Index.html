@@ -740,6 +740,8 @@
     <div class="field"><label for="lAccount">帳號</label><input id="lAccount" type="text" autocomplete="username"></div>
     <div class="field"><label for="lPassword">密碼</label><input id="lPassword" type="password" autocomplete="current-password"></div>
     <button class="btn" id="loginBtn" type="submit">登入</button>
+    <details class="small" style="margin-top:10px"><summary style="cursor:pointer;color:var(--brand)">忘記密碼？</summary>
+      <div class="muted" style="margin-top:6px;line-height:1.7">・<b>有綁定 LINE 的老師</b>：在訂貨系統的 LINE 官方帳號傳「<b>忘記密碼</b>」，會收到一個重設連結（10 分鐘內有效），按了直接設定新密碼。<br>・<b>沒有綁定 LINE</b>：請找管理者在「系統設定 → 老師帳號」按「重設密碼」，改回 0000 後登入再自己改。</div></details>
     <div class="copyright">© 2026 翁煒程 版權所有。<br>本系統之程式碼、介面設計與內容均受中華民國著作權法保護，僅供三信家商餐飲科教職員內部使用。<br>未經著作權人書面同意，禁止以任何形式重製、拷貝、修改、轉載或散佈本系統之程式碼、畫面及網址，亦不得提供予校外人士使用。<br>違者將依法追究相關法律責任。</div>
   </form>
 </section>
@@ -8733,8 +8735,8 @@
   // 修改密碼（用預設密碼登入時強制修改）
   // ------------------------------------------------------------------
   var forcedPw = null;   // 強制改密碼時：{ account, oldPw }
-  function enterForcedChange(account, oldPw) {
-    forcedPw = { account: account || (forcedPw && forcedPw.account) || '', oldPw: oldPw || (forcedPw && forcedPw.oldPw) || '' };
+  function enterForcedChange(account, oldPw, reset) {
+    forcedPw = { account: account || (forcedPw && forcedPw.account) || '', oldPw: oldPw || (forcedPw && forcedPw.oldPw) || '', reset: !!(reset || (forcedPw && forcedPw.reset)) };
     $('viewLogin').classList.add('hidden');
     $('app').classList.remove('hidden');
     $('nav').classList.add('forced');
@@ -8747,12 +8749,13 @@
     $('pwShow').checked = false;
     ['pwOld', 'pwNew', 'pwNew2'].forEach(function (id) { $(id).type = 'password'; });
     var forced = !!forcedPw;
-    $('pwTitle').textContent = forced ? '第一次登入，請先設定你自己的密碼' : '修改密碼';
-    // 剛登入的密碼已知，就不用再輸入一次目前的密碼
-    $('pwOldBox').classList.toggle('hidden', forced && !!forcedPw.oldPw);
+    var reset = forced && forcedPw.reset;
+    $('pwTitle').textContent = reset ? '🔑 忘記密碼：請設定新密碼' : forced ? '第一次登入，請先設定你自己的密碼' : '修改密碼';
+    // 剛登入的密碼已知（或用 LINE 忘記密碼連結進來），就不用再輸入目前的密碼
+    $('pwOldBox').classList.toggle('hidden', forced && (!!forcedPw.oldPw || reset));
     $('pwCancel').classList.toggle('hidden', forced);
-    msg('pwMsg', forced ? 'info' : '', forced ? '你目前使用的是預設密碼，請先改成只有你知道的密碼，改好就可以開始訂貨。' : '');
-    setTimeout(function () { (forced && forcedPw.oldPw ? $('pwNew') : $('pwOld')).focus(); }, 0);
+    msg('pwMsg', forced ? 'info' : '', reset ? forcedPw.account + ' 老師，請設定一組新密碼（至少 4 碼），存好就可以開始用。' : forced ? '你目前使用的是預設密碼，請先改成只有你知道的密碼，改好就可以開始訂貨。' : '');
+    setTimeout(function () { (forced && (forcedPw.oldPw || reset) ? $('pwNew') : $('pwOld')).focus(); }, 0);
   }
   $('pwShow').addEventListener('change', function () {
     var t = this.checked ? 'text' : 'password';
@@ -8761,13 +8764,14 @@
   $('pwCancel').addEventListener('click', function () { show('viewOrder'); });
   $('pwForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    var oldPw = forcedPw && forcedPw.oldPw ? forcedPw.oldPw : $('pwOld').value;
+    var viaReset = !!(forcedPw && forcedPw.reset);
+    var oldPw = forcedPw && forcedPw.oldPw ? forcedPw.oldPw : viaReset ? '' : $('pwOld').value;
     var p1 = $('pwNew').value, p2 = $('pwNew2').value;
-    var err = !oldPw ? '請輸入目前的密碼。'
+    var err = !oldPw && !viaReset ? '請輸入目前的密碼。'
       : /\s/.test(p1) ? '新密碼不能有空白。'
       : p1.length < 4 ? '新密碼至少要 4 碼。'
       : p1 === '0000' ? '新密碼不能是預設密碼 0000。'
-      : p1 === oldPw ? '新密碼不能跟目前的密碼一樣。'
+      : !viaReset && p1 === oldPw ? '新密碼不能跟目前的密碼一樣。'
       : p1 !== p2 ? '兩次輸入的新密碼不一樣，請再確認。' : '';
     if (err) { msg('pwMsg', 'error', err); return; }
     var btn = $('pwSave');
@@ -11306,6 +11310,15 @@
         }
         if (cv) {   // LINE 校隊「📱 網頁查詢」：不用帳號密碼，只能看課表、料單
           call('crewViewLogin', cv).then(startCrewLook).catch(function (err) { showLogin(''); msg('loginMsg', 'error', err.message); });
+          return;
+        }
+        var rp = loc && loc.parameter && loc.parameter.rp;
+        if (rp) {   // LINE「忘記密碼」的連結：直接進設定新密碼
+          call('loginByResetLink', rp).then(function (res) {
+            token = res.token;
+            try { sessionStorage.setItem(TOKEN_KEY, token); localStorage.setItem('ckOrder.lastAccount', res.account); } catch (e) {}
+            enterForcedChange(res.account, '', true); resetPwForm();
+          }).catch(function (err) { showLogin(''); msg('loginMsg', 'error', err.message); });
           return;
         }
         if (!lt) { go(); return; }
