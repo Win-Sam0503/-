@@ -8254,7 +8254,58 @@
     pState = { from: from, to: to, only: only, rows: rows, gone: gone, vstate: vstate, dirty: {}, overrides: saved.filter(function (s) { return s.kind === '合計'; }),
       wait: orders.filter(function (o) { return o.status === '待處理'; }).length };
     renderPurchase();
+    pDraftOffer();
   }
+  // ---- ② 訂貨單打到一半自動暫存（這台電腦）：關掉網頁、當掉、切到別頁再回來，都可以恢復；儲存那家廠商後就清掉 ----
+  function pDraftKey() { return pState ? 'ckOrder.pDraft.' + data.account + '|' + pState.from + '|' + pState.to + '|' + (pState.only || '') : ''; }
+  function pDraftSave() {
+    if (!pState) return;
+    var vs = Object.keys(pState.dirty).filter(function (v) { return pState.dirty[v]; });
+    try {
+      if (!vs.length) { localStorage.removeItem(pDraftKey()); return; }
+      var t = new Date();
+      localStorage.setItem(pDraftKey(), JSON.stringify({ at: (t.getMonth() + 1) + '/' + t.getDate() + ' ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2), vendors: vs,
+        rows: pState.rows.filter(function (r) { return vs.indexOf(r.vendor) >= 0; }).map(function (r) {
+          return { k: r.kind === '補庫存' ? '' : pKey(r), kind: r.kind, vendor: r.vendor, date: r.date, group: r.group, name: r.name, id: r.id, qty: r.qty, unit: r.unit, note: r.note };
+        }),
+        overrides: (pState.overrides || []).filter(function (o) { return vs.indexOf(o.vendor) >= 0; }) }));
+    } catch (e) {}
+  }
+  function pDraftOffer() {
+    var d = null; try { d = JSON.parse(localStorage.getItem(pDraftKey()) || 'null'); } catch (e) {}
+    if (!d || !d.vendors || !d.vendors.length) return;
+    var box = document.createElement('div');
+    box.className = 'msg warn noprint'; box.id = 'pDraftBox';
+    box.innerHTML = '💾 這台電腦有 <b>' + esc(d.at) + '</b> 打到一半、還沒儲存的訂貨單（' + esc(d.vendors.join('、')) + '）。 ' +
+      '<button type="button" class="btn small" id="pDraftUse">恢復上次打的</button> <button type="button" class="btn ghost small" id="pDraftDrop">不用，丟掉</button>';
+    var host = $('vendorSheets'); host.insertBefore(box, host.firstChild);
+    $('pDraftUse').onclick = function () {
+      var byKey = {}; pState.rows.forEach(function (r) { if (r.kind !== '補庫存') byKey[pKey(r)] = r; });
+      // 那幾家：先拿掉現在的補庫存列、合計覆寫，再換成暫存的
+      pState.rows = pState.rows.filter(function (r) { return !(r.kind === '補庫存' && d.vendors.indexOf(r.vendor) >= 0); });
+      pState.overrides = (pState.overrides || []).filter(function (o) { return d.vendors.indexOf(o.vendor) < 0; }).concat(d.overrides || []);
+      var miss = 0;
+      d.rows.forEach(function (x) {
+        if (x.kind === '補庫存') { pState.rows.push({ date: x.date, group: x.group, vendor: x.vendor, name: x.name, id: x.id, need: '', needUnit: '', kind: '補庫存', qty: x.qty, unit: x.unit, note: x.note }); return; }
+        var r = byKey[x.k]; if (!r) { miss++; return; }
+        r.qty = x.qty; r.unit = x.unit; r.note = x.note;
+      });
+      d.vendors.forEach(function (v) { pState.dirty[v] = true; });
+      renderPurchase();
+      msg('vendorMsg', 'ok', '已恢復 ' + d.at + ' 打的內容（' + d.vendors.join('、') + '）。記得按「先儲存」或「確定叫貨」才會存到系統。' + (miss ? '（有 ' + miss + ' 筆老師之後改了或取消了，沒有恢復）' : ''));
+    };
+    $('pDraftDrop').onclick = function () { try { localStorage.removeItem(pDraftKey()); } catch (e) {} box.remove(); };
+  }
+  // 打字就存（停手 1 秒）；關網頁前、切到別的分頁也存
+  var pDraftT = null;
+  document.addEventListener('input', function (e) { if (pState && e.target.closest && e.target.closest('#vendorSheets')) { clearTimeout(pDraftT); pDraftT = setTimeout(pDraftSave, 1000); } }, true);
+  document.addEventListener('change', function (e) { if (pState && e.target.closest && e.target.closest('#vendorSheets')) { clearTimeout(pDraftT); pDraftT = setTimeout(pDraftSave, 300); } }, true);
+  document.addEventListener('click', function (e) { if (pState && e.target.closest && e.target.closest('#vendorSheets [data-pdel], #vendorSheets [data-padd], #vendorSheets button')) { clearTimeout(pDraftT); pDraftT = setTimeout(pDraftSave, 600); } }, true);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) pDraftSave(); });
+  window.addEventListener('beforeunload', function (e) {
+    pDraftSave();
+    if (pState && Object.keys(pState.dirty).some(function (v) { return pState.dirty[v]; }) && !$('viewVendor').classList.contains('hidden')) { e.preventDefault(); e.returnValue = ''; }
+  });
   function pDiff(r) {
     if (r.kind === '補庫存') return 'add';
     if (!(Number(r.qty) > 0)) return 'zero';
@@ -8716,6 +8767,7 @@
       call('adminSavePurchase', token, pState.from, pState.to, v, rows, confirm).then(function (res) {
         pState.vstate[v] = { status: res.status, time: '剛剛', by: data.account };
         pState.dirty[v] = false;
+        pDraftSave();   // 這家存好了：暫存裡拿掉（全部都存好就整個清掉）
         delete pState.gone[v];
         pState.rows.forEach(function (r) { if (r.vendor === v) delete r.flag; });
         renderPurchase();
