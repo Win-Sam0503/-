@@ -3267,7 +3267,9 @@
       var ubtn = $('submitBtn');
       setBusy(ubtn, true, '儲存中…');
       msg('orderMsg', '', '');
+      var uprog = sendProgress('儲存訂單修改中');
       call('updateOrder', token, no, payload).then(function () {
+        uprog.stop();
         payload.newUnits.forEach(function (u) { if (data.pendingUnits.indexOf(u) < 0) data.pendingUnits.push(u); });
         var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
         draft = emptyDraft(); draft.info = keep; saveDraft();
@@ -3277,8 +3279,9 @@
         loadMine('訂單 ' + no + ' 已修改。');
         refreshLessonCount();
       }).catch(function (e) {
+        uprog.stop();
         msg('orderMsg', 'error', '儲存失敗：' + e.message);
-      }).then(function () { setBusy(ubtn, false); renderEditBanner(); });
+      }).then(function () { uprog.stop(); setBusy(ubtn, false); renderEditBanner(); });
       });
       return;
     }
@@ -3306,18 +3309,22 @@
     var btn = $('submitBtn');
     setBusy(btn, true, '送出中…');
     msg('orderMsg', 'info', '送出中，請稍候（大約 5～10 秒），不要關掉網頁…');
+    var prog = sendProgress('訂單送出中');
+    if (multi.length) prog.part('第 1／' + (multi.length + 1) + ' 張');
     call('submitOrder', token, payload).then(function (res) {
       // 一起訂的其他堂課：同一份材料，日期、時段、班級、教室照各堂課，一張一張送
       var extra = [], fail = [];
       return multi.reduce(function (p, y) {
         return p.then(function () {
           var p2 = JSON.parse(JSON.stringify(payload));
+          prog.part('第 ' + (extra.length + fail.length + 2) + '／' + (multi.length + 1) + ' 張');
           p2.useDate = y.date; p2.classTime = y.session; p2.className = y.className || payload.className; p2.room = y.room || payload.room;
           return call('submitOrder', token, p2).then(function (r2) { extra.push(shortDate(y.date) + ' ' + (y.className || '') + '（' + r2.orderNo + '）'); })
             .catch(function (e2) { fail.push(shortDate(y.date) + ' ' + (y.className || '') + '：' + e2.message); });
         });
       }, Promise.resolve()).then(function () { return { res: res, extra: extra, fail: fail }; });
     }).then(function (all) {
+      prog.stop();
       var res = all.res;
       $('doneNo').textContent = res.orderNo + (all.extra.length ? ' ＋ ' + all.extra.length + ' 張' : '');
       var nw = new Date(), p2 = function (v) { return ('0' + v).slice(-2); };
@@ -3343,14 +3350,43 @@
       show('viewDone');
       refreshLessonCount();
     }).catch(function (e) {
+      prog.stop();
       var net = /NetworkError|連線失敗|HTTP 0/.test(e.message);
       var text = net ? '網路斷線，訂單可能沒有送出。請先到「我的訂單」看有沒有這張，沒有再重新送出（清單還在）。' : '送出失敗：' + e.message;
       msg('orderMsg', 'error', text);
       toast(text);
-    }).then(function () { setBusy(btn, false); });
+    }).then(function () { prog.stop(); setBusy(btn, false); });
     });
     });
   });
+
+  // ---- 送出／儲存進度：畫面下方固定一條，顯示已經等了幾秒；等久了告訴老師「還在送、不要關、不用重按」 ----
+  var sendingNow = false;
+  function sendProgress(label) {
+    var t0 = Date.now(), part = '', box = document.getElementById('sendProg');
+    if (!box) {
+      box = document.createElement('div'); box.id = 'sendProg'; box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite');
+      box.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;width:min(520px,calc(100% - 32px));background:#fff;border:2px solid var(--brand,#8a2b1a);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:12px 16px;font-size:15px;line-height:1.5';
+      document.body.appendChild(box);
+    }
+    box.style.display = 'block'; sendingNow = true;
+    var draw = function () {
+      var sec = Math.floor((Date.now() - t0) / 1000);
+      var hint = sec < 8 ? '請稍候，通常 5～10 秒。' : sec < 20 ? '主機比較忙，還在處理中。<b>不要關掉網頁，也不用再按一次。</b>' : sec < 45 ? '比平常久（可能很多老師同時在送，或網路比較慢），還在等主機回覆。<b>請不要關掉網頁、不要重按。</b>' : '真的很久了。再等一下；如果最後顯示失敗，先到「我的訂單」看有沒有送出，<b>不要直接重送</b>，免得送兩張。';
+      var pct = Math.min(95, Math.round(100 * (1 - Math.exp(-sec / 9))));
+      box.innerHTML = '<div style="display:flex;justify-content:space-between;gap:8px"><b>⏳ ' + esc(label) + (part ? '（' + esc(part) + '）' : '') + '</b><span class="muted">已經 ' + sec + ' 秒</span></div>' +
+        '<div style="height:8px;background:#f2f4f7;border-radius:99px;margin:8px 0;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:var(--brand,#8a2b1a);transition:width .9s linear"></div></div>' +
+        '<div class="small" style="color:' + (sec < 20 ? '#475467' : '#b54708') + '">' + hint + '</div>';
+    };
+    draw();
+    var iv = setInterval(draw, 1000);
+    return {
+      part: function (p) { part = p; draw(); },
+      stop: function () { clearInterval(iv); box.style.display = 'none'; sendingNow = false; }
+    };
+  }
+  // 送出中關網頁、按重新整理：先問（訂單可能送一半）
+  window.addEventListener('beforeunload', function (e) { if (sendingNow) { e.preventDefault(); e.returnValue = ''; } });
 
   // ------------------------------------------------------------------
   // 我的訂單
