@@ -5522,6 +5522,23 @@ function adminListTeachers(token) {
 }
 
 /**
+ * 管理者：看全部帳號的密碼。要再打一次自己的密碼才給（避免別人用開著的電腦偷看），每次查看都記在錯誤紀錄（操作紀錄）。
+ */
+function adminRevealPasswords(token, myPassword) {
+  const me = auth_(token, true);
+  const t = readTable_(SHEET.accounts, ['帳號', '密碼', '啟用']);
+  const mine = t.rows.find(function (x) { return String(x['帳號']).trim() === me; });
+  if (!mine || String(mine['密碼']) !== String(myPassword || '')) {
+    logError_(me, '查看老師密碼', '操作紀錄', '密碼打錯，沒有顯示', '系統設定');
+    throw new Error('你的密碼不正確，沒有顯示。');
+  }
+  logError_(me, '查看老師密碼', '操作紀錄', '查看了全部帳號的密碼', '系統設定');
+  const out = {};
+  t.rows.forEach(function (r) { const a = String(r['帳號']).trim(); if (a) out[a] = String(r['密碼']); });
+  return out;
+}
+
+/**
  * 管理者：新增老師帳號（可以一次好幾位，用「、」或空白隔開；預設密碼 0000，第一次登入要自己改）、停用／啟用、重設密碼（改回 0000）。
  * 帳號就是老師的名字（登入、代訂、課表都用這個名字）。
  */
