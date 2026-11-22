@@ -8155,6 +8155,7 @@ function tblCacheDrop_(name) {
 function adminClearSheetCache(token) {
   auth_(token, true);
   const c = CacheService.getScriptCache();
-  c.removeAll(TBL_CACHE_SHEETS_.map(function (n) { return 'tbl:' + n + ':n'; }).concat([BOOT_CACHE_KEY]));
+  // 連食材總表、自備食材、管理者名單、教學影片清單一起清（登入狀態不動，不會把大家登出）
+  c.removeAll(TBL_CACHE_SHEETS_.map(function (n) { return 'tbl:' + n + ':n'; }).concat([BOOT_CACHE_KEY, 'items:n', 'selfIds', 'extraAdmins', 'helpVideos']));
   return TBL_CACHE_SHEETS_.length;
 }
