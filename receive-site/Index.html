@@ -1181,7 +1181,8 @@
       var m = cur.marks[x.key] || {}, s = m.status || '';
       var cls = (s === '到齊' ? ' ok' : s === '停送' ? ' stop' : s ? ' bad' : '') + (hl[x.key] ? ' hl' : '');
       html += '<div class="item' + cls + '" data-k="' + esc(x.key) + '"><div><span class="nm" title="點一下：其他班的同樣食材一起標黃色">' + esc(x.name) + '</span>' +
-        (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') + '</div>' +
+        (x.note ? ' <span class="muted small">' + esc(x.note) + '</span>' : '') + (x.ovr ? ' <span class="badge none">' + esc(x.ovr) + '</span>' : '') +
+        (x.ded ? ' <span class="small" style="color:#1d4ed8;font-weight:700">（' + esc(x.ded) + '）</span>' : '') + '</div>' +
         '<div class="ex">' + esc(x.expect) + '</div><div class="acts">' +
         (s === '停送' ? '<span class="badge none">⛔ 停送' + (m.note ? '（' + esc(m.note) + '）' : '') + '</span> ' : '') +
         ['到齊', '少送', '沒送', '送錯', '多送', '品質不好', '缺貨', '其他'].map(function (t) {
@@ -1194,6 +1195,10 @@
         (s ? '<button type="button" class="clr" data-clr="1" title="按錯了：這一行回到還沒點">✕</button>' : '') +
         '</div></div>';
     });
+    // 扣貨全部扣掉的（用庫存、廠商不會送）：列在最下面，不用點
+    var dq = $('doQ').value.trim(), ded = (b.deducted || []).filter(function (d) { return !dq || d.name.indexOf(dq) >= 0 || d.cls.indexOf(dq) >= 0; });
+    if (ded.length) html += '<div class="grp" style="margin-top:14px;color:#1d4ed8">📦 扣貨已扣掉（用庫存，廠商不會送，不用點）' + ded.length + ' 項</div>' +
+      ded.map(function (d) { return '<div class="item" style="opacity:.85;background:#eff6ff"><div><span class="nm">' + esc(d.name) + '</span> <span class="small" style="color:#1d4ed8;font-weight:700">（扣貨已扣掉）</span></div><div class="ex">' + esc(d.need) + '</div><div class="acts small muted">' + esc((d.date ? mdw(d.date) + '　' : '') + d.cls + (d.teacher ? '　' + d.teacher : '')) + '</div></div>'; }).join('');
     $('doList').innerHTML = html || '<div class="muted" style="padding:16px 0">沒有符合的品項。</div>';
     var f = filtering(), q = $('doQ').value.trim();
     $('doCount').textContent = f ? (q ? '找到 ' + shown.length + ' 項（黃色）' : '顯示 ' + shown.length + '／' + b.lines.length + ' 項') : '';

@@ -232,6 +232,7 @@ function purchaseRows_(f, t) {
       date: purchaseDate_(r['送貨日期']), group: String(r['送貨組別'] || '').trim(), vendor: String(r['廠商'] || '').trim(),
       className: String(r['上課班級'] || '').trim(), teacher: String(r['老師'] || '').trim(), name: String(r['食材名稱'] || '').trim(),
       qty: Number(r['叫貨量']) || 0, unit: String(r['叫貨單位'] || '').trim(), kind: String(r['類型'] || '訂單').trim(),
+      need: Number(r['需求量']) || 0, needUnit: String(r['需求單位'] || '').trim(),
       note: String(r['備註'] || '').trim(), status: String(r['狀態'] || '').trim(),
     };
   }).filter(function (r) { return r.date >= f && r.date <= t && r.vendor && r.name; });
@@ -254,7 +255,11 @@ function weekBatches_(rows, f, checked, prices, recs) {
     const id = checkId_(f, vendor, group);
     const b = { id: id, vendor: vendor, group: group, label: vendor + (group ? '（送貨組別 ' + group + '，星期' + group.split('').join('、') + '）' : ''),
       perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null,
-      prices: prices[vendor] || {}, list: list };
+      prices: prices[vendor] || {}, list: list,
+      // 扣貨全部扣掉（叫貨量 0）的：不用點、廠商不會送，另外列出來，免得以為沒送
+      deducted: list.filter(function (r) { return r.kind === '訂單' && r.need > 0 && !(r.qty > 0); }).map(function (r) {
+        return { date: r.date, cls: r.className || '（沒填班級）', teacher: r.teacher, name: r.name, need: fmtQty_(r.need) + ' ' + (r.needUnit || r.unit) };
+      }).sort(function (a, c) { return (a.date + a.cls).localeCompare(c.date + c.cls, 'zh-Hant') || a.name.localeCompare(c.name, 'zh-Hant'); }) };
     // 驗收標成「停送」的（颱風假、停課）：整張停送就不用銷貨單；只停幾天的，填銷貨單時不算那幾項
     const stop = stoppedLines_(b);
     b.stopKeys = stop.keys; b.stopAll = stop.all; b.stopNote = stop.note;
@@ -356,8 +361,10 @@ function batchLines_(list, vendor) {
     const out = live.map(function (r) {
       const cls = r.kind === '補庫存' ? '補庫存' : r.className || '（沒填班級）';
       const show = vendorQty_(r.qty, r.unit, vendor, r.name);
+      // 扣貨扣掉一部分（叫的比老師訂的少）：旁邊標出來，點貨的人才知道少的是用庫存
+      const ded = r.kind === '訂單' && r.need > 0 && r.qty < r.need && r.unit === r.needUnit ? '扣貨扣掉 ' + fmtQty_(Math.round((r.need - r.qty) * 100) / 100) + ' ' + r.unit + '，老師訂 ' + fmtQty_(r.need) + ' ' + r.unit : '';
       return { key: r.date + '|' + cls + '|' + r.teacher + '|' + r.name + '|' + r.unit, cls: cls, teacher: r.kind === '補庫存' ? '' : r.teacher, date: r.date, name: r.name,
-        expect: show, note: r.note, ovr: ovr[r.name] ? '合計改成 ' + (ovr[r.name].qty > 0 ? fmtQty_(ovr[r.name].qty) + ' ' + ovr[r.name].unit : '不叫') : '' };
+        expect: show, note: r.note, ded: ded, ovr: ovr[r.name] ? '合計改成 ' + (ovr[r.name].qty > 0 ? fmtQty_(ovr[r.name].qty) + ' ' + ovr[r.name].unit : '不叫') : '' };
     });
     // 被直接改成「不叫」的品項不用點
     // 同班同一樣食材不同天（或同一天叫兩次）要各點各的：key 帶日期、老師，完全一樣的再加 #2、#3
