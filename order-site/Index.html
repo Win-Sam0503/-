@@ -621,6 +621,7 @@
   .vpage .dsum { margin-bottom: 8px; }
   .vpage tr.vfirst td { border-top: 2.5px solid #000; }
   .vpage table.btbl { table-layout: fixed; }
+  .vpage table.btbl td, .vpage table.btbl th { overflow-wrap: anywhere; word-break: break-word; overflow: hidden; }
   .vpage table.pkt { table-layout: fixed; width: 100%; }
   .vpage table.pkt td { overflow-wrap: anywhere; }
   .vpage .bblk { break-inside: avoid; page-break-inside: avoid; }
@@ -7005,7 +7006,8 @@
     // iPhone、iPad 的 Safari 列印不管合併儲存格，會把一班切成兩頁、下一頁左邊三欄空白；包成一塊就會整塊移到下一頁
     // 欄寬用同一組 colgroup，標題表和每一段的欄位才對得齊
     var ths = head.match(/<th\b[^>]*>/g) || [];
-    var cols = '<colgroup><col style="width:10%"><col style="width:10%"><col style="width:10%">' + ths.map(function (t) {
+    // 日期、班級（含【科別】）、老師：班級最長（207/208【西餐】），給寬一點，才不會擠到老師那一格
+    var cols = '<colgroup><col style="width:9%"><col style="width:15%"><col style="width:11%">' + ths.map(function (t) {
       var w = t.match(/width:\s*([\d.]+%)/), np = /noprint/.test(t);
       return '<col' + (w ? ' style="width:' + w[1] + '"' : '') + (np ? ' class="noprint-col"' : '') + '>';
     }).join('') + '</colgroup>';
@@ -7016,7 +7018,7 @@
       if (first) { if (open) html += '</tbody></table></div>'; html += '<div class="bblk"><table class="btbl">' + cols + '<tbody>'; open = true; }
       var rs = ' class="vm" rowspan="' + span[keys[i].key] + '"';
       html += '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-        (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? ' <b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+        (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? '<br><b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
         cells(r) + '</tr>';
     });
     if (open) html += '</tbody></table></div>';
