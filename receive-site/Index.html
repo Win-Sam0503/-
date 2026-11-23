@@ -1924,6 +1924,12 @@
     return used;
   }
   // 選了班級、這張還沒打：把那班叫的菜帶進來（數量照叫貨，單價用上次的），只要改不一樣的
+  // 這份銷貨單裡同一樣最後打的單價（後蓋前）：前面打 100、後面改 110，再帶入就用 110
+  function slipLatest(n, except) {
+    var hit = null;
+    (cur.slip && cur.slip.papers || []).forEach(function (pp) { pp.rows.forEach(function (y) { if (y !== except && String(y.name || '').trim() === n && numv(y.price) !== null && String(y.unit || '').trim()) hit = y; }); });
+    return hit ? { price: String(hit.price).trim(), unit: String(hit.unit).trim() } : null;
+  }
   function clsFill(i, g, force) {
     var pp = cur.slip.papers[i];
     var empty = pp.rows.every(function (r) { return !String(r.name || '').trim() && numv(r.amount) === null; });
@@ -1931,7 +1937,7 @@
     pp.filledK = g.k; pp.edited = false;
     pp.rows = g.lines.map(function (x) {
       var e = String(x.expect || '').trim(), m, q = '', u = '', hint = '';
-      var lp = (cur.b.prices || {})[x.name];
+      var lp = slipLatest(x.name) || (cur.b.prices || {})[x.name];
       if ((m = e.match(/^(\d+(?:\.\d+)?)\s*斤(?:\s*(\d+(?:\.\d+)?)\s*兩)?$/))) { q = m[2] ? m[1] + '斤' + m[2] + '兩' : m[1]; u = '斤'; }
       else if ((m = e.match(/^(\d+(?:\.\d+)?)\s*兩$/))) { q = m[1] + '兩'; u = '斤'; }
       else if ((m = e.match(/^(\d+(?:\.\d+)?)\s*(\S+)$/))) {
