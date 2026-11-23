@@ -30,6 +30,11 @@
   .btn:disabled { opacity: .5; }
   .muted { color: var(--muted); } .small { font-size: 14px; }
   .msg { padding: 10px 14px; border-radius: 10px; margin: 8px 0; }
+  @keyframes stripes { from { background-position: 0 0; } to { background-position: 28px 0; } }
+  .send-bar { height: 100%; transition: width .9s linear; background-color: #8a2b1a;
+    background-image: linear-gradient(45deg, rgba(255,255,255,.22) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.22) 50%, rgba(255,255,255,.22) 75%, transparent 75%);
+    background-size: 28px 28px; animation: stripes .8s linear infinite; }
+  @media (prefers-reduced-motion: reduce) { .send-bar { animation: none; } }
   .msg.ok { background: var(--okbg); color: var(--ok); } .msg.error { background: var(--badbg); color: var(--bad); } .msg.warn { background: var(--warnbg); color: var(--warn); } .msg.info { background: #eef4ff; color: #1849a9; }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
   .card { background: #fff; border: 2px solid var(--line); border-radius: 14px; padding: 14px; cursor: pointer; text-align: left; font: inherit; color: inherit; }
@@ -373,7 +378,26 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
-  function msg(id, type, text) { $(id).innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : ''; }
+  function msg(id, type, text) {
+    // 「載入中…」「讀取中…」：改成會跑的進度條＋已經等了幾秒（載入完換成別的訊息，進度條就停）
+    if (type === 'info' && text && /^(載入中|讀取中|查詢中|計算中)/.test(text)) { loadBar($(id), text); return; }
+    $(id).innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : '';
+  }
+  function loadBar(el, text) {
+    if (!el) return;
+    var t0 = Date.now(), label = String(text || '載入中').replace(/….*$/, '');
+    el.innerHTML = '<div class="msg info loadbar" style="padding:10px 14px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>⏳ ' + esc(label) + '…</b>' +
+      '<span class="muted small lb-sec">0 秒</span></div><div style="height:10px;background:#e4e7ec;border-radius:99px;margin:8px 0 4px;overflow:hidden"><div class="send-bar lb-bar" style="width:4%"></div></div>' +
+      '<div class="small muted lb-hint"></div></div>';
+    var box = el.firstChild, bar = box.querySelector('.lb-bar'), sec = box.querySelector('.lb-sec'), hint = box.querySelector('.lb-hint');
+    var iv = setInterval(function () {
+      if (!box.isConnected) { clearInterval(iv); return; }
+      var s2 = Math.floor((Date.now() - t0) / 1000);
+      bar.style.width = Math.min(95, Math.round(100 * (1 - Math.exp(-(s2 + 1) / 8)))) + '%';
+      sec.textContent = '已經 ' + s2 + ' 秒';
+      if (s2 >= 15) hint.textContent = '資料比較多，還在讀，請不要關掉。';
+    }, 1000);
+  }
   // 呼叫伺服器：一律帶登入的 token（伺服器的 api 先檢查登入）；登入過期就跳回登入畫面
   var rToken = '';
   try { rToken = localStorage.getItem('rcvToken') || ''; } catch (e) {}
@@ -758,7 +782,7 @@
   $('cards').addEventListener('click', function (e) {
     var t = e.target, b = t.closest && t.closest('[data-slmon]');
     if (b) {
-      $('slMonth').innerHTML = '<div class="muted" style="margin-top:8px">讀取中…</div>';
+      loadBar($('slMonth'), '讀取中…');
       call('slipMonth', b.getAttribute('data-slmon')).then(function (r) { $('slMonth').innerHTML = slipMonthHtml(r); }).catch(function (err) { $('slMonth').innerHTML = '<div class="msg error">' + esc(err.message) + '</div>'; });
       return;
     }
@@ -1057,7 +1081,7 @@
   $('slMoveBox').addEventListener('change', function (e) {
     if (e.target.id !== 'mvDate' || !e.target.value) return;
     var d = e.target.value, p = d.split('-'), mon = iso(mondayOf(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))));
-    $('mvList').innerHTML = '<span class="muted">讀取中…</span>';
+    loadBar($('mvList'), '讀取中…');
     call('getWeek', mon).then(function (w) {
       mvWeek = w;
       var same = w.batches.filter(function (b) { return b.vendor === cur.b.vendor; }), other = w.batches.filter(function (b) { return b.vendor !== cur.b.vendor; });
@@ -3091,7 +3115,7 @@
     if (t.id === 'hxOrdBtn') { hxOrdOpen(); return; }
     if (t.id === 'hxOrdClose') { $('hxOrd').classList.add('hidden'); return; }
     if (t.id === 'hxOrdGo') {
-      $('hxOrdList').textContent = '讀取中…';
+      loadBar($('hxOrdList'), '讀取中…');
       call('hxOrders', $('hxOrdF').value, $('hxOrdT').value, $('hxOrdQ').value).then(function (r) { hxOrdRes = r; hxOrdRender(); }).catch(function (err) { $('hxOrdList').textContent = err.message; });
       return;
     }
@@ -4560,7 +4584,7 @@
     }
     if (t.id === 'hxSgo') {
       var from = $('hxSf').value, to = $('hxSt').value;
-      $('hxSbox').textContent = '讀取中…';
+      loadBar($('hxSbox'), '讀取中…');
       call('hxStats', from, to).then(function (r) { hxStatsRender(r, from, to); }).catch(function (err) { $('hxSbox').textContent = err.message; });
       return;
     }
