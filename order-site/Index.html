@@ -205,6 +205,15 @@
   .stamp-row i { width: 26px; height: 26px; border-radius: 50%; border: 2px dashed #d0d5dd; display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-size: 15px; }
   .stamp-row i.on { border: 2px solid #b45309; background: #fef3c7; }
   @media (prefers-reduced-motion: reduce) { .cd-box.urgent { animation: none; } }
+
+  /* 🎮 接食材 */
+  #gmArea { position: relative; height: 360px; border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, #e0f2fe 0%, #fef9c3 100%); border: 2px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; cursor: none; }
+  #gmBasket { position: absolute; bottom: 6px; left: 50%; font-size: 46px; line-height: 1; transform: translateX(-50%); will-change: left; }
+  #gmArea .gm-it { position: absolute; top: 0; font-size: 32px; line-height: 1; will-change: transform; pointer-events: none; }
+  #gmArea .gm-pop { position: absolute; font-weight: 800; font-size: 20px; pointer-events: none; animation: gmPop .7s ease-out forwards; }
+  @keyframes gmPop { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-40px); opacity: 0; } }
+  #gmMsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 22px; font-weight: 800; color: #7c2d12; background: rgba(255,255,255,.55); white-space: pre-line; }
+  #gmMsg.hidden { display: none; }
   /* 🏅 準時達人、徽章收藏冊 */
   .st-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
   .st-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #f9fafb; border: 1px solid var(--line); font-weight: 700; }
@@ -1035,6 +1044,12 @@
 
     <section id="viewBadges" class="hidden">
       <div class="panel" id="myStats" style="padding:12px 16px"><span class="muted">讀取中…</span></div>
+      <div class="panel" id="gamePanel" style="padding:12px 16px">
+        <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🧺 接食材</h2>
+        <div class="small muted">左右移動籃子接住掉下來的食材：🥕🥚🧅 各 1 分、⭐ 3 分，接到 ❌ 扣 2 分。30 秒，越後面掉越快！<br>電腦用滑鼠或 ← → 鍵，手機用手指左右滑。</div>
+        <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="gmStart">▶ 開始</button><b id="gmScore" style="margin-left:12px;font-size:18px">分數 0</b><span id="gmTime" class="muted" style="margin-left:12px">⏱ 30 秒</span><span style="flex:1"></span><span id="gmBest" class="small"></span></div>
+        <div id="gmArea" aria-label="接食材遊戲區"><div id="gmBasket">🧺</div><div id="gmMsg">按「▶ 開始」</div></div>
+      </div>
     </section>
 
     <section id="viewMine" class="hidden">
@@ -2459,6 +2474,81 @@
       '<div><b>🎁 每週任務：</b>星期' + WD[st.taskWd || 5] + '結束前把下週' + (t ? '（' + esc(shortDate(t.nw.from)) + '～' + esc(shortDate(t.nw.to)) + '）' : '') + '的課都叫完' + prog + '</div>' +
       '<div style="margin-top:6px">集章 <span class="stamp-row">' + slots + '</span> <span class="small muted">' + inCard + '／5' + (cards ? '・已集滿 ' + cards + ' 張卡' : '') + '（集滿 5 個拿「🎁 任務達人」）</span></div></div>';
   }
+
+  // =================== 🎮 小遊戲：接食材（在「🏅 我的徽章」頁） ===================
+  (function catchGame() {
+    var area = $('gmArea'), basket = $('gmBasket'), msgEl = $('gmMsg');
+    var GOOD = ['🥕', '🥚', '🧅', '🍅', '🥦', '🍖', '🐟', '🧈', '🍋', '🥬'];
+    var run = null, bx = 0.5;
+    var bestKey = function () { return 'ckOrder.gameBest.' + (data ? data.account : ''); };
+    var best = function () { try { return Number(localStorage.getItem(bestKey()) || 0); } catch (e) { return 0; } };
+    var showBest = function () { var b = best(); $('gmBest').textContent = b ? '🏆 你的最高分：' + b : ''; };
+    var setX = function (fx) { bx = Math.max(0.05, Math.min(0.95, fx)); basket.style.left = (bx * 100) + '%'; };
+    var fromEvent = function (e) { var r = area.getBoundingClientRect(), x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left; setX(x / r.width); };
+    area.addEventListener('mousemove', function (e) { if (run) fromEvent(e); });
+    area.addEventListener('touchstart', function (e) { if (run) { fromEvent(e); e.preventDefault(); } }, { passive: false });
+    area.addEventListener('touchmove', function (e) { if (run) { fromEvent(e); e.preventDefault(); } }, { passive: false });
+    var keys = {};
+    document.addEventListener('keydown', function (e) { if (!run || !/^Arrow(Left|Right)$/.test(e.key)) return; keys[e.key] = 1; e.preventDefault(); });
+    document.addEventListener('keyup', function (e) { delete keys[e.key]; });
+    function pop(x, y, txt, color) {
+      var p = document.createElement('div'); p.className = 'gm-pop'; p.textContent = txt; p.style.left = x + 'px'; p.style.top = y + 'px'; p.style.color = color; area.appendChild(p);
+      setTimeout(function () { p.remove(); }, 750);
+    }
+    function end(why) {
+      if (!run) return;
+      cancelAnimationFrame(run.raf); var sc = run.score; run.items.forEach(function (it) { it.el.remove(); }); run = null;
+      var b = best(), rec = sc > b;
+      if (rec) try { localStorage.setItem(bestKey(), String(sc)); } catch (e) {}
+      showBest();
+      msgEl.textContent = why === 'stop' ? '暫停了，再按「▶ 開始」重新玩' : (rec ? '🎉 新紀錄！' : '時間到！') + '\n得分 ' + sc + (rec || !b ? '' : '（最高 ' + b + '）') + '\n按「▶ 再玩一次」';
+      msgEl.classList.remove('hidden');
+      $('gmStart').textContent = '▶ 再玩一次';
+      if (rec && sc >= 20 && typeof eggRain === 'function') eggRain(['🥕', '🥚', '🧺', '🎉', '⭐'], 24, 6000);
+    }
+    function start() {
+      if (run) end('stop');
+      msgEl.classList.add('hidden'); setX(0.5);
+      run = { score: 0, t0: performance.now(), last: performance.now(), spawn: 0, items: [], raf: 0 };
+      $('gmScore').textContent = '分數 0'; $('gmStart').textContent = '↻ 重來';
+      var W = area.clientWidth, H = area.clientHeight;
+      var tick = function (now) {
+        if (!run) return;
+        if ($('viewBadges').classList.contains('hidden') || document.hidden) { end('stop'); return; }   // 換頁、切走就停
+        var dt = Math.min(50, now - run.last) / 1000, el = (now - run.t0) / 1000, left = Math.max(0, 30 - el);
+        run.last = now;
+        $('gmTime').textContent = '⏱ ' + Math.ceil(left) + ' 秒';
+        if (left <= 0) { end('time'); return; }
+        if (keys.ArrowLeft) setX(bx - dt * 1.1);
+        if (keys.ArrowRight) setX(bx + dt * 1.1);
+        var speed = 140 + el * 9;   // 越後面掉越快
+        run.spawn -= dt;
+        if (run.spawn <= 0) {
+          run.spawn = Math.max(0.32, 0.8 - el * 0.015);
+          var r = Math.random(), kind = r < 0.14 ? 'bad' : r < 0.22 ? 'star' : 'good';
+          var e = document.createElement('div'); e.className = 'gm-it'; e.textContent = kind === 'bad' ? '❌' : kind === 'star' ? '⭐' : GOOD[Math.floor(Math.random() * GOOD.length)];
+          var x = 16 + Math.random() * (W - 48); e.style.left = x + 'px'; area.appendChild(e);
+          run.items.push({ el: e, x: x, y: -36, v: speed * (0.85 + Math.random() * 0.35), kind: kind });
+        }
+        var bxPx = bx * W;
+        run.items = run.items.filter(function (it) {
+          it.y += it.v * dt; it.el.style.transform = 'translateY(' + it.y + 'px)';
+          if (it.y > H - 70 && it.y < H - 20 && Math.abs(it.x + 16 - bxPx) < 40) {   // 接到了
+            var pts = it.kind === 'bad' ? -2 : it.kind === 'star' ? 3 : 1;
+            run.score = Math.max(0, run.score + pts); $('gmScore').textContent = '分數 ' + run.score;
+            pop(it.x, H - 90, (pts > 0 ? '+' : '') + pts, pts > 0 ? '#15803d' : '#b91c1c');
+            it.el.remove(); return false;
+          }
+          if (it.y > H) { it.el.remove(); return false; }
+          return true;
+        });
+        run.raf = requestAnimationFrame(tick);
+      };
+      run.raf = requestAnimationFrame(tick);
+    }
+    $('gmStart').addEventListener('click', start);
+    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(showBest, 0); });
+  })();
 
   // =================== 🏅 準時達人、徽章收藏冊 ===================
   var myStats = null;
