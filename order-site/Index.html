@@ -179,6 +179,23 @@
   @keyframes sxDraw1 { 0% { stroke-dashoffset: 1; } 70%, 100% { stroke-dashoffset: 0; } }
   @keyframes sxFill1 { 0%, 60% { opacity: 0; } 100% { opacity: 1; } }
   .sx.sx-done { width: 76px; height: 81px; }
+
+  /* ---- 彩蛋：節日、食材小提醒、送出成功動畫（不擋操作，幾秒後消失） ---- */
+  .egg-layer { position: fixed; inset: 0; pointer-events: none; z-index: 950; overflow: hidden; }
+  .egg-p { position: absolute; top: -8vh; font-size: 26px; line-height: 1; will-change: transform; animation: eggFall linear forwards; }
+  @keyframes eggFall { from { transform: translateY(0) rotate(0deg); opacity: 1; } 85% { opacity: 1; } to { transform: translateY(115vh) rotate(var(--rot, 360deg)); opacity: 0; } }
+  .egg-fly { position: absolute; left: -12vw; font-size: 46px; animation: eggFly 2.6s ease-in-out forwards; }
+  @keyframes eggFly { 0% { transform: translate(0, 0) rotate(-10deg); } 50% { transform: translate(60vw, -40px) rotate(10deg); } 100% { transform: translate(125vw, 0) rotate(-10deg); } }
+  .egg-burst { position: absolute; font-size: 26px; animation: eggBurst 1.6s cubic-bezier(.2,.7,.3,1) forwards; }
+  @keyframes eggBurst { from { transform: translate(-50%, -50%) scale(.4); opacity: 1; } 70% { opacity: 1; } to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.1) rotate(var(--rot, 180deg)); opacity: 0; } }
+  .egg-up { position: absolute; font-size: 30px; animation: eggUp 2.2s ease-out forwards; }
+  @keyframes eggUp { from { transform: translate(-50%, 0) scale(.8); opacity: 0; } 15% { opacity: .9; } to { transform: translate(calc(-50% + var(--dx, 0px)), -150px) scale(1.4); opacity: 0; } }
+  .egg-banner { position: fixed; left: 50%; top: 96px; transform: translate(-50%, -20px); z-index: 951; background: #fff; color: var(--brand); border: 2px solid var(--brand); border-radius: 999px; padding: 8px 18px; font-weight: 800; font-size: 16px; box-shadow: 0 8px 24px rgba(16,24,40,.18); opacity: 0; transition: opacity .4s, transform .4s; pointer-events: none; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+  .egg-banner.on { opacity: 1; transform: translate(-50%, 0); }
+  .egg-tip { position: fixed; left: 50%; bottom: 84px; transform: translate(-50%, 10px); z-index: 951; background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; border-radius: 12px; padding: 8px 14px; font-size: 14px; box-shadow: 0 6px 18px rgba(16,24,40,.15); opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; max-width: calc(100% - 32px); }
+  .egg-tip.on { opacity: 1; transform: translate(-50%, 0); }
+  .egg-mark { margin-left: 6px; font-size: .9em; }
+  @media (prefers-reduced-motion: reduce) { .egg-layer { display: none; } }
   @media (prefers-reduced-motion: reduce) { .sx .ln { animation: none; stroke-dashoffset: 0; } .sx .fl { animation: none; opacity: 1; } }
   /* ---- 動畫（都很短；系統設定「減少動態效果」的人自動關掉） ---- */
   @keyframes popIn { 0% { opacity: 0; transform: scale(.94) translateY(8px); } 100% { opacity: 1; transform: none; } }
@@ -2120,6 +2137,112 @@
     startPage = '';
     if (data.isAdmin) refreshPendingCount();
     todayCheck();
+    eggLogin();
+  }
+
+  // =================== 🎁 彩蛋 ===================
+  // 節日（農曆的照年份查表）：登入時飄一下、跳一句問候（一天一次），節日期間標題旁邊有小圖示；送出成功也換成節日的
+  var EGG_LUNAR = {   // 春節、端午、中秋（國曆日期）
+    2026: ['2026-02-17', '2026-06-19', '2026-09-25'], 2027: ['2027-02-06', '2027-06-09', '2027-09-15'],
+    2028: ['2028-01-26', '2028-05-28', '2028-10-03'], 2029: ['2029-02-13', '2029-06-16', '2029-09-22'], 2030: ['2030-02-03', '2030-06-05', '2030-09-12']
+  };
+  function eggFest(now) {
+    now = now || new Date();
+    var y = now.getFullYear(), md = (now.getMonth() + 1) * 100 + now.getDate(), day = new Date(y, now.getMonth(), now.getDate());
+    var near = function (iso, before, after) { if (!iso) return false; var p = iso.split('-'), d = new Date(+p[0], p[1] - 1, +p[2]), k = Math.round((day - d) / 86400000); return k >= -before && k <= after; };
+    var L = EGG_LUNAR[y] || [], L0 = EGG_LUNAR[y + 1] || [];
+    if (near(L[0], 5, 5) || near(L0[0], 5, 0)) return { k: 'cny', emo: ['🧧', '🏮', '🧨', '🍊', '✨'], mark: '🧧', hi: '新年快樂，恭喜發財' };
+    if (L[0]) { var p = L[0].split('-'), lan = new Date(+p[0], p[1] - 1, +p[2] + 14); if (near(lan.getFullYear() + '-' + (lan.getMonth() + 1) + '-' + lan.getDate(), 1, 0)) return { k: 'lantern', emo: ['🏮', '🍡', '✨'], mark: '🏮', hi: '元宵節快樂' }; }
+    if (near(L[1], 3, 0)) return { k: 'duanwu', emo: ['🐉', '🍙', '🚣', '🌿'], mark: '🐉', hi: '端午節快樂，粽子別吃太多' };
+    if (near(L[2], 3, 1)) return { k: 'moon', emo: ['🌕', '🥮', '🐇', '🏮'], mark: '🌕', hi: '中秋節快樂，月圓人團圓' };
+    if (md >= 1231 || md <= 102) return { k: 'newyear', emo: ['🎉', '🎊', '✨', '🥂'], mark: '🎉', hi: '新年快樂' };
+    if (md >= 927 && md <= 929) return { k: 'teacher', emo: ['🍎', '📚', '🌟', '💐'], mark: '🍎', hi: '教師節快樂，老師辛苦了' };
+    if (md >= 1029 && md <= 1031) return { k: 'halloween', emo: ['🎃', '👻', '🍬', '🦇'], mark: '🎃', hi: 'Happy Halloween！不給糖就搗蛋' };
+    if (md >= 1218 && md <= 1225) return { k: 'xmas', emo: ['❄️', '🎄', '🎁', '⛄', '⭐'], mark: '🎄', hi: '聖誕快樂' };
+    return null;
+  }
+  function eggReduced() { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+  function eggLayer(ms) { var l = document.createElement('div'); l.className = 'egg-layer'; l.setAttribute('aria-hidden', 'true'); document.body.appendChild(l); setTimeout(function () { l.remove(); }, ms); return l; }
+  function eggRain(emo, n, ms) {
+    if (eggReduced()) return;
+    var l = eggLayer(ms || 7000);
+    for (var i = 0; i < (n || 26); i++) {
+      var e = document.createElement('span'); e.className = 'egg-p'; e.textContent = emo[i % emo.length];
+      e.style.left = (Math.random() * 100) + 'vw'; e.style.fontSize = (18 + Math.random() * 18) + 'px';
+      e.style.animationDuration = (3 + Math.random() * 3) + 's'; e.style.animationDelay = (Math.random() * 1.6) + 's';
+      e.style.setProperty('--rot', (Math.random() * 720 - 360) + 'deg');
+      l.appendChild(e);
+    }
+  }
+  function eggBanner(text, ms) {
+    var b = document.createElement('div'); b.className = 'egg-banner'; b.textContent = text; document.body.appendChild(b);
+    requestAnimationFrame(function () { b.classList.add('on'); });
+    setTimeout(function () { b.classList.remove('on'); setTimeout(function () { b.remove(); }, 500); }, ms || 4500);
+  }
+  function eggName() { var a = String(data && data.account || ''); return a && !data.isAdmin && !data.crewOrder ? a + '老師' : ''; }
+  // 登入後：節日標題小圖示；一天一次飄一下＋問候
+  function eggLogin() {
+    try {
+      var f = eggFest(), h = document.querySelector('header h1');
+      var old = document.querySelector('.egg-mark'); if (old) old.remove();
+      if (!f) return;
+      if (h) { var m = document.createElement('span'); m.className = 'egg-mark'; m.textContent = f.mark; m.title = f.hi; h.appendChild(m); }
+      var d = new Date(), key = 'ckOrder.egg.' + (data && data.account) + '.' + f.k + '.' + d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+      try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (e) {}
+      setTimeout(function () { eggRain(f.emo, 30, 8000); eggBanner(f.mark + ' ' + f.hi + (eggName() ? '，' + eggName() + '！' : '！'), 5000); }, 600);
+    } catch (e) {}
+  }
+  // 加入食材：跳一句小知識（每一樣一天只跳一次，2.5 秒消失）
+  var EGG_FOOD = [
+    [/鮮奶油/, '🍦 鮮奶油要冰冰的才打得發'], [/奶油/, '🧈 奶油回溫到手指壓得下去，最好打發'],
+    [/洋蔥/, '🧅 洋蔥先冰 30 分鐘再切，比較不會流眼淚'], [/辣椒/, '🌶️ 切辣椒記得戴手套，別揉眼睛'],
+    [/蛋/, '🥚 蛋要小心輕放，尖的那頭朝下放比較新鮮'], [/蒜/, '🧄 蒜頭先拍一下，皮一下就剝掉'], [/薑/, '🫚 薑用湯匙刮皮最省'],
+    [/檸檬/, '🍋 檸檬先在桌上滾一滾，比較好擠汁'], [/麵粉/, '🌾 麵粉過篩一下，蛋糕更蓬鬆'], [/巧克力/, '🍫 巧克力隔水加熱別超過 50°C'],
+    [/咖啡/, '☕ 咖啡豆磨好 15 分鐘內最香'], [/番茄/, '🍅 番茄底部劃十字燙一下，皮好剝'], [/馬鈴薯/, '🥔 馬鈴薯切好泡水，比較不會變黑'],
+    [/高麗菜|白菜/, '🥬 葉菜一片一片剝開洗比較乾淨'], [/蔥/, '🌱 蔥白先爆香，蔥綠最後放'], [/香菇|菇/, '🍄 乾香菇用冷水慢慢泡比較香'],
+    [/魚/, '🐟 魚眼清澈、按壓有彈性才新鮮'], [/蝦/, '🦐 蝦子開背去腸泥，口感更好'], [/雞/, '🍗 生熟砧板要分開喔'],
+    [/豬|牛|肉/, '🥩 肉逆紋切比較嫩'], [/蜂蜜/, '🍯 蜂蜜不要放冰箱，會結晶'], [/豆腐/, '🧊 豆腐泡鹽水再下鍋比較不易破'],
+    [/草莓/, '🍓 草莓帶蒂洗，洗完再去蒂才不會吸水'], [/米/, '🍚 洗米輕輕搓，別用力把米粒搓斷'], [/糖/, '🍬 焦糖別一直攪，搖鍋就好']
+  ];
+  var eggFoodSeen = {};
+  function eggFood(name) {
+    try {
+      if (!name || eggFoodSeen[name]) return;
+      var hit = EGG_FOOD.filter(function (x) { return x[0].test(name); })[0]; if (!hit) return;
+      var d = new Date(), key = 'ckOrder.eggFood.' + d.getFullYear() + (d.getMonth() + 1) + d.getDate() + '.' + name;
+      eggFoodSeen[name] = 1;
+      try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (e) {}
+      var old = document.querySelector('.egg-tip'); if (old) old.remove();
+      var t = document.createElement('div'); t.className = 'egg-tip'; t.textContent = hit[1]; document.body.appendChild(t);
+      requestAnimationFrame(function () { t.classList.add('on'); });
+      setTimeout(function () { t.classList.remove('on'); setTimeout(function () { t.remove(); }, 400); }, 2600);
+    } catch (e) {}
+  }
+  // 送出成功：每次隨機一種（節日期間下節日的雨）
+  function eggDone() {
+    try {
+      if (eggReduced()) return;
+      var f = eggFest();
+      if (f && Math.random() < 0.7) { eggRain(f.emo, 28, 7000); return; }
+      var ck = document.querySelector('#viewDone .ck-anim'), r = ck ? ck.getBoundingClientRect() : { left: innerWidth / 2, top: 200, width: 0, height: 0 };
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2, kind = ['rain', 'hat', 'pot', 'burst'][Math.floor(Math.random() * 4)];
+      if (kind === 'rain') { eggRain(['🥕', '🥚', '🧅', '🍅', '🥦', '🧄', '🌶️', '🍋', '🥔'], 28, 7000); return; }
+      var l = eggLayer(4000);
+      if (kind === 'hat') { var h = document.createElement('span'); h.className = 'egg-fly'; h.textContent = '👨‍🍳'; h.style.top = Math.max(80, cy - 40) + 'px'; l.appendChild(h); return; }
+      if (kind === 'pot') {
+        var pot = document.createElement('span'); pot.className = 'egg-up'; pot.textContent = '🍲'; pot.style.left = cx + 'px'; pot.style.top = (cy + 10) + 'px'; pot.style.animationName = 'none'; pot.style.transform = 'translate(-50%,0)'; l.appendChild(pot);
+        for (var i = 0; i < 6; i++) { var st = document.createElement('span'); st.className = 'egg-up'; st.textContent = '♨️'; st.style.left = cx + 'px'; st.style.top = cy + 'px'; st.style.animationDelay = (i * 0.25) + 's'; st.style.setProperty('--dx', (Math.random() * 60 - 30) + 'px'); l.appendChild(st); }
+        setTimeout(function () { pot.style.transition = 'opacity .5s'; pot.style.opacity = '0'; }, 2400);
+        return;
+      }
+      var emo = ['🎉', '✨', '🥕', '🥚', '🍅', '⭐', '🧁'];
+      for (var j = 0; j < 22; j++) {
+        var b = document.createElement('span'); b.className = 'egg-burst'; b.textContent = emo[j % emo.length]; b.style.left = cx + 'px'; b.style.top = cy + 'px';
+        var a = Math.PI * 2 * j / 22 + Math.random() * .3, dist = 120 + Math.random() * 120;
+        b.style.setProperty('--dx', Math.cos(a) * dist + 'px'); b.style.setProperty('--dy', Math.sin(a) * dist + 'px'); b.style.setProperty('--rot', (Math.random() * 360) + 'deg');
+        l.appendChild(b);
+      }
+    } catch (e) {}
   }
 
   // ---- 📋 今天的料單：老師今天有課（有訂單）就跳出來，列出每堂課的材料、放在哪；一天只自動跳一次，上面留一個按鈕可以再打開 ----
@@ -2495,6 +2618,7 @@
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
+    eggFood(it.name);
   }
   function focusCartRow(key) {
     var rowEl = document.querySelector('.cart-row[data-key="' + key + '"]'), cc = $('cartCount');
@@ -3495,6 +3619,7 @@
       saveDraft();
       writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewDone');
+      setTimeout(eggDone, 350);
       refreshLessonCount();
     }).catch(function (e) {
       prog.stop();
