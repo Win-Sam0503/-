@@ -2124,7 +2124,7 @@
     $('slipQWrap').classList.remove('hidden');   // 一張一張打的也可以搜尋品名
     if (!hxItemList) call('hxItems').then(function (r) { hxItemList = r; var dl = $('itemList'); if (dl) dl.innerHTML = itemOpts(); pmapRefresh(); }).catch(function () {});
     var html = '<datalist id="itemList">' + itemOpts() + '</datalist>' +
-      '<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '> 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
+      '<label class="small" style="' + nameAmtCss() + '"><input type="checkbox" id="nameAmt"' + (nameAmtOn() ? ' checked' : '') + '>' + (nameAmtOn() ? '⚠ 已開啟：' : '') + ' 只打品名＋金額（品名按 Enter 直接跳到金額，數量、單價之後有空再補）</label>';
     var showWt = wtVendor() || sl.papers.some(function (pp) { return pp.rows.some(function (r) { return numv(r.wt) !== null; }); });
     if (clsSlip()) html += '<div id="clsProg"></div>';
     // 📅 日期一次全部改：最多張用的日期當預設
@@ -2149,7 +2149,7 @@
             '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"' + bigAmt(r)) + '</td><td style="white-space:nowrap">' + (j ? '<button type="button" class="clr psplit" data-psplit="' + i + '-' + j + '" title="從這行切開：這一行以下變成另一張銷貨單">✂</button>' : '') + '<button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
         }).join('') + '</table></div><button type="button" class="btn ghost small" data-padd="' + i + '">＋ 加一行</button></div>';
     }).join('');
-    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">Enter：品名 → 數量 → 單位 → ' + (showWt ? '每單位重量 → ' : '') + '單價 → 金額 → 下一行（最後一行自動加一行）' + (showWt ? '。有填每單位重量的：單價下面選「元／罐」（金額＝數量×單價）或「元／公斤」（金額＝數量×每單位重量×單價）；直接打金額，系統會自己判斷' : '') + '</span></div>' +
+    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">方向鍵 ↑↓←→ 換格（像試算表）；Enter：品名 → 數量 → 單位 → ' + (showWt ? '每單位重量 → ' : '') + '單價 → 金額 → 下一行（最後一行自動加一行）' + (showWt ? '。有填每單位重量的：單價下面選「元／罐」（金額＝數量×單價）或「元／公斤」（金額＝數量×每單位重量×單價）；直接打金額，系統會自己判斷' : '') + '</span></div>' +
       '<div id="paperSum"></div>' +
       '<div class="row" style="margin-top:8px"><span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">全部銷貨單合計（選填，用來檢查）</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div><div id="slipHint"></div>';
     $('slipBox').innerHTML = html;
@@ -2263,7 +2263,8 @@
     clsEnterIme = false; if (t.hasAttribute('data-pclsno') || t.hasAttribute('data-ptot')) clsEnter(t);
   });
   $('slipBox').addEventListener('change', function (e) { if (!clsNoBusy && e.target.hasAttribute && e.target.hasAttribute('data-pclsno')) clsNoApply(e.target, false); });
-  $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} } });
+  $('slipBox').addEventListener('change', function (e) { if (e.target.id === 'nameAmt') { try { localStorage.setItem('rcvNameAmt', e.target.checked ? '1' : ''); } catch (x) {} var lb = e.target.closest('label'); if (lb) lb.style.cssText = nameAmtCss(); } });
+  function nameAmtCss() { return 'display:inline-flex;gap:6px;align-items:center;margin-top:6px' + (nameAmtOn() ? ';background:#fef3c7;color:#92400e;font-weight:700;padding:2px 8px;border-radius:6px' : ''); }
   // 數量是幾條、幾隻、幾包，價錢照總重量算 → 「總重量」欄（每家廠商都有，不用就空著）
   var WT_UNITS = ['公斤', '斤', '台斤', 'g', '兩'];
   function wtVendor() { return !!(cur && cur.b); }   // 每家廠商都有「總重量」欄（不用就空著）
@@ -2433,6 +2434,35 @@
       var r = cur.slip.papers[i].rows[j];
       if (!String(r.name || '').trim() && numv(r.amount) === null) return;
       cur.slip.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); go(j + 1, 'name');
+    }
+  });
+  // 方向鍵像試算表一樣移動：↑↓ 上一行／下一行同一欄（跨張），←→ 游標在最前面／最後面時換左右格
+  $('slipBox').addEventListener('keydown', function (e) {
+    var k = e.key, t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
+    if (!f || !/^Arrow(Up|Down|Left|Right)$/.test(k) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    if (t.tagName === 'SELECT' && (k === 'ArrowUp' || k === 'ArrowDown')) return;   // 下拉選單上下鍵照常選
+    var vis = function (x) { return x && x.offsetParent !== null && !x.disabled; };
+    var focusIt = function (x) { if (!x) return false; e.preventDefault(); x.focus(); try { x.select(); } catch (z) {} return true; };
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      if (t.tagName === 'INPUT') {
+        var st = t.selectionStart, en = t.selectionEnd, L = String(t.value || '').length;
+        if (st !== null && st !== undefined && (k === 'ArrowLeft' ? !(st === 0 && en === 0) && !(st === 0 && en === L) : !(st === L && en === L) && !(st === 0 && en === L))) return;   // 游標在字中間：照常移動游標
+      }
+      var cells = Array.prototype.filter.call(t.closest('tr').querySelectorAll('[data-pf]'), vis), p0 = cells.indexOf(t);
+      focusIt(cells[p0 + (k === 'ArrowLeft' ? -1 : 1)]);
+      return;
+    }
+    // 品名在打字、下面有建議選單：↓ 留給選建議
+    if (t.list && t.value) {
+      var v = t.value.trim(), opts = Array.prototype.map.call(t.list.options || [], function (o) { return o.value; });
+      if (opts.indexOf(v) < 0 && opts.some(function (o) { return o.indexOf(v) >= 0; })) return;
+    }
+    var i = Number(t.getAttribute('data-pi')), j = Number(t.getAttribute('data-pj')), d = k === 'ArrowUp' ? -1 : 1;
+    var cell = function (ii, jj) { var x = $('slipBox').querySelector('[data-pi="' + ii + '"][data-pj="' + jj + '"][data-pf="' + f + '"]'); return vis(x) ? x : null; };
+    for (var jj = j + d; jj >= 0 && jj < cur.slip.papers[i].rows.length; jj += d) { if (focusIt(cell(i, jj))) return; }
+    for (var ii = i + d; ii >= 0 && ii < cur.slip.papers.length; ii += d) {   // 這張到底了：換上一張的最後一行／下一張的第一行
+      var n = cur.slip.papers[ii].rows.length;
+      for (var j2 = d > 0 ? 0 : n - 1; j2 >= 0 && j2 < n; j2 += d) { if (focusIt(cell(ii, j2))) return; }
     }
   });
   // 單價空白、但有數量和金額：單價＝金額 ÷ 數量（料單成本、單價表才算得到）
