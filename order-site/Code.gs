@@ -4621,7 +4621,9 @@ function adminRunUpdate(token, branch, sha, code) {
     } catch (e) {
       throw new Error('新程式存不進 Apps Script（' + e.message + '），網站維持原本的版本。');
     }
-    const ver = gas_('post', '/versions', { description: 'GitHub ' + short + '：' + msg }).versionNumber;
+    let ver;
+    try { ver = gas_('post', '/versions', { description: 'GitHub ' + short + '：' + msg }).versionNumber; }
+    catch (e) { try { gas_('put', '/content', { files: before.files }); } catch (e2) {} throw versionLimitError_(e, '訂貨系統'); }   // 建不了版本：程式換回原本的，網站照舊
     const dep = gas_('get', '/deployments/' + updateDeploymentId_());
     const prev = dep.deploymentConfig && dep.deploymentConfig.versionNumber || 0;
     deployVersion_(ver, '一鍵更新 ' + short + ' ' + msg);
@@ -4673,8 +4675,12 @@ function adminReceiveSite(token, branch, sha, code) {
       p.setProperty('RECEIVE_SCRIPT_ID', id);
       created = true;
     }
+    let old = null;
+    try { old = gasAt_(id, 'get', '/content'); } catch (e) {}
     gasAt_(id, 'put', '/content', { files: files });
-    const ver = gasAt_(id, 'post', '/versions', { description: 'GitHub ' + short + '：' + msg }).versionNumber;
+    let ver;
+    try { ver = gasAt_(id, 'post', '/versions', { description: 'GitHub ' + short + '：' + msg }).versionNumber; }
+    catch (e) { if (old && old.files) { try { gasAt_(id, 'put', '/content', { files: old.files }); } catch (e2) {} } throw versionLimitError_(e, '進貨驗收'); }
     const cfg = { deploymentConfig: { scriptId: id, versionNumber: ver, manifestFileName: 'appsscript', description: '進貨驗收 ' + short } };
     let dep = null, depId = p.getProperty('RECEIVE_DEPLOY_ID');
     if (depId) { try { dep = gasAt_(id, 'put', '/deployments/' + depId, cfg); } catch (e) { dep = null; } }
@@ -8236,4 +8242,13 @@ function lineWeekProgressMsgs_(later) {
   ]);
   const qr = { items: [['❗ 還沒叫料', later ? '還沒叫料 下下週' : '還沒叫料'], [later ? '下週' : '下下週', later ? '訂貨進度' : '訂貨進度 下下週']].map(function (a) { return { type: 'action', action: { type: 'message', label: a[0], text: a[1] } }; }) };
   return [Object.assign(fxFlexMsg_('訂貨進度 ' + pct + '%', [fxB_('📊 ' + (later ? '下下週' : '下週') + '訂貨進度', shortDateTw_(w.from) + '～' + shortDateTw_(w.fri), rows)]), { quickReply: qr })];
+}
+
+
+/** Apps Script 每個專案最多 200 個版本：滿了就告訴管理者怎麼刪舊版本（Google 沒有開放用程式刪） */
+function versionLimitError_(e, which) {
+  const m = String(e && e.message || e);
+  if (!/200 versions|limit of \d+ versions|maximum number of versions|版本/i.test(m)) return e;
+  return new Error('「' + which + '」的 Apps Script 版本已經滿 200 個（Google 的上限），這次沒有更新，網站維持原本的版本。\n' +
+    '請用電腦刪掉舊版本：打開 script.google.com →「' + which + '」專案 → 左邊時鐘圖示「專案記錄」→ 右上「大量刪除版本」→ 勾選舊的版本（留最新的 10 個就好；正在使用的版本不能刪）→ 刪除，再回來按一次更新。');
 }
