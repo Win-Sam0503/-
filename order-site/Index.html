@@ -11108,7 +11108,11 @@
         var cn = String(x.course || ''), small = cn.length > 5 ? 'font-size:9px' : 'font-size:11px';
         return '<div style="line-height:1.25;margin-bottom:2px"><div style="' + small + ';font-weight:700">' + esc(cn) + '</div>' +
           (x.period ? '<div>' + esc(x.period) + '</div>' : '') + '<div>' + esc(x.className || '') + '</div><div>' + esc(x.teacher || '') + '</div>' +
-          (pjs.length ? '<div style="color:#1d4ed8;font-size:9px;font-weight:700">📝' + esc(pjs.join('、')) + '</div>' : x.status === 'todo' ? '<div style="color:#b42318;font-size:9px">未叫料</div>' : x.status === 'holiday' ? '<div style="color:#777;font-size:9px">放假</div>' : '') + '</div>';
+          (pjs.length ? '<div style="color:#1d4ed8;font-size:9px;font-weight:700">📝' + esc(pjs.join('、')) + '</div>' :
+            x.status === 'todo' ? '<div style="color:#b42318;font-size:9px">未叫料</div>' :
+            x.status === 'holiday' ? '<div style="color:#777;font-size:9px">放假</div>' :
+            x.status === 'skipped' ? '<div style="color:#475467;font-size:9px;font-weight:700">➖不用訂貨</div>' :
+            x.status === 'ordered' ? '<div style="color:#067647;font-size:9px">已叫料（手動）</div>' : '') + '</div>';
       }).join('');
     };
     var th = 'border:1px solid #333;background:#ddd;padding:2px;font-size:11px;text-align:center;color:#111', td = 'border:1px solid #333;padding:2px;text-align:center;vertical-align:middle;font-size:10px;height:62px';
