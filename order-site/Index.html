@@ -192,6 +192,20 @@
   @keyframes hdrSpin { from { transform: rotate(0) scale(1); } 50% { transform: rotate(360deg) scale(1.5); } to { transform: rotate(720deg) scale(1); } }
   .hdr-logo .egg-hat { position: absolute; right: -10px; top: -12px; font-size: 16px; line-height: 1; transform: rotate(18deg); pointer-events: none; }
   @media (prefers-reduced-motion: reduce) { .hdr-logo .sx .ln, .hdr-logo .sx .fl { animation: none; stroke-dashoffset: 0; opacity: 1; } .hdr-logo.wig, .hdr-logo.spin { animation: none; } }
+
+  /* 🏅 準時達人、徽章收藏冊 */
+  .st-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .st-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #f9fafb; border: 1px solid var(--line); font-weight: 700; }
+  .st-pill.fire { background: #fff7ed; border-color: #fdba74; color: #c2410c; }
+  .st-pill.medal { background: #fefce8; border-color: #fde047; color: #854d0e; }
+  .bdg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; margin-top: 8px; }
+  .bdg { border: 1px solid var(--line); border-radius: 12px; padding: 8px 6px; text-align: center; background: #fff; }
+  .bdg .bi { font-size: 30px; line-height: 1.2; }
+  .bdg .bn { font-size: 12px; font-weight: 700; margin-top: 2px; }
+  .bdg.off { background: #f9fafb; color: #98a2b3; }
+  .bdg.off .bi { filter: grayscale(1); opacity: .35; }
+  .bdg.new { border-color: #f59e0b; box-shadow: 0 0 0 3px #fde68a; animation: popIn .5s ease-out both; }
+  #doneStats .st-row { justify-content: center; margin: 6px 0; }
   /* 💌 給老師的留言卡 */
   .note-back { position: fixed; inset: 0; z-index: 960; background: rgba(16,24,40,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
   .note-card { position: relative; width: min(440px, 100%); background: #fff; border-radius: 18px; padding: 26px 22px 18px; box-shadow: 0 20px 50px rgba(16,24,40,.3); text-align: center; animation: noteIn .45s cubic-bezier(.2,.8,.3,1.2) both; overflow: hidden; }
@@ -953,6 +967,7 @@
         <div class="no" id="doneNo"></div>
         <div id="doneWhen" style="font-weight:700;margin:4px 0 8px"></div>
         <div id="doneInfo" class="muted"></div>
+        <div id="doneStats"></div>
         <div id="doneLine"></div>
         <div class="small" style="margin-top:10px;padding:8px 10px;border:1px dashed var(--ok);border-radius:8px;background:#f0fdf4">📸 這個畫面就是<b>送出收據</b>，可以截圖留存。<b>有訂單編號才代表系統收到料單</b>；之後在「我的訂單」也查得到。</div>
         <div class="actions" style="justify-content:center;margin-top:20px">
@@ -1003,6 +1018,7 @@
     </section>
 
     <section id="viewMine" class="hidden">
+      <div class="panel hidden" id="myStats" style="padding:12px 16px"></div>
       <div class="panel" style="padding:12px 16px">
         <h2 style="margin:0">我的訂單 <button type="button" class="btn ghost small" id="reloadMine">重新整理</button></h2>
         <div class="muted small">包含你送出的訂單，以及別人代你訂的訂單（最近 60 天）。還沒過訂貨截止、狀態為「待處理」的訂單可以自行取消；已截止的訂單無法修改，需要更動請聯絡管理者。</div>
@@ -1395,6 +1411,10 @@
         <div class="actions" style="justify-content:flex-start;margin-top:8px"><button type="button" class="btn" id="ntSave">💌 發佈留言</button><button type="button" class="btn ghost small" id="ntPreview">👁 預覽</button><button type="button" class="btn ghost small hidden" id="ntCancel">取消修改</button></div>
         <div id="ntMsg"></div>
         <div id="ntList" style="margin-top:8px"></div>
+      </details>
+      <details class="panel noprint" id="tsPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">🏅 老師準時排行</h2> <span class="muted small">只有管理者看得到：準時率、連續準時週數、徽章；可以一鍵寫感謝卡</span></summary>
+        <div id="tsMsg"></div><div id="tsBox" style="margin-top:8px"></div>
       </details>
       <details class="panel noprint" id="csPanel">
         <summary style="cursor:pointer"><h2 style="display:inline">👥 班級人數</h2> <span class="muted small">老師在「我的課」、訂貨頁、料單看得到（不能改）</span></summary>
@@ -2187,6 +2207,7 @@
     eggLogin();
     hdrLogoInit();
     noteLogin();
+    loadMyStats(false);
   }
 
   // =================== 🎁 彩蛋 ===================
@@ -2362,6 +2383,85 @@
       eggRain(f ? f.emo : ['🥕', '🥚', '🧅', '🍅', '🥦', '🧄', '🍋', '🧁', '🍤'], 30, 7000);
       eggBanner(EGG_HIDDEN[Math.floor(Math.random() * EGG_HIDDEN.length)], 3500);
     } else { el.classList.remove('wig'); void el.offsetWidth; el.classList.add('wig'); }
+  });
+
+  // =================== 🏅 準時達人、徽章收藏冊 ===================
+  var myStats = null;
+  function badgeKey() { return 'ckOrder.badges.' + (data ? data.account : ''); }
+  function statsPills(st) {
+    var h = '';
+    if (st.streak >= 1) h += '<span class="st-pill' + (st.streak >= 3 ? ' fire' : '') + '" title="連續幾週都在截止前送出（放假沒訂不算中斷）">' + (st.streak >= 3 ? '🔥' : '⏰') + ' 連續 ' + st.streak + ' 週準時</span>';
+    if (st.rate !== null) h += '<span class="st-pill' + (st.medal ? ' medal' : '') + '" title="這學期 ' + st.semN + ' 張，準時 ' + st.semOn + ' 張">' + (st.medal ? st.medal.ico + ' ' : '📅 ') + '本學期準時率 ' + st.rate + '%' + (st.medal ? '（' + esc(st.medal.name) + '）' : '') + '</span>';
+    h += '<span class="st-pill">📝 共 ' + st.total + ' 張</span>';
+    return '<div class="st-row">' + h + '</div>';
+  }
+  function badgesHtml(st, fresh) {
+    var got = st.badges.filter(function (b) { return b.got; }).length;
+    return '<details' + (fresh && fresh.length ? ' open' : '') + ' style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
+      st.badges.map(function (b) {
+        return '<div class="bdg' + (b.got ? '' : ' off') + (fresh && fresh.indexOf(b.k) >= 0 ? ' new' : '') + '" title="' + esc(b.how) + '"><div class="bi">' + (b.got ? b.ico : '❔') + '</div><div class="bn">' + esc(b.name) + '</div>' +
+          (b.got ? '' : '<div class="small" style="font-size:11px;margin-top:2px">' + esc(b.how) + '</div>') + '</div>';
+      }).join('') + '</div><div class="small muted" style="margin-top:6px">準時＝在那堂課那週的訂貨截止前送出（' + esc(data.lockRule || '') + '）。</div></details>';
+  }
+  function renderMyStats(fresh) {
+    var box = $('myStats'); if (!box) return;
+    if (!myStats || data.isAdmin && !myStats.total) { box.classList.add('hidden'); return; }
+    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">⏰ 準時達人</h2>' + statsPills(myStats) + badgesHtml(myStats, fresh);
+    box.classList.remove('hidden');
+  }
+  // 登入、送出後：拿最新的；送出後比對有沒有新徽章
+  function loadMyStats(afterSubmit) {
+    if (!data || data.crewOrder || data.student) return;
+    call('getMyStats', token, !!afterSubmit).then(function (st) {
+      myStats = st;
+      var had = null; try { had = JSON.parse(localStorage.getItem(badgeKey()) || 'null'); } catch (e) {}
+      var now = st.badges.filter(function (b) { return b.got; }).map(function (b) { return b.k; });
+      var fresh = had ? now.filter(function (k) { return had.indexOf(k) < 0; }) : [];
+      try { localStorage.setItem(badgeKey(), JSON.stringify(now)); } catch (e) {}
+      renderMyStats(fresh);
+      if (afterSubmit && !$('viewDone').classList.contains('hidden')) {
+        $('doneStats').innerHTML = statsPills(st);
+        if (fresh.length) {
+          var bs = st.badges.filter(function (b) { return fresh.indexOf(b.k) >= 0; });
+          setTimeout(function () {
+            eggBanner('🎉 獲得新徽章：' + bs.map(function (b) { return b.ico + ' ' + b.name; }).join('、'), 5000);
+            eggRain(bs.map(function (b) { return b.ico; }).concat(['🎉', '✨']), 26, 7000);
+          }, 4300);   // 等類別彩蛋那句話消失再跳
+          $('doneStats').innerHTML += '<div class="small" style="margin-top:4px">🎉 新徽章：' + bs.map(function (b) { return '<b>' + b.ico + ' ' + esc(b.name) + '</b>'; }).join('、') + '（到「我的訂單」看收藏冊）</div>';
+        }
+      }
+    }).catch(function () {});
+  }
+
+  // 系統設定：老師準時排行（只有管理者看得到）
+  var tsList = null, tsSort = 'rate';
+  function tsRender() {
+    var L = (tsList.list || []).slice(), key = { rate: function (x) { return x.rate === null ? -1 : x.rate; }, streak: function (x) { return x.streak; }, total: function (x) { return x.total; }, badges: function (x) { return x.nBadges; } }[tsSort];
+    L.sort(function (a, b) { return key(b) - key(a) || b.semN - a.semN || a.who.localeCompare(b.who); });
+    var th = function (k, t) { return '<th data-tssort="' + k + '" style="cursor:pointer;white-space:nowrap">' + t + (tsSort === k ? ' ▼' : '') + '</th>'; };
+    $('tsBox').innerHTML = '<div class="small muted" style="margin-bottom:6px">本學期（' + esc(tsList.sem) + '）・更新 ' + esc(tsList.at) + '・點標題排序</div><div style="overflow:auto"><table class="small"><tr><th>老師</th>' + th('rate', '準時率') + '<th>本學期張數</th>' + th('streak', '目前連續') + '<th>最長連續</th>' + th('total', '累計張數') + th('badges', '徽章') + '<th></th></tr>' +
+      L.map(function (x) {
+        return '<tr><td><b>' + esc(x.who) + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
+          '<td><button type="button" class="btn ghost small" data-tsthank="' + esc(x.who) + '">💌 感謝卡</button></td></tr>';
+      }).join('') + '</table></div>';
+  }
+  $('tsPanel').addEventListener('toggle', function () {
+    if (!this.open) return;
+    $('tsBox').innerHTML = '<span class="muted">計算中…</span>';
+    call('adminGetTeacherStats', token).then(function (r) { tsList = r; tsRender(); }).catch(function (e) { $('tsBox').innerHTML = ''; msg('tsMsg', 'error', e.message); });
+  });
+  $('tsBox').addEventListener('click', function (e) {
+    var s0 = e.target.closest('[data-tssort]'); if (s0) { tsSort = s0.getAttribute('data-tssort'); tsRender(); return; }
+    var t = e.target.closest('[data-tsthank]'); if (!t) return;
+    var who = t.getAttribute('data-tsthank'), x = tsList.list.filter(function (y) { return y.who === who; })[0] || {};
+    var np = $('notePanel'); np.open = true; np.dispatchEvent(new Event('toggle'));
+    ntReset();
+    $('ntText').value = who + '老師，謝謝您' + (x.streak >= 3 ? '連續 ' + x.streak + ' 週' : '這學期') + '都準時叫料' + (x.medal ? '，拿到本學期' + x.medal.name + ' ' + x.medal.ico : '') + '！您的準時讓備料順利很多，辛苦了 💐';
+    $('ntStyle').value = 'thanks';
+    document.querySelector('input[name="ntTo"][value="pick"]').checked = true; $('ntPick').classList.remove('hidden'); ntPickRender([who]);
+    ntDraftSave();
+    np.scrollIntoView({ behavior: 'smooth', block: 'start' }); $('ntText').focus();
+    msg('ntMsg', 'info', '已幫你寫好給 ' + who + ' 的感謝卡，改一改按「💌 發佈留言」。');
   });
 
   // =================== 💌 給老師的留言 ===================
@@ -3881,6 +3981,7 @@
       writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewDone');
       setTimeout(function () { eggDone(eggCats); }, 350);
+      $('doneStats').innerHTML = ''; loadMyStats(true);
       refreshLessonCount();
     }).catch(function (e) {
       prog.stop();

@@ -5614,6 +5614,116 @@ function adminSetTeacher(token, account, action) {
   return out;
 }
 
+
+// =================== 🏅 準時達人、徽章 ===================
+// 準時＝在那堂課那週的訂貨截止前送出（例如下週一的課，這週一 12:00 前送出）。
+// 一張訂單算給「代訂對象老師」（沒有就是操作老師）；取消的不算。資料：訂單總表＋歷史訂單（約 13 個月）。
+const STREAK_GOALS_ = [3, 6, 10];             // 連續準時幾週拿徽章（3 週就有）
+const COUNT_GOALS_ = [1, 10, 50, 100, 200];   // 累計幾張拿徽章
+const MEDAL_RULES_ = [{ k: 'gold', ico: '🥇', name: '金牌', min: 1 }, { k: 'silver', ico: '🥈', name: '銀牌', min: 0.85 }, { k: 'bronze', ico: '🥉', name: '銅牌', min: 0.7 }];
+const MEDAL_MIN_ORDERS_ = 3;                  // 這學期至少幾張才給獎牌
+
+/** 截止時間：上課日期那週的星期一往前一週的「截止星期幾 幾點」 */
+function deadlineFor_(classDate) {
+  const r = lockRule_(), d = toDate_(classDate);
+  if (!d) return null;
+  const monday = addDays_(d, -((d.getDay() + 6) % 7)), dd = addDays_(monday, -7 + r.wd - 1);
+  return new Date(dd.getFullYear(), dd.getMonth(), dd.getDate(), r.h, r.m, 0);
+}
+/** 學期：8/1～1/31 上學期、2/1～7/31 下學期 → { key: '2026上', from, to } */
+function semesterOf_(d) {
+  const y = d.getFullYear(), m = d.getMonth() + 1;
+  if (m >= 8) return { key: y + '上', from: y + '-08-01', to: (y + 1) + '-01-31' };
+  if (m === 1) return { key: (y - 1) + '上', from: (y - 1) + '-08-01', to: y + '-01-31' };
+  return { key: y + '下', from: y + '-02-01', to: y + '-07-31' };
+}
+function submittedAt_(r) {
+  const v = r['送出時間'];
+  if (v instanceof Date) return v;
+  let m = String(v || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})\D+(\d{1,2}):(\d{2})/);
+  if (m) return new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]);
+  m = String(r['訂單編號'] || '').match(/^O(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/);   // 訂單編號裡就是送出時間
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) : null;
+}
+/** 每位老師的統計 { 老師: { total, sem: { n, on }, streak, best, weeks: [...] } } */
+function orderStatsAll_(force) {
+  const cache = CacheService.getScriptCache();
+  if (!force) { const c = cache.get('ostats2'); if (c) try { return JSON.parse(c); } catch (e) {} }
+  const orders = {};
+  [SHEET.orders, SHEET.history].forEach(function (name) {
+    if (!ss_().getSheetByName(name)) return;
+    readTable_(name, ['訂單編號']).rows.forEach(function (r) {
+      const no = String(r['訂單編號'] || '').trim();
+      if (!no || orders[no] === null) return;
+      if (/取消/.test(String(r['狀態'] || ''))) { orders[no] = null; return; }   // 整張取消
+      if (orders[no]) return;
+      const who = String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim(), use = toDate_(r['使用日期']), at = submittedAt_(r);
+      if (!who || !use || !at) return;
+      orders[no] = { who: who, use: use, at: at };
+    });
+  });
+  const now = new Date(), sem = semesterOf_(today_()), by = {};
+  Object.keys(orders).forEach(function (no) {
+    const o = orders[no]; if (!o) return;
+    const dl = deadlineFor_(o.use); if (!dl) return;
+    const t = by[o.who] = by[o.who] || { total: 0, sem: { n: 0, on: 0 }, wk: {} };
+    const on = o.at <= dl, ds = dateStr_(o.use), wk = dateStr_(addDays_(o.use, -((o.use.getDay() + 6) % 7)));
+    t.total++;
+    if (ds >= sem.from && ds <= sem.to) { t.sem.n++; if (on) t.sem.on++; }
+    const w = t.wk[wk] = t.wk[wk] || { n: 0, on: 0 };
+    w.n++; if (on) w.on++;
+  });
+  Object.keys(by).forEach(function (who) {
+    const t = by[who], ks = Object.keys(t.wk).sort();   // 有訂貨的週（放假沒訂不算中斷）
+    let cur = 0, best = 0, run = 0;
+    ks.forEach(function (k) { const ok = t.wk[k].on === t.wk[k].n; run = ok ? run + 1 : 0; if (run > best) best = run; });
+    for (let i = ks.length - 1; i >= 0; i--) { if (t.wk[ks[i]].on === t.wk[ks[i]].n) cur++; else break; }
+    t.streak = cur; t.best = best; t.weeks = ks.length; delete t.wk;
+  });
+  const out = { sem: sem.key, by: by, at: fmtDateTime_(now) };
+  try { cache.put('ostats2', JSON.stringify(out), 600); } catch (e) {}
+  return out;
+}
+function medalOf_(t) {
+  if (!t || t.sem.n < MEDAL_MIN_ORDERS_) return null;
+  const rate = t.sem.on / t.sem.n;
+  return MEDAL_RULES_.filter(function (m) { return rate >= m.min; })[0] || null;
+}
+/** 徽章收藏冊：全部徽章，拿到的 got=true */
+function badgesOf_(t) {
+  t = t || { total: 0, sem: { n: 0, on: 0 }, streak: 0, best: 0 };
+  const out = [], md = medalOf_(t);
+  COUNT_GOALS_.forEach(function (n) {
+    out.push({ k: 'n' + n, ico: n === 1 ? '📝' : n === 10 ? '🎯' : n === 50 ? '🏅' : n === 100 ? '🏆' : '💎', name: n === 1 ? '第一張料單' : '第 ' + n + ' 張料單', how: '累計送出 ' + n + ' 張訂單', got: t.total >= n });
+  });
+  STREAK_GOALS_.forEach(function (n) {
+    out.push({ k: 's' + n, ico: n === 3 ? '🔥' : n === 6 ? '⚡' : '🌟', name: '連續 ' + n + ' 週準時', how: '連續 ' + n + ' 週都在截止前送出（放假沒訂不算中斷）', got: t.best >= n });
+  });
+  MEDAL_RULES_.slice().reverse().forEach(function (m) {
+    out.push({ k: 'm' + m.k, ico: m.ico, name: '本學期' + m.name, how: '這學期準時率 ' + (m.min === 1 ? '100%' : Math.round(m.min * 100) + '% 以上') + '（至少 ' + MEDAL_MIN_ORDERS_ + ' 張）', got: !!md && md.min >= m.min });
+  });
+  return out;
+}
+function statsView_(t, semKey) {
+  t = t || { total: 0, sem: { n: 0, on: 0 }, streak: 0, best: 0 };
+  const md = medalOf_(t);
+  return { total: t.total, semKey: semKey, semN: t.sem.n, semOn: t.sem.on, rate: t.sem.n ? Math.round(t.sem.on / t.sem.n * 100) : null,
+    streak: t.streak || 0, best: t.best || 0, medal: md ? { ico: md.ico, name: md.name } : null, badges: badgesOf_(t) };
+}
+/** 老師：我的準時紀錄、徽章（fresh＝剛送出，重算） */
+function getMyStats(token, fresh) {
+  const account = auth_(token, false, false, true);
+  const all = orderStatsAll_(!!fresh);
+  return statsView_(all.by[account], all.sem);
+}
+/** 管理者：每位老師的準時率、連續週數、徽章（只有管理者看得到） */
+function adminGetTeacherStats(token) {
+  auth_(token, true);
+  const all = orderStatsAll_(true), names = bootStatic_().teachers || [];
+  Object.keys(all.by).forEach(function (w) { if (names.indexOf(w) < 0) names.push(w); });
+  return { sem: all.sem, at: all.at, list: names.map(function (w) { const v = statsView_(all.by[w], all.sem); v.who = w; v.nBadges = v.badges.filter(function (b) { return b.got; }).length; delete v.badges; return v; }) };
+}
+
 // ---- 💌 給老師的留言：管理者在系統設定寫，老師登入時跳出來（存在指令碼屬性，不用另開分頁） ----
 const NOTES_KEY_ = 'LOGIN_NOTES';
 function notesAll_() {
