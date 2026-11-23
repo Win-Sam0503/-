@@ -5762,7 +5762,13 @@ function adminGetTeacherStats(token) {
   auth_(token, true);
   const all = orderStatsAll_(true), names = bootStatic_().teachers || [];
   Object.keys(all.by).forEach(function (w) { if (names.indexOf(w) < 0) names.push(w); });
-  return { sem: all.sem, at: all.at, list: names.map(function (w) { const v = statsView_(all.by[w], all.sem); v.who = w; v.nBadges = v.badges.filter(function (b) { return b.got; }).length; delete v.badges; return v; }) };
+  const MEDAL_PTS = { '金牌': 30, '銀牌': 20, '銅牌': 10 };
+  return { sem: all.sem, at: all.at, minN: MEDAL_MIN_ORDERS_, list: names.map(function (w) {
+    const v = statsView_(all.by[w], all.sem); v.who = w; v.nBadges = v.badges.filter(function (b) { return b.got; }).length; delete v.badges;
+    // 綜合積分：本學期準時一張 10 分＋目前連續準時一週 5 分＋徽章一個 3 分＋獎牌（金 30／銀 20／銅 10）
+    v.score = v.semOn * 10 + v.streak * 5 + v.nBadges * 3 + (v.medal ? MEDAL_PTS[v.medal.name] || 0 : 0);
+    return v;
+  }) };
 }
 
 // ---- 💌 給老師的留言：管理者在系統設定寫，老師登入時跳出來（存在指令碼屬性，不用另開分頁） ----

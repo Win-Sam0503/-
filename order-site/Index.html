@@ -2439,14 +2439,24 @@
   }
 
   // 系統設定：老師準時排行（只有管理者看得到）
-  var tsList = null, tsSort = 'rate';
+  var tsList = null, tsSort = 'score';
   function tsRender() {
-    var L = (tsList.list || []).slice(), key = { rate: function (x) { return x.rate === null ? -1 : x.rate; }, streak: function (x) { return x.streak; }, total: function (x) { return x.total; }, badges: function (x) { return x.nBadges; } }[tsSort];
+    var L = (tsList.list || []).slice(), key = { score: function (x) { return x.score; }, rate: function (x) { return x.rate === null ? -1 : x.rate; }, streak: function (x) { return x.streak; }, total: function (x) { return x.total; }, badges: function (x) { return x.nBadges; } }[tsSort];
     L.sort(function (a, b) { return key(b) - key(a) || b.semN - a.semN || a.who.localeCompare(b.who); });
     var th = function (k, t) { return '<th data-tssort="' + k + '" style="cursor:pointer;white-space:nowrap">' + t + (tsSort === k ? ' ▼' : '') + '</th>'; };
-    $('tsBox').innerHTML = '<div class="small muted" style="margin-bottom:6px">本學期（' + esc(tsList.sem) + '）・更新 ' + esc(tsList.at) + '・點標題排序</div><div style="overflow:auto"><table class="small"><tr><th>老師</th>' + th('rate', '準時率') + '<th>本學期張數</th>' + th('streak', '目前連續') + '<th>最長連續</th>' + th('total', '累計張數') + th('badges', '徽章') + '<th></th></tr>' +
+    // 🏆 前五名（綜合積分；這學期至少 minN 張才上榜）
+    var top = (tsList.list || []).filter(function (x) { return x.semN >= (tsList.minN || 3) && x.score > 0; }).sort(function (a, b) { return b.score - a.score || b.rate - a.rate || b.semN - a.semN; }).slice(0, 5);
+    var RK = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+    var topHtml = '<div style="border:2px solid #fcd34d;background:#fffbeb;border-radius:14px;padding:10px 12px;margin-bottom:10px"><div style="font-weight:800;font-size:16px;margin-bottom:6px">🏆 本學期前五名（綜合積分）</div>' +
+      (top.length ? top.map(function (x, i) {
+        return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0;' + (i ? 'border-top:1px dashed #fde68a;' : '') + (i < 3 ? 'font-size:' + (17 - i) + 'px' : '') + '"><span style="font-size:' + (i < 3 ? 26 : 20) + 'px;width:32px;text-align:center">' + RK[i] + '</span><b style="flex:1">' + esc(x.who) + '</b>' +
+          '<span class="small muted">準時 ' + x.rate + '%' + (x.streak ? '・🔥' + x.streak + ' 週' : '') + '・🏅' + x.nBadges + '</span><b style="color:#b45309">' + x.score + ' 分</b>' +
+          '<button type="button" class="btn ghost small" data-tsthank="' + esc(x.who) + '">💌</button></div>';
+      }).join('') : '<div class="muted small">這學期還沒有老師送出 ' + (tsList.minN || 3) + ' 張以上的訂單。</div>') +
+      '<div class="small muted" style="margin-top:6px">積分＝本學期準時一張 10 分＋目前連續準時一週 5 分＋徽章一個 3 分＋獎牌（🥇30／🥈20／🥉10）。這學期至少 ' + (tsList.minN || 3) + ' 張才上榜。只有管理者看得到。</div></div>';
+    $('tsBox').innerHTML = topHtml + '<div class="small muted" style="margin-bottom:6px">本學期（' + esc(tsList.sem) + '）・更新 ' + esc(tsList.at) + '・點標題排序</div><div style="overflow:auto"><table class="small"><tr><th>老師</th>' + th('score', '積分') + th('rate', '準時率') + '<th>本學期張數</th>' + th('streak', '目前連續') + '<th>最長連續</th>' + th('total', '累計張數') + th('badges', '徽章') + '<th></th></tr>' +
       L.map(function (x) {
-        return '<tr><td><b>' + esc(x.who) + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
+        return '<tr><td><b>' + esc(x.who) + '</b></td><td><b>' + x.score + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
           '<td><button type="button" class="btn ghost small" data-tsthank="' + esc(x.who) + '">💌 感謝卡</button></td></tr>';
       }).join('') + '</table></div>';
   }
