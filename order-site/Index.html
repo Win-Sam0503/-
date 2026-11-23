@@ -7631,7 +7631,8 @@
       return '<div><span>' + esc(c.account) + (c.enabled ? '' : ' <span class="muted">（已停用）</span>') + (c.canOrder ? ' <span class="small" style="color:#0a7">（可代訂）</span>' : '') + '</span><span>' +
         '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="' + (c.canOrder ? 'order-off' : 'order-on') + '">' + (c.canOrder ? '取消訂貨權限' : '給訂貨權限') + '</button> ' +
         '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="' + (c.enabled ? 'disable' : 'enable') + '">' + (c.enabled ? '停用' : '啟用') + '</button> ' +
-        '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="reset">重設密碼</button></span></div>';
+        '<button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="reset">重設密碼</button>' +
+        (c.enabled ? '' : ' <button type="button" class="btn ghost small" data-crew="' + esc(c.account) + '" data-cract="delete" style="color:var(--bad)">🗑 刪除</button>') + '</span></div>';
     }).join('') : '<span class="muted">還沒有校隊帳號。</span>';
   }
   $('placeOn').addEventListener('change', function () {
@@ -7735,14 +7736,14 @@
     var b = e.target.closest('[data-cract]');
     if (!b) return;
     var who = b.getAttribute('data-crew'), act = b.getAttribute('data-cract');
-    var txt = act === 'reset' ? '把「' + who + '」的密碼重設成 0000？' : act === 'disable' ? '停用「' + who + '」？停用後就不能登入。' :
+    var txt = act === 'delete' ? '刪除校隊帳號「' + who + '」？\n帳號會從「帳號設定」移掉，之後不能再登入，也不能復原。\n（以前登記的放置位置、代訂紀錄都會保留）' : act === 'reset' ? '把「' + who + '」的密碼重設成 0000？' : act === 'disable' ? '停用「' + who + '」？停用後就不能登入。' :
       act === 'order-on' ? '讓「' + who + '」可以登入訂貨網幫老師代訂？\n（送出時一定要選代訂對象老師，料單會記在老師名下，也會記錄是誰代訂的）' :
       act === 'order-off' ? '取消「' + who + '」的訂貨權限？之後登入只能用放置登記。' : '重新啟用「' + who + '」？';
     if (!safeConfirm(txt)) return;
     setBusy(b, true, '處理中…');
     call('adminSetCrew', token, who, act).then(function (list) {
       renderCrewAdm(list);
-      msg('autoMsg', 'ok', act === 'reset' ? '「' + who + '」的密碼已重設成 0000。' : act === 'disable' ? '已停用「' + who + '」。' :
+      msg('autoMsg', 'ok', act === 'delete' ? '已刪除校隊帳號「' + who + '」。' : act === 'reset' ? '「' + who + '」的密碼已重設成 0000。' : act === 'disable' ? '已停用「' + who + '」。' :
         act === 'order-on' ? '「' + who + '」現在可以幫老師代訂了（重新登入後生效）。' : act === 'order-off' ? '已取消「' + who + '」的訂貨權限。' : '已啟用「' + who + '」。');
     }).catch(function (err) { msg('autoMsg', 'error', err.message); setBusy(b, false); });
   });

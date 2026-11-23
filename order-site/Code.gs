@@ -5623,7 +5623,7 @@ function adminListCrew(token) {
   });
 }
 
-/** 管理者：新增校隊帳號（預設密碼 0000，第一次登入要改密碼）、停用／啟用、重設密碼 */
+/** 管理者：新增校隊帳號（預設密碼 0000，第一次登入要改密碼）、停用／啟用、重設密碼、刪除（要先停用） */
 function adminSetCrew(token, account, action) {
   auth_(token, true);
   account = clean_(account, 30);
@@ -5647,7 +5647,10 @@ function adminSetCrew(token, account, action) {
         setCell_(t2, r._row, '可訂貨', action === 'order-on');
       } else if (action === 'disable') setCell_(t, r._row, '啟用', false);
       else if (action === 'enable') setCell_(t, r._row, '啟用', true);
-      else if (action === 'reset') {
+      else if (action === 'delete') {
+        if (isTrue_(r['啟用'])) throw new Error('請先按「停用」再刪除「' + account + '」。');
+        deleteRows_(t.sheet, [r._row]);
+      } else if (action === 'reset') {
         const cell = t.sheet.getRange(r._row, t.cols['密碼']);
         cell.setNumberFormat('@');
         cell.setValue(DEFAULT_PASSWORD);
