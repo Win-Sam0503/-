@@ -180,6 +180,35 @@
   @keyframes sxFill1 { 0%, 60% { opacity: 0; } 100% { opacity: 1; } }
   .sx.sx-done { width: 76px; height: 81px; }
 
+
+  /* 標題的小校徽：登入畫一次；點一下晃一晃、連點 5 下轉圈掉食材；節日戴帽子（右上角小圖示） */
+  .hdr-logo { position: relative; display: inline-block; vertical-align: middle; margin-right: 8px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .hdr-logo .sx { width: 28px; height: 30px; display: block; }
+  .hdr-logo .sx .ln { stroke: #fff; stroke-width: 3; animation: sxDraw1 2s ease-in-out forwards; }
+  .hdr-logo .sx .fl { fill: #fff; animation: sxFill1 2.6s ease-in-out forwards; }
+  .hdr-logo.wig { animation: hdrWig .5s ease-in-out; }
+  .hdr-logo.spin { animation: hdrSpin 1.2s cubic-bezier(.3,.1,.2,1); }
+  @keyframes hdrWig { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
+  @keyframes hdrSpin { from { transform: rotate(0) scale(1); } 50% { transform: rotate(360deg) scale(1.5); } to { transform: rotate(720deg) scale(1); } }
+  .hdr-logo .egg-hat { position: absolute; right: -10px; top: -12px; font-size: 16px; line-height: 1; transform: rotate(18deg); pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { .hdr-logo .sx .ln, .hdr-logo .sx .fl { animation: none; stroke-dashoffset: 0; opacity: 1; } .hdr-logo.wig, .hdr-logo.spin { animation: none; } }
+  /* 💌 給老師的留言卡 */
+  .note-back { position: fixed; inset: 0; z-index: 960; background: rgba(16,24,40,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .note-card { position: relative; width: min(440px, 100%); background: #fff; border-radius: 18px; padding: 26px 22px 18px; box-shadow: 0 20px 50px rgba(16,24,40,.3); text-align: center; animation: noteIn .45s cubic-bezier(.2,.8,.3,1.2) both; overflow: hidden; }
+  @keyframes noteIn { from { transform: translateY(30px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+  .note-card .nt-ico { font-size: 44px; line-height: 1; }
+  .note-card .nt-text { font-size: 18px; line-height: 1.7; margin: 12px 0 8px; white-space: pre-wrap; word-break: break-word; color: #1d2939; }
+  .note-card .nt-from { color: var(--brand); font-weight: 800; }
+  .note-card .nt-deco { position: absolute; inset: 0; pointer-events: none; opacity: .14; font-size: 28px; letter-spacing: 14px; line-height: 2.2; overflow: hidden; word-break: break-all; }
+  .note-card .nt-body { position: relative; }
+  .note-card.st-xmas { background: linear-gradient(180deg, #fff 0%, #f0fdf4 100%); border-top: 6px solid #15803d; }
+  .note-card.st-cny { background: linear-gradient(180deg, #fff 0%, #fef2f2 100%); border-top: 6px solid #b91c1c; }
+  .note-card.st-moon { background: linear-gradient(180deg, #fff 0%, #fefce8 100%); border-top: 6px solid #ca8a04; }
+  .note-card.st-teacher { background: linear-gradient(180deg, #fff 0%, #fff7ed 100%); border-top: 6px solid #ea580c; }
+  .note-card.st-thanks { background: linear-gradient(180deg, #fff 0%, #fdf2f8 100%); border-top: 6px solid #db2777; }
+  .note-card.st-cheer { background: linear-gradient(180deg, #fff 0%, #eff6ff 100%); border-top: 6px solid #2563eb; }
+  .note-card.st- { border-top: 6px solid var(--brand); }
+  #noteBtn { position: relative; }
   /* ---- 彩蛋：節日、食材小提醒、送出成功動畫（不擋操作，幾秒後消失） ---- */
   .egg-layer { position: fixed; inset: 0; pointer-events: none; z-index: 950; overflow: hidden; }
   .egg-p { position: absolute; top: -8vh; font-size: 26px; line-height: 1; will-change: transform; animation: eggFall linear forwards; }
@@ -783,25 +812,26 @@
 <div id="app" class="hidden">
   <header>
     <div class="wrap">
-      <div><h1>三信家商餐飲科訂貨系統</h1><div class="who" id="who"></div></div>
+      <div><h1><span id="hdrLogo" class="hdr-logo" title="三信家商"></span>三信家商餐飲科訂貨系統</h1><div class="who" id="who"></div></div>
       <nav id="nav">
-        <button type="button" data-view="viewOrder" class="active">訂貨</button>
-        <button type="button" data-view="viewMine">我的訂單</button>
-        <button type="button" data-view="viewLessons">我的課<span id="lessonCount" class="badge-count hidden"></span></button>
-        <button type="button" data-view="viewSummary" class="admin-only hidden">訂單彙整</button>
+        <button type="button" data-view="viewOrder" class="active">🛒 訂貨</button>
+        <button type="button" data-view="viewMine">📋 我的訂單</button>
+        <button type="button" data-view="viewLessons">📅 我的課<span id="lessonCount" class="badge-count hidden"></span></button>
+        <button type="button" data-view="viewSummary" class="admin-only hidden">📊 訂單彙整</button>
         <button type="button" data-view="viewCost" class="admin-only hidden">💰 成本</button>
-        <button type="button" data-view="viewVendor" class="admin-only hidden">廠商訂貨單</button>
-        <button type="button" data-view="viewAudit" class="admin-only audit-nav hidden">抽查</button>
-        <button type="button" data-view="viewCrew" class="admin-only hidden">放置登記</button>
+        <button type="button" data-view="viewVendor" class="admin-only hidden">🚚 廠商訂貨單</button>
+        <button type="button" data-view="viewAudit" class="admin-only audit-nav hidden">🔍 抽查</button>
+        <button type="button" data-view="viewCrew" class="admin-only hidden">🧊 放置登記</button>
         <button type="button" data-view="viewCrewLook" class="crew-only hidden">🏅 課表料單</button>
-        <button type="button" data-view="viewSchedule" class="admin-only hidden">總課表</button>
-        <button type="button" data-view="viewPending" class="admin-only hidden">審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
+        <button type="button" data-view="viewSchedule" class="admin-only hidden">🗓️ 總課表</button>
+        <button type="button" data-view="viewPending" class="admin-only hidden">✅ 審核食材<span id="pendingCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewItems" class="admin-only hidden">🥕 食材管理</button>
         <button type="button" data-view="viewTrail" class="admin-only hidden">📜 紀錄</button>
-        <button type="button" data-view="viewSettings" class="admin-only hidden">系統設定</button>
-        <button type="button" data-view="viewPassword">改密碼</button>
+        <button type="button" data-view="viewSettings" class="admin-only hidden">⚙️ 系統設定</button>
+        <button type="button" data-view="viewPassword">🔑 改密碼</button>
+        <button type="button" id="noteBtn" class="hidden" title="給你的留言">💌 留言</button>
         <button type="button" id="helpBtn" data-help title="怎麼操作？看教學影片">▶ 教學</button>
-        <button type="button" id="logoutBtn">登出</button>
+        <button type="button" id="logoutBtn">👋 登出</button>
       </nav>
     </div>
   </header>
@@ -1349,6 +1379,23 @@
 
     <!-- 管理者：系統設定（自動化、管理者帳號、網址、LINE、更新程式） -->
     <section id="viewSettings" class="hidden">
+      <details class="panel noprint" id="notePanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">💌 給老師的留言</h2> <span class="muted small">老師登入時跳出一張小卡（例如節日祝福、提醒），每則每位老師看一次</span></summary>
+        <div class="tpl-row" style="margin-top:8px;align-items:flex-start">
+          <div style="flex:2;min-width:240px"><label for="ntText">留言內容（最多 300 字）</label><textarea id="ntText" rows="3" maxlength="300" placeholder="例如：祝大家聖誕快樂，期末辛苦了！" style="width:100%"></textarea></div>
+          <div style="flex:1;min-width:160px"><label for="ntFrom">署名</label><input id="ntFrom" maxlength="30" placeholder="例如：行政助理 翁煒程"></div>
+        </div>
+        <div class="tpl-row" style="margin-top:6px">
+          <div><label for="ntStart">從哪天開始</label><input id="ntStart" type="date"></div>
+          <div><label for="ntEnd">到哪天（空白＝一直顯示）</label><input id="ntEnd" type="date"></div>
+          <div><label for="ntStyle">卡片樣式</label><select id="ntStyle"><option value="">💌 一般</option><option value="xmas">🎄 聖誕</option><option value="cny">🧧 新年</option><option value="moon">🌕 中秋</option><option value="teacher">🍎 教師節</option><option value="thanks">💐 感謝</option><option value="cheer">💪 加油</option></select></div>
+        </div>
+        <div style="margin-top:6px"><label class="check" style="display:inline-flex;margin-right:12px"><input type="radio" name="ntTo" value="all" checked> 全部老師</label><label class="check" style="display:inline-flex"><input type="radio" name="ntTo" value="pick"> 只給這幾位</label></div>
+        <div id="ntPick" class="hidden small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0;max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 8px"></div>
+        <div class="actions" style="justify-content:flex-start;margin-top:8px"><button type="button" class="btn" id="ntSave">💌 發佈留言</button><button type="button" class="btn ghost small" id="ntPreview">👁 預覽</button><button type="button" class="btn ghost small hidden" id="ntCancel">取消修改</button></div>
+        <div id="ntMsg"></div>
+        <div id="ntList" style="margin-top:8px"></div>
+      </details>
       <details class="panel noprint" id="csPanel">
         <summary style="cursor:pointer"><h2 style="display:inline">👥 班級人數</h2> <span class="muted small">老師在「我的課」、訂貨頁、料單看得到（不能改）</span></summary>
         <div class="muted small" style="margin:6px 0">每個班級填一次人數；合班（例如 213/214）會自動加總。<b>選修課</b>（同一班不同課程人數不一樣，例如 314/316 的創意饅頭製作 36 人、巧克力製作 33 人）：每門課各填一行，我的課、料單會照那堂課的課程顯示；沒填課程的照整班人數。下面列出課表、國技排班和最近 2 個月訂單出現過的班級，人數空白的不會存。</div>
@@ -2138,6 +2185,8 @@
     if (data.isAdmin) refreshPendingCount();
     todayCheck();
     eggLogin();
+    hdrLogoInit();
+    noteLogin();
   }
 
   // =================== 🎁 彩蛋 ===================
@@ -2244,6 +2293,134 @@
       }
     } catch (e) {}
   }
+
+  // =================== 校徽小彩蛋 ===================
+  // 標題左邊的小校徽：點一下晃一晃；1.5 秒內連點 5 下轉兩圈、掉一陣食材雨＋一句隱藏的話
+  var EGG_HIDDEN = ['🍳 你發現隱藏彩蛋了！今天也辛苦了', '👨‍🍳 三信餐飲，好吃又好看', '🥕 今天的料單，叫得剛剛好', '🧁 偷偷告訴你：準時叫料，助理會很開心', '🍜 吃飽才有力氣上課喔'];
+  var logoClicks = [];
+  function hdrLogoInit() {
+    var el = $('hdrLogo'); if (!el) return;
+    el.innerHTML = LOGO_SVG.replace('class="sx"', 'class="sx"');
+    var f = eggFest(), old = el.querySelector('.egg-hat'); if (old) old.remove();
+    if (f) { var hat = document.createElement('span'); hat.className = 'egg-hat'; hat.textContent = f.mark; el.appendChild(hat); }
+    var mk = document.querySelector('header h1 .egg-mark'); if (mk) mk.remove();   // 節日小圖示改戴在校徽上
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest && e.target.closest('#hdrLogo'); if (!el) return;
+    var now = Date.now(); logoClicks = logoClicks.filter(function (t) { return now - t < 1500; }); logoClicks.push(now);
+    if (logoClicks.length >= 5) {
+      logoClicks = [];
+      el.classList.remove('wig', 'spin'); void el.offsetWidth; el.classList.add('spin');
+      var f = eggFest();
+      eggRain(f ? f.emo : ['🥕', '🥚', '🧅', '🍅', '🥦', '🧄', '🍋', '🧁', '🍤'], 30, 7000);
+      eggBanner(EGG_HIDDEN[Math.floor(Math.random() * EGG_HIDDEN.length)], 3500);
+    } else { el.classList.remove('wig'); void el.offsetWidth; el.classList.add('wig'); }
+  });
+
+  // =================== 💌 給老師的留言 ===================
+  var NOTE_ICO = { '': '💌', xmas: '🎄', cny: '🧧', moon: '🌕', teacher: '🍎', thanks: '💐', cheer: '💪' };
+  var NOTE_DECO = { xmas: '❄️🎄⭐🎁', cny: '🏮🧧✨🍊', moon: '🌕🐇🥮✨', teacher: '🍎📚🌟', thanks: '💐💕✨', cheer: '💪⭐🔥' };
+  var noteQueued = {};
+  function noteSeenKey() { return 'ckOrder.noteSeen.' + (data ? data.account : ''); }
+  function noteSeen() { try { return JSON.parse(localStorage.getItem(noteSeenKey()) || '[]'); } catch (e) { return []; } }
+  function noteMarkSeen(id) { try { var a = noteSeen(); if (a.indexOf(id) < 0) a.push(id); localStorage.setItem(noteSeenKey(), JSON.stringify(a.slice(-80))); } catch (e) {} }
+  function noteCard(n, i, total) {
+    var st = n.style || '', deco = NOTE_DECO[st] ? new Array(30).join(NOTE_DECO[st]) : '';
+    return '<div class="note-card st-' + esc(st) + '" role="dialog" aria-label="給你的留言">' + (deco ? '<div class="nt-deco" aria-hidden="true">' + deco + '</div>' : '') +
+      '<div class="nt-body"><div class="nt-ico">' + (NOTE_ICO[st] || '💌') + '</div>' +
+      '<div class="small muted" style="margin-top:6px">' + (eggName() ? esc(eggName()) + '，' : '') + '有一則給你的留言' + (total > 1 ? '（' + (i + 1) + '／' + total + '）' : '') + '</div>' +
+      '<div class="nt-text">' + esc(n.text) + '</div>' +
+      (n.from ? '<div class="nt-from">— ' + esc(n.from) + '</div>' : '') +
+      '<div class="actions" style="justify-content:center;margin-top:16px"><button type="button" class="btn" data-ntok>' + (i + 1 < total ? '下一則 →' : '收到，謝謝 💕') + '</button></div></div></div>';
+  }
+  // list：要顯示的留言；markSeen：看完記下來（登入自動跳的才記）
+  function noteShow(list, markSeen) {
+    if (!list || !list.length) return;
+    var i = 0, back = document.createElement('div'); back.className = 'note-back';
+    var draw = function () { back.innerHTML = noteCard(list[i], i, list.length); var b = back.querySelector('[data-ntok]'); if (b) b.focus(); };
+    back.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-ntok]') && e.target !== back) return;
+      if (markSeen) noteMarkSeen(list[i].id);
+      if (e.target.closest('[data-ntok]') && ++i < list.length) { draw(); return; }
+      if (markSeen) list.slice(i).forEach(function (n) { noteMarkSeen(n.id); });
+      back.remove();
+    });
+    document.body.appendChild(back); draw();
+    var st = list[0].style, f = { xmas: ['❄️', '🎄', '⭐', '🎁'], cny: ['🧧', '🏮', '✨'], moon: ['🌕', '🥮', '🐇'], teacher: ['🍎', '📚', '🌟'], thanks: ['💐', '💕', '✨'], cheer: ['💪', '⭐', '🎉'] }[st];
+    if (f) eggRain(f, 22, 7000);
+  }
+  // 登入後：還沒看過的留言跳出來；上面「💌 留言」按鈕可以再看
+  function noteLogin() {
+    var list = (data && data.notes) || [];
+    $('noteBtn').classList.toggle('hidden', !list.length);
+    var seen = noteSeen(), fresh = list.filter(function (n) { return seen.indexOf(n.id) < 0 && !noteQueued[n.id]; });
+    fresh.forEach(function (n) { noteQueued[n.id] = 1; });   // 同一次開網頁只跳一次（重新載入資料不會再跳）
+    var go = function () { if (!$('askBox').classList.contains('hidden') || document.querySelector('.note-back')) { setTimeout(go, 700); return; } noteShow(fresh, true); };   // 其他提醒視窗開著：等關掉再跳
+    if (fresh.length) setTimeout(go, 1200);
+  }
+  $('noteBtn').addEventListener('click', function () { noteShow((data && data.notes) || [], false); });
+
+  // 系統設定：寫留言
+  var ntList = [], ntEdit = '';
+  function ntPickRender(sel) {
+    sel = sel || [];
+    $('ntPick').innerHTML = (data.teachers || []).map(function (t) { return '<label class="check" style="margin:0"><input type="checkbox" value="' + esc(t) + '"' + (sel.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>'; }).join('');
+  }
+  function ntToMode() { var r = document.querySelector('input[name="ntTo"]:checked'); return r ? r.value : 'all'; }
+  document.addEventListener('change', function (e) { if (e.target.name === 'ntTo') { $('ntPick').classList.toggle('hidden', ntToMode() !== 'pick'); if (ntToMode() === 'pick' && !$('ntPick').innerHTML) ntPickRender(); } });
+  function ntForm() {
+    return { id: ntEdit, text: $('ntText').value, from: $('ntFrom').value, start: $('ntStart').value, end: $('ntEnd').value, style: $('ntStyle').value,
+      to: ntToMode() === 'pick' ? Array.prototype.map.call($('ntPick').querySelectorAll('input:checked'), function (x) { return x.value; }) : [] };
+  }
+  function ntReset() {
+    ntEdit = ''; $('ntText').value = ''; $('ntEnd').value = ''; $('ntStyle').value = ''; $('ntStart').value = isoDate(new Date());
+    document.querySelector('input[name="ntTo"][value="all"]').checked = true; $('ntPick').classList.add('hidden'); $('ntPick').innerHTML = '';
+    $('ntSave').textContent = '💌 發佈留言'; $('ntCancel').classList.add('hidden');
+    try { $('ntFrom').value = localStorage.getItem('ckOrder.noteFrom') || ''; } catch (e) {}
+  }
+  function ntRender() {
+    var t = isoDate(new Date());
+    $('ntList').innerHTML = ntList.length ? ntList.map(function (n, i) {
+      var st = n.end && n.end < t ? '<span class="badge none">已結束</span>' : n.start && n.start > t ? '<span class="badge info">' + esc(shortDate(n.start)) + ' 開始</span>' : '<span class="badge ok">顯示中</span>';
+      return '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">' +
+        '<div style="font-size:24px">' + (NOTE_ICO[n.style || ''] || '💌') + '</div><div style="flex:1;min-width:200px"><div style="white-space:pre-wrap">' + esc(n.text) + '</div>' +
+        '<div class="small muted">' + (n.from ? '— ' + esc(n.from) + '・' : '') + (n.start ? esc(shortDate(n.start)) : '今天') + '～' + (n.end ? esc(shortDate(n.end)) : '一直顯示') + '・' + (n.to && n.to.length ? '給 ' + esc(n.to.join('、')) : '全部老師') + '</div></div>' +
+        '<div>' + st + ' <button type="button" class="btn ghost small" data-ntv="' + i + '">👁</button> <button type="button" class="btn ghost small" data-nte="' + i + '">修改</button> <button type="button" class="btn ghost small" data-ntd="' + i + '" style="color:var(--bad)">刪除</button></div></div>';
+    }).join('') : '<div class="muted small">還沒有留言。</div>';
+  }
+  function ntLoad() { return call('adminListNotes', token).then(function (r) { ntList = r || []; ntRender(); }).catch(function (e) { msg('ntMsg', 'error', e.message); }); }
+  $('notePanel').addEventListener('toggle', function () { if (this.open) { if (!ntEdit) ntReset(); ntLoad(); } });
+  $('ntPreview').addEventListener('click', function () { var n = ntForm(); if (!n.text.trim()) { msg('ntMsg', 'error', '先打留言內容。'); return; } n.id = 'preview'; noteShow([n], false); });
+  $('ntCancel').addEventListener('click', ntReset);
+  $('ntSave').addEventListener('click', function () {
+    var n = ntForm(), btn = this;
+    if (!n.text.trim()) { msg('ntMsg', 'error', '請輸入留言內容。'); $('ntText').focus(); return; }
+    if (ntToMode() === 'pick' && !n.to.length) { msg('ntMsg', 'error', '請勾選要給哪幾位老師。'); return; }
+    try { localStorage.setItem('ckOrder.noteFrom', n.from); } catch (e) {}
+    setBusy(btn, true, '發佈中…');
+    call('adminSaveNote', token, n).then(function (r) {
+      ntList = r || []; ntRender(); msg('ntMsg', 'ok', (ntEdit ? '已修改留言。' : '已發佈！') + '老師下次登入（或重新整理）就會看到。'); ntReset();
+    }).catch(function (e) { msg('ntMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  });
+  $('ntList').addEventListener('click', function (e) {
+    var v = e.target.closest('[data-ntv]'), ed = e.target.closest('[data-nte]'), d = e.target.closest('[data-ntd]');
+    if (v) { noteShow([ntList[Number(v.getAttribute('data-ntv'))]], false); return; }
+    if (ed) {
+      var n = ntList[Number(ed.getAttribute('data-nte'))];
+      ntEdit = n.id; $('ntText').value = n.text; $('ntFrom').value = n.from || ''; $('ntStart').value = n.start || ''; $('ntEnd').value = n.end || ''; $('ntStyle').value = n.style || '';
+      var pick = n.to && n.to.length; document.querySelector('input[name="ntTo"][value="' + (pick ? 'pick' : 'all') + '"]').checked = true;
+      $('ntPick').classList.toggle('hidden', !pick); ntPickRender(n.to || []);
+      $('ntSave').textContent = '💾 儲存修改'; $('ntCancel').classList.remove('hidden'); $('ntText').focus();
+      return;
+    }
+    if (d) {
+      var n2 = ntList[Number(d.getAttribute('data-ntd'))];
+      ask('刪除這則留言？\n「' + n2.text.slice(0, 40) + '」', '刪除').then(function (ok) {
+        if (!ok) return;
+        call('adminDeleteNote', token, n2.id).then(function (r) { ntList = r || []; ntRender(); msg('ntMsg', 'ok', '已刪除。'); }).catch(function (err) { msg('ntMsg', 'error', err.message); });
+      });
+    }
+  });
 
   // ---- 📋 今天的料單：老師今天有課（有訂單）就跳出來，列出每堂課的材料、放在哪；一天只自動跳一次，上面留一個按鈕可以再打開 ----
   var todayData = null;

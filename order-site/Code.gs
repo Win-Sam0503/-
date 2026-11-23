@@ -541,6 +541,7 @@ function getBootstrap(token) {
     classSizes: st.classSizes || {},
     unitConv: st.unitConv || {},
     unitHist: st.unitHist || {},
+    notes: notesFor_(account),
   };
 }
 
@@ -5611,6 +5612,70 @@ function adminSetTeacher(token, account, action) {
   try { CacheService.getScriptCache().removeAll([BOOT_CACHE_KEY, 'extraAdmins']); } catch (e) {}
   out.list = adminListTeachers(token);
   return out;
+}
+
+// ---- 💌 給老師的留言：管理者在系統設定寫，老師登入時跳出來（存在指令碼屬性，不用另開分頁） ----
+const NOTES_KEY_ = 'LOGIN_NOTES';
+function notesAll_() {
+  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty(NOTES_KEY_) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+}
+/** 這個帳號今天看得到的留言（在期間內、對象是全部或有他） */
+function notesFor_(account) {
+  const t = dateStr_(today_());
+  return notesAll_().filter(function (n) {
+    return (!n.start || n.start <= t) && (!n.end || n.end >= t) && (!n.to || !n.to.length || n.to.indexOf(account) >= 0);
+  }).map(function (n) { return { id: n.id, text: n.text, from: n.from, start: n.start, end: n.end, style: n.style || '' }; });
+}
+/** 管理者：全部留言 */
+function adminListNotes(token) {
+  auth_(token, true);
+  return notesAll_();
+}
+/** 管理者：新增／修改留言 n = { id?, text, from, start, end, to: [帳號]（空＝全部老師）, style } */
+function adminSaveNote(token, n) {
+  const account = auth_(token, true);
+  n = n || {};
+  const text = String(n.text || '').replace(/\r/g, '').trim().slice(0, 300);
+  if (!text) throw new Error('請輸入留言內容。');
+  const day = function (v) { v = String(v || '').trim(); if (!v) return ''; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error('日期格式不對。'); return v; };
+  const start = day(n.start), end = day(n.end);
+  if (start && end && end < start) throw new Error('結束日期不能早於開始日期。');
+  const to = (Array.isArray(n.to) ? n.to : []).map(function (x) { return clean_(x, 30); }).filter(Boolean).slice(0, 100);
+  const style = ['', 'xmas', 'cny', 'moon', 'teacher', 'thanks', 'cheer'].indexOf(String(n.style || '')) >= 0 ? String(n.style || '') : '';
+  const lock = scriptLock_();
+  lock.waitLock(20000);
+  try {
+    let list = notesAll_();
+    const id = String(n.id || '') || 'N' + Date.now() + Math.random().toString(36).slice(2, 6);
+    const o = { id: id, text: text, from: clean_(n.from, 30), start: start, end: end, to: to, style: style, by: account, at: fmtDateTime_(new Date()) };
+    const i = list.findIndex(function (x) { return x.id === id; });
+    if (i >= 0) list[i] = o; else list.unshift(o);
+    // 太多就把已經過期最久的刪掉（屬性一格最多 9KB）
+    const t = dateStr_(today_());
+    while (list.length > 30 || JSON.stringify(list).length > 8500) {
+      let k = -1;
+      list.forEach(function (x, j) { if (x.end && x.end < t && (k < 0 || x.end < list[k].end)) k = j; });
+      if (k < 0) k = list.length - 1;
+      if (list[k].id === id) throw new Error('留言太多了，請先刪掉幾則舊的。');
+      list.splice(k, 1);
+    }
+    PropertiesService.getScriptProperties().setProperty(NOTES_KEY_, JSON.stringify(list));
+    return list;
+  } finally {
+    lock.releaseLock();
+  }
+}
+function adminDeleteNote(token, id) {
+  auth_(token, true);
+  const lock = scriptLock_();
+  lock.waitLock(20000);
+  try {
+    const list = notesAll_().filter(function (x) { return x.id !== String(id || ''); });
+    PropertiesService.getScriptProperties().setProperty(NOTES_KEY_, JSON.stringify(list));
+    return list;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** 管理者：校隊帳號清單 */
