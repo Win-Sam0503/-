@@ -7624,21 +7624,23 @@
     return html;
   }
 
-  // 格式三：教師料單（新版：A｜C＋D｜F／B｜E｜上課須用器具；欄位：編號、品名、數量）
+  // 格式三：教師料單（新版：A｜C＋D｜F／B｜E｜羅亞奶油(G)，器具寫在「其他」；欄位：編號、品名、數量）
   var BOX_NAMES = { A: '菜與水果類(A)', B: '肉類(B)', C: '蛋類(C)', D: '海鮮類(D)', E: '乾貨類(E)', F: '飲料乾貨類(F)' };
   function sheetTeacher(o, foods, tools) {
+    // 羅亞奶油（G統清）有自己一格（原本器具的位置），器具改寫在下面「其他」
     var by = {}, others = [];
     foods.forEach(function (it) {
       var k = String(it.vendor || '').charAt(0).toUpperCase();
-      if (BOX_NAMES[k]) (by[k] = by[k] || []).push(it); else others.push(it);
+      if (BOX_NAMES[k] || k === 'G') (by[k] = by[k] || []).push(it); else others.push(it);
     });
     var cnt = function (k) { return (by[k] || []).length; };
     // 上排：A、F 是整欄；C、D 疊在中間。下排：B、E、器具
     var R1 = Math.max(19, cnt('A'), cnt('F'), cnt('C') + cnt('D') + 3);
     var Rc = Math.max(7, cnt('C')), Rd = Math.max(R1 - Rc - 3, cnt('D'));
     R1 = Math.max(R1, Rc + Rd + 3);
-    var R2 = Math.max(17, cnt('B'), cnt('E'), tools.length);
-    var avail = 277 - 12 - 14 - 22 - 6 - 4 * 15 - (others.length ? 10 : 0);
+    var R2 = Math.max(17, cnt('B'), cnt('E'), cnt('G'));
+    var hasExtra = others.length || tools.length;
+    var avail = 277 - 12 - 14 - 22 - 6 - 4 * 15 - (hasExtra ? (tools.length > 6 ? 16 : 10) : 0);
     var rh = Math.min(6.2, avail / (R1 + R2));
     var style = '--rh:' + rh.toFixed(2) + 'mm;--fs:' + Math.min(10.5, Math.max(8, rh * 1.6)).toFixed(1) + 'pt';
     function box(title, list, rows, isTool) {
@@ -7661,11 +7663,13 @@
         box(BOX_NAMES.F, bySection(by.F || []), R1) +
         box(BOX_NAMES.B, bySection(by.B || []), R2) +
         box(BOX_NAMES.E, bySection(by.E || []), R2) +
-        box('上課須用器具', tools, R2, true) +
+        box('羅亞奶油(G)', bySection(by.G || []), R2) +
       '</div>';
-    if (others.length) html += '<div class="extra"><b>其他：</b>' + others.map(function (it) {
-      return esc(vName(it.vendor)) + ' ' + nameText(it) + ' ' + qtyText(it);
-    }).join('、') + '</div>';
+    if (hasExtra) html += '<div class="extra"><b>其他：</b>' +
+      (tools.length ? '<b>上課須用器具</b> ' + tools.map(function (t) { return nameText(t) + ' ' + esc(fmtQty(t.qty)); }).join('、') + (others.length ? '；' : '') : '') +
+      others.map(function (it) {
+        return esc(vName(it.vendor)) + ' ' + nameText(it) + ' ' + qtyText(it);
+      }).join('、') + '</div>';
     return html + '</div>';
   }
 
