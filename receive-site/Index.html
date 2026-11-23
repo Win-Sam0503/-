@@ -757,7 +757,7 @@
       done++; tot += wp.amt; by[vendor] = (by[vendor] || 0) + wp.amt;
       gear += wp.gear; food += wp.amt - wp.gear;
     };
-    w.batches.forEach(function (b) { n++; if (slipStopped(b)) { stopN++; done++; } else addSl(b.vendor, b); });
+    w.batches.forEach(function (b) { if (b.late) return; n++; if (slipStopped(b)) { stopN++; done++; } else addSl(b.vendor, b); });
     (w.extras || []).forEach(function (x) { n++; addSl(x.vendor, x); });
     var ym = w.from.slice(0, 7), ym2 = w.to.slice(0, 7);
     return '<div class="panel" style="grid-column:1/-1;margin:0"><div class="row" style="align-items:baseline"><b style="font-size:18px">本週銷貨單合計 $' + money(r2(tot)) + '</b>' +
@@ -896,6 +896,7 @@
     return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) + codeTag(sl) +
       (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
       (b.otherWeek ? '<div class="small" style="color:var(--warn)">📅 ' + esc(md(b.from)) + ' 那週叫的貨</div>' : '') +
+      (b.late ? '<div class="small" style="color:#b45309;font-weight:700">📮 ' + esc(md(b.from)) + ' 那週叫的貨・還沒填銷貨單（晚開單的打這張）</div>' : '') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
       ' <span class="muted small">' + (sl && sl.photos.length ? '照片 ' + sl.photos.length + ' 張・' : '') + (c ? '已驗收' : '還沒驗收') + '</span>' +
       invBadge(sl) + '</div></button>';
@@ -946,7 +947,7 @@
     show('vMonth'); loadMonth().then(function () { if (t) msg('monMsg', 'ok', t); });
   }
   function openSlip(b) {
-    msg('doneMsg', '', ''); msg('slMsg', '', ''); clsMiss = {}; clsMissNo = {};
+    msg('doneMsg', '', ''); msg('slMsg', '', ''); clsMiss = {}; clsMissNo = {}; farSig = {};
     var sl = b.slip;
     cur = { mode: 'slip', b: b, marks: {}, photos: sl ? sl.photos.slice() : [], slip: sl && (sl.rows.length || sl.total !== '') ? slipFromSaved({ rows: sl.rows, total: sl.total }) : null };
     var d = readSlipDraft(b);
@@ -1802,7 +1803,7 @@
     $('slipSum').innerHTML = '金額加總 <b>$' + money(s.sum) + '</b>' + (t !== null ? (Math.abs(t - s.sum) < 1 ? ' <span class="badge ok">✓ 跟合計一樣</span>' : ' <span class="badge bad">' + (t > s.sum ? '比合計少 $' : '比合計多 $') + money(Math.abs(r2(t - s.sum))) + '</span>') : '') + '　';
   }
   // ---------- 照紙本一張一張打：一張銷貨單一塊，同一個品項重複出現也可以 ----------
-  function newPaper(kind) { var d = cur.b.extra ? cur.b.date : (function () { var t = iso(new Date()); return week && t >= week.from && t <= week.to ? t : ''; })(); return { date: d, kind: kind || '食材', rows: [{ name: '', qty: '', unit: '', price: '', amount: '' }] }; }
+  function newPaper(kind) { var prev = cur.slip && cur.slip.papers && cur.slip.papers.length ? cur.slip.papers[cur.slip.papers.length - 1].date : ''; var d = prev ? prev : cur.b.extra ? cur.b.date : (function () { var t = iso(new Date()); return week && t >= week.from && t <= week.to ? t : ''; })(); return { date: d, kind: kind || '食材', rows: [{ name: '', qty: '', unit: '', price: '', amount: '' }] }; }
   function paperMode() { if (!cur.slip) cur.slip = { ocr: false, text: '', total: '', rows: {}, extras: [] }; if (!cur.slip.papers) cur.slip.papers = [newPaper()]; delete cur.slip.totalOnly; }
   // 品名選單：叫貨單的、這家單價表的、食材總表（這家廠商的排前面）；選單的說明是別名，打別名也找得到
   function itemNames() { var out = slipNames().slice(); Object.keys(cur.b.prices || {}).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); }); return out; }
@@ -1981,10 +1982,35 @@
       '<div class="small muted">綠色 ✓＝品名、數量都跟那班叫的一樣，最有把握；只有名字對到（數量不一樣）可能是同一道菜但別班；「— 沒叫」越多越不像。</div></details>';
   }
   // 每張：猜班級、單子合計對不對；最上面：哪幾班打了、哪幾班還沒
+  // 這張叫貨單裡猜不到（沒有像的班，或最像的也很不像）：去前後三週的叫貨單找（晚開單、提早送常打錯張）
+  var farSig = {}, farT = {};
+  function clsFar(i, pp, gs) {
+    if (pp.cls && clsMiss[i] && /data-pfar/.test(clsMiss[i])) { clsMiss[i] = ''; farSig[i] = ''; var e1 = document.querySelector('[data-pmiss="' + i + '"]'); if (e1) e1.innerHTML = ''; }
+    if (pp.cls || clsMissNo[i]) return;
+    var names = pp.rows.map(function (r) { return String(r.name || '').trim(); }).filter(Boolean);
+    var gu = names.length >= 2 ? clsGuess(pp, gs, clsUsed(i)) : [];
+    var sig = names.length >= 2 && !(gu.length && gu[0].sc >= 0.3) ? names.join('|') : '';
+    if (sig === (farSig[i] || '')) return;
+    farSig[i] = sig; clearTimeout(farT[i]);
+    if (!sig) { if (clsMiss[i] && /data-pfar/.test(clsMiss[i])) { clsMiss[i] = ''; var e0 = document.querySelector('[data-pmiss="' + i + '"]'); if (e0) e0.innerHTML = ''; } return; }
+    var b = cur.b;
+    farT[i] = setTimeout(function () {
+      call('findPaperBatch', b.vendor, names, b.extra ? b.date : bFrom(b), b.id || '').then(function (list) {
+        if (!cur || cur.b !== b || farSig[i] !== sig || pp.cls) return;
+        var h = !list.length ? '' : '<div class="msg warn" data-pfar>🔎 <b>這張叫貨單裡找不到像的班</b>，別張叫貨單比較像（可能是晚開單或提早送）：' + list.map(function (x) {
+          return '<div style="margin:6px 0 0 8px">👉 <b>' + x.dates.map(mdw).join('、') + (x.group ? ' 送貨組別' + esc(x.group) : '') + '</b> ' + esc(x.cls + ' ' + x.teacher) +
+            ' <span class="small">（對到 ' + x.hit + '／' + x.all + ' 樣：' + esc(x.items.slice(0, 8).join('、') + (x.items.length > 8 ? '…' : '')) + '）</span>' +
+            ' <button type="button" class="btn small" data-pgo="' + esc(x.id) + '">打開那張</button></div>';
+        }).join('') + '<div class="small" style="margin-top:6px">確定是那張的話：這一張刪掉（或不要存），到那張叫貨單打。</div></div>';
+        clsMiss[i] = h; var e = document.querySelector('[data-pmiss="' + i + '"]'); if (e) e.innerHTML = h;
+      }).catch(function () {});
+    }, 900);
+  }
   function clsRefresh() {
     if (!cur || !cur.b || !clsSlip() || !cur.slip || !cur.slip.papers) return;
     var gs = clsGroups(), usedAll = clsUsed(-1);
     cur.slip.papers.forEach(function (pp, i) {
+      try { clsFar(i, pp, gs); } catch (e) {}
       var gEl = document.querySelector('[data-pguess="' + i + '"]'), tEl = document.querySelector('[data-ptchk="' + i + '"]');
       if (gEl) {
         if (pp.cls) { var cE0 = document.querySelector('[data-pcmp="' + i + '"]'); if (cE0) cE0.innerHTML = ''; }

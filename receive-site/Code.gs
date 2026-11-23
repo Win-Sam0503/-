@@ -93,7 +93,7 @@ const API_ = {
   priceSearch: function (a) { return priceSearch_.apply(null, a); },
   aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
   aiModelSet: function (a) { return aiModelSet_.apply(null, a); },
-  getMonth: function (a) { return getMonthBySlip_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, findClassBatch: function (a) { return findClassBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
+  getMonth: function (a) { return getMonthBySlip_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, findClassBatch: function (a) { return findClassBatch_.apply(null, a); }, findPaperBatch: function (a) { return findPaperBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, slipDraftSave: function (a) { return slipDraftSave_.apply(null, a); }, slipDraftGet: function (a) { return slipDraftGet_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
   whoAmI: function () { return CURRENT_USER_; }, dataVer: function () { return CacheService.getScriptCache().get('rcvDataVer') || ''; },
@@ -125,7 +125,7 @@ function api(token, fn, args) {
   if (!NO_WRITE_FN_.test(fn)) { try { cache.put('rcvDataVer', String(Date.now()) + ':' + account, 21600); } catch (e) {} }
   return out;
 }
-const NO_WRITE_FN_ = /^(getWeek|getMonth|getSlipBatch|findClassBatch|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
+const NO_WRITE_FN_ = /^(getWeek|getMonth|getSlipBatch|findClassBatch|findPaperBatch|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
 
 /**
  * 授權跳不出來、或出現「你沒有呼叫 ○○ 的權限」時：在 Apps Script 編輯器選這個函式按「執行」。
@@ -209,6 +209,17 @@ function slipWeekView_(out, f, recs, prices) {
   Object.keys(need).sort().forEach(function (wk) {
     const other = weekBatches_(purchaseRows_(wk, dateStr_(addDays_(parseDate_(wk), 4))), wk, readChecks_(wk), prices, recs);
     other.batches.forEach(function (b) { if (need[wk][b.id]) { b.from = wk; b.otherWeek = true; out.batches.push(b); } });
+  });
+  // 菜商比較晚開單：前兩週（含這週一二組，上週四五就送到的）還沒填銷貨單的叫貨單也列在這週，單子日期那週就找得到
+  out.batches.forEach(function (b) { have[b.id] = true; });
+  [-14, -7, 0].forEach(function (n) {
+    const wk = dateStr_(addDays_(parseDate_(f), n));
+    weekBatches_(purchaseRows_(wk, dateStr_(addDays_(parseDate_(wk), 4))), wk, readChecks_(wk), prices, recs).batches.forEach(function (b) {
+      const sl = b.slip;
+      if (have[b.id] || (sl && (sl.amount > 0 || (sl.rows || []).length || sl.noSlip)) || b.stopAll) return;
+      if (n === 0 && !(b.group && b.group.charAt(0) === '一')) return;   // 這週其他組本來就列在這週
+      have[b.id] = true; b.from = wk; b.late = true; out.batches.push(b);
+    });
   });
   // 臨時銷貨單：照送貨日期（週一～週日）
   out.extras = extraSlips_(recs, f, sEnd);
@@ -1275,6 +1286,43 @@ function findClassBatch_(vendor, no, around, exceptId) {
   });
   const dist = function (o) { return Math.abs(parseDate_(o.dates.sort()[0]) - a); };
   return Object.keys(by).map(function (k) { return by[k]; }).sort(function (x, y) { return dist(x) - dist(y); }).slice(0, 4);
+}
+
+/**
+ * 單子沒寫班級、這張叫貨單裡又猜不到：照打的品名，在前後 3 週這家廠商的叫貨單裡找最像的班（晚開單、提早送常打錯張）
+ * names: [品名]；回傳 [{ id, group, dates, cls, teacher, items, hit, all }]
+ */
+function findPaperBatch_(vendor, names, around, exceptId) {
+  vendor = String(vendor || '').trim();
+  names = (names || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+  const a = parseDate_(around) || today_();
+  if (!vendor || names.length < 2) return [];
+  const strip = function (x) { return String(x).replace(/[(（][^)）]*[)）]/g, '').trim(); };
+  const like = function (x, y) {
+    const p = strip(x), q = strip(y);
+    if (!p || !q) return false;
+    if (p === q || p.indexOf(q) >= 0 || q.indexOf(p) >= 0) return true;
+    let c = 0; for (let i = 0; i < p.length; i++) if (q.indexOf(p[i]) >= 0 && p.indexOf(p[i]) === i) c++;
+    return c >= 2;
+  };
+  const by = {};
+  purchaseRows_(dateStr_(addDays_(a, -21)), dateStr_(addDays_(a, 21))).forEach(function (r) {
+    const sv = SITE_VENDORS[r.vendor], v = sv ? sv.base : r.vendor;
+    if (v !== vendor || r.status === '草稿') return;
+    const id = checkId_(dateStr_(mondayOf_(parseDate_(r.date))), v, sv ? '' : r.group);
+    if (id === exceptId) return;
+    const k = id + '|' + r.date + '|' + r.className + '|' + r.teacher;
+    const o = by[k] = by[k] || { id: id, group: sv ? '' : r.group, dates: [r.date], cls: r.className, teacher: r.teacher, items: [] };
+    if (o.items.indexOf(r.name) < 0) o.items.push(r.name);
+  });
+  return Object.keys(by).map(function (k) {
+    const o = by[k];
+    o.hit = names.filter(function (n) { return o.items.some(function (w) { return like(n, w); }); }).length;
+    o.all = o.items.length;
+    o.sc = o.hit / (names.length + o.all - o.hit);
+    return o;
+  }).filter(function (o) { return o.hit >= 2 && o.sc >= 0.3; })
+    .sort(function (x, y) { return y.sc - x.sc || Math.abs(parseDate_(x.dates[0]) - a) - Math.abs(parseDate_(y.dates[0]) - a); }).slice(0, 3);
 }
 
 /** 月結對帳點一列：拿那一張叫貨單（或臨時銷貨單）的完整資料，直接打開銷貨單查看／修改 */
