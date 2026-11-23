@@ -2436,11 +2436,20 @@
       cur.slip.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); go(j + 1, 'name');
     }
   });
+  // 打銷貨單：游標跑到畫面外（或被上面標題、下面儲存列擋住）就自動捲，讓那一格停在畫面中間偏上，不用自己滾滑鼠
+  function keepInView(el) {
+    if (!el || !el.getBoundingClientRect || $('vSlipDo').classList.contains('hidden')) return;
+    var r = el.getBoundingClientRect(), hd = document.querySelector('header'), top = hd ? hd.getBoundingClientRect().bottom : 0, bot = window.innerHeight;
+    Array.prototype.forEach.call(document.querySelectorAll('#vSlipDo .bar'), function (x) { var br = x.getBoundingClientRect(); if (br.height && br.top < bot) bot = Math.min(bot, br.top); });
+    if (r.top >= top + 50 && r.bottom <= bot - 90) return;   // 看得到，而且下面還有空間
+    window.scrollBy({ top: r.top - (top + (bot - top) * 0.4), behavior: 'smooth' });
+  }
+  $('vSlipDo').addEventListener('focusin', function (e) { var t = e.target; if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) setTimeout(function () { keepInView(t); }, 0); });
   // 新增一張：游標直接到「單子寫的班級」（不是一班一張的廠商就到品名）
   function paperAddFocus() {
     cur.slip.papers.push(newPaper()); renderPapers(); saveDraft();
     var ins = $('slipBox').querySelectorAll(clsSlip() ? '[data-pclsno]' : '[data-pf="name"]'), x = ins[ins.length - 1];
-    if (x) { x.focus(); x.scrollIntoView({ block: 'center' }); }
+    if (x) x.focus();
   }
   // 空白鍵＝新增一張銷貨單。只在數字格（數量、單價、金額、合計）或空的品名格按才算，品名裡要打空白照樣可以；中文輸入法選字的空白不算
   $('slipBox').addEventListener('keydown', function (e) {
