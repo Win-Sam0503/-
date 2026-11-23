@@ -1046,6 +1046,7 @@ function readItems_() {
         units: itemUnits_(r['可用單位']),
         group: String(r['適用組別'] || '全部').trim() || '全部',
         code: String(r['舊編號'] || '').trim(),
+        prefer: String(r['建議改用'] || '').trim(),   // 學校統一用別樣（例如酥油→羅亞無鹽）：老師加入時提醒，一定要用要填原因
       };
     });
 }

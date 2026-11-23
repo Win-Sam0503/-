@@ -2452,13 +2452,30 @@
     if (sb) { addExisting(itemById[sb.getAttribute('data-sid')]); $('search').value = ''; renderResults(); return; }
     var b = e.target.closest('.item');
     if (!b) return;
-    var it = deptSub(itemById[b.getAttribute('data-id')]);
+    preferCheck(itemById[b.getAttribute('data-id')]).then(function (pc) { if (pc) addPicked(pc.item, pc.note); });
+  });
+  // 學校統一用別樣（例如酥油、白油、安佳 → 羅亞無鹽）：加入時先問；一定要用的要填原因，原因寫進備註「【特殊需求】…」
+  function preferCheck(it0) {
+    var pf = it0 && it0.prefer && itemById[it0.prefer];
+    if (!pf) return Promise.resolve({ item: it0, note: '' });
+    return ask('', '改用「' + pf.name + '」', { noText: '一定要用「' + it0.name + '」', html: '<div style="text-align:left"><b>📢 學校統一用「' + esc(pf.name) + '」</b>' +
+      '<div style="margin-top:6px">老師開會決定「' + esc(it0.name) + '」統一改用「' + esc(pf.name) + '」。</div><div class="muted small" style="margin-top:6px">配方真的一定要用「' + esc(it0.name) + '」的話，按右邊的按鈕，填一下原因就可以訂。</div></div>' }).then(function (ok) {
+      if (ok) return { item: pf, note: '' };
+      var why = window.prompt('為什麼一定要用「' + it0.name + '」？（會寫在備註，管理者看得到）\n例如：起酥需要、檢定指定材料', '');
+      if (why === null) return null;
+      why = String(why).trim();
+      if (!why) { notice('沒有填原因，先不加入。一定要用的話請再點一次，填原因。'); return null; }
+      return { item: it0, note: '【特殊需求】' + why.slice(0, 60) };
+    });
+  }
+  function addPicked(it0, note) {
+    var it = deptSub(it0);
     // 同一樣食材可以重複加入，每次都是獨立的一列（各自的數量、單位、備註）
-    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: validUnit(it.unit), note: '', isNew: false, noOrder: false, section: draft.activeSection };
+    var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: '', unit: validUnit(it.unit), note: note || '', isNew: false, noOrder: false, section: draft.activeSection };
     draft.cart.push(row);
     saveDraft(); renderCart(); renderResults();
     focusCartRow(row.key);
-  });
+  }
   function focusCartRow(key) {
     var rowEl = document.querySelector('.cart-row[data-key="' + key + '"]'), cc = $('cartCount');
     if (rowEl) { rowEl.classList.remove('flash'); void rowEl.offsetWidth; rowEl.classList.add('flash'); }   // 剛加入的那一行亮一下
@@ -2567,6 +2584,10 @@
     return t;
   }
   function addExisting(it, qty, unit) {
+    if (it && it.prefer && itemById[it.prefer] && !addExisting._ok) {
+      preferCheck(it).then(function (pc) { if (!pc) return; addExisting._ok = true; try { addExisting(pc.item, qty, unit); } finally { addExisting._ok = false; } var r = draft.cart[draft.cart.length - 1]; if (pc.note && r) { r.note = pc.note; saveDraft(); renderCart(); } });
+      return;
+    }
     it = deptSub(it);
     var row = { key: 'k' + Date.now() + Math.random().toString(36).slice(2, 6), id: it.id, name: it.name, vendor: it.vendor, qty: qty || '',
       unit: (function () { var al = it.units && it.units.length ? it.units : null, u0 = validUnit(unit) || validUnit(it.unit); return al ? (al.indexOf(u0) >= 0 ? u0 : al[0]) : u0; })(), note: '', isNew: false, noOrder: false, section: draft.activeSection };
@@ -3296,6 +3317,8 @@
         var c = draft.cart[k];
         if (!(toNum(c.qty) > 0)) { err = '請填寫「' + c.name + '」' + (perMode ? '一組' : '') + '的數量（數字，例如 2、0.5、半）。'; focusCartRow(c.key); break; }
         if (!validUnit(c.unit)) { err = '請選擇「' + c.name + '」的單位。'; break; }
+        var pf = itemById[c.id] && itemById[c.id].prefer && itemById[itemById[c.id].prefer];
+        if (pf && !/【特殊需求】/.test(c.note || '')) { err = '學校統一用「' + pf.name + '」：「' + c.name + '」一定要用的話，請在備註寫「【特殊需求】原因」；不然請改用「' + pf.name + '」。'; break; }
         var al = itemAllowed(c);
         if (al && al.indexOf(validUnit(c.unit)) < 0) { err = '「' + c.name + '」只能用這些單位：' + al.join('、') + '，請改一下單位。'; focusCartRow(c.key); break; }
       }
@@ -3567,7 +3590,7 @@
           '" style="display:inline-flex;align-items:center;gap:2px;margin-right:6px;color:' + (fl ? 'var(--bad)' : 'var(--muted)') + ';font-size:13px;cursor:pointer"><input type="checkbox" data-iflag="' + esc(it.name) + '" data-no="' + esc(o.orderNo) + '"' + (fl ? ' checked' : '') + ' style="width:auto;margin:0">⚠</label>' : '') +
         esc(it.name) + (fl ? ' <span class="badge unprinted noprint">異常</span>' : '') +
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
-        (it.note ? '<div class="muted small">' + esc(it.note) + '</div>' : '') + '</td>' +
+        (it.note ? (/【特殊需求】/.test(it.note) ? '<div class="small" style="background:#fff4c2;color:#93370d;font-weight:700;padding:1px 4px;border-radius:4px;display:inline-block">' : '<div class="muted small">') + esc(it.note) + '</div>' : '') + '</td>' +
         '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + (jinOf(it.qty, it.unit, it.vendor, it.name) ? '<div class="muted" style="font-size:13px">≈ ' + esc(jinOf(it.qty, it.unit, it.vendor, it.name)) + '</div>' : '') + (qw ? '<div class="noprint" style="color:var(--warn);font-size:13px;font-weight:600;white-space:normal">⚠ ' + esc(it.qtyWarn) + '</div>' : '') + '</td>' +
         '<td class="muted small">' + esc(it.vendor) + (function (c) { return c ? '<div style="color:#475467">' + (c.real ? '' : '約') + '$' + money0(c.amt) + '</div>' : ''; })(itemCost(it)) + '</td>' +
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
