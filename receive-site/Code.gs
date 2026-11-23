@@ -93,7 +93,7 @@ const API_ = {
   priceSearch: function (a) { return priceSearch_.apply(null, a); },
   aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
   aiModelSet: function (a) { return aiModelSet_.apply(null, a); },
-  getMonth: function (a) { return getMonthBySlip_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
+  getMonth: function (a) { return getMonthBySlip_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, findClassBatch: function (a) { return findClassBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, slipDraftSave: function (a) { return slipDraftSave_.apply(null, a); }, slipDraftGet: function (a) { return slipDraftGet_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
   whoAmI: function () { return CURRENT_USER_; }, dataVer: function () { return CacheService.getScriptCache().get('rcvDataVer') || ''; },
@@ -125,7 +125,7 @@ function api(token, fn, args) {
   if (!NO_WRITE_FN_.test(fn)) { try { cache.put('rcvDataVer', String(Date.now()) + ':' + account, 21600); } catch (e) {} }
   return out;
 }
-const NO_WRITE_FN_ = /^(getWeek|getMonth|getSlipBatch|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
+const NO_WRITE_FN_ = /^(getWeek|getMonth|getSlipBatch|findClassBatch|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
 
 /**
  * 授權跳不出來、或出現「你沒有呼叫 ○○ 的權限」時：在 Apps Script 編輯器選這個函式按「執行」。
@@ -1250,6 +1250,31 @@ const MONTH_HEADERS = ['廠商', '月份', '系統金額', '發票金額', '差�
 function slipDates_(slip) {
   const ds = ((slip && slip.rows) || []).map(function (r) { return r.date; }).filter(Boolean);
   return ds.filter(function (d, i) { return ds.indexOf(d) === i; }).sort();
+}
+
+/**
+ * 銷貨單打班級找不到：前後 3 週這家廠商哪幾張叫貨單有這一班（常見：下週一二組提早這週四、五送到，打錯張）
+ * 回傳 [{ id, group, dates, cls, teacher, items }]，離 around 近的在前
+ */
+function findClassBatch_(vendor, no, around, exceptId) {
+  const norm = function (x) { return String(x || '').replace(/[\s　]/g, '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }); };
+  no = norm(no); vendor = String(vendor || '').trim();
+  const a = parseDate_(around) || today_();
+  if (!no || !vendor) return [];
+  const hit = function (c) { c = norm(c); return c === no || c.split(/[\/、,.．]/).indexOf(no) >= 0; };
+  const by = {};
+  purchaseRows_(dateStr_(addDays_(a, -21)), dateStr_(addDays_(a, 21))).forEach(function (r) {
+    const sv = SITE_VENDORS[r.vendor], v = sv ? sv.base : r.vendor;
+    if (v !== vendor || r.status === '草稿' || !hit(r.className)) return;
+    const id = checkId_(dateStr_(mondayOf_(parseDate_(r.date))), v, sv ? '' : r.group);
+    if (id === exceptId) return;
+    const k = id + '|' + r.className + '|' + r.teacher;
+    const o = by[k] = by[k] || { id: id, group: sv ? '' : r.group, dates: [], cls: r.className, teacher: r.teacher, items: [] };
+    if (o.dates.indexOf(r.date) < 0) o.dates.push(r.date);
+    if (o.items.indexOf(r.name) < 0) o.items.push(r.name);
+  });
+  const dist = function (o) { return Math.abs(parseDate_(o.dates.sort()[0]) - a); };
+  return Object.keys(by).map(function (k) { return by[k]; }).sort(function (x, y) { return dist(x) - dist(y); }).slice(0, 4);
 }
 
 /** 月結對帳點一列：拿那一張叫貨單（或臨時銷貨單）的完整資料，直接打開銷貨單查看／修改 */

@@ -946,7 +946,7 @@
     show('vMonth'); loadMonth().then(function () { if (t) msg('monMsg', 'ok', t); });
   }
   function openSlip(b) {
-    msg('doneMsg', '', ''); msg('slMsg', '', '');
+    msg('doneMsg', '', ''); msg('slMsg', '', ''); clsMiss = {}; clsMissNo = {};
     var sl = b.slip;
     cur = { mode: 'slip', b: b, marks: {}, photos: sl ? sl.photos.slice() : [], slip: sl && (sl.rows.length || sl.total !== '') ? slipFromSaved({ rows: sl.rows, total: sl.total }) : null };
     var d = readSlipDraft(b);
@@ -1957,7 +1957,7 @@
       (pp.cls && !g ? '<option value="__keep" selected>' + esc(pp.cls + (pp.teacher ? ' ' + pp.teacher : '')) + '（叫貨單沒有）</option>' : '');
     return '<div class="row" style="align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap"><label class="small" title="菜商單子最下面有寫班級：打號碼（例如 307）按 Enter 就選好">單子寫的班級 <input data-pclsno="' + i + '" inputmode="numeric" placeholder="例如 307" style="width:84px;padding:3px 6px"></label><label class="small">🏫 班級 <select data-pcls="' + i + '" style="width:auto;max-width:240px">' + opts + '</select></label>' +
       '<span data-pguess="' + i + '" class="small"></span>' +
-      '<span style="flex:1"></span><label class="small">單子合計 <input data-ptot="' + i + '" inputmode="decimal" style="width:90px" value="' + esc(String(pp.ptotal === undefined ? '' : pp.ptotal)) + '" placeholder="單子底下的"></label><span data-ptchk="' + i + '" class="small"></span></div><div data-pcmp="' + i + '"></div>';
+      '<span style="flex:1"></span><label class="small">單子合計 <input data-ptot="' + i + '" inputmode="decimal" style="width:90px" value="' + esc(String(pp.ptotal === undefined ? '' : pp.ptotal)) + '" placeholder="單子底下的"></label><span data-ptchk="' + i + '" class="small"></span></div><div data-pmiss="' + i + '">' + (clsMiss[i] || '') + '</div><div data-pcmp="' + i + '"></div>';
   }
   var clsCmpOpen = {};
   document.addEventListener('toggle', function (e) { var d = e.target; if (d && d.getAttribute && d.hasAttribute('data-pcmpd')) clsCmpOpen[d.getAttribute('data-pcmpd')] = d.open; }, true);
@@ -2175,7 +2175,8 @@
       t.style.outline = '2px solid #f79009'; t.title = '這班有好幾堂，請在下面選';
       return;
     }
-    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; return; }
+    if (!g) { t.style.outline = '2px solid var(--bad)'; t.title = '這批叫貨單沒有「' + v + '」班'; if (clsMissNo[i] !== v) clsMissLookup(i, v); return; }
+    clsMiss[i] = ''; clsMissNo[i] = '';
     if (!clsDupOk(i, g)) { t.value = ''; t.focus(); return; }
     var had = pp.rows.some(function (r) { return String(r.name || '').trim(); });
     pp.cls = g.cls; pp.teacher = g.teacher; pp.cdate = g.date; delete pp.auto; delete pp.multiNo;
@@ -2184,6 +2185,34 @@
     var ni = $('slipBox').querySelector('[data-pclsno="' + i + '"]'); if (ni) ni.value = v;
     if (viaEnter) clsNextFocus(i, 'no');
   }
+  // 打的班級這張叫貨單沒有：去前後幾週找哪一張有這班（常見：下週一二組提早這週四、五送到，打錯張）
+  var clsMiss = {}, clsMissNo = {};
+  function clsMissLookup(i, v) {
+    clsMissNo[i] = v;
+    var el = function () { return document.querySelector('[data-pmiss="' + i + '"]'); }, b = cur.b;
+    var put = function (h) { clsMiss[i] = h; var e = el(); if (e) e.innerHTML = h; };
+    put('<div class="msg info">🔍 這張叫貨單沒有「' + esc(v) + '」班，找找看在哪一張…</div>');
+    call('findClassBatch', b.vendor, v, b.extra ? b.date : bFrom(b), b.id || '').then(function (list) {
+      if (!cur || cur.b !== b) return;
+      if (!list.length) { put('<div class="msg warn">⚠ 這張叫貨單沒有「' + esc(v) + '」班，前後三週的 ' + esc(vco(b.vendor)) + ' 叫貨單也都沒有，請再看一次單子上寫的班級。</div>'); return; }
+      put('<div class="msg warn">⚠ <b>這張叫貨單沒有「' + esc(v) + '」班</b>，這張單應該打在：' + list.map(function (x) {
+        var ds = x.dates.sort();
+        return '<div style="margin:6px 0 0 8px">👉 <b>' + ds.map(mdw).join('、') + (x.group ? ' 送貨組別' + esc(x.group) : '') + '</b>' + (x.group && x.group.charAt(0) === '一' ? ' <span class="small">（前一週四、五提早送到）</span>' : '') +
+          ' 的叫貨單：' + esc(x.cls + ' ' + x.teacher) + ' 叫了 ' + esc(x.items.slice(0, 10).join('、') + (x.items.length > 10 ? '…' : '')) +
+          ' <button type="button" class="btn small" data-pgo="' + esc(x.id) + '">打開那張</button></div>';
+      }).join('') + '<div class="small" style="margin-top:6px">這一張打的內容不會跟著過去：請先把這一張刪掉（或不要存），再到那張叫貨單打。</div></div>');
+    }).catch(function () { put(''); });
+  }
+  $('slipBox').addEventListener('click', function (e) {
+    var go = e.target.closest('[data-pgo]'); if (!go) return;
+    if (!window.confirm('離開這張、打開另一張叫貨單的銷貨單？\n（這張還沒存的內容會留在這台的暫存，回來時會問要不要恢復）')) return;
+    var keep = slipRet; go.disabled = true;
+    call('getSlipBatch', go.getAttribute('data-pgo')).then(function (r) {
+      if (r.lastUnits && week) week.lastUnits = r.lastUnits;
+      slipRet = keep; openSlip(r.extra ? extraBatch(r.extra) : r.batch); window.scrollTo(0, 0);
+      msg('slMsg', 'info', '已打開正確的叫貨單，在這裡打這張單子。');
+    }).catch(function (err) { go.disabled = false; window.alert(err.message); });
+  });
   var clsNoBusy = false;
   // 中文輸入法開著時，打數字也會在「選字中」，第一下 Enter 被輸入法吃掉：等放開 Enter（keyup）再處理
   var clsEnterIme = false;
