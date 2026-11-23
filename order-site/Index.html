@@ -6310,9 +6310,10 @@
       var vs = r.map(function (x) { return x.vendor; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
       var cur0 = $('actV').value;
       $('actV').innerHTML = '<option value="">全部廠商</option>' + vs.map(function (v) { return '<option' + (v === cur0 ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
-      var mv = moveTargets(''), sp = (data.vendorSplit || {})['E乾貨'];
-      if (sp && mv.indexOf('E乾貨') < 0) mv.push('E乾貨');
-      var vlab = function (v) { return sp && v === 'E乾貨' ? 'E乾貨（兩科都進）' : sp && v === sp.baking ? v + '（只有烘焙進）' : sp && v === sp.other ? v + '（只有中餐進）' : v; };
+      // 食材總表的廠商：分科叫貨的（E乾貨、C蛋商）本身也要能選＝兩科都進，照訂單科別自動分送
+      var mv = moveTargets(''), VS = data.vendorSplit || {}, spOf = {};
+      Object.keys(VS).forEach(function (base) { if (mv.indexOf(base) < 0) mv.push(base); spOf[base] = 'all'; spOf[VS[base].baking] = 'baking'; spOf[VS[base].other] = 'other'; });
+      var vlab = function (v) { return spOf[v] === 'all' ? v + '（兩科都進）' : spOf[v] === 'baking' ? v + '（只有烘焙進）' : spOf[v] === 'other' ? v + '（只有中餐進）' : v; };
       $('actMoveV').innerHTML = '<option value="">選新廠商</option>' + mv.sort().map(function (v) { return '<option value="' + esc(v) + '">' + esc(vlab(v)) + '</option>'; }).join('');
       actRender();
     }).catch(function (e) { $('actList').innerHTML = ''; msg('actMsg', 'error', e.message); });
