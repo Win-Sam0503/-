@@ -1139,6 +1139,10 @@
             <option value="chinese">實習專用請料單（依廠商分類）</option>
             <option value="teacher">教師料單（A～F 分類）</option>
           </select>
+          <label for="pSort" style="margin:0">排序</label>
+          <select id="pSort"><option value="date">依日期</option><option value="dept">依科別（中餐→烘焙→飲調）</option></select>
+          <label for="pDept" style="margin:0">科別</label>
+          <select id="pDept"><option value="">全部</option><option value="中餐">只印中餐</option><option value="烘焙">只印烘焙</option><option value="飲調">只印飲調</option></select>
           <button type="button" class="btn" id="pPrint">列印</button>
           <button type="button" class="btn secondary" id="pPdf" title="先看排好的 A4 頁面，沒問題再存成 PDF（平板、手機印不會跑掉）">👁 預覽／存 PDF</button>
           <button type="button" class="btn ghost" id="pBack">返回</button>
@@ -6535,18 +6539,21 @@
     printScroll = window.pageYOffset || document.documentElement.scrollTop || 0;   // 返回時回到原本的位置
     $('pFormat').querySelector('option[value="auto"]').hidden = list.length === 1;
     $('pFormat').value = list.length === 1 ? formatOf(list[0]) : 'auto';
-    $('pCount').textContent = list.length > 1 ? (title || '') + '共 ' + list.length + ' 張，每張一頁' : '';
+    try { $('pSort').value = localStorage.getItem('ckOrder.pSort') || 'date'; } catch (e) {}
+    $('pDept').value = '';
     renderPrint();
     show('viewPrint');
   }
   $('pFormat').addEventListener('change', renderPrint);
+  $('pSort').addEventListener('change', function () { try { localStorage.setItem('ckOrder.pSort', this.value); } catch (e) {} renderPrint(); });
+  $('pDept').addEventListener('change', renderPrint);
   // 從訂單彙整印料單：記下列印時間（按「列印」或 Ctrl+P 都算）
   var markingPrint = false;
   function markPrinted() {
     if (markingPrint || !data || !data.isAdmin || printBack !== 'viewSummary' || $('viewPrint').classList.contains('hidden') || !printing.length) return;
     markingPrint = true;
     setTimeout(function () { markingPrint = false; }, 3000);
-    var nos = printing.map(function (o) { return o.orderNo; });
+    var nos = printList().map(function (o) { return o.orderNo; });
     call('adminMarkPrinted', token, nos).then(function (r) {
       sumCache.forEach(function (o) { if (r[o.orderNo]) o.printed = r[o.orderNo]; });
       renderSummary();
@@ -6614,9 +6621,24 @@
     }).map(function (x) { return x.it; });
   }
 
+  // 料單的科別大類：烘焙（烘焙、西點…）、飲調、其他都算中餐（中餐、西餐、日料…）
+  function deptCat(o) { var d = String(o.dept || ''); return (data.bakingDepts || []).indexOf(d) >= 0 || /烘|西點|麵包/.test(d) ? '烘焙' : /飲|調|咖啡|吧/.test(d) ? '飲調' : '中餐'; }
+  var DEPT_ORDER = { '中餐': 1, '烘焙': 2, '飲調': 3 };
+  function printList() {
+    var how = $('pSort').value, only = $('pDept').value, SO = { '上午': 1, '下午': 2, '晚上': 3 };
+    var list = printing.filter(function (o) { return !only || deptCat(o) === only; });
+    if (how === 'dept') list = list.slice().sort(function (a, b) {
+      return (DEPT_ORDER[deptCat(a)] - DEPT_ORDER[deptCat(b)]) || String(a.useDate).localeCompare(String(b.useDate)) ||
+        ((SO[String(a.classTime).slice(0, 2)] || 9) - (SO[String(b.classTime).slice(0, 2)] || 9)) || String(a.className).localeCompare(String(b.className));
+    });
+    return list;
+  }
   function renderPrint() {
-    var pick = $('pFormat').value;
-    $('printArea').innerHTML = printing.map(function (o) {
+    var pick = $('pFormat').value, list = printList();
+    var cnt = {}; printing.forEach(function (o) { var c = deptCat(o); cnt[c] = (cnt[c] || 0) + 1; });
+    $('pCount').textContent = printing.length > 1 ? '共 ' + printing.length + ' 張（' + ['中餐', '烘焙', '飲調'].filter(function (c) { return cnt[c]; }).map(function (c) { return c + ' ' + cnt[c]; }).join('・') + '）' + (list.length !== printing.length ? '，這次印 ' + list.length + ' 張' : '') + '，每張一頁' : '';
+    $('printArea').innerHTML = list.length ? '' : '<div class="panel muted">這個科別沒有料單。</div>';
+    $('printArea').innerHTML += list.map(function (o) {
       var live = o.items.filter(function (it) { return it.status !== '已取消' || o.status === '已取消'; });
       var foods = live.filter(function (it) { return it.id !== TOOL; });
       var tools = live.filter(function (it) { return it.id === TOOL; });
