@@ -853,6 +853,7 @@
       <nav id="nav">
         <button type="button" data-view="viewOrder" class="active">🛒 訂貨</button>
         <button type="button" data-view="viewMine">📋 我的訂單</button>
+        <button type="button" data-view="viewWish" id="wishNav">🙋 許願箱<span id="wishCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewBadges" id="badgeNav">🏅 我的徽章<span id="badgeCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewLessons">📅 我的課<span id="lessonCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSummary" class="admin-only hidden">📊 訂單彙整</button>
@@ -1040,6 +1041,27 @@
           <button type="button" class="btn small" id="mlAdd">新增</button>
         </div>
       </div>
+    </section>
+
+    <section id="viewWish" class="hidden">
+      <div class="panel" style="padding:12px 16px">
+        <h2 style="margin:0 0 6px;font-size:18px">🙋 許願箱</h2>
+        <div class="small muted">想新增的食材、器具、系統功能，或任何建議，寫在這裡，管理者回覆後會顯示在下面（上面「🙋 許願箱」出現紅點就是有新回覆）。</div>
+        <div class="tpl-row" style="margin-top:8px;align-items:flex-start">
+          <div><label for="wType">類型</label><select id="wType"><option>想新增的食材</option><option>想新增的器具</option><option>系統功能建議</option><option>其他</option></select></div>
+          <div style="flex:1;min-width:220px"><label for="wText">內容</label><textarea id="wText" rows="2" maxlength="300" placeholder="例如：希望食材總表加「巴西里碎」；或希望可以…" style="width:100%"></textarea></div>
+        </div>
+        <div class="actions" style="justify-content:flex-start;margin-top:6px"><button type="button" class="btn" id="wSend">🙋 送出許願</button></div>
+      </div>
+      <div class="panel" style="padding:12px 16px;background:linear-gradient(180deg,#fff,#fdf2f8)">
+        <h2 style="margin:0 0 6px;font-size:18px">💐 謝謝卡</h2>
+        <div class="small muted">想謝謝幫忙叫貨、驗收、整理食材的助理和管理者，寫一句話送出去 💕</div>
+        <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap" id="tyQuick"><button type="button" class="btn ghost small" data-ty="謝謝你們每週幫忙叫料，辛苦了！">辛苦了</button><button type="button" class="btn ghost small" data-ty="今天的食材很新鮮，學生做得很開心，謝謝！">食材很新鮮</button><button type="button" class="btn ghost small" data-ty="臨時補料還幫我處理好，真的很感謝！">謝謝幫忙補料</button></div>
+        <textarea id="tyText" rows="2" maxlength="300" placeholder="寫一句想說的話…" style="width:100%;margin-top:6px"></textarea>
+        <div class="actions" style="justify-content:flex-start;margin-top:6px"><button type="button" class="btn" id="tySend" style="background:#db2777;border-color:#db2777">💐 送出謝謝卡</button></div>
+      </div>
+      <div id="wMsg"></div>
+      <div class="panel" style="padding:12px 16px"><h2 style="margin:0 0 6px;font-size:17px">📮 我送過的</h2><div id="wList"><span class="muted">讀取中…</span></div></div>
     </section>
 
     <section id="viewBadges" class="hidden">
@@ -1445,6 +1467,21 @@
         <div class="actions" style="justify-content:flex-start;margin-top:8px"><button type="button" class="btn" id="ntSave">💌 發佈留言</button><button type="button" class="btn ghost small" id="ntPreview">👁 預覽</button><button type="button" class="btn ghost small hidden" id="ntCancel">取消修改</button></div>
         <div id="ntMsg"></div>
         <div id="ntList" style="margin-top:8px"></div>
+      </details>
+      <details class="panel noprint" id="wishPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">🙋 許願箱與 💐 謝謝卡</h2> <span class="muted small">老師的建議和謝謝卡；回覆後老師會看到 <b id="waCount" style="color:var(--bad)"></b></span></summary>
+        <div id="waTabs" style="margin-top:8px"></div><div id="waMsg"></div><div id="waList"></div>
+      </details>
+      <details class="panel noprint" id="stormPanel">
+        <summary style="cursor:pointer"><h2 style="display:inline">☁️ 颱風／停課應變</h2> <span class="muted small">一鍵：加放假日、取消那幾天的料單、留言通知老師、列出要打電話的廠商</span></summary>
+        <div class="tpl-row" style="margin-top:8px">
+          <div><label for="stFrom">從</label><input id="stFrom" type="date"></div>
+          <div><label for="stTo">到</label><input id="stTo" type="date"></div>
+          <div><label for="stName">原因</label><input id="stName" value="颱風假" maxlength="20" style="width:120px"></div>
+          <span id="stQuick"><button type="button" class="btn ghost small" data-std="0">今天</button> <button type="button" class="btn ghost small" data-std="1">明天</button></span>
+          <button type="button" class="btn secondary small" id="stPreview">🔍 先看會影響哪些</button>
+        </div>
+        <div id="stMsg"></div><div id="stBox"></div>
       </details>
       <details class="panel noprint" id="tsPanel">
         <summary style="cursor:pointer"><h2 style="display:inline">🏅 老師準時排行</h2> <span class="muted small">只有管理者看得到：準時率、連續準時週數、徽章；可以一鍵寫感謝卡</span></summary>
@@ -2197,7 +2234,8 @@
     syncPlaceNav();
     syncAuditNav();
     var pwb = document.querySelector('#nav button[data-view="viewPassword"]'); if (pwb) pwb.classList.toggle('hidden', !!data.student);
-    $('badgeNav').classList.toggle('hidden', !!(data.student || data.crewOrder));   // 學生組別、校隊代訂帳號沒有徽章   // 學生用 LINE 登入組別帳號：不能改密碼
+    $('badgeNav').classList.toggle('hidden', !!(data.student || data.crewOrder));
+    $('wishNav').classList.toggle('hidden', !!(data.student || data.crewOrder));   // 學生組別、校隊代訂帳號沒有徽章   // 學生用 LINE 登入組別帳號：不能改密碼
 
     $('fDept').innerHTML = '<option value="">請選擇</option>' + data.departments.map(function (d) {
       return '<option value="' + esc(d) + '">' + dIco(d) + ' ' + esc(d) + '</option>';
@@ -2252,6 +2290,7 @@
     hdrLogoInit();
     noteLogin();
     loadMyStats(false);
+    wishLoad(false);
   }
 
   // =================== 🎁 彩蛋 ===================
@@ -2655,6 +2694,115 @@
     msg('ntMsg', 'info', '已幫你寫好給 ' + who + ' 的感謝卡，改一改按「💌 發佈留言」。');
   });
 
+  // =================== 🙋 許願箱＋💐 謝謝卡 ===================
+  var WISH_ST = { '待處理': ['#b45309', '⏳'], '處理中': ['#2563eb', '🔧'], '已完成': ['#15803d', '✅'], '不採用': ['#667085', '🙇'], '已收到': ['#db2777', '💕'] };
+  function wishSeenKey() { return 'ckOrder.wishSeen.' + (data ? data.account : ''); }
+  function wishUnseen(list) { var seen = {}; try { seen = JSON.parse(localStorage.getItem(wishSeenKey()) || '{}'); } catch (e) {} return list.filter(function (w) { return w.reply && seen[w.id] !== w.replyTime; }); }
+  function wishMarkSeen(list) { try { var o = {}; list.forEach(function (w) { if (w.reply) o[w.id] = w.replyTime; }); localStorage.setItem(wishSeenKey(), JSON.stringify(o)); } catch (e) {} }
+  function wishRender(list, unseen) {
+    var un = {}; (unseen || []).forEach(function (w) { un[w.id] = 1; });
+    $('wList').innerHTML = list.length ? list.map(function (w) {
+      var st = WISH_ST[w.status] || ['#667085', '•'];
+      return '<div style="border:1px solid ' + (un[w.id] ? '#f59e0b' : 'var(--line)') + ';border-radius:10px;padding:8px 10px;margin:6px 0' + (un[w.id] ? ';box-shadow:0 0 0 3px #fde68a' : '') + '">' +
+        '<div class="small muted">' + esc(w.time) + '・' + esc(w.type) + ' <b style="color:' + st[0] + '">' + st[1] + ' ' + esc(w.status) + '</b>' + (un[w.id] ? ' <span class="badge warn">新回覆</span>' : '') + '</div>' +
+        '<div style="white-space:pre-wrap;margin-top:2px">' + esc(w.text) + '</div>' +
+        (w.reply ? '<div style="margin-top:6px;padding:6px 8px;background:#f0f9ff;border-radius:8px"><b>💬 ' + esc(w.replyBy || '管理者') + '：</b><span style="white-space:pre-wrap">' + esc(w.reply) + '</span> <span class="small muted">' + esc(w.replyTime) + '</span></div>' : '') + '</div>';
+    }).join('') : '<span class="muted">還沒送過，有任何想法都可以寫寫看 😊</span>';
+  }
+  // 登入時檢查有沒有新回覆（紅點）；打開許願箱才算看過
+  function wishLoad(open) {
+    if (!data || data.student || data.crewOrder) return;
+    call('getMyWishes', token).then(function (list) {
+      var un = wishUnseen(list);
+      $('wishCount').textContent = un.length; $('wishCount').classList.toggle('hidden', !un.length || open);
+      if (open) { wishRender(list, un); wishMarkSeen(list); }
+      else if (un.length) setTimeout(function () { eggBanner('💬 你的許願箱有 ' + un.length + ' 則新回覆，到上面「🙋 許願箱」看看', 5000); }, 2500);
+    }).catch(function () {});
+  }
+  function wishSend(type, text, btn) {
+    setBusy(btn, true, '送出中…');
+    call('submitWish', token, type, text).then(function (list) {
+      wishRender(list, []);
+      msg('wMsg', 'ok', type === '謝謝卡' ? '💐 謝謝卡送出去了，管理者會看到喔！' : '🙋 收到你的許願了，管理者回覆後會顯示在下面。');
+      if (type === '謝謝卡') { $('tyText').value = ''; eggRain(['💐', '💕', '✨', '🌸'], 22, 6000); } else $('wText').value = '';
+    }).catch(function (e) { msg('wMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  }
+  $('wSend').addEventListener('click', function () { wishSend($('wType').value, $('wText').value, this); });
+  $('tySend').addEventListener('click', function () { wishSend('謝謝卡', $('tyText').value, this); });
+  $('tyQuick').addEventListener('click', function (e) { var b = e.target.closest('[data-ty]'); if (b) { $('tyText').value = b.getAttribute('data-ty'); $('tyText').focus(); } });
+
+  // 系統設定：管理者看許願、回覆
+  var wAll = [], wFilter = 'open';
+  function wAdmRender() {
+    var L = wAll.filter(function (w) { return wFilter === 'all' ? true : wFilter === 'thanks' ? w.type === '謝謝卡' : w.type !== '謝謝卡' && (w.status === '待處理' || w.status === '處理中'); });
+    var nOpen = wAll.filter(function (w) { return w.type !== '謝謝卡' && w.status === '待處理'; }).length, nTy = wAll.filter(function (w) { return w.type === '謝謝卡'; }).length;
+    $('waTabs').innerHTML = [['open', '⏳ 待處理（' + nOpen + '）'], ['thanks', '💐 謝謝卡（' + nTy + '）'], ['all', '全部（' + wAll.length + '）']].map(function (t) { return '<button type="button" class="btn ' + (wFilter === t[0] ? '' : 'ghost ') + 'small" data-wf="' + t[0] + '">' + t[1] + '</button>'; }).join(' ');
+    $('waList').innerHTML = L.length ? L.map(function (w) {
+      var ty = w.type === '謝謝卡';
+      return '<div data-wid="' + esc(w.id) + '" style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;' + (ty ? 'background:#fdf2f8' : '') + '">' +
+        '<div class="small muted">' + esc(w.time) + '・<b>' + esc(w.teacher) + '</b>・' + esc(w.type) + '</div><div style="white-space:pre-wrap;margin:2px 0 6px">' + (ty ? '💐 ' : '') + esc(w.text) + '</div>' +
+        '<div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><select data-wst style="width:auto">' + (ty ? ['已收到'] : ['待處理', '處理中', '已完成', '不採用']).map(function (x) { return '<option' + (x === w.status ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
+        '<input data-wre value="' + esc(w.reply) + '" maxlength="300" placeholder="' + (ty ? '回一句謝謝（選填）' : '回覆老師（例如：已加入食材總表）') + '" style="flex:1;min-width:180px">' +
+        '<button type="button" class="btn small" data-wsave>回覆</button></div>' + (w.replyTime ? '<div class="small muted" style="margin-top:2px">上次回覆 ' + esc(w.replyTime) + '（' + esc(w.replyBy) + '）</div>' : '') + '</div>';
+    }).join('') : '<div class="muted small">這裡沒有。</div>';
+    $('waCount').textContent = nOpen ? '（' + nOpen + ' 則待處理）' : '';
+  }
+  function wAdmLoad() { return call('adminListWishes', token).then(function (r) { wAll = r || []; wAdmRender(); }).catch(function (e) { msg('waMsg', 'error', e.message); }); }
+  $('wishPanel').addEventListener('toggle', function () { if (this.open) wAdmLoad(); });
+  $('wishPanel').addEventListener('click', function (e) {
+    var f = e.target.closest('[data-wf]'); if (f) { wFilter = f.getAttribute('data-wf'); wAdmRender(); return; }
+    var sv = e.target.closest('[data-wsave]'); if (!sv) return;
+    var box = sv.closest('[data-wid]');
+    setBusy(sv, true, '儲存中…');
+    call('adminReplyWish', token, box.getAttribute('data-wid'), box.querySelector('[data-wst]').value, box.querySelector('[data-wre]').value)
+      .then(function (r) { wAll = r || []; wAdmRender(); msg('waMsg', 'ok', '已回覆，老師下次打開訂貨網會看到。'); })
+      .catch(function (err) { msg('waMsg', 'error', err.message); setBusy(sv, false); });
+  });
+
+  // =================== ☁️ 颱風／停課應變（系統設定） ===================
+  var stormPv = null;
+  function stormDay(n) { var d = new Date(); d.setDate(d.getDate() + n); return isoDate(d); }
+  $('stPreview').addEventListener('click', function () {
+    var a = $('stFrom').value, b = $('stTo').value || a, btn = this;
+    if (!a) { msg('stMsg', 'error', '請選日期。'); return; }
+    setBusy(btn, true, '查詢中…');
+    call('adminStormPreview', token, a, b).then(function (r) {
+      stormPv = r;
+      var teachers = {}; r.orders.forEach(function (o) { teachers[o.teacher] = 1; });
+      $('stBox').innerHTML = '<div style="margin-top:8px"><b>📋 受影響的料單 ' + r.orders.length + ' 張</b>（' + Object.keys(teachers).length + ' 位老師）' +
+        (r.orders.length ? '<div class="small" style="margin:4px 0 0 8px;line-height:1.8">' + r.orders.map(function (o) { return esc(shortDate(o.date) + ' ' + o.time + ' ' + o.cls + ' ' + o.proj + '（' + o.teacher + '）'); }).join('<br>') + '</div>' : '<div class="small muted">沒有料單。</div>') + '</div>' +
+        '<div style="margin-top:10px"><b>📞 要通知廠商不用送的</b>' + (r.vendors.length ? r.vendors.map(function (v) {
+          return '<div style="border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0"><b>' + esc(v.vendor) + '</b>' + (v.confirmed ? ' <span class="badge warn">已確定叫貨，要打電話</span>' : ' <span class="badge none">還是草稿</span>') +
+            (v.phone ? '　📞 <a href="tel:' + esc(v.phone) + '">' + esc(v.phone) + '</a>' : '') + (v.person ? '（' + esc(v.person) + '）' : '') +
+            '<div class="small muted" style="margin-top:2px">' + esc(v.items.map(function (x) { return x.name + ' ' + x.qty + x.unit; }).join('、')) + '</div></div>';
+        }).join('') : '<div class="small muted">那幾天沒有叫貨。</div>') + '</div>' +
+        '<div class="actions" style="justify-content:flex-start;margin-top:8px"><button type="button" class="btn danger" id="stApply">☁️ 確定停課</button><button type="button" class="btn ghost small" id="stCopy">📋 複製給廠商的訊息</button></div>';
+    }).catch(function (e) { msg('stMsg', 'error', e.message); }).then(function () { setBusy(btn, false); });
+  });
+  function stormText() {
+    var r = stormPv, rng = shortDate(r.from) + (r.to !== r.from ? '～' + shortDate(r.to) : '');
+    return r.vendors.map(function (v) { return '【' + v.vendor + '】您好，三信家商餐飲科 ' + rng + ' 因' + ($('stName').value || '颱風') + '停課，這幾天的貨請先不用送，謝謝！\n（原訂：' + v.items.map(function (x) { return x.name + ' ' + x.qty + x.unit; }).join('、') + '）'; }).join('\n\n');
+  }
+  $('stBox').addEventListener('click', function (e) {
+    if (e.target.id === 'stCopy') { var t = stormText(); try { navigator.clipboard.writeText(t); msg('stMsg', 'ok', '已複製，可以貼到 LINE 給廠商。'); } catch (x) { window.prompt('複製下面的文字：', t); } return; }
+    if (e.target.id !== 'stApply' || !stormPv) return;
+    var r = stormPv, nm = ($('stName').value || '颱風假').trim(), btn = e.target, teachers = {};
+    r.orders.forEach(function (o) { teachers[o.teacher] = 1; });
+    var rng = shortDate(r.from) + (r.to !== r.from ? '～' + shortDate(r.to) : '');
+    if (!safeConfirm('確定 ' + rng + '「' + nm + '」停課？\n\n・加入放假日（我的課、總課表會顯示放假）\n・這幾天的 ' + r.orders.length + ' 張料單全部取消\n・留言通知 ' + Object.keys(teachers).length + ' 位老師（登入時跳出）\n\n廠商要另外打電話或用「複製給廠商的訊息」通知。')) return;
+    setBusy(btn, true, '處理中…');
+    call('adminAddHoliday', token, r.from, r.to, nm, true).then(function (res) {
+      var who = Object.keys(teachers);
+      var note = who.length ? call('adminSaveNote', token, { text: '⛈ ' + rng + ' 因「' + nm + '」停課，你這幾天的料單已經幫你取消了，不用到校領料。\n停課後補課的料，記得再重新叫喔！注意安全 🙏', from: '管理者', start: isoDate(new Date()), end: r.to, style: 'cheer', to: who }) : Promise.resolve();
+      return note.then(function () {
+        msg('stMsg', 'ok', '已停課：加入放假日、取消 ' + (res.canceled || 0) + ' 張料單' + (who.length ? '、已留言通知 ' + who.length + ' 位老師' : '') + '。記得通知廠商（上面有電話和可以複製的訊息）。');
+        btn.remove();
+      });
+    }).catch(function (err) { msg('stMsg', 'error', err.message); setBusy(btn, false); });
+  });
+  $('stormPanel').addEventListener('toggle', function () { if (this.open && !$('stFrom').value) { $('stFrom').value = stormDay(1); $('stTo').value = stormDay(1); } });
+  $('stQuick').addEventListener('click', function (e) { var b = e.target.closest('[data-std]'); if (!b) return; var d = stormDay(Number(b.getAttribute('data-std'))); $('stFrom').value = d; $('stTo').value = d; $('stBox').innerHTML = ''; });
+
   // =================== 💌 給老師的留言 ===================
   var NOTE_ICO = { '': '💌', xmas: '🎄', cny: '🧧', moon: '🌕', teacher: '🍎', thanks: '💐', cheer: '💪' };
   var NOTE_DECO = { xmas: '❄️🎄⭐🎁', cny: '🏮🧧✨🍊', moon: '🌕🐇🥮✨', teacher: '🍎📚🌟', thanks: '💐💕✨', cheer: '💪⭐🔥' };
@@ -2799,7 +2947,16 @@
       todayData = r;
       var chip = $('todayChip');
       if (!r.orders.length) { if (chip) chip.innerHTML = ''; return; }
-      chip.innerHTML = '<button type="button" class="btn small" id="todayOpen" style="background:#fff7e6;color:#8a2b1a;border-color:#f5c242">📋 今天有 ' + r.orders.length + ' 堂課的料單，點這裡看</button>';
+      // 🌅 上課當天：早安橫幅（今天哪幾堂課、冷藏食材放在哪）
+      var hr = new Date().getHours(), hi = hr < 11 ? '🌅 早安' : hr < 14 ? '☀️ 午安' : hr < 18 ? '🌤 午安' : '🌙 晚安';
+      var nm = eggName ? eggName() : '';
+      chip.innerHTML = '<div style="border:2px solid #fcd34d;background:linear-gradient(90deg,#fffbeb,#fef3c7);border-radius:14px;padding:10px 14px">' +
+        '<div style="font-size:17px;font-weight:800;color:#92400e">' + hi + (nm ? '，' + esc(nm) : '') + '！今天有 ' + r.orders.length + ' 堂課 👨‍🍳</div>' +
+        r.orders.map(function (o) {
+          return '<div style="margin-top:4px">📌 <b>' + esc((o.classTime || '') + ' ' + (o.className || '') + ' ' + (o.project || '')) + '</b>' +
+            (o.place ? '　<span style="color:#05603a">📍 冷藏食材在：<b>' + esc(o.place.place) + '</b></span>' : '') + '</div>';
+        }).join('') +
+        '<div style="margin-top:6px"><button type="button" class="btn small" id="todayOpen">📋 看今天的料單</button> <span class="small muted">祝上課順利 💪</span></div></div>';;
       var seen = false; try { seen = localStorage.getItem(todayKey()) === '1'; } catch (e) {}
       if (!seen) todayShow();
     }).catch(function () {});
@@ -2916,7 +3073,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewBadges', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewItems', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewWish', 'viewBadges', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewItems', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -2928,6 +3085,7 @@
     if (view === 'viewMine' && !keepMine) loadMine();
     if (view === 'viewLessons') loadLessons();
     if (view === 'viewBadges') { if (myStats) renderMyStats(); loadMyStats(false); }
+    if (view === 'viewWish') wishLoad(true);
     if (view === 'viewSchedule') loadGrid();
     keepMine = false;
     if (view === 'viewSummary') issCount();

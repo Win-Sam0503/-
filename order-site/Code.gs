@@ -5789,6 +5789,101 @@ function adminGetTeacherStats(token) {
   }) };
 }
 
+
+// =================== ☁️ 颱風／停課應變 ===================
+/** 預覽：這幾天受影響的料單（照老師）、要通知廠商不用送的叫貨（照廠商，附電話） */
+function adminStormPreview(token, from, to) {
+  auth_(token, true);
+  const a = parseDate_(from), b = parseDate_(to) || a;
+  if (!a) throw new Error('請選日期。');
+  if (b < a) throw new Error('結束日期不能早於開始日期。');
+  const fa = dateStr_(a), fb = dateStr_(b), ords = {};
+  readTable_(SHEET.orders, ['訂單編號', '使用日期']).rows.forEach(function (r) {
+    const d = toDate_(r['使用日期']); if (!d) return;
+    const ds = dateStr_(d); if (ds < fa || ds > fb || String(r['狀態'] || '').trim() === '已取消') return;
+    const no = String(r['訂單編號'] || '').trim(); if (!no) return;
+    const o = ords[no] = ords[no] || { no: no, date: ds, teacher: String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim(), time: String(r['上課時間'] || '').trim(), cls: String(r['上課班級'] || '').trim(), proj: String(r['實作項目'] || '').trim(), n: 0 };
+    o.n++;
+  });
+  const vend = {};
+  if (ss_().getSheetByName(SHEET.purchase)) readTable_(SHEET.purchase, ['送貨日期', '廠商']).rows.forEach(function (r) {
+    const d = toDate_(r['送貨日期']); if (!d) return;
+    const ds = dateStr_(d); if (ds < fa || ds > fb) return;
+    const v = String(r['廠商'] || '').trim(); if (!v) return;
+    const x = vend[v] = vend[v] || { vendor: v, confirmed: false, items: {} };
+    if (String(r['狀態'] || '').trim() !== '草稿') x.confirmed = true;
+    const k = String(r['食材名稱'] || '').trim() + '|' + String(r['叫貨單位'] || '').trim();
+    x.items[k] = (x.items[k] || 0) + (Number(r['叫貨量']) || 0);
+  });
+  const contacts = readVendorContacts_();
+  return {
+    from: fa, to: fb,
+    orders: Object.keys(ords).map(function (k) { return ords[k]; }).sort(function (x, y) { return x.date.localeCompare(y.date) || x.time.localeCompare(y.time); }),
+    vendors: Object.keys(vend).sort().map(function (v) {
+      const x = vend[v], c = contacts[v] || {};
+      return { vendor: v, confirmed: x.confirmed, phone: c.phone || '', fax: c.fax || '', person: c.person || '',
+        items: Object.keys(x.items).map(function (k) { const p = k.split('|'); return { name: p[0], qty: Math.round(x.items[k] * 100) / 100, unit: p[1] }; }) };
+    }),
+  };
+}
+
+// =================== 🙋 許願箱＋💐 謝謝卡 ===================
+const WISH_SHEET_ = '許願箱', WISH_HEADERS_ = ['ID', '時間', '老師', '類型', '內容', '狀態', '回覆', '回覆時間', '回覆人'];
+const WISH_TYPES_ = ['想新增的食材', '想新增的器具', '系統功能建議', '其他', '謝謝卡'];
+function wishRows_() {
+  if (!ss_().getSheetByName(WISH_SHEET_)) return [];
+  return readTable_(WISH_SHEET_, ['ID', '老師']).rows.map(function (r) {
+    return { id: String(r['ID'] || ''), time: fmtDateTime_(r['時間']), teacher: String(r['老師'] || ''), type: String(r['類型'] || ''), text: String(r['內容'] || ''),
+      status: String(r['狀態'] || ''), reply: String(r['回覆'] || ''), replyTime: fmtDateTime_(r['回覆時間']), replyBy: String(r['回覆人'] || ''), _row: r._row };
+  }).filter(function (x) { return x.id; });
+}
+/** 老師：送出許願或謝謝卡 */
+function submitWish(token, type, text) {
+  const account = auth_(token, false, false, true);
+  type = WISH_TYPES_.indexOf(String(type)) >= 0 ? String(type) : '其他';
+  text = String(text || '').replace(/\r/g, '').trim().slice(0, 300);
+  if (!text) throw new Error(type === '謝謝卡' ? '寫一句想說的話吧！' : '請寫下你的建議。');
+  const lock = scriptLock_();
+  lock.waitLock(20000);
+  try {
+    ensureSheet_(WISH_SHEET_, WISH_HEADERS_);
+    appendRows_(WISH_SHEET_, [{ 'ID': 'W' + Date.now() + Math.random().toString(36).slice(2, 5), '時間': new Date(), '老師': account, '類型': type, '內容': text, '狀態': type === '謝謝卡' ? '已收到' : '待處理' }], { '時間': 'yyyy/mm/dd hh:mm' });
+  } finally {
+    lock.releaseLock();
+  }
+  return getMyWishes(token);
+}
+/** 老師：我送過的（最新的在前） */
+function getMyWishes(token) {
+  const account = auth_(token, false, false, true);
+  return wishRows_().filter(function (x) { return x.teacher === account; }).reverse().slice(0, 30).map(function (x) { delete x._row; return x; });
+}
+/** 管理者：全部（最新的在前） */
+function adminListWishes(token) {
+  auth_(token, true);
+  return wishRows_().reverse().slice(0, 200).map(function (x) { delete x._row; return x; });
+}
+/** 管理者：回覆、改狀態 */
+function adminReplyWish(token, id, status, reply) {
+  const who = auth_(token, true);
+  const ST = ['待處理', '處理中', '已完成', '不採用', '已收到'];
+  status = ST.indexOf(String(status)) >= 0 ? String(status) : '處理中';
+  reply = String(reply || '').replace(/\r/g, '').trim().slice(0, 300);
+  const lock = scriptLock_();
+  lock.waitLock(20000);
+  try {
+    const t = readTable_(WISH_SHEET_, ['ID']);
+    const r = t.rows.find(function (x) { return String(x['ID']) === String(id); });
+    if (!r) throw new Error('找不到這則，可能已經被刪掉了。');
+    setCell_(t, r._row, '狀態', status);
+    if (reply !== String(r['回覆'] || '')) { setCell_(t, r._row, '回覆', reply); setCell_(t, r._row, '回覆時間', new Date()); setCell_(t, r._row, '回覆人', who); }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return adminListWishes(token);
+}
+
 // ---- 💌 給老師的留言：管理者在系統設定寫，老師登入時跳出來（存在指令碼屬性，不用另開分頁） ----
 const NOTES_KEY_ = 'LOGIN_NOTES';
 function notesAll_() {
