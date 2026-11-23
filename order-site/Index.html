@@ -560,7 +560,7 @@
   #toTop { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; width: 48px; height: 48px; border-radius: 50%; border: 0;
     background: var(--brand); color: #fff; font-size: 22px; line-height: 48px; text-align: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: opacity .2s, transform .2s; }
   #toTop.off { opacity: 0; pointer-events: none; transform: translateY(10px); }
-  @media print { #toTop, .ask-back, .toast, #printHelp, #unitPop { display: none !important; } }
+  @media print { #toTop, .ask-back, .toast, #printHelp, #unitPop, #cdBox, .egg-layer, .egg-banner, .egg-tip, .note-back, .hunt-egg { display: none !important; } }
   #printHelp { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 1002; background: #1d2939; color: #fff; padding: 10px 14px; border-radius: 12px;
     display: flex; gap: 10px; align-items: center; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 14px; max-width: calc(100vw - 32px); }
   #printHelp button { white-space: nowrap; }
@@ -884,7 +884,7 @@
 
   <main class="wrap">
     <div id="globalMsg"></div>
-    <div id="cdBox"></div>
+    <div id="cdBox" class="noprint"></div>
     <div id="todayChip" class="noprint" style="margin:0 0 8px"></div>
 
     <!-- 訂貨 -->
