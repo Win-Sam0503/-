@@ -4110,6 +4110,20 @@
     var last = pts[pts.length - 1].split(',');
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block;max-width:100%" aria-hidden="true"><polyline points="' + pts.join(' ') + '" fill="none" stroke="#8a2b1a" stroke-width="2" stroke-linejoin="round"/><circle cx="' + last[0] + '" cy="' + last[1] + '" r="3" fill="#8a2b1a"/></svg>';
   }
+  // 走勢下面：每一次送貨（每週）跟前一次比，持平／▲漲多少／▼跌多少（差 3% 以內算持平）
+  function psSteps(ws) {
+    ws = ws || [];
+    if (ws.length < 2) return ws.length ? '<div class="small muted" style="margin-top:2px">只買過 1 次</div>' : '';
+    var show = ws.slice(-6), start = ws.length - show.length;
+    var r2 = function (x) { return Math.round(x * 100) / 100; };
+    return '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">' + show.map(function (w, i) {
+      var pv = start + i > 0 ? ws[start + i - 1].p : null, d = psMd(w.wk) + '週';
+      if (pv === null) return '<span class="small" style="padding:1px 5px;border-radius:6px;background:#f2f4f7;color:#475467;white-space:nowrap">' + d + ' $' + r2(w.p) + '</span>';
+      var up = w.p > pv * 1.03, dn = w.p < pv * 0.97, diff = r2(Math.abs(w.p - pv));
+      return '<span class="small" title="' + d + ' $' + r2(w.p) + '（前一次 $' + r2(pv) + '）" style="padding:1px 5px;border-radius:6px;white-space:nowrap;' +
+        (up ? 'background:#fef3f2;color:#b42318;font-weight:700">' + d + ' ▲' + diff : dn ? 'background:#ecfdf3;color:#067647;font-weight:700">' + d + ' ▼' + diff : 'background:#f2f4f7;color:#475467">' + d + ' 持平') + '</span>';
+    }).join('') + '</div>';
+  }
   function psMd(s) { var m = String(s || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : s; }
   var psLast = null;
   function psChg(ws) { if (!ws || ws.length < 2) return null; var a = ws[ws.length - 2].p, c = ws[ws.length - 1].p; return a ? (c / a - 1) : null; }
@@ -4139,7 +4153,7 @@
           var stale = g.last.date < oldS;
           return '<tr style="border-top:1px solid #e4e7ec' + (stale ? ';color:#98a2b3' : '') + '"><td style="padding:6px"><b>' + esc(g.name) + '</b>' + (g.alias.length ? '<div class="small" style="color:#98a2b3">' + esc(g.alias.join('、')) + '</div>' : '') + '</td>' +
             '<td style="padding:6px;white-space:nowrap"><b style="font-size:16px">' + money(g.last.p) + '</b>／' + esc(g.unit) + '</td><td style="padding:6px;white-space:nowrap">' + psMd(g.last.date) + (stale ? ' <span class="small">（很久沒買）</span>' : '') + '</td>' +
-            '<td style="padding:6px;white-space:nowrap">' + trendOf(g) + '</td><td style="padding:6px;white-space:nowrap" class="small">' + money(g.lo) + '～' + money(g.hi) + '</td><td style="padding:6px">' + psSpark(g.weeks || []) + '</td></tr>';
+            '<td style="padding:6px;white-space:nowrap">' + trendOf(g) + '</td><td style="padding:6px;white-space:nowrap" class="small">' + money(g.lo) + '～' + money(g.hi) + '</td><td style="padding:6px">' + psSpark(g.weeks || []) + psSteps(g.weeks) + '</td></tr>';
         }).join('') + '</table></div>';
     }
     return '<div class="muted small" style="margin:8px 0 4px">找到 ' + gs.length + ' 樣' + (r.more ? '（還有 ' + r.more + ' 樣，請打更完整的名稱）' : '') + '。單價是那週銷貨單的平均（總金額 ÷ 總量）。</div>' +
@@ -4152,7 +4166,7 @@
           (g.alias.length ? '<div class="muted small">銷貨單寫：' + esc(g.alias.join('、')) + '</div>' : '') +
           '<div style="margin-top:4px">最近一次 <b style="font-size:18px">' + money(g.last.p) + '</b>／' + esc(g.unit) + ' <span class="muted small">（' + psMd(g.last.date) + '）</span></div>' +
           '<div class="small">' + trend + '　<span class="muted">最低 ' + money(g.lo) + '・最高 ' + money(g.hi) + '・共 ' + g.n + ' 筆' + (g.other ? '（另有 ' + g.other + ' 筆用別的單位）' : '') + '</span></div></div>' +
-          '<div>' + psSpark(ws) + '</div></div>' +
+          '<div>' + psSpark(ws) + psSteps(ws) + '</div></div>' +
           (ws.length ? '<details style="margin-top:4px"><summary class="small" style="cursor:pointer">每週單價（' + ws.length + ' 週）</summary><div class="small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px">' +
             ws.slice().reverse().map(function (w) { return '<span>' + psMd(w.wk) + ' 那週 <b>' + money(w.p) + '</b></span>'; }).join('') + '</div></details>' : '') +
           '</div>';
