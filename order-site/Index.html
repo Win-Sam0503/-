@@ -1656,7 +1656,23 @@
   }
   function msg(el, type, text) {
     el = typeof el === 'string' ? $(el) : el;
+    // 「載入中…」「讀取中…」：改成會跑的進度條＋已經等了幾秒（載入完換成別的訊息，進度條就停）
+    if (type === 'info' && text && /^(載入中|讀取中|查詢中|產生中|計算中)/.test(text)) { loadBar(el, text); return; }
     el.innerHTML = text ? '<div class="msg ' + type + '">' + esc(text) + '</div>' : '';
+  }
+  function loadBar(el, text) {
+    var t0 = Date.now(), m = String(text).match(/^(.*?)…?\s*(（.*）)?$/), label = (m && m[1] || text).replace(/…$/, ''), note = m && m[2] ? m[2] : '';
+    el.innerHTML = '<div class="msg info loadbar" style="padding:10px 14px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>⏳ ' + esc(label) + '…</b>' +
+      '<span class="muted small lb-sec">0 秒</span></div><div style="height:10px;background:#e4e7ec;border-radius:99px;margin:8px 0 4px;overflow:hidden"><div class="send-bar lb-bar" style="width:4%"></div></div>' +
+      '<div class="small muted lb-hint">' + esc(note.replace(/^（|）$/g, '')) + '</div></div>';
+    var box = el.firstChild, bar = box.querySelector('.lb-bar'), sec = box.querySelector('.lb-sec'), hint = box.querySelector('.lb-hint');
+    var iv = setInterval(function () {
+      if (!box.isConnected) { clearInterval(iv); return; }   // 載入完、畫面換掉了
+      var s = Math.floor((Date.now() - t0) / 1000);
+      bar.style.width = Math.min(95, Math.round(100 * (1 - Math.exp(-(s + 1) / 8)))) + '%';
+      sec.textContent = '已經 ' + s + ' 秒';
+      if (s >= 15 && !hint.getAttribute('data-long')) { hint.setAttribute('data-long', '1'); hint.textContent = (note ? note.replace(/^（|）$/g, '') + '・' : '') + '資料比較多，還在算，請不要關掉。'; }
+    }, 1000);
   }
   // 網頁內的確認視窗：回傳 Promise<boolean>
   // 列印：iPhone、iPad、LINE 內建瀏覽器常常擋住網頁裡的列印（按了沒反應）。
