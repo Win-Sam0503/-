@@ -742,6 +742,7 @@
   }
   $('cards').addEventListener('click', function (e) {
     var b = e.target.closest('[data-b]'), x = e.target.closest('[data-xs]');
+    slipRet = '';
     if (slPick && listMode === 'slip' && (b || x)) { slipPickToggle(b ? week.batches[Number(b.getAttribute('data-b'))] : extraBatch(week.extras[Number(x.getAttribute('data-xs'))])); return; }
     if (b) (listMode === 'slip' ? openSlip : openBatch)(week.batches[Number(b.getAttribute('data-b'))]);
     else if (x) openSlip(extraBatch(week.extras[Number(x.getAttribute('data-xs'))]));
@@ -934,6 +935,14 @@
       $('slRemoteNo').onclick = function () { var x = $('slRemoteDraft'); if (x) x.remove(); };
     }).catch(function () {});
   }
+  // 從「月結對帳」點進來的銷貨單：存好、回列表都回到月結對帳
+  var slipRet = '';
+  function slipDone() {
+    if (slipRet !== 'month') { show('vCheck'); loadWeek(); return; }
+    slipRet = '';
+    var t = $('doneMsg').textContent; msg('doneMsg', '', '');
+    show('vMonth'); loadMonth().then(function () { if (t) msg('monMsg', 'ok', t); });
+  }
   function openSlip(b) {
     msg('doneMsg', '', ''); msg('slMsg', '', '');
     var sl = b.slip;
@@ -988,7 +997,7 @@
     btn.disabled = true;
     saveNoSlip(r.trim() || '停送').then(function () {
       try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
-      msg('doneMsg', 'ok', b.vendor + ' 已標成這次沒有銷貨單（' + (r.trim() || '停送') + '），不算錢。'); show('vCheck'); loadWeek();
+      msg('doneMsg', 'ok', b.vendor + ' 已標成這次沒有銷貨單（' + (r.trim() || '停送') + '），不算錢。'); slipDone();
     }).catch(function (e) { msg('slMsg', 'error', e.message); }).then(function () { btn.disabled = false; });
   });
   $('slStopMsg').addEventListener('click', function (e) {
@@ -1115,7 +1124,7 @@
     call('moveSlip', old.id, { extra: true, vendor: v, date: old.date }).then(function () {
       try { localStorage.removeItem(slipDraftKey(old)); } catch (x) {}
       msg('doneMsg', 'ok', '已把 ' + mdw(old.date) + ' 的臨時銷貨單改成「' + vco(v) + '」。');
-      show('vCheck'); loadWeek();
+      slipDone();
     }).catch(function (err) { msg('slMsg', 'error', err.message); btn.disabled = false; btn.textContent = '改過去'; });
   });
   $('slMoveBox').addEventListener('change', function (e) {
@@ -1160,12 +1169,12 @@
     btn.disabled = true;
     call('deleteSlip', b.id).then(function () {
       try { localStorage.removeItem(slipDraftKey(b)); } catch (x) {}
-      msg('doneMsg', 'ok', '已刪除 ' + b.vendor + ' 的臨時銷貨單。'); show('vCheck'); loadWeek();
+      msg('doneMsg', 'ok', '已刪除 ' + b.vendor + ' 的臨時銷貨單。'); slipDone();
     }).catch(function (e) { msg('slMsg', 'error', e.message); }).then(function () { btn.disabled = false; });
   });
   $('slBack').addEventListener('click', function () {
     if (uploading(cur.b) && !window.confirm('銷貨單照片還在上傳，離開的話會少掉還沒傳完的照片。確定要回列表？')) return;
-    show('vCheck'); loadWeek();
+    slipDone();
   });
   var slipForce = false;
   $('slMsg').addEventListener('click', function (e) {
@@ -1199,7 +1208,7 @@
       if (b.slip && r.time) b.slip.time = r.time;
       if (b.extra) b.id = r.id;
       msg('doneMsg', 'ok', b.vendor + ' 銷貨單已儲存：' + (r.amount !== '' ? '金額 $' + money(r.amount) + '（' + r.rows + ' 行）' : '還沒填金額') + '，照片 ' + r.photos + ' 張。');
-      show('vCheck'); loadWeek();
+      slipDone();
     }).catch(function (e) { msg('slMsg', 'error', e.message); })
       .then(function () { btn.disabled = false; btn.textContent = '💾 儲存銷貨單'; });
   });
@@ -2879,12 +2888,16 @@
     var html = '<div class="panel"><table><tr><th>送貨日期</th><th>叫貨單</th><th>金額</th></tr>';
     r.entries.forEach(function (e, i) {
       sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked && !e.fromSlip) unchecked++; noPrice += e.noPrice.length;
-      html += '<tr><td>' + esc(mdw(e.date)) + '</td><td>' + esc(e.label) + ' ' +
+      var sd = e.slipDates || [];
+      html += '<tr data-mrow="' + i + '" style="cursor:pointer" title="點一下查看／修改這張銷貨單"><td>' + esc(mdw(e.date)) +
+        (sd.length ? '<div class="small" style="color:#1d4ed8;white-space:nowrap">單據 ' + sd.map(function (x) { return esc(mdw(x)); }).join('、') + '</div>' : (e.stopped ? '' : '<div class="small muted">還沒填單據</div>')) +
+        '</td><td>' + esc(e.label) + ' ' +
         (e.stopped ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(e.stopped) + '）</span>' : e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
         '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {
           return '<tr><td>' + esc((x.cls ? x.cls + ' ' : '') + x.name) + '</td><td>' + esc(x.got) + '</td><td>' + (x.price !== '' && x.price !== undefined ? '$' + esc(x.price) + (x.unit ? '/' + esc(x.unit) : '') : '<span class="muted">' + (e.fromSlip ? '—' : '沒有單價') + '</span>') +
             '</td><td>' + (x.amount === null ? '—' : '$' + money(x.amount)) + '</td></tr>';
         }).join('') + '</table></details>' +
+        '<button type="button" class="btn ghost small" data-mopen="' + i + '" style="margin-top:4px">📝 查看／修改銷貨單</button> ' +
         (monPhotoCount(e) ? '<button type="button" class="btn ghost small" data-mph="' + i + '" style="margin-top:4px">📷 照片 ' + monPhotoCount(e) + ' 張</button>' : '') +
         '</td><td style="white-space:nowrap"><b>$' + money(e.amount) + '</b>' + (e.estimated ? ' <span class="badge none">估</span>' : '') + '</td></tr>';
     });
@@ -2930,6 +2943,20 @@
       .catch(function (err) { $('monPhotoMsg').textContent = '上傳失敗：' + err.message; });
   });
   $('monBox').addEventListener('click', function (e) {
+    var mo = e.target.closest('[data-mopen]'), mr = e.target.closest('[data-mrow]');
+    if (mo || (mr && !e.target.closest('button, a, details, input, textarea, label'))) {
+      var en = mon.entries[Number((mo || mr).getAttribute(mo ? 'data-mopen' : 'data-mrow'))];
+      if (!en || !en.id) { msg('monMsg', 'error', '這張還沒有編號，請到「💰 銷貨單」那週打開。'); return; }
+      msg('monMsg', 'info', '打開 ' + mdw(en.date) + ' ' + en.label + ' 的銷貨單…');
+      call('getSlipBatch', en.id).then(function (r) {
+        msg('monMsg', '', '');
+        if (r.lastUnits) { week = week || { from: r.batch.from, to: r.batch.from, batches: [], extras: [] }; week.lastUnits = r.lastUnits; }
+        slipRet = 'month';
+        openSlip(r.extra ? extraBatch(r.extra) : r.batch);
+        window.scrollTo(0, 0);
+      }).catch(function (err) { msg('monMsg', 'error', err.message); });
+      return;
+    }
     var gb = e.target.closest('#monGalBtn, [data-mph]');
     if (gb) {
       var g = $('monGallery'), one = gb.getAttribute('data-mph');

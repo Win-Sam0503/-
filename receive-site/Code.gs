@@ -93,7 +93,7 @@ const API_ = {
   priceSearch: function (a) { return priceSearch_.apply(null, a); },
   aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
   aiModelSet: function (a) { return aiModelSet_.apply(null, a); },
-  getMonth: function (a) { return getMonth_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
+  getMonth: function (a) { return getMonth_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, slipDraftSave: function (a) { return slipDraftSave_.apply(null, a); }, slipDraftGet: function (a) { return slipDraftGet_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
   whoAmI: function () { return CURRENT_USER_; }, dataVer: function () { return CacheService.getScriptCache().get('rcvDataVer') || ''; },
@@ -125,7 +125,7 @@ function api(token, fn, args) {
   if (!NO_WRITE_FN_.test(fn)) { try { cache.put('rcvDataVer', String(Date.now()) + ':' + account, 21600); } catch (e) {} }
   return out;
 }
-const NO_WRITE_FN_ = /^(getWeek|getMonth|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
+const NO_WRITE_FN_ = /^(getWeek|getMonth|getSlipBatch|getIssues|slipMonth|hxGet|hxCandidates|hxStats|hxBudgets|hxItems|hxPrintData|hxOrders|whoAmI|dataVer|getPhoto|readSlip|readSlips|priceSearch|aiKeyStatus|fundCodes|slipDraftGet|slipDraftSave|signLineList|uploadPhoto)$/;
 
 /**
  * 授權跳不出來、或出現「你沒有呼叫 ○○ 的權限」時：在 Apps Script 編輯器選這個函式按「執行」。
@@ -1239,6 +1239,33 @@ function round2_(n) { return Math.round(Number(n) * 100) / 100; }
 const MONTH_HEADERS = ['廠商', '月份', '系統金額', '發票金額', '差額', '對帳時間', '發票照片', '備註'];
 
 /** vendor：叫貨單上的廠商（A菜商、C蛋商、E烘焙乾貨…）；ym：'yyyy-MM' */
+/** 銷貨單上的日期（不重複、排好）：月結對帳每一列顯示「單據日期」 */
+function slipDates_(slip) {
+  const ds = ((slip && slip.rows) || []).map(function (r) { return r.date; }).filter(Boolean);
+  return ds.filter(function (d, i) { return ds.indexOf(d) === i; }).sort();
+}
+
+/** 月結對帳點一列：拿那一張叫貨單（或臨時銷貨單）的完整資料，直接打開銷貨單查看／修改 */
+function getSlipBatch_(id) {
+  id = String(id || '');
+  const recs = readSlipRecs_();
+  if (/^S\d{8}-/.test(id)) {
+    const r = recs[id];
+    if (!r) throw new Error('找不到這張臨時銷貨單，可能已經刪除了。');
+    const x = extraSlips_(recs, r.date, r.date, r.vendor).filter(function (y) { return y.id === id; })[0];
+    if (!x) throw new Error('找不到這張臨時銷貨單。');
+    return { extra: x };
+  }
+  const m = id.match(/^R(\d{4})(\d{2})(\d{2})-/);
+  if (!m) throw new Error('叫貨單編號不正確。');
+  const f = m[1] + '-' + m[2] + '-' + m[3], t = dateStr_(addDays_(parseDate_(f), 4));
+  const wk = weekBatches_(purchaseRows_(f, t), f, readChecks_(f), readPrices_(), recs);
+  const b = wk.batches.filter(function (x) { return x.id === id; })[0];
+  if (!b) throw new Error('找不到這張叫貨單，可能叫貨單已經改過。');
+  b.from = f; delete b.list; b.draft = readDrafts_()[id] || null;
+  return { batch: b, lastUnits: lastUnits_() };
+}
+
 function getMonth_(vendor, ym) {
   const m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
   if (!m) throw new Error('月份不正確。');
@@ -1296,13 +1323,14 @@ function getMonth_(vendor, ym) {
         });
       }
       e.amount = round2_(e.amount);
+      e.slipDates = slipDates_(b.slip);
       out.entries.push(e);
     });
   }
   // 臨時銷貨單（不在叫貨單裡的送貨）：照填的金額
   extraSlips_(recs, ms, me, vendor).forEach(function (x) {
     out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, fromSlip: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
-      invs: x.slip.invs || [], code: x.slip.code || '',
+      invs: x.slip.invs || [], code: x.slip.code || '', slipDates: slipDates_(x.slip),
       photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材', sheet: Number(r.sheet) || 0 }; }) });
   });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
