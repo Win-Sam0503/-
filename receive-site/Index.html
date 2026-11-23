@@ -4493,7 +4493,7 @@
     if (t.id === 'hxList') {
       hxCollect();
       if (!hxF.vendor) { msg('hxMsg', 'error', '請先選廠商。'); return; }
-      t.disabled = true; t.textContent = '讀取中…';
+      t.disabled = true; t.textContent = '讀取中…'; msg('hxMsg', 'info', '讀取中…');
       call('hxCandidates', hxF.vendor, hxF.from, hxF.to, hxF.id || '').then(function (list) {
         hxF.cands = list; msg('hxMsg', '', '');
         // 以前整張勾的（沒有分發票）：現在這張照發票拆開了，就全部勾起來
