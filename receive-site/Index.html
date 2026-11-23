@@ -2885,12 +2885,15 @@
   }
   function renderMonth() {
     var r = mon, sum = 0, est = 0, unchecked = 0, noPrice = 0;
-    var html = '<div class="panel"><table><tr><th>送貨日期</th><th>叫貨單</th><th>金額</th></tr>';
+    var html = '<div class="panel"><table><tr><th>單據日期</th><th>叫貨單</th><th>金額</th></tr>';
     r.entries.forEach(function (e, i) {
       sum += e.amount; if (e.estimated) est += e.amount; if (!e.checked && !e.fromSlip) unchecked++; noPrice += e.noPrice.length;
       var sd = e.slipDates || [];
-      html += '<tr data-mrow="' + i + '" style="cursor:pointer" title="點一下查看／修改這張銷貨單"><td>' + esc(mdw(e.date)) +
-        (sd.length ? '<div class="small" style="color:#1d4ed8;white-space:nowrap">單據 ' + sd.map(function (x) { return esc(mdw(x)); }).join('、') + '</div>' : (e.stopped ? '' : '<div class="small muted">還沒填單據</div>')) +
+      var ds = sd.filter(function (x) { return x.slice(0, 7) === r.ym; });
+      html += '<tr data-mrow="' + i + '" style="cursor:pointer" title="點一下查看／修改這張銷貨單"><td style="white-space:nowrap">' +
+        (ds.length ? '<b>' + ds.map(function (x) { return esc(mdw(x)); }).join('<br>') + '</b>' : '<span class="muted">' + esc(mdw(e.date)) + '</span><div class="small muted">' + (e.stopped ? '' : '還沒填單據') + '</div>') +
+        (e.deliver && (ds.length ? ds.join() !== e.deliver : false) ? '<div class="small muted">送貨 ' + esc(mdw(e.deliver)) + '</div>' : '') +
+        (e.partial ? '<div class="small" style="color:#b45309">跨月：只算這個月的</div>' : '') +
         '</td><td>' + esc(e.label) + ' ' +
         (e.stopped ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(e.stopped) + '）</span>' : e.checked ? '' : '<span class="badge warn">還沒驗收</span>') + (e.noPrice.length ? ' <span class="badge bad">' + e.noPrice.length + ' 項沒有單價</span>' : '') +
         '<details class="small"><summary style="cursor:pointer">明細 ' + e.items.length + ' 項</summary><table>' + e.items.map(function (x) {

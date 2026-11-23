@@ -93,7 +93,7 @@ const API_ = {
   priceSearch: function (a) { return priceSearch_.apply(null, a); },
   aiKeyStatus: function () { return aiKeyStatus_(); }, aiKeySet: function (a) { return aiKeySet_.apply(null, a); },
   aiModelSet: function (a) { return aiModelSet_.apply(null, a); },
-  getMonth: function (a) { return getMonth_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
+  getMonth: function (a) { return getMonthBySlip_.apply(null, a); }, getSlipBatch: function (a) { return getSlipBatch_.apply(null, a); }, saveMonth: function (a) { return saveMonth_.apply(null, a); },
   saveDraftRemote: function (a) { return saveDraftRemote_.apply(null, a); }, slipDraftSave: function (a) { return slipDraftSave_.apply(null, a); }, slipDraftGet: function (a) { return slipDraftGet_.apply(null, a); }, dropDraftRemote: function (a) { return dropDraftRemote_.apply(null, a); },
   getIssues: function (a) { return getIssues_.apply(null, a); }, setIssues: function (a) { return setIssues_.apply(null, a); },
   whoAmI: function () { return CURRENT_USER_; }, dataVer: function () { return CacheService.getScriptCache().get('rcvDataVer') || ''; },
@@ -1266,6 +1266,40 @@ function getSlipBatch_(id) {
   return { batch: b, lastUnits: lastUnits_() };
 }
 
+/**
+ * 月結對帳畫面用：以「銷貨單上的日期」為主。
+ * 填好銷貨單的：照單據日期算在哪個月（例如 12/1 送的貨、單子 11/27 開的 → 算 11 月；一張跨兩個月的照每行日期拆開）。
+ * 還沒填銷貨單的（估算）：照送貨日期。核銷那邊還是用 getMonth_（勾過的紀錄不會亂掉）。
+ */
+function getMonthBySlip_(vendor, ym) {
+  const m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
+  if (!m) throw new Error('月份不正確。');
+  const y = Number(m[1]), mo = Number(m[2]) - 1;
+  const ymOf = function (d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM'); };
+  const ms = ym + '-01', me = dateStr_(new Date(y, mo + 1, 0));
+  const cur = getMonth_(vendor, ym);
+  if (!cur.vendor) return cur;
+  const inM = function (d) { return d >= ms && d <= me; };
+  const seen = {}, entries = [];
+  [ymOf(new Date(y, mo - 1, 1)), ym, ymOf(new Date(y, mo + 1, 1))].forEach(function (k) {
+    (k === ym ? cur : getMonth_(vendor, k)).entries.forEach(function (e) {
+      const sd = e.slipDates || [];
+      if (e.fromSlip && !e.stopped && sd.length) {
+        const its = e.items.filter(function (x) { return inM(x.date || sd[0]); });
+        if (!its.length || seen[e.id]) return;
+        seen[e.id] = true;
+        e.deliver = e.date;
+        e.date = sd.filter(inM)[0] || sd[0];
+        if (its.length !== e.items.length) { e.items = its; e.amount = round2_(its.reduce(function (n, x) { return n + (Number(x.amount) || 0); }, 0)); e.partial = true; }
+        entries.push(e);
+      } else if (k === ym && !seen[e.id]) { seen[e.id] = true; e.deliver = e.date; entries.push(e); }
+    });
+  });
+  entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
+  cur.entries = entries;
+  return cur;
+}
+
 function getMonth_(vendor, ym) {
   const m = String(ym || '').match(/^(\d{4})-(\d{2})$/);
   if (!m) throw new Error('月份不正確。');
@@ -1303,7 +1337,7 @@ function getMonth_(vendor, ym) {
       } else if (b.slip && whole && b.slip.amount > 0) {
         // 填了銷貨單金額：照填的（只填合計的沒有品項，列一行合計）
         b.slip.rows.forEach(function (x) {
-          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0, kind: x.kind || '食材', sheet: Number(x.sheet) || 0 });
+          e.items.push({ cls: '', name: x.name || x.slipName, got: x.qty + ' ' + x.unit, price: x.price, amount: Number(x.amount) || 0, kind: x.kind || '食材', sheet: Number(x.sheet) || 0, date: x.date || '' });
         });
         if (!b.slip.rows.length) e.items.push({ cls: '', name: '銷貨單合計（只填合計，沒有品項）', got: '', price: '', amount: b.slip.amount });
         e.fromSlip = true;
@@ -1331,7 +1365,7 @@ function getMonth_(vendor, ym) {
   extraSlips_(recs, ms, me, vendor).forEach(function (x) {
     out.entries.push({ id: x.id, label: vendor + '（臨時銷貨單）', date: x.date, checked: true, extra: true, fromSlip: true, amount: round2_(x.slip.amount || 0), estimated: false, noPrice: [],
       invs: x.slip.invs || [], code: x.slip.code || '', slipDates: slipDates_(x.slip),
-      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材', sheet: Number(r.sheet) || 0 }; }) });
+      photos: x.slip.photos, itemPhotos: [], items: x.slip.rows.map(function (r) { return { cls: '', name: r.name || r.slipName, got: r.qty + ' ' + r.unit, price: r.price, amount: Number(r.amount) || 0, kind: r.kind || '食材', sheet: Number(r.sheet) || 0, date: r.date || '' }; }) });
   });
   out.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || a.label.localeCompare(b.label); });
   if (ss_().getSheetByName('月結對帳')) {
