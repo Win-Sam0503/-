@@ -2385,12 +2385,15 @@
     if (!list || !list.length) return;
     var i = 0, back = document.createElement('div'); back.className = 'note-back';
     var draw = function () { back.innerHTML = noteCard(list[i], i, list.length); var b = back.querySelector('[data-ntok]'); if (b) b.focus(); };
+    var done = [];
     back.addEventListener('click', function (e) {
-      if (!e.target.closest('[data-ntok]') && e.target !== back) return;
-      if (markSeen) noteMarkSeen(list[i].id);
-      if (e.target.closest('[data-ntok]') && ++i < list.length) { draw(); return; }
-      if (markSeen) list.slice(i).forEach(function (n) { noteMarkSeen(n.id); });
+      var ok = e.target.closest('[data-ntok]');
+      if (!ok && e.target !== back) return;
+      if (ok) { done.push(list[i].id); if (markSeen) noteMarkSeen(list[i].id); if (++i < list.length) { draw(); return; } }
+      // 點到外面（不小心關掉）：沒按「收到」的不算看過，下次登入還會跳，上面「💌 留言」也看得到
       back.remove();
+      if (markSeen && done.length) call('markNotesSeen', token, done).catch(function () {});
+      if (markSeen && i < list.length && typeof notice === 'function') notice('還有 ' + (list.length - i) + ' 則留言沒看完，按上面「💌 留言」可以再看。');
     });
     document.body.appendChild(back); draw();
     var st = list[0].style, f = { xmas: ['❄️', '🎄', '⭐', '🎁'], cny: ['🧧', '🏮', '✨'], moon: ['🌕', '🥮', '🐇'], teacher: ['🍎', '📚', '🌟'], thanks: ['💐', '💕', '✨'], cheer: ['💪', '⭐', '🎉'] }[st];
@@ -2400,12 +2403,12 @@
   function noteLogin() {
     var list = (data && data.notes) || [];
     $('noteBtn').classList.toggle('hidden', !list.length);
-    var seen = noteSeen(), fresh = list.filter(function (n) { return seen.indexOf(n.id) < 0 && !noteQueued[n.id]; });
+    var seen = noteSeen(), fresh = list.filter(function (n) { return !n.seen && seen.indexOf(n.id) < 0 && !noteQueued[n.id]; });
     fresh.forEach(function (n) { noteQueued[n.id] = 1; });   // 同一次開網頁只跳一次（重新載入資料不會再跳）
     var go = function () { if (!$('askBox').classList.contains('hidden') || document.querySelector('.note-back')) { setTimeout(go, 700); return; } noteShow(fresh, true); };   // 其他提醒視窗開著：等關掉再跳
     if (fresh.length) setTimeout(go, 1200);
   }
-  $('noteBtn').addEventListener('click', function () { noteShow((data && data.notes) || [], false); });
+  $('noteBtn').addEventListener('click', function () { noteShow((data && data.notes) || [], true); });   // 從這裡看、按「收到」也算看過
 
   // 系統設定：寫留言
   var ntList = [], ntEdit = '';
@@ -2419,7 +2422,23 @@
     return { id: ntEdit, text: $('ntText').value, from: $('ntFrom').value, start: $('ntStart').value, end: $('ntEnd').value, style: $('ntStyle').value,
       to: ntToMode() === 'pick' ? Array.prototype.map.call($('ntPick').querySelectorAll('input:checked'), function (x) { return x.value; }) : [] };
   }
+  // 打到一半不小心跳掉（換頁、關掉、重新整理）：自動存在這台，回來還在
+  var NT_DRAFT = 'ckOrder.noteDraft';
+  function ntDraftSave() { try { var n = ntForm(); if (!n.text.trim()) { localStorage.removeItem(NT_DRAFT); return; } localStorage.setItem(NT_DRAFT, JSON.stringify(n)); } catch (e) {} }
+  function ntDraftLoad() {
+    try {
+      var n = JSON.parse(localStorage.getItem(NT_DRAFT) || 'null'); if (!n || !n.text) return false;
+      ntEdit = n.id || ''; $('ntText').value = n.text; $('ntFrom').value = n.from || ''; $('ntStart').value = n.start || ''; $('ntEnd').value = n.end || ''; $('ntStyle').value = n.style || '';
+      var pick = n.to && n.to.length; document.querySelector('input[name="ntTo"][value="' + (pick ? 'pick' : 'all') + '"]').checked = true;
+      $('ntPick').classList.toggle('hidden', !pick); ntPickRender(n.to || []);
+      if (ntEdit) { $('ntSave').textContent = '💾 儲存修改'; $('ntCancel').classList.remove('hidden'); }
+      msg('ntMsg', 'info', '📝 已恢復上次還沒發佈的留言。');
+      return true;
+    } catch (e) { return false; }
+  }
+  ['input', 'change'].forEach(function (ev) { $('notePanel').addEventListener(ev, function (e) { if (e.target.closest('#ntList')) return; ntDraftSave(); }); });
   function ntReset() {
+    try { localStorage.removeItem(NT_DRAFT); } catch (e) {}
     ntEdit = ''; $('ntText').value = ''; $('ntEnd').value = ''; $('ntStyle').value = ''; $('ntStart').value = isoDate(new Date());
     document.querySelector('input[name="ntTo"][value="all"]').checked = true; $('ntPick').classList.add('hidden'); $('ntPick').innerHTML = '';
     $('ntSave').textContent = '💌 發佈留言'; $('ntCancel').classList.add('hidden');
@@ -2436,7 +2455,8 @@
     }).join('') : '<div class="muted small">還沒有留言。</div>';
   }
   function ntLoad() { return call('adminListNotes', token).then(function (r) { ntList = r || []; ntRender(); }).catch(function (e) { msg('ntMsg', 'error', e.message); }); }
-  $('notePanel').addEventListener('toggle', function () { if (this.open) { if (!ntEdit) ntReset(); ntLoad(); } });
+  var ntOpened = false;
+  $('notePanel').addEventListener('toggle', function () { if (this.open) { if (!ntOpened) { ntOpened = true; if (!ntDraftLoad()) ntReset(); } ntLoad(); } });
   $('ntPreview').addEventListener('click', function () { var n = ntForm(); if (!n.text.trim()) { msg('ntMsg', 'error', '先打留言內容。'); return; } n.id = 'preview'; noteShow([n], false); });
   $('ntCancel').addEventListener('click', ntReset);
   $('ntSave').addEventListener('click', function () {

@@ -5621,10 +5621,22 @@ function notesAll_() {
 }
 /** 這個帳號今天看得到的留言（在期間內、對象是全部或有他） */
 function notesFor_(account) {
-  const t = dateStr_(today_());
+  const t = dateStr_(today_()), seen = notesSeen_(account);
   return notesAll_().filter(function (n) {
     return (!n.start || n.start <= t) && (!n.end || n.end >= t) && (!n.to || !n.to.length || n.to.indexOf(account) >= 0);
-  }).map(function (n) { return { id: n.id, text: n.text, from: n.from, start: n.start, end: n.end, style: n.style || '' }; });
+  }).map(function (n) { return { id: n.id, text: n.text, from: n.from, start: n.start, end: n.end, style: n.style || '', seen: seen.indexOf(n.id) >= 0 }; });
+}
+// 看過哪幾則記在伺服器（換電腦、換手機也不會再跳）
+function notesSeen_(account) {
+  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('NOTE_SEEN_' + account) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+}
+/** 老師按「收到」：記下看過了（只留還存在的留言） */
+function markNotesSeen(token, ids) {
+  const account = auth_(token, false, false, true);
+  const live = notesAll_().map(function (n) { return n.id; });
+  const seen = notesSeen_(account).concat((ids || []).map(String)).filter(function (id, i, a) { return live.indexOf(id) >= 0 && a.indexOf(id) === i; });
+  PropertiesService.getScriptProperties().setProperty('NOTE_SEEN_' + account, JSON.stringify(seen));
+  return seen.length;
 }
 /** 管理者：全部留言 */
 function adminListNotes(token) {
