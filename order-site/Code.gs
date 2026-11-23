@@ -5630,6 +5630,12 @@ function deadlineFor_(classDate) {
   const monday = addDays_(d, -((d.getDay() + 6) % 7)), dd = addDays_(monday, -7 + r.wd - 1);
   return new Date(dd.getFullYear(), dd.getMonth(), dd.getDate(), r.h, r.m, 0);
 }
+/** 🎁 每週任務：截止前一個上課日（截止星期一 → 星期五）當天結束前，把那週的料單都送出 */
+function taskDueFor_(classDate) {
+  const dl = deadlineFor_(classDate); if (!dl) return null;
+  const wd = lockRule_().wd, back = wd === 1 ? 3 : 1;
+  return new Date(dl.getFullYear(), dl.getMonth(), dl.getDate() - back, 23, 59, 59);
+}
 /** 學期：8/1～1/31 上學期、2/1～7/31 下學期 → { key: '2026上', from, to } */
 function semesterOf_(d) {
   const y = d.getFullYear(), m = d.getMonth() + 1;
@@ -5697,11 +5703,14 @@ function orderStatsAll_(force) {
     if (hr >= 22) t.night++;
     if (hr < 7) t.dawn++;
     if (ds >= sem.from && ds <= sem.to) { t.sem.n++; if (on) t.sem.on++; }
-    const w = t.wk[wk] = t.wk[wk] || { n: 0, on: 0 };
+    const w = t.wk[wk] = t.wk[wk] || { n: 0, on: 0, task: 0 };
     w.n++; if (on) w.on++;
+    const due = taskDueFor_(o.use); if (due && o.at <= due) w.task++;
   });
   Object.keys(by).forEach(function (who) {
     const t = by[who], ks = Object.keys(t.wk).sort();   // 有訂貨的週（放假沒訂不算中斷）
+    t.stamps = ks.filter(function (k) { return t.wk[k].task === t.wk[k].n; }).length;   // 🎁 每週任務：那週的料單都在任務期限前送出 → 蓋一個章
+    t.stampLast = ks.length && t.wk[ks[ks.length - 1]].task === t.wk[ks[ks.length - 1]].n ? ks[ks.length - 1] : '';
     let cur = 0, best = 0, run = 0;
     ks.forEach(function (k) { const ok = t.wk[k].on === t.wk[k].n; run = ok ? run + 1 : 0; if (run > best) best = run; });
     for (let i = ks.length - 1; i >= 0; i--) { if (t.wk[ks[i]].on === t.wk[ks[i]].n) cur++; else break; }
@@ -5740,6 +5749,7 @@ function badgesOf_(t) {
   // 好習慣類
   [[1, '🐓'], [5, '🌅'], [10, '🏵️']].forEach(function (g) { out.push({ k: 'bird' + g[0], ico: g[1], name: '早起鳥' + (g[0] > 1 ? ' ×' + g[0] : ''), how: '當週第一位送出下週料單的老師（已 ' + (t.birds || 0) + ' 次）', got: (t.birds || 0) >= g[0] }); });
   [[10, '🧾'], [30, '✅']].forEach(function (g) { out.push({ k: 'clean' + g[0], ico: g[1], name: '一次就對 ' + g[0], how: '送出後沒再改過的訂單累計 ' + g[0] + ' 張（已 ' + (t.clean || 0) + ' 張）', got: (t.clean || 0) >= g[0] }); });
+  [[5, '🎁'], [15, '🎖️']].forEach(function (g) { out.push({ k: 'task' + g[0], ico: g[1], name: g[0] === 5 ? '任務達人' : '任務大師', how: '每週任務（截止前一個上課日就叫完下週）集滿 ' + g[0] + ' 個章（已 ' + (t.stamps || 0) + ' 個）', got: (t.stamps || 0) >= g[0] }); });
   // 隱藏徽章：拿到前不告訴怎麼拿
   out.push({ k: 'night', ico: '🌙', name: '夜貓子', how: (t.night ? '晚上 10 點後送出過訂單' : '？？？隱藏徽章'), got: (t.night || 0) > 0, hidden: !t.night });
   out.push({ k: 'dawn', ico: '☀️', name: '晨型人', how: (t.dawn ? '早上 7 點前送出過訂單' : '？？？隱藏徽章'), got: (t.dawn || 0) > 0, hidden: !t.dawn });
@@ -5748,7 +5758,7 @@ function badgesOf_(t) {
 function statsView_(t, semKey) {
   t = t || { total: 0, sem: { n: 0, on: 0 }, streak: 0, best: 0 };
   const md = medalOf_(t);
-  return { total: t.total, semKey: semKey, semN: t.sem.n, semOn: t.sem.on, rate: t.sem.n ? Math.round(t.sem.on / t.sem.n * 100) : null,
+  return { total: t.total, semKey: semKey, semN: t.sem.n, semOn: t.sem.on, rate: t.sem.n ? Math.round(t.sem.on / t.sem.n * 100) : null, stamps: t.stamps || 0, stampLast: t.stampLast || '', taskWd: lockRule_().wd === 1 ? 5 : lockRule_().wd - 1,
     streak: t.streak || 0, best: t.best || 0, medal: md ? { ico: md.ico, name: md.name } : null, badges: badgesOf_(t) };
 }
 /** 老師：我的準時紀錄、徽章（fresh＝剛送出，重算） */

@@ -193,6 +193,18 @@
   .hdr-logo .egg-hat { position: absolute; right: -10px; top: -12px; font-size: 16px; line-height: 1; transform: rotate(18deg); pointer-events: none; }
   @media (prefers-reduced-motion: reduce) { .hdr-logo .sx .ln, .hdr-logo .sx .fl { animation: none; stroke-dashoffset: 0; opacity: 1; } .hdr-logo.wig, .hdr-logo.spin { animation: none; } }
 
+
+  /* ⏳ 截止倒數加碼 */
+  .cd-box { border-radius: 14px; padding: 12px 14px; margin: 0 0 12px; border: 2px solid #fb923c; background: linear-gradient(90deg, #fff7ed, #ffedd5); }
+  .cd-box.urgent { border-color: #ef4444; background: linear-gradient(90deg, #fef2f2, #fee2e2); animation: cdPulse 2s ease-in-out infinite; }
+  .cd-box.done { border-color: #22c55e; background: #f0fdf4; animation: none; }
+  @keyframes cdPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.35); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
+  .cd-left { font-size: 20px; font-weight: 800; color: #c2410c; }
+  .cd-box.urgent .cd-left { color: #b91c1c; }
+  .stamp-row { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .stamp-row i { width: 26px; height: 26px; border-radius: 50%; border: 2px dashed #d0d5dd; display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-size: 15px; }
+  .stamp-row i.on { border: 2px solid #b45309; background: #fef3c7; }
+  @media (prefers-reduced-motion: reduce) { .cd-box.urgent { animation: none; } }
   /* 🏅 準時達人、徽章收藏冊 */
   .st-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
   .st-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #f9fafb; border: 1px solid var(--line); font-weight: 700; }
@@ -854,6 +866,7 @@
 
   <main class="wrap">
     <div id="globalMsg"></div>
+    <div id="cdBox"></div>
     <div id="todayChip" class="noprint" style="margin:0 0 8px"></div>
 
     <!-- 訂貨 -->
@@ -2396,6 +2409,52 @@
     } else { el.classList.remove('wig'); void el.offsetWidth; el.classList.add('wig'); }
   });
 
+  // =================== ⏳ 截止倒數加碼、🎁 每週任務 ===================
+  var cdHideDone = false;
+  function cdTodo(r) {
+    r = r || lessonsCache; if (!r || !r.nextWeek) return null;
+    var nw = r.nextWeek, all = (r.lessons || []).filter(function (x) { return x.date >= nw.from && x.date <= nw.to; });
+    return { all: all, todo: all.filter(function (x) { return x.status === 'todo'; }), nw: nw };
+  }
+  function cdLeftText(ms) { var h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000); return h ? h + ' 小時 ' + m + ' 分' : m + ' 分鐘'; }
+  // 截止前 24 小時：還沒叫的課列出來＋一鍵去叫；都叫完就恭喜
+  function cdRender() {
+    var box = $('cdBox'); if (!box) return;
+    if (!data || data.isAdmin && lessonAs || data.crewOrder || data.student || !data.deadline) { box.innerHTML = ''; return; }
+    var left = data.deadline.at - Date.now(), t = cdTodo();
+    if (!t || left <= 0 || left > 24 * 3600000 || !t.all.length) { box.innerHTML = ''; return; }
+    if (!t.todo.length) {
+      box.innerHTML = cdHideDone ? '' : '<div class="cd-box done"><b>✅ 下週（' + esc(shortDate(t.nw.from)) + '～' + esc(shortDate(t.nw.to)) + '）的 ' + t.all.length + ' 堂課都叫好了，辛苦了！</b> <button type="button" class="btn ghost small" id="cdX" style="float:right">✕</button></div>';
+      return;
+    }
+    box.innerHTML = '<div class="cd-box' + (left < 3 * 3600000 ? ' urgent' : '') + '"><div class="cd-left">⏳ 訂貨截止還有 ' + cdLeftText(left) + '！</div>' +
+      '<div style="margin:4px 0 6px">下週還差 <b>' + t.todo.length + '</b> 堂課沒叫料（' + esc(data.deadline.label) + ' 截止）：</div>' +
+      t.todo.map(function (x, i) {
+        return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 0;border-top:1px dashed #fdba74">📌 <b>' + esc(shortDate(x.date) + ' ' + x.session + ' ' + (x.className || '') + ' ' + (x.course || '')) + '</b><span style="flex:1"></span>' +
+          '<button type="button" class="btn small" data-cdgo="' + i + '">去叫料</button><button type="button" class="btn ghost small" data-cdlast="' + i + '" title="把上次同一堂課的材料整張帶進來">照上次訂</button></div>';
+      }).join('') + '</div>';
+  }
+  $('cdBox').addEventListener('click', function (e) {
+    if (e.target.id === 'cdX') { cdHideDone = true; cdRender(); return; }
+    var g = e.target.closest('[data-cdgo],[data-cdlast]'); if (!g) return;
+    var t = cdTodo(), last = g.hasAttribute('data-cdlast'), x = t && t.todo[Number(g.getAttribute(last ? 'data-cdlast' : 'data-cdgo'))]; if (!x) return;
+    if (draft.editing) { notice('你正在修改另一張訂單，請先儲存或放棄修改。'); return; }
+    if ((draft.cart.length || draft.tools.length) && !safeConfirm('訂購清單裡有還沒送出的內容，會被' + (last ? '上次的內容' : '這堂課') + '取代，確定嗎？')) return;
+    lessonToOrder(x, last, []);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  setInterval(function () { if (data && token) cdRender(); }, 60000);
+  // 🎁 每週任務（在「我的訂單」準時達人裡）：截止前一個上課日就把下週叫完
+  function taskHtml(st) {
+    var t = cdTodo(), WD = ['日', '一', '二', '三', '四', '五', '六'];
+    var n = st.stamps || 0, inCard = n % 5, cards = Math.floor(n / 5);
+    var slots = ''; for (var i = 0; i < 5; i++) slots += '<i class="' + (i < inCard ? 'on' : '') + '">' + (i < inCard ? '🎁' : '') + '</i>';
+    var prog = t && t.all.length ? '　進度 <b>' + (t.all.length - t.todo.length) + '／' + t.all.length + '</b> 堂' + (t.todo.length ? '' : ' ✅') : '';
+    return '<div style="margin-top:10px;padding:8px 10px;border:1px dashed #fcd34d;border-radius:12px;background:#fffbeb">' +
+      '<div><b>🎁 每週任務：</b>星期' + WD[st.taskWd || 5] + '結束前把下週' + (t ? '（' + esc(shortDate(t.nw.from)) + '～' + esc(shortDate(t.nw.to)) + '）' : '') + '的課都叫完' + prog + '</div>' +
+      '<div style="margin-top:6px">集章 <span class="stamp-row">' + slots + '</span> <span class="small muted">' + inCard + '／5' + (cards ? '・已集滿 ' + cards + ' 張卡' : '') + '（集滿 5 個拿「🎁 任務達人」）</span></div></div>';
+  }
+
   // =================== 🏅 準時達人、徽章收藏冊 ===================
   var myStats = null;
   function badgeKey() { return 'ckOrder.badges.' + (data ? data.account : ''); }
@@ -2408,7 +2467,7 @@
   }
   function badgesHtml(st, fresh) {
     var got = st.badges.filter(function (b) { return b.got; }).length;
-    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean)/.test(k) ? '🌱 好習慣' : '🎭 隱藏徽章'; }, lastG = '';
+    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]\d|^m(gold|silver|bronze)/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean|task)/.test(k) ? '🌱 好習慣' : '🎭 隱藏徽章'; }, lastG = '';
     return '<details' + (fresh && fresh.length ? ' open' : '') + ' style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
       st.badges.map(function (b) {
         var g = grp(b.k), head = g !== lastG ? '<div class="small" style="grid-column:1/-1;font-weight:700;margin-top:6px;color:var(--brand)">' + g + '</div>' : ''; lastG = g;
@@ -2422,7 +2481,7 @@
   function renderMyStats(fresh) {
     var box = $('myStats'); if (!box) return;
     if (!myStats || data.isAdmin && !myStats.total) { box.classList.add('hidden'); return; }
-    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">⏰ 準時達人</h2>' + statsPills(myStats) + badgesHtml(myStats, fresh);
+    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">⏰ 準時達人</h2>' + statsPills(myStats) + taskHtml(myStats) + badgesHtml(myStats, fresh);
     box.classList.remove('hidden');
   }
   // 登入、送出後：拿最新的；送出後比對有沒有新徽章
@@ -10969,7 +11028,7 @@
     $('lessonCount').classList.toggle('hidden', !n);
   }
   function refreshLessonCount() {
-    call('getMyLessons', token).then(function (r) { lessonsCache = r; setLessonCount(r.nextWeek.todo); }).catch(function () {});
+    call('getMyLessons', token).then(function (r) { lessonsCache = r; setLessonCount(r.nextWeek.todo); cdRender(); if (myStats) renderMyStats(); }).catch(function () {});
   }
   var lessonAs = '';   // 管理者正在查看的老師（空白 = 自己）
   // 載入中：先放幾個灰色方塊（閃爍），比只有「載入中…」三個字看起來快
@@ -11136,6 +11195,7 @@
   }
   function renderLessons(r, note) {
     lessonsCache = r;
+    if (!lessonAs) setTimeout(cdRender, 0);
     setLessonCount(r.nextWeek.todo);
     var nw = r.nextWeek;
     var head = nw.todo
