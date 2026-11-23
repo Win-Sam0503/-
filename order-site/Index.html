@@ -844,6 +844,7 @@
       <nav id="nav">
         <button type="button" data-view="viewOrder" class="active">🛒 訂貨</button>
         <button type="button" data-view="viewMine">📋 我的訂單</button>
+        <button type="button" data-view="viewBadges" id="badgeNav">🏅 我的徽章<span id="badgeCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewLessons">📅 我的課<span id="lessonCount" class="badge-count hidden"></span></button>
         <button type="button" data-view="viewSummary" class="admin-only hidden">📊 訂單彙整</button>
         <button type="button" data-view="viewCost" class="admin-only hidden">💰 成本</button>
@@ -1032,8 +1033,11 @@
       </div>
     </section>
 
+    <section id="viewBadges" class="hidden">
+      <div class="panel" id="myStats" style="padding:12px 16px"><span class="muted">讀取中…</span></div>
+    </section>
+
     <section id="viewMine" class="hidden">
-      <div class="panel hidden" id="myStats" style="padding:12px 16px"></div>
       <div class="panel" style="padding:12px 16px">
         <h2 style="margin:0">我的訂單 <button type="button" class="btn ghost small" id="reloadMine">重新整理</button></h2>
         <div class="muted small">包含你送出的訂單，以及別人代你訂的訂單（最近 60 天）。還沒過訂貨截止、狀態為「待處理」的訂單可以自行取消；已截止的訂單無法修改，需要更動請聯絡管理者。</div>
@@ -2177,7 +2181,8 @@
     });
     syncPlaceNav();
     syncAuditNav();
-    var pwb = document.querySelector('#nav button[data-view="viewPassword"]'); if (pwb) pwb.classList.toggle('hidden', !!data.student);   // 學生用 LINE 登入組別帳號：不能改密碼
+    var pwb = document.querySelector('#nav button[data-view="viewPassword"]'); if (pwb) pwb.classList.toggle('hidden', !!data.student);
+    $('badgeNav').classList.toggle('hidden', !!(data.student || data.crewOrder));   // 學生組別、校隊代訂帳號沒有徽章   // 學生用 LINE 登入組別帳號：不能改密碼
 
     $('fDept').innerHTML = '<option value="">請選擇</option>' + data.departments.map(function (d) {
       return '<option value="' + esc(d) + '">' + dIco(d) + ' ' + esc(d) + '</option>';
@@ -2468,7 +2473,7 @@
   function badgesHtml(st, fresh) {
     var got = st.badges.filter(function (b) { return b.got; }).length;
     var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]\d|^m(gold|silver|bronze)/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean|task)/.test(k) ? '🌱 好習慣' : '🎭 隱藏徽章'; }, lastG = '';
-    return '<details' + (fresh && fresh.length ? ' open' : '') + ' style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
+    return '<details open style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
       st.badges.map(function (b) {
         var g = grp(b.k), head = g !== lastG ? '<div class="small" style="grid-column:1/-1;font-weight:700;margin-top:6px;color:var(--brand)">' + g + '</div>' : ''; lastG = g;
         return head + bdgHtml(b);
@@ -2480,8 +2485,10 @@
   }
   function renderMyStats(fresh) {
     var box = $('myStats'); if (!box) return;
-    if (!myStats || data.isAdmin && !myStats.total) { box.classList.add('hidden'); return; }
-    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">⏰ 準時達人</h2>' + statsPills(myStats) + taskHtml(myStats) + badgesHtml(myStats, fresh);
+    if (!myStats) return;
+    var nb = myStats.badges.filter(function (b) { return b.got; }).length;
+    $('badgeCount').textContent = nb; $('badgeCount').classList.toggle('hidden', !nb);
+    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">🏅 我的徽章・⏰ 準時達人</h2>' + statsPills(myStats) + taskHtml(myStats) + badgesHtml(myStats, fresh);
     box.classList.remove('hidden');
   }
   // 登入、送出後：拿最新的；送出後比對有沒有新徽章
@@ -2502,7 +2509,7 @@
             eggBanner('🎉 獲得新徽章：' + bs.map(function (b) { return b.ico + ' ' + b.name; }).join('、'), 5000);
             eggRain(bs.map(function (b) { return b.ico; }).concat(['🎉', '✨']), 26, 7000);
           }, 4300);   // 等類別彩蛋那句話消失再跳
-          $('doneStats').innerHTML += '<div class="small" style="margin-top:4px">🎉 新徽章：' + bs.map(function (b) { return '<b>' + b.ico + ' ' + esc(b.name) + '</b>'; }).join('、') + '（到「我的訂單」看收藏冊）</div>';
+          $('doneStats').innerHTML += '<div class="small" style="margin-top:4px">🎉 新徽章：' + bs.map(function (b) { return '<b>' + b.ico + ' ' + esc(b.name) + '</b>'; }).join('、') + '（到上面「🏅 我的徽章」看收藏冊）</div>';
         }
       }
     }).catch(function () {});
@@ -2810,7 +2817,7 @@
 
   var keepMine = false;   // 從列印返回時不重新載入我的訂單
   function show(view, note) {
-    ['viewOrder', 'viewDone', 'viewMine', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewItems', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
+    ['viewOrder', 'viewDone', 'viewMine', 'viewBadges', 'viewLessons', 'viewSummary', 'viewCost', 'viewVendor', 'viewSchedule', 'viewPending', 'viewSettings', 'viewAudit', 'viewCrew', 'viewCrewLook', 'viewTrail', 'viewItems', 'viewPrint', 'viewEditReport', 'viewPassword', 'viewQuick'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]'), function (b) {
@@ -2821,6 +2828,7 @@
     window.scrollTo(0, 0);
     if (view === 'viewMine' && !keepMine) loadMine();
     if (view === 'viewLessons') loadLessons();
+    if (view === 'viewBadges') { if (myStats) renderMyStats(); loadMyStats(false); }
     if (view === 'viewSchedule') loadGrid();
     keepMine = false;
     if (view === 'viewSummary') issCount();
