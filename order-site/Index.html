@@ -2533,7 +2533,7 @@
       '<div class="small muted" style="margin-top:6px">積分＝本學期準時一張 10 分＋目前連續準時一週 5 分＋徽章一個 3 分＋獎牌（🥇30／🥈20／🥉10）。這學期至少 ' + (tsList.minN || 3) + ' 張才上榜。只有管理者看得到。</div></div>';
     $('tsBox').innerHTML = topHtml + '<div class="small muted" style="margin-bottom:6px">本學期（' + esc(tsList.sem) + '）・更新 ' + esc(tsList.at) + '・點標題排序</div><div style="overflow:auto"><table class="small"><tr><th>老師</th>' + th('score', '積分') + th('rate', '準時率') + '<th>本學期張數</th>' + th('streak', '目前連續') + '<th>最長連續</th>' + th('total', '累計張數') + th('badges', '徽章') + '<th></th></tr>' +
       L.map(function (x) {
-        return '<tr><td><b>' + esc(x.who) + '</b></td><td><b>' + x.score + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
+        return '<tr><td><button type="button" class="btn ghost small" data-tsbadge="' + esc(x.who) + '" title="看這位老師的徽章收藏冊" style="padding:1px 8px;font-weight:700">🏅 ' + esc(x.who) + '</button></td><td><b>' + x.score + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
           '<td><button type="button" class="btn ghost small" data-tsthank="' + esc(x.who) + '">💌 感謝卡</button></td></tr>';
       }).join('') + '</table></div>';
   }
@@ -2544,6 +2544,15 @@
   });
   $('tsBox').addEventListener('click', function (e) {
     var s0 = e.target.closest('[data-tssort]'); if (s0) { tsSort = s0.getAttribute('data-tssort'); tsRender(); return; }
+    var bg = e.target.closest('[data-tsbadge]');
+    if (bg) {
+      var w0 = bg.getAttribute('data-tsbadge'); setBusy(bg, true, '讀取中…');
+      call('adminGetTeacherBadges', token, w0).then(function (st) {
+        var stamps = '<div class="small" style="margin-top:6px">🎁 每週任務集章：<b>' + (st.stamps || 0) + '</b> 個</div>';
+        ask('', '關閉', { okOnly: true, html: '<div style="text-align:left;max-height:70vh;overflow:auto"><h3 style="margin:0 0 8px">🏅 ' + esc(w0) + ' 老師的徽章</h3>' + statsPills(st) + stamps + badgesHtml(st, []).replace('我的徽章收藏冊', '徽章收藏冊') + '</div>' });
+      }).catch(function (err) { msg('tsMsg', 'error', err.message); }).then(function () { setBusy(bg, false); });
+      return;
+    }
     var t = e.target.closest('[data-tsthank]'); if (!t) return;
     var who = t.getAttribute('data-tsthank'), x = tsList.list.filter(function (y) { return y.who === who; })[0] || {};
     var np = $('notePanel'); np.open = true; np.dispatchEvent(new Event('toggle'));

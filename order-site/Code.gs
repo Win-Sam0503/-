@@ -5767,6 +5767,14 @@ function getMyStats(token, fresh) {
   const all = orderStatsAll_(!!fresh);
   return statsView_(all.by[account], all.sem);
 }
+/** 管理者：看某一位老師的徽章收藏冊、準時紀錄 */
+function adminGetTeacherBadges(token, who) {
+  auth_(token, true);
+  who = clean_(who, 30);
+  const all = orderStatsAll_(false), v = statsView_(all.by[who], all.sem);
+  v.who = who;
+  return v;
+}
 /** 管理者：每位老師的準時率、連續週數、徽章（只有管理者看得到） */
 function adminGetTeacherStats(token) {
   auth_(token, true);
