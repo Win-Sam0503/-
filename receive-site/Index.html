@@ -2149,7 +2149,7 @@
             '<td class="w2">' + a('amount', '金額', ' inputmode="decimal"' + bigAmt(r)) + '</td><td style="white-space:nowrap">' + (j ? '<button type="button" class="clr psplit" data-psplit="' + i + '-' + j + '" title="從這行切開：這一行以下變成另一張銷貨單">✂</button>' : '') + '<button type="button" class="clr" data-prdel="' + i + '-' + j + '" title="刪掉這一行">✕</button></td></tr>';
         }).join('') + '</table></div><button type="button" class="btn ghost small" data-padd="' + i + '">＋ 加一行</button></div>';
     }).join('');
-    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">方向鍵 ↑↓←→ 換格（像試算表）；Enter：品名 → 數量 → 單位 → ' + (showWt ? '每單位重量 → ' : '') + '單價 → 金額 → 下一行（最後一行自動加一行）' + (showWt ? '。有填每單位重量的：單價下面選「元／罐」（金額＝數量×單價）或「元／公斤」（金額＝數量×每單位重量×單價）；直接打金額，系統會自己判斷' : '') + '</span></div>' +
+    html += '<div class="row" style="margin-top:8px"><button type="button" class="btn small" id="paperAdd">＋ 新增一張銷貨單</button><span class="muted small">方向鍵 ↑↓←→ 換格（像試算表）；空白鍵＝新增一張；Enter：品名 → 數量 → 單位 → ' + (showWt ? '每單位重量 → ' : '') + '單價 → 金額 → 下一行（最後一行自動加一行）' + (showWt ? '。有填每單位重量的：單價下面選「元／罐」（金額＝數量×單價）或「元／公斤」（金額＝數量×每單位重量×單價）；直接打金額，系統會自己判斷' : '') + '</span></div>' +
       '<div id="paperSum"></div>' +
       '<div class="row" style="margin-top:8px"><span style="flex:1"></span><span id="slipSum"></span><label class="small" for="slipTotal">全部銷貨單合計（選填，用來檢查）</label><input id="slipTotal" inputmode="decimal" style="width:110px" value="' + esc(String(sl.total === undefined ? '' : sl.total)) + '"></div><div id="slipHint"></div>';
     $('slipBox').innerHTML = html;
@@ -2380,7 +2380,7 @@
       msg('slMsg', 'ok', '已經把 ' + sl.papers.length + ' 張的日期都改成 ' + mdw(nd) + '，按「💾 儲存銷貨單」才會存。');
       return;
     }
-    if (t.id === 'paperAdd') { sl.papers.push(newPaper()); renderPapers(); saveDraft(); var ins = $('slipBox').querySelectorAll(clsSlip() ? '[data-pcls]' : '[data-pf="name"]'); ins[ins.length - 1].focus(); return; }
+    if (t.id === 'paperAdd') { paperAddFocus(); return; }
     if (t.id === 'clsAuto') { clsAutoAll(); return; }
     var pgb = t.closest && t.closest('[data-pgset]');   // 點到按鈕裡面的字也算
     if (pgb) { t = pgb; var gi = Number(t.getAttribute('data-pgset')), gp = sl.papers[gi], gk = t.getAttribute('data-k'), gg = clsGroups().filter(function (x) { return x.k === gk; })[0]; if (gg && !clsDupOk(gi, gg)) return; if (gg) { var gHad = gp.rows.some(function (r) { return String(r.name || '').trim(); }); gp.cls = gg.cls; gp.teacher = gg.teacher; gp.cdate = gg.date; delete gp.auto; delete gp.multiNo; clsRefill(gi, gg); } renderPapers(); saveDraft(); var gn = $('slipBox').querySelector('[data-ptot="' + gi + '"]'); if (gn) gn.focus(); return; }
@@ -2435,6 +2435,22 @@
       if (!String(r.name || '').trim() && numv(r.amount) === null) return;
       cur.slip.papers[i].rows.push({ name: '', qty: '', unit: '', price: '', amount: '' }); renderPapers(); saveDraft(); go(j + 1, 'name');
     }
+  });
+  // 新增一張：游標直接到「單子寫的班級」（不是一班一張的廠商就到品名）
+  function paperAddFocus() {
+    cur.slip.papers.push(newPaper()); renderPapers(); saveDraft();
+    var ins = $('slipBox').querySelectorAll(clsSlip() ? '[data-pclsno]' : '[data-pf="name"]'), x = ins[ins.length - 1];
+    if (x) { x.focus(); x.scrollIntoView({ block: 'center' }); }
+  }
+  // 空白鍵＝新增一張銷貨單。只在數字格（數量、單價、金額、合計）或空的品名格按才算，品名裡要打空白照樣可以；中文輸入法選字的空白不算
+  $('slipBox').addEventListener('keydown', function (e) {
+    if (e.key !== ' ' && e.code !== 'Space') return;
+    if (e.isComposing || e.keyCode === 229 || e.ctrlKey || e.metaKey || e.altKey || !cur || !cur.slip || !cur.slip.papers) return;
+    var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
+    var numF = /^(qty|wt|price|amount)$/.test(f || '') || (t.hasAttribute && t.hasAttribute('data-ptot'));
+    if (!(numF || (f === 'name' && !String(t.value || '').trim()))) return;
+    e.preventDefault();
+    paperAddFocus();
   });
   // 方向鍵像試算表一樣移動：↑↓ 上一行／下一行同一欄（跨張），←→ 游標在最前面／最後面時換左右格
   $('slipBox').addEventListener('keydown', function (e) {
