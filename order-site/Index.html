@@ -2267,14 +2267,61 @@
       setTimeout(function () { t.classList.remove('on'); setTimeout(function () { t.remove(); }, 400); }, 2600);
     } catch (e) {}
   }
-  // 送出成功：每次隨機一種（節日期間下節日的雨）
-  function eggDone() {
+
+  // 七大類（廠商代號 A～G）：送出成功照訂的類別跳不同彩蛋
+  var EGG_CAT = {
+    A: { ico: '🥬', name: '蔬菜水果', emo: ['🥬', '🥕', '🥦', '🍅', '🧅', '🌽', '🍋'], fx: 'rain', hi: '🥬 新鮮蔬果已下單，菜商明天見！' },
+    B: { ico: '🍖', name: '肉品', emo: ['🍖', '🥩', '🍗', '🥓'], fx: 'drop', hi: '🍖 肉肉已下單，到貨記得馬上冷藏' },
+    C: { ico: '🥚', name: '蛋', emo: ['🥚', '🐣', '🍳', '🐥'], fx: 'hatch', hi: '🐣 蛋蛋已下單，請小心輕放' },
+    D: { ico: '🐟', name: '海鮮', emo: ['🐟', '🦐', '🦀', '🐙', '🐠', '🦑'], fx: 'swim', hi: '🐟 海鮮已下單，冰好冰滿！' },
+    E: { ico: '🌾', name: '乾貨', emo: ['🌾', '🧂', '🍚', '🫘', '🥫', '🍝'], fx: 'rain', hi: '🌾 乾貨已下單，倉庫補貨中' },
+    F: { ico: '🧋', name: '飲調', emo: ['🧋', '☕', '🍹', '🍋', '🧊', '🍵'], fx: 'bubble', hi: '🧋 飲調材料已下單，乾杯！' },
+    G: { ico: '🧈', name: '統清', emo: ['🧈', '🧁', '🍰', '🥐'], fx: 'rain', hi: '🧈 奶油已下單，烘焙準備好了' }
+  };
+  function eggCatsOf(cart) {
+    var n = {};
+    (cart || []).forEach(function (r) { var c = String(r.vendor || '').charAt(0).toUpperCase(); if (EGG_CAT[c]) n[c] = (n[c] || 0) + 1; });
+    return Object.keys(n).sort(function (a, b) { return n[b] - n[a] || a.localeCompare(b); });
+  }
+  function eggCatFx(cat, cx, cy) {
+    var C = EGG_CAT[cat], l = eggLayer(7000), i, e;
+    var add = function (cls, txt, css) { var x = document.createElement('span'); x.className = cls; x.textContent = txt; Object.keys(css).forEach(function (k) { if (k.charAt(0) === '-') x.style.setProperty(k, css[k]); else x.style[k] = css[k]; }); l.appendChild(x); return x; };
+    if (C.fx === 'swim') {   // 魚、蝦從左游到右，高低不一
+      for (i = 0; i < 9; i++) add('egg-fly', C.emo[i % C.emo.length], { top: (90 + Math.random() * (innerHeight - 200)) + 'px', fontSize: (28 + Math.random() * 22) + 'px', animationDuration: (2.4 + Math.random() * 2) + 's', animationDelay: (Math.random() * 1.2) + 's', transform: 'scaleX(-1)' });
+      return;
+    }
+    if (C.fx === 'bubble') {   // 飲料從下面冒泡泡上來
+      for (i = 0; i < 22; i++) add('egg-up', C.emo[i % C.emo.length], { left: (Math.random() * 100) + 'vw', top: (innerHeight - 30) + 'px', fontSize: (22 + Math.random() * 18) + 'px', animationDuration: (2 + Math.random() * 2.2) + 's', animationDelay: (Math.random() * 1.4) + 's', '--dx': (Math.random() * 80 - 40) + 'px' });
+      return;
+    }
+    if (C.fx === 'hatch') {   // 蛋從打勾的地方彈出去，一半變小雞
+      for (i = 0; i < 18; i++) {
+        var a = Math.PI * 2 * i / 18 + Math.random() * .3, d = 110 + Math.random() * 130;
+        add('egg-burst', i % 2 ? '🐣' : '🥚', { left: cx + 'px', top: cy + 'px', '--dx': Math.cos(a) * d + 'px', '--dy': Math.sin(a) * d + 'px', '--rot': (Math.random() * 60 - 30) + 'deg', animationDuration: '1.9s' });
+      }
+      return;
+    }
+    // rain／drop：從上面掉（肉比較重，掉比較快、不太轉）
+    for (i = 0; i < 26; i++) add('egg-p', C.emo[i % C.emo.length], { left: (Math.random() * 100) + 'vw', fontSize: (20 + Math.random() * 18) + 'px', animationDuration: (C.fx === 'drop' ? 1.8 + Math.random() * 1.2 : 3 + Math.random() * 3) + 's', animationDelay: (Math.random() * 1.4) + 's', '--rot': (C.fx === 'drop' ? Math.random() * 60 - 30 : Math.random() * 720 - 360) + 'deg' });
+  }
+  // 送出成功：照這張訂的類別跳彩蛋（好幾類就混在一起）；沒有類別才隨機一種；節日期間一半機會下節日的雨
+  function eggDone(cats) {
     try {
+      cats = cats || [];
+      var ck = document.querySelector('#viewDone .ck-anim'), r = ck ? ck.getBoundingClientRect() : { left: innerWidth / 2, top: 200, width: 0, height: 0 };
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      if (cats.length) {
+        eggBanner(cats.length === 1 ? EGG_CAT[cats[0]].hi : cats.map(function (c) { return EGG_CAT[c].ico; }).join('') + ' 這張有 ' + cats.length + ' 類（' + cats.map(function (c) { return EGG_CAT[c].name; }).join('、') + '），全部送出囉！', 3800);
+        if (eggReduced()) return;
+        var f0 = eggFest();
+        if (f0 && Math.random() < 0.5) { eggRain(f0.emo, 28, 7000); return; }
+        cats.slice(0, 3).forEach(function (c, i) { setTimeout(function () { eggCatFx(c, cx, cy); }, i * 700); });   // 最多三類，一類接一類
+        return;
+      }
       if (eggReduced()) return;
       var f = eggFest();
       if (f && Math.random() < 0.7) { eggRain(f.emo, 28, 7000); return; }
-      var ck = document.querySelector('#viewDone .ck-anim'), r = ck ? ck.getBoundingClientRect() : { left: innerWidth / 2, top: 200, width: 0, height: 0 };
-      var cx = r.left + r.width / 2, cy = r.top + r.height / 2, kind = ['rain', 'hat', 'pot', 'burst'][Math.floor(Math.random() * 4)];
+      var kind = ['rain', 'hat', 'pot', 'burst'][Math.floor(Math.random() * 4)];
       if (kind === 'rain') { eggRain(['🥕', '🥚', '🧅', '🍅', '🥦', '🧄', '🌶️', '🍋', '🥔'], 28, 7000); return; }
       var l = eggLayer(4000);
       if (kind === 'hat') { var h = document.createElement('span'); h.className = 'egg-fly'; h.textContent = '👨‍🍳'; h.style.top = Math.max(80, cy - 40) + 'px'; l.appendChild(h); return; }
@@ -3785,6 +3832,7 @@
         (all.fail.length ? '。⚠ 沒有送出：' + all.fail.join('；') + '（請到「我的課」再訂一次）' : '');
       lastSubmitted = res.orderNo;
       $('doneLine').innerHTML = doneLineHtml(res.line);
+      var eggCats = eggCatsOf(draft.cart);   // 這張訂了哪幾類（A 菜商～G 統清），送出成功的彩蛋照類別變
       var keep = { dept: draft.info.dept, classTime: draft.info.classTime, room: draft.info.room, groups: draft.info.groups };
       var keepMode = draft.qtyMode;
       payload.newUnits.forEach(function (u) { if (data.pendingUnits.indexOf(u) < 0) data.pendingUnits.push(u); });
@@ -3796,7 +3844,7 @@
       saveDraft();
       writeInfo(); renderCart(); renderResults(); updateDateHint();
       show('viewDone');
-      setTimeout(eggDone, 350);
+      setTimeout(function () { eggDone(eggCats); }, 350);
       refreshLessonCount();
     }).catch(function (e) {
       prog.stop();
