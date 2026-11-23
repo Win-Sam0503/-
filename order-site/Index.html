@@ -2136,7 +2136,7 @@
     var pwb = document.querySelector('#nav button[data-view="viewPassword"]'); if (pwb) pwb.classList.toggle('hidden', !!data.student);   // 學生用 LINE 登入組別帳號：不能改密碼
 
     $('fDept').innerHTML = '<option value="">請選擇</option>' + data.departments.map(function (d) {
-      return '<option>' + esc(d) + '</option>';
+      return '<option value="' + esc(d) + '">' + dIco(d) + ' ' + esc(d) + '</option>';
     }).join('');
     $('fFor').innerHTML = '<option value="">' + (data.crewOrder ? '請選老師' : '（自己）') + '</option>' + data.teachers.filter(function (t) {
       return t !== data.account;
@@ -2450,9 +2450,18 @@
       var st = n.end && n.end < t ? '<span class="badge none">已結束</span>' : n.start && n.start > t ? '<span class="badge info">' + esc(shortDate(n.start)) + ' 開始</span>' : '<span class="badge ok">顯示中</span>';
       return '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">' +
         '<div style="font-size:24px">' + (NOTE_ICO[n.style || ''] || '💌') + '</div><div style="flex:1;min-width:200px"><div style="white-space:pre-wrap">' + esc(n.text) + '</div>' +
-        '<div class="small muted">' + (n.from ? '— ' + esc(n.from) + '・' : '') + (n.start ? esc(shortDate(n.start)) : '今天') + '～' + (n.end ? esc(shortDate(n.end)) : '一直顯示') + '・' + (n.to && n.to.length ? '給 ' + esc(n.to.join('、')) : '全部老師') + '</div></div>' +
+        '<div class="small muted">' + (n.from ? '— ' + esc(n.from) + '・' : '') + (n.start ? esc(shortDate(n.start)) : '今天') + '～' + (n.end ? esc(shortDate(n.end)) : '一直顯示') + '・' + (n.to && n.to.length ? '給 ' + esc(n.to.join('、')) : '全部老師') + '</div>' + ntSeenHtml(n) + '</div>' +
         '<div>' + st + ' <button type="button" class="btn ghost small" data-ntv="' + i + '">👁</button> <button type="button" class="btn ghost small" data-nte="' + i + '">修改</button> <button type="button" class="btn ghost small" data-ntd="' + i + '" style="color:var(--bad)">刪除</button></div></div>';
     }).join('') : '<div class="muted small">還沒有留言。</div>';
+  }
+  // 👀 哪些老師看過（按「收到」才算）
+  function ntSeenHtml(n) {
+    var who = (n.to && n.to.length ? n.to : (data.teachers || [])).slice(), seen = {}, at = {};
+    (n.seenBy || []).forEach(function (x) { seen[x.who] = 1; at[x.who] = x.at; if (who.indexOf(x.who) < 0) who.push(x.who); });
+    var yes = who.filter(function (t) { return seen[t]; }), no = who.filter(function (t) { return !seen[t]; });
+    return '<details class="small" style="margin-top:4px"><summary style="cursor:pointer;color:var(--brand)">👀 已看 <b>' + yes.length + '</b>／' + who.length + ' 位' + (no.length ? '・還沒看 ' + no.length + ' 位' : '・全部看過了 🎉') + '</summary>' +
+      '<div style="margin-top:4px;line-height:1.9">' + (yes.length ? '<div><b style="color:var(--ok)">✓ 已看：</b>' + yes.map(function (t) { return esc(t) + (at[t] ? '<span class="muted">（' + esc(String(at[t]).replace(/^\d{4}\//, '')) + '）</span>' : ''); }).join('、') + '</div>' : '') +
+      (no.length ? '<div><b style="color:var(--bad)">✗ 還沒看：</b>' + no.map(esc).join('、') + '</div>' : '') + '</div></details>';
   }
   function ntLoad() { return call('adminListNotes', token).then(function (r) { ntList = r || []; ntRender(); }).catch(function (e) { msg('ntMsg', 'error', e.message); }); }
   var ntOpened = false;
@@ -2778,9 +2787,13 @@
   // 選食材
   // ------------------------------------------------------------------
   var SHOW_LIMIT = 60;
+  // 分類、科別的小圖示（不影響篩選的值）
+  function vIco(v) { v = String(v || ''); if (v === '全部') return '🧺'; if (v === '自備') return '🏠'; var c = (EGG_CAT || {})[v.charAt(0).toUpperCase()]; return c ? c.ico : '📦'; }
+  var DEPT_ICO = { '中餐': '🥢', '西餐': '🍝', '日料': '🍣', '烘焙': '🍞', '飲調': '🧋', '果雕': '🍉', '刀功': '🔪', '通用': '⭐' };
+  function dIco(d) { return DEPT_ICO[d] || (/烘|西點|麵包/.test(d) ? '🍞' : /飲|咖啡|調/.test(d) ? '🧋' : /中/.test(d) ? '🥢' : '📘'); }
   function renderChips() {
     $('vendorChips').innerHTML = ['全部'].concat(data.vendors).map(function (v) {
-      return '<button type="button" class="chip' + (v === vendorFilter ? ' active' : '') + '" data-v="' + esc(v) + '">' + esc(v) + '</button>';
+      return '<button type="button" class="chip' + (v === vendorFilter ? ' active' : '') + '" data-v="' + esc(v) + '">' + vIco(v) + ' ' + esc(v) + '</button>';
     }).join('');
   }
   function matches(it, q) {
@@ -2819,7 +2832,7 @@
       return '<button type="button" class="item' + (added ? ' added' : '') + '" data-id="' + esc(it.id) + '">' +
         '<span><span class="nm">' + esc(it.name) + '</span>' +
         (it.alias ? '<div class="al">又名 ' + esc(it.alias) + '</div>' : '') +
-        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + esc(it.vendor) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
+        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + vIco(it.vendor) + ' ' + esc(it.vendor) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
         '<span class="add">' + (added ? '<span class="badge info" title="已加入 ' + added + ' 次">已選 ' + added + '</span> +' : '+') + '</span></button>';
     }).join('') + (list.length > SHOW_LIMIT ? '<div class="more">還有 ' + (list.length - SHOW_LIMIT) + ' 項，請輸入關鍵字縮小範圍</div>' : '');
   }

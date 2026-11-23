@@ -5624,24 +5624,40 @@ function notesFor_(account) {
   const t = dateStr_(today_()), seen = notesSeen_(account);
   return notesAll_().filter(function (n) {
     return (!n.start || n.start <= t) && (!n.end || n.end >= t) && (!n.to || !n.to.length || n.to.indexOf(account) >= 0);
-  }).map(function (n) { return { id: n.id, text: n.text, from: n.from, start: n.start, end: n.end, style: n.style || '', seen: seen.indexOf(n.id) >= 0 }; });
+  }).map(function (n) { return { id: n.id, text: n.text, from: n.from, start: n.start, end: n.end, style: n.style || '', seen: !!seen[n.id] }; });
 }
 // 看過哪幾則記在伺服器（換電腦、換手機也不會再跳）
-function notesSeen_(account) {
-  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('NOTE_SEEN_' + account) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+// 存成 { 留言id: '看的時間' }（舊的是 [id]，讀的時候換過來）
+function notesSeenParse_(raw) {
+  try {
+    const v = JSON.parse(raw || '{}');
+    if (Array.isArray(v)) { const o = {}; v.forEach(function (id) { o[id] = ''; }); return o; }
+    return v && typeof v === 'object' ? v : {};
+  } catch (e) { return {}; }
 }
+function notesSeen_(account) { return notesSeenParse_(PropertiesService.getScriptProperties().getProperty('NOTE_SEEN_' + account)); }
 /** 老師按「收到」：記下看過了（只留還存在的留言） */
 function markNotesSeen(token, ids) {
   const account = auth_(token, false, false, true);
-  const live = notesAll_().map(function (n) { return n.id; });
-  const seen = notesSeen_(account).concat((ids || []).map(String)).filter(function (id, i, a) { return live.indexOf(id) >= 0 && a.indexOf(id) === i; });
+  const live = notesAll_().map(function (n) { return n.id; }), old = notesSeen_(account), seen = {}, now = fmtDateTime_(new Date());
+  Object.keys(old).forEach(function (id) { if (live.indexOf(id) >= 0) seen[id] = old[id]; });
+  (ids || []).map(String).forEach(function (id) { if (live.indexOf(id) >= 0 && !seen[id]) seen[id] = now; });
   PropertiesService.getScriptProperties().setProperty('NOTE_SEEN_' + account, JSON.stringify(seen));
-  return seen.length;
+  return Object.keys(seen).length;
 }
-/** 管理者：全部留言 */
+/** 管理者：全部留言，每則附上哪些老師看過（seenBy: [{ who, at }]） */
 function adminListNotes(token) {
   auth_(token, true);
-  return notesAll_();
+  return withSeenBy_(notesAll_());
+}
+function withSeenBy_(list) {
+  const props = PropertiesService.getScriptProperties().getProperties(), by = {};
+  Object.keys(props).forEach(function (k) {
+    if (k.indexOf('NOTE_SEEN_') !== 0) return;
+    const who = k.slice(10), m = notesSeenParse_(props[k]);
+    Object.keys(m).forEach(function (id) { (by[id] = by[id] || []).push({ who: who, at: m[id] || '' }); });
+  });
+  return list.map(function (n) { return Object.assign({}, n, { seenBy: (by[n.id] || []).sort(function (a, b) { return String(a.at).localeCompare(String(b.at)); }) }); });
 }
 /** 管理者：新增／修改留言 n = { id?, text, from, start, end, to: [帳號]（空＝全部老師）, style } */
 function adminSaveNote(token, n) {
@@ -5672,7 +5688,7 @@ function adminSaveNote(token, n) {
       list.splice(k, 1);
     }
     PropertiesService.getScriptProperties().setProperty(NOTES_KEY_, JSON.stringify(list));
-    return list;
+    return withSeenBy_(list);
   } finally {
     lock.releaseLock();
   }
@@ -5684,7 +5700,7 @@ function adminDeleteNote(token, id) {
   try {
     const list = notesAll_().filter(function (x) { return x.id !== String(id || ''); });
     PropertiesService.getScriptProperties().setProperty(NOTES_KEY_, JSON.stringify(list));
-    return list;
+    return withSeenBy_(list);
   } finally {
     lock.releaseLock();
   }
