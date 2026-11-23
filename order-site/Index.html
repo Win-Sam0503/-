@@ -2397,11 +2397,16 @@
   }
   function badgesHtml(st, fresh) {
     var got = st.badges.filter(function (b) { return b.got; }).length;
+    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean)/.test(k) ? '🌱 好習慣' : '🎭 隱藏徽章'; }, lastG = '';
     return '<details' + (fresh && fresh.length ? ' open' : '') + ' style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
       st.badges.map(function (b) {
-        return '<div class="bdg' + (b.got ? '' : ' off') + (fresh && fresh.indexOf(b.k) >= 0 ? ' new' : '') + '" title="' + esc(b.how) + '"><div class="bi">' + (b.got ? b.ico : '❔') + '</div><div class="bn">' + esc(b.name) + '</div>' +
-          (b.got ? '' : '<div class="small" style="font-size:11px;margin-top:2px">' + esc(b.how) + '</div>') + '</div>';
+        var g = grp(b.k), head = g !== lastG ? '<div class="small" style="grid-column:1/-1;font-weight:700;margin-top:6px;color:var(--brand)">' + g + '</div>' : ''; lastG = g;
+        return head + bdgHtml(b);
       }).join('') + '</div><div class="small muted" style="margin-top:6px">準時＝在那堂課那週的訂貨截止前送出（' + esc(data.lockRule || '') + '）。</div></details>';
+    function bdgHtml(b) {
+        return '<div class="bdg' + (b.got ? '' : ' off') + (fresh && fresh.indexOf(b.k) >= 0 ? ' new' : '') + '" title="' + esc(b.how) + '"><div class="bi">' + (b.got ? b.ico : '❔') + '</div><div class="bn">' + esc(b.hidden ? '？？？' : b.name) + '</div>' +
+          (b.got ? '' : '<div class="small" style="font-size:11px;margin-top:2px">' + esc(b.how) + '</div>') + '</div>';
+    }
   }
   function renderMyStats(fresh) {
     var box = $('myStats'); if (!box) return;

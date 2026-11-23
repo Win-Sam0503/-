@@ -5648,27 +5648,54 @@ function submittedAt_(r) {
 /** 每位老師的統計 { 老師: { total, sem: { n, on }, streak, best, weeks: [...] } } */
 function orderStatsAll_(force) {
   const cache = CacheService.getScriptCache();
-  if (!force) { const c = cache.get('ostats2'); if (c) try { return JSON.parse(c); } catch (e) {} }
+  if (!force) { const c = cache.get('ostats3'); if (c) try { return JSON.parse(c); } catch (e) {} }
   const orders = {};
   [SHEET.orders, SHEET.history].forEach(function (name) {
     if (!ss_().getSheetByName(name)) return;
     readTable_(name, ['訂單編號']).rows.forEach(function (r) {
       const no = String(r['訂單編號'] || '').trim();
       if (!no || orders[no] === null) return;
-      if (/取消/.test(String(r['狀態'] || ''))) { orders[no] = null; return; }   // 整張取消
-      if (orders[no]) return;
-      const who = String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim(), use = toDate_(r['使用日期']), at = submittedAt_(r);
-      if (!who || !use || !at) return;
-      orders[no] = { who: who, use: use, at: at };
+      if (/取消/.test(String(r['狀態'] || '')) || isReturn_(String(r['實作項目'] || ''))) { orders[no] = null; return; }   // 整張取消、還料單不算
+      let o = orders[no];
+      if (!o) {
+        const who = String(r['代訂對象老師'] || '').trim() || String(r['操作老師'] || '').trim(), use = toDate_(r['使用日期']), at = submittedAt_(r);
+        if (!who || !use || !at) return;
+        o = orders[no] = { who: who, op: String(r['操作老師'] || '').trim(), use: use, at: at, cls: String(r['上課班級'] || '').trim(), dept: String(r['科別'] || '').trim(), cats: {}, items: {} };
+      }
+      const v = String(r['廠商'] || '').trim(), c = v.charAt(0).toUpperCase(), n = String(r['食材名稱'] || '').trim();
+      if (/^[A-G]$/.test(c)) { o.cats[c] = 1; if (n) o.items[n] = 1; }
     });
   });
+  // 送出後老師自己改過的訂單（管理者審核時改的不算）
+  const edited = {};
+  if (ss_().getSheetByName(SHEET.edits)) readTable_(SHEET.edits, ['訂單編號']).rows.forEach(function (r) {
+    const no = String(r['訂單編號'] || '').trim(), o = orders[no], by = String(r['修改人'] || '').trim();
+    if (o && (by === o.who || by === o.op)) edited[no] = 1;
+  });
+  // 🐓 早起鳥：每一週的課，第一張送出的
+  const first = {};
+  Object.keys(orders).forEach(function (no) {
+    const o = orders[no]; if (!o) return;
+    const wk = dateStr_(addDays_(o.use, -((o.use.getDay() + 6) % 7)));
+    if (!first[wk] || o.at < first[wk].at) first[wk] = o;
+  });
+  const birds = {};
+  Object.keys(first).forEach(function (wk) { birds[first[wk].who] = (birds[first[wk].who] || 0) + 1; });
   const now = new Date(), sem = semesterOf_(today_()), by = {};
   Object.keys(orders).forEach(function (no) {
     const o = orders[no]; if (!o) return;
     const dl = deadlineFor_(o.use); if (!dl) return;
-    const t = by[o.who] = by[o.who] || { total: 0, sem: { n: 0, on: 0 }, wk: {} };
+    const t = by[o.who] = by[o.who] || { total: 0, sem: { n: 0, on: 0 }, wk: {}, cats: {}, items: {}, cls: {}, depts: {}, clean: 0, night: 0, dawn: 0 };
     const on = o.at <= dl, ds = dateStr_(o.use), wk = dateStr_(addDays_(o.use, -((o.use.getDay() + 6) % 7)));
     t.total++;
+    Object.keys(o.cats).forEach(function (c) { t.cats[c] = 1; });
+    Object.keys(o.items).forEach(function (n) { t.items[n] = 1; });
+    if (o.cls) t.cls[o.cls] = 1;
+    if (o.dept) t.depts[o.dept] = 1;
+    if (!edited[no]) t.clean++;
+    const hr = o.at.getHours();
+    if (hr >= 22) t.night++;
+    if (hr < 7) t.dawn++;
     if (ds >= sem.from && ds <= sem.to) { t.sem.n++; if (on) t.sem.on++; }
     const w = t.wk[wk] = t.wk[wk] || { n: 0, on: 0 };
     w.n++; if (on) w.on++;
@@ -5679,9 +5706,11 @@ function orderStatsAll_(force) {
     ks.forEach(function (k) { const ok = t.wk[k].on === t.wk[k].n; run = ok ? run + 1 : 0; if (run > best) best = run; });
     for (let i = ks.length - 1; i >= 0; i--) { if (t.wk[ks[i]].on === t.wk[ks[i]].n) cur++; else break; }
     t.streak = cur; t.best = best; t.weeks = ks.length; delete t.wk;
+    t.cats = Object.keys(t.cats).sort().join(''); t.items = Object.keys(t.items).length; t.cls = Object.keys(t.cls).length; t.depts = Object.keys(t.depts).length;
+    t.birds = birds[who] || 0;
   });
   const out = { sem: sem.key, by: by, at: fmtDateTime_(now) };
-  try { cache.put('ostats2', JSON.stringify(out), 600); } catch (e) {}
+  try { cache.put('ostats3', JSON.stringify(out), 600); } catch (e) {}
   return out;
 }
 function medalOf_(t) {
@@ -5702,6 +5731,18 @@ function badgesOf_(t) {
   MEDAL_RULES_.slice().reverse().forEach(function (m) {
     out.push({ k: 'm' + m.k, ico: m.ico, name: '本學期' + m.name, how: '這學期準時率 ' + (m.min === 1 ? '100%' : Math.round(m.min * 100) + '% 以上') + '（至少 ' + MEDAL_MIN_ORDERS_ + ' 張）', got: !!md && md.min >= m.min });
   });
+  // 探索類
+  const cats = String(t.cats || ''), CAT_NAME = { A: '菜', B: '肉', C: '蛋', D: '海鮮', E: '乾貨', F: '飲調', G: '奶油' };
+  out.push({ k: 'rainbow', ico: '🌈', name: '七彩大廚', how: 'A～G 七大類都訂過（已訂 ' + cats.length + '／7' + (cats.length && cats.length < 7 ? '，還差' + 'ABCDEFG'.split('').filter(function (c) { return cats.indexOf(c) < 0; }).map(function (c) { return CAT_NAME[c]; }).join('、') : '') + '）', got: cats.length >= 7 });
+  [[30, '🧭'], [80, '🗺️'], [150, '🌍']].forEach(function (g) { out.push({ k: 'items' + g[0], ico: g[1], name: '食材探險家 ' + g[0], how: '訂過 ' + g[0] + ' 種不同的食材（已 ' + (t.items || 0) + ' 種）', got: (t.items || 0) >= g[0] }); });
+  [[5, '🏫'], [10, '🎓']].forEach(function (g) { out.push({ k: 'cls' + g[0], ico: g[1], name: '多班導師 ' + g[0], how: '幫 ' + g[0] + ' 個不同的班級叫過料（已 ' + (t.cls || 0) + ' 班）', got: (t.cls || 0) >= g[0] }); });
+  out.push({ k: 'depts3', ico: '🍳', name: '跨科通', how: '訂過 3 個不同科別的課（已 ' + (t.depts || 0) + ' 科）', got: (t.depts || 0) >= 3 });
+  // 好習慣類
+  [[1, '🐓'], [5, '🌅'], [10, '🏵️']].forEach(function (g) { out.push({ k: 'bird' + g[0], ico: g[1], name: '早起鳥' + (g[0] > 1 ? ' ×' + g[0] : ''), how: '當週第一位送出下週料單的老師（已 ' + (t.birds || 0) + ' 次）', got: (t.birds || 0) >= g[0] }); });
+  [[10, '🧾'], [30, '✅']].forEach(function (g) { out.push({ k: 'clean' + g[0], ico: g[1], name: '一次就對 ' + g[0], how: '送出後沒再改過的訂單累計 ' + g[0] + ' 張（已 ' + (t.clean || 0) + ' 張）', got: (t.clean || 0) >= g[0] }); });
+  // 隱藏徽章：拿到前不告訴怎麼拿
+  out.push({ k: 'night', ico: '🌙', name: '夜貓子', how: (t.night ? '晚上 10 點後送出過訂單' : '？？？隱藏徽章'), got: (t.night || 0) > 0, hidden: !t.night });
+  out.push({ k: 'dawn', ico: '☀️', name: '晨型人', how: (t.dawn ? '早上 7 點前送出過訂單' : '？？？隱藏徽章'), got: (t.dawn || 0) > 0, hidden: !t.dawn });
   return out;
 }
 function statsView_(t, semKey) {
