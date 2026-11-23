@@ -2276,7 +2276,7 @@
     D: { ico: '🐟', name: '海鮮', emo: ['🐟', '🦐', '🦀', '🐙', '🐠', '🦑'], fx: 'swim', hi: '🐟 海鮮已下單，冰好冰滿！' },
     E: { ico: '🌾', name: '乾貨', emo: ['🌾', '🧂', '🍚', '🫘', '🥫', '🍝'], fx: 'rain', hi: '🌾 乾貨已下單，倉庫補貨中' },
     F: { ico: '🧋', name: '飲調', emo: ['🧋', '☕', '🍹', '🍋', '🧊', '🍵'], fx: 'bubble', hi: '🧋 飲調材料已下單，乾杯！' },
-    G: { ico: '🧈', name: '統清', emo: ['🧈', '🧁', '🍰', '🥐'], fx: 'rain', hi: '🧈 奶油已下單，烘焙準備好了' }
+    G: { ico: '🧈', name: '奶油', emo: ['🧈', '🧁', '🍰', '🥐'], fx: 'rain', hi: '🧈 奶油已下單，烘焙準備好了' }
   };
   function eggCatsOf(cart) {
     var n = {};
@@ -2788,12 +2788,15 @@
   // ------------------------------------------------------------------
   var SHOW_LIMIT = 60;
   // 分類、科別的小圖示（不影響篩選的值）
+  // 老師看得懂的廠商名稱：G統清 顯示成 G奶油（只改顯示，資料、廠商訂貨單還是統清）
+  var VENDOR_SHOW = { 'G統清': 'G奶油' };
+  function vName(v) { return VENDOR_SHOW[v] || v; }
   function vIco(v) { v = String(v || ''); if (v === '全部') return '🧺'; if (v === '自備') return '🏠'; var c = (EGG_CAT || {})[v.charAt(0).toUpperCase()]; return c ? c.ico : '📦'; }
   var DEPT_ICO = { '中餐': '🥢', '西餐': '🍝', '日料': '🍣', '烘焙': '🍞', '飲調': '🧋', '果雕': '🍉', '刀功': '🔪', '通用': '⭐' };
   function dIco(d) { return DEPT_ICO[d] || (/烘|西點|麵包/.test(d) ? '🍞' : /飲|咖啡|調/.test(d) ? '🧋' : /中/.test(d) ? '🥢' : '📘'); }
   function renderChips() {
     $('vendorChips').innerHTML = ['全部'].concat(data.vendors).map(function (v) {
-      return '<button type="button" class="chip' + (v === vendorFilter ? ' active' : '') + '" data-v="' + esc(v) + '">' + vIco(v) + ' ' + esc(v) + '</button>';
+      return '<button type="button" class="chip' + (v === vendorFilter ? ' active' : '') + '" data-v="' + esc(v) + '">' + vIco(v) + ' ' + esc(vName(v)) + '</button>';
     }).join('');
   }
   function matches(it, q) {
@@ -2832,7 +2835,7 @@
       return '<button type="button" class="item' + (added ? ' added' : '') + '" data-id="' + esc(it.id) + '">' +
         '<span><span class="nm">' + esc(it.name) + '</span>' +
         (it.alias ? '<div class="al">又名 ' + esc(it.alias) + '</div>' : '') +
-        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + vIco(it.vendor) + ' ' + esc(it.vendor) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
+        '<div class="al">' + (it.code ? esc(it.code) + '・' : '') + vIco(it.vendor) + ' ' + esc(vName(it.vendor)) + (it.unit ? '・' + esc(it.unit) : '') + '</div></span>' +
         '<span class="add">' + (added ? '<span class="badge info" title="已加入 ' + added + ' 次">已選 ' + added + '</span> +' : '+') + '</span></button>';
     }).join('') + (list.length > SHOW_LIMIT ? '<div class="more">還有 ' + (list.length - SHOW_LIMIT) + ' 項，請輸入關鍵字縮小範圍</div>' : '');
   }
@@ -2973,7 +2976,7 @@
   }
   function suggestHtml(list, label) {
     return '<div class="suggest"><b>' + esc(label) + '</b><br>' + list.map(function (it) {
-      return '<button type="button" class="chipbtn" data-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(it.vendor) + '</span></button>';
+      return '<button type="button" class="chipbtn" data-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(vName(it.vendor)) + '</span></button>';
     }).join('') + '</div>';
   }
   // 科別替換（管理者在「🥕 食材管理 → 科別替換」設定）：例如烘焙課選「牛奶」→ 換成「保久乳」
@@ -3033,7 +3036,7 @@
       ask('', '還是新增「' + name + '」', { noText: '取消', html: '<div class="info-check"><h3>食材總表可能已經有了</h3>' +
         '<div class="muted small" style="margin-bottom:6px">用正式食材不用等審核，訂貨單也不會分成兩項。點一下就換成：</div>' +
         sim.map(function (it) {
-          return '<button type="button" class="chipbtn" data-ask-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(it.vendor) + '</span></button>';
+          return '<button type="button" class="chipbtn" data-ask-sid="' + esc(it.id) + '">' + esc(it.name) + '<span class="muted small">・' + esc(vName(it.vendor)) + '</span></button>';
         }).join('') + '</div>' }).then(function (ok) {
         if (ok) { newConfirmed = true; $('addNew').click(); newConfirmed = false; }
       });
@@ -3524,7 +3527,7 @@
   // 訂購清單顯示送出後實際的廠商（E乾貨、C蛋商依科別分成烘焙／中餐）
   function dispVendor(v) {
     var split = data.vendorSplit && data.vendorSplit[v];
-    if (!split) return v;
+    if (!split) return vName(v);
     return (data.bakingDepts || []).indexOf($('fDept').value) >= 0 ? split.baking : split.other;
   }
   function renderCart() {
@@ -3996,7 +3999,7 @@
         (it.id === '待審核' ? ' <span class="badge warn">待審核</span>' : '') + (it.noOrder ? ' <span class="badge">' + (it.vendor === data.selfVendor ? '自備' : '有貨') + '</span>' : '') +
         (it.note ? (/【特殊需求】/.test(it.note) ? '<div class="small" style="background:#fff4c2;color:#93370d;font-weight:700;padding:1px 4px;border-radius:4px;display:inline-block">' : '<div class="muted small">') + esc(it.note) + '</div>' : '') + '</td>' +
         '<td class="num">' + esc(fmtQty(it.qty)) + ' ' + esc(it.unit) + (jinOf(it.qty, it.unit, it.vendor, it.name) ? '<div class="muted" style="font-size:13px">≈ ' + esc(jinOf(it.qty, it.unit, it.vendor, it.name)) + '</div>' : '') + (qw ? '<div class="noprint" style="color:var(--warn);font-size:13px;font-weight:600;white-space:normal">⚠ ' + esc(it.qtyWarn) + '</div>' : '') + '</td>' +
-        '<td class="muted small">' + esc(it.vendor) + (function (c) { return c ? '<div style="color:#475467">' + (c.real ? '' : '約') + '$' + money0(c.amt) + '</div>' : ''; })(itemCost(it)) + '</td>' +
+        '<td class="muted small">' + esc(vName(it.vendor)) + (function (c) { return c ? '<div style="color:#475467">' + (c.real ? '' : '約') + '$' + money0(c.amt) + '</div>' : ''; })(itemCost(it)) + '</td>' +
         (o.status === '部分處理' ? '<td>' + statusBadge(it.status) + '</td>' : '') + '</tr>';
     }).join('');
     var toolLine = tools.length ? '<div class="small" style="margin-top:6px"><b>使用器具：</b>' + esc(tools.map(function (t) {
@@ -7155,7 +7158,7 @@
         box('上課須用器具', tools, R2, true) +
       '</div>';
     if (others.length) html += '<div class="extra"><b>其他：</b>' + others.map(function (it) {
-      return esc(it.vendor) + ' ' + nameText(it) + ' ' + qtyText(it);
+      return esc(vName(it.vendor)) + ' ' + nameText(it) + ' ' + qtyText(it);
     }).join('、') + '</div>';
     return html + '</div>';
   }
@@ -7955,7 +7958,7 @@
       (crew.kind && o.project ? '・' + esc(o.project) : '') + '</span></div>' +
       (o.place ? '<div class="cr-now">📍 已登記：<b>' + esc(o.place.place) + '</b> <span class="muted small">（' + esc(o.place.by + ' ' + o.place.time) + '）</span></div>' : '<div class="cr-now none">還沒登記放在哪裡</div>') +
       '<details><summary>要冰的 ' + o.items.length + ' 樣（分貨時對照）</summary><ul>' + o.items.map(function (it) {
-        return '<li>' + esc(it.name) + '　<b>' + esc(fmtQty(Number(it.qty))) + ' ' + esc(it.unit || '') + '</b> <span class="muted small">' + esc(it.vendor) + '</span></li>';
+        return '<li>' + esc(it.name) + '　<b>' + esc(fmtQty(Number(it.qty))) + ' ' + esc(it.unit || '') + '</b> <span class="muted small">' + esc(vName(it.vendor)) + '</span></li>';
       }).join('') + '</ul></details>' +
       (crew.recent.length ? '<div class="cr-chips">' + crew.recent.slice(0, 8).map(function (p) { return '<button type="button" data-cpick="' + esc(p) + '">' + esc(p) + '</button>'; }).join('') + '</div>' : '') +
       '<div class="cr-row"><input type="text" maxlength="40" data-cplace placeholder="例如：西餐 B 冰箱中層" value="' + esc(o.place ? o.place.place : '') + '">' +
