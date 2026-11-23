@@ -374,7 +374,7 @@
   .grid-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 8px 0; font-size: 14px; }
   .grid-legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; border: 1px solid; }
   .grid-print-head { display: none; }
-  @page gridland { size: A4 landscape; margin: 8mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: bottom; padding-bottom: 1mm; } }
+  @page gridland { size: A4 landscape; margin: 14mm 8mm 8mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: middle; padding-top: 3mm; } }
   @media print {
     #viewSchedule .grid-print-head { display: block; text-align: center; margin-bottom: 4px; }
     #viewSchedule .grid-print-head h1 { font-size: 18px; margin: 0; }
@@ -526,6 +526,7 @@
   .lbl .ls span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .lbl .ls b { white-space: nowrap; }
   @page labels { size: A4 portrait; margin: 0; }
+  @page sheetpage { size: A4 portrait; margin: 8mm 10mm; }   /* 請料單固定 190×277 mm：維持 8mm 邊界才放得下一頁（不印頁數） */
   .mine-sep { margin: 18px 0 10px; padding-top: 10px; border-top: 2px dashed var(--line); color: var(--muted); font-weight: 700; font-size: 15px; }
   details.mine-past > summary { cursor: pointer; list-style: none; padding: 12px 4px 10px; }
   details.mine-past > summary::-webkit-details-marker { display: none; }
@@ -676,7 +677,7 @@
   .sheet.teacher .boxes .bt td { font-size: 12.5pt; text-align: center; height: 8mm; border-width: 1.5px; }
   .sheet.teacher .extra { margin: 5mm 6mm 0; font-size: 10.5pt; white-space: normal; }
 
-  @page { size: A4 portrait; margin: 8mm 10mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: bottom; padding-bottom: 1mm; } }   /* 右上角印頁數（Chrome、Edge；iPhone 的 Safari 不支援就不印） */   /* 上下 8mm：可印高度 281mm，請料單 277mm 有一點餘裕，不會擠到第二頁 */
+  @page { size: A4 portrait; margin: 14mm 10mm 8mm; @top-right { content: '第 ' counter(page) ' 頁／共 ' counter(pages) ' 頁'; font-size: 9pt; color: #555; vertical-align: middle; padding-top: 3mm; } }   /* 右上角印頁數（Chrome、Edge；iPhone 的 Safari 不支援就不印） */   /* 上下 8mm：可印高度 281mm，請料單 277mm 有一點餘裕，不會擠到第二頁 */
   @media print {
     body { background: #fff; }
     #viewLogin, #app > header, .noprint, #globalMsg, #watermark, .copyright { display: none !important; }
@@ -703,7 +704,7 @@
     .vedit .p-diff, .vedit .p-zero, .vedit .p-add { background: none !important; color: #000; }
     main { padding: 0 !important; max-width: none !important; }
     .print-scroll { overflow: visible; padding: 0; }
-    .sheet { box-shadow: none; margin: 0; page-break-after: always; break-after: page; break-inside: avoid; page-break-inside: avoid; }
+    .sheet { page: sheetpage; box-shadow: none; margin: 0; page-break-after: always; break-after: page; break-inside: avoid; page-break-inside: avoid; }
     .print-scroll .sheet + .sheet { margin-top: 0 !important; }   /* 畫面上兩張中間的空隙，列印時拿掉，不然每張都多出一點擠到下一頁 */
     .lblpage { page: labels; box-shadow: none; margin: 0; break-after: page; }
     .lblpage:last-child { break-after: auto; }
