@@ -11693,6 +11693,24 @@
   window.addEventListener('focus', liveCheck);
 
   // ---------------- 系統設定：每一區收合（預設收起來，按標題打開） ----------------
+  // 打字跳格（Enter、Tab、點下一格）時，那一格跑到畫面外、或被上面標題／下面送出列擋住：自動捲到畫面中間偏上，不用一直滾滑鼠
+  (function keepInView() {
+    var vis = function (x) { var r = x.getBoundingClientRect(); return r.height > 0 && r.bottom > 0 && r.top < window.innerHeight && getComputedStyle(x).visibility !== 'hidden'; };
+    document.addEventListener('focusin', function (e) {
+      var t = e.target;
+      if (!t || !/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || /^(checkbox|radio|file|button|submit)$/.test(t.type || '')) return;
+      if (t.closest('.ask-back, #viewLogin, [style*="position:fixed"], [style*="position: fixed"]')) return;   // 對話框、登入頁不用
+      setTimeout(function () {
+        if (document.activeElement !== t) return;
+        var r = t.getBoundingClientRect(); if (!r.height) return;
+        var top = 0, bot = window.innerHeight;
+        Array.prototype.forEach.call(document.querySelectorAll('header, .pfind-bar'), function (x) { if (vis(x)) { var xr = x.getBoundingClientRect(); if (xr.top <= 2) top = Math.max(top, xr.bottom); } });
+        Array.prototype.forEach.call(document.querySelectorAll('.submitbar, .lpick-bar'), function (x) { if (vis(x) && !x.contains(t)) { var xr = x.getBoundingClientRect(); if (xr.bottom >= window.innerHeight - 2) bot = Math.min(bot, xr.top); } });
+        if (r.top >= top + 40 && r.bottom <= bot - 80) return;   // 看得到，下面也還有空間
+        window.scrollBy({ top: r.top - (top + (bot - top) * 0.4), behavior: 'smooth' });
+      }, 0);
+    });
+  })();
   (function settingsFold() {
     var view = document.getElementById('viewSettings');
     if (!view) return;
