@@ -1180,6 +1180,7 @@
           <div class="status-chips" id="gridWeeks" style="margin:0 0 4px"><button type="button" data-gw="-7">上週</button><button type="button" data-gw="0">本週</button><button type="button" data-gw="7">下週</button><button type="button" data-gw="14">下下週</button></div>
           <div><label for="gridTeacher">標出老師</label><select id="gridTeacher"><option value="">（不標）</option></select></div>
           <label class="check"><input type="checkbox" id="gridShowOff" checked> 顯示已取消的課</label>
+          <button type="button" class="btn small" id="gridPrintAll" title="學校總表的版面：每一列一間教室、每天上午下午，格子裡多印實作項目">🖨 列印總表</button>
           <button type="button" class="btn small" id="gridPrintT" title="這一週每位老師一張：每堂課的課程、班級、教室、實作項目">🖨 列印老師課表</button>
         </div>
       </div>
@@ -11084,6 +11085,54 @@
         body + '</tbody></table></div>';
     }).join('');
   }
+  // ---- 🖨 列印總表（學校的版面）：列＝教室，欄＝星期一～五的上午／下午；格子：課程［節次］班級 老師＋📝實作項目 ----
+  function masterSheetHtml(r) {
+    var wk = r.week; if (!wk) return '';
+    var lessons = [];
+    (r.rows || []).forEach(function (x) { if (x.need && !x.skipped && !x.outOfWeek && x.date) lessons.push(x); });
+    (r.extras || []).forEach(function (x) { if (x.date) lessons.push(x); });
+    var day = lessons.filter(function (x) { return x.session !== '晚上'; }), night = lessons.filter(function (x) { return x.session === '晚上'; });
+    // 教室順序：跟學校總表一樣，中餐、廚藝、西餐、烘焙在前，飲調、其他在後；沒寫教室的放最後
+    var PRE = ['中一', '中二', '中三', '廚一', '廚三', '西餐', '廚二', '烘一', '烘二', '調一', '調二'];
+    var rooms = [];
+    (r.rows || []).concat(r.extras || []).forEach(function (x) { var rm = x.room || ''; if (rooms.indexOf(rm) < 0) rooms.push(rm); });
+    rooms = rooms.filter(function (rm) { return day.some(function (x) { return (x.room || '') === rm; }); });
+    rooms.sort(function (a, b) { var ia = PRE.indexOf(a), ib = PRE.indexOf(b); if (!a) return 1; if (!b) return -1; return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+    var md = function (d) { var p = d.split('-'); return Number(p[1]) + '月' + Number(p[2]) + '日'; };
+    var cell = function (list) {
+      return list.map(function (x) {
+        var pjs = []; (x.orders || []).forEach(function (o) { var t2 = o.project || ''; if (t2 && pjs.indexOf(t2) < 0) pjs.push(t2); });
+        var cn = String(x.course || ''), small = cn.length > 5 ? 'font-size:9px' : 'font-size:11px';
+        return '<div style="line-height:1.25;margin-bottom:2px"><div style="' + small + ';font-weight:700">' + esc(cn) + '</div>' +
+          (x.period ? '<div>' + esc(x.period) + '</div>' : '') + '<div>' + esc(x.className || '') + '</div><div>' + esc(x.teacher || '') + '</div>' +
+          (pjs.length ? '<div style="color:#1d4ed8;font-size:9px;font-weight:700">📝' + esc(pjs.join('、')) + '</div>' : x.status === 'todo' ? '<div style="color:#b42318;font-size:9px">未叫料</div>' : x.status === 'holiday' ? '<div style="color:#777;font-size:9px">放假</div>' : '') + '</div>';
+      }).join('');
+    };
+    var th = 'border:1px solid #333;background:#ddd;padding:2px;font-size:11px;text-align:center;color:#111', td = 'border:1px solid #333;padding:2px;text-align:center;vertical-align:middle;font-size:10px;height:62px';
+    var head = '<tr><th rowspan="3" style="' + th + ';width:34px">日期<br><br>教室</th>' + wk.dates.map(function (d, i) { return '<th colspan="2" style="' + th + '">' + md(d) + (wk.holidays && wk.holidays[i] ? '（放假）' : '') + '</th>'; }).join('') + '</tr>' +
+      '<tr>' + wk.dates.map(function (d, i) { return '<th colspan="2" style="' + th + ';background:#eee">星期' + '一二三四五'.charAt(i) + '</th>'; }).join('') + '</tr>' +
+      '<tr>' + wk.dates.map(function () { return '<th style="' + th + ';background:#bbb">上午</th><th style="' + th + ';background:#bbb">下午</th>'; }).join('') + '</tr>';
+    var body = rooms.map(function (rm) {
+      return '<tr><th style="' + th + ';font-size:15px;line-height:1.3;background:#ccc">' + String(rm || '其他').split('').map(esc).join('<br>') + '</th>' + wk.dates.map(function (d) {
+        return ['上午', '下午'].map(function (se) { return '<td style="' + td + '">' + cell(day.filter(function (x) { return (x.room || '') === rm && x.date === d && x.session === se; })) + '</td>'; }).join('');
+      }).join('') + '</tr>';
+    }).join('');
+    var nightHtml = night.length ? '<div style="margin-top:6px;font-size:11px"><b>夜間：</b>' + night.sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (x) {
+      var pjs = (x.orders || []).map(function (o) { return o.project; }).filter(Boolean);
+      return md(x.date) + ' ' + esc((x.room ? x.room + ' ' : '') + (x.course || '') + ' ' + (x.className || '') + ' ' + (x.teacher || '')) + (pjs.length ? '（📝' + esc(pjs.join('、')) + '）' : '');
+    }).join('；') + '</div>' : '';
+    return '<div><h2 style="text-align:center;margin:0 0 4px;font-size:18px">中西餐、烘焙、飲調、餐服　總表　' + md(wk.from) + '～' + md(wk.to) + '</h2>' +
+      '<table style="width:100%;border-collapse:collapse;table-layout:fixed">' + head + body + '</table>' + nightHtml +
+      '<div style="text-align:right;font-size:9px;color:#666;margin-top:2px">印出日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '・📝＝老師訂單上的實作項目</div></div>';
+  }
+  $('gridPrintAll').addEventListener('click', function () {
+    if (!gridData || !gridData.week) { notice('請先選一週，等課表載入好再印。'); return; }
+    var body = masterSheetHtml(gridData);
+    if (!body) { notice('這一週沒有課。'); return; }
+    var d = document.createElement('div');
+    d.innerHTML = '<style>@page{size:A4 landscape;margin:7mm}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}tr{page-break-inside:avoid;break-inside:avoid}thead{display:table-header-group}</style>' + body;
+    printSection(d);
+  });
   $('gridPrintT').addEventListener('click', function () {
     if (!gridData || !gridData.week) { notice('請先選一週，等課表載入好再印。'); return; }
     var names = []; (gridData.rows || []).concat(gridData.extras || []).forEach(function (x) { if (x.teacher && names.indexOf(x.teacher) < 0) names.push(x.teacher); });
