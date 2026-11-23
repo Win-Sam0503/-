@@ -206,6 +206,13 @@
   .stamp-row i.on { border: 2px solid #b45309; background: #fef3c7; }
   @media (prefers-reduced-motion: reduce) { .cd-box.urgent { animation: none; } }
 
+
+  /* 🥚 藏在各頁的小彩蛋 */
+  .hunt-egg { position: absolute; z-index: 30; font-size: 30px; line-height: 1; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; animation: huntPeek .9s ease-out both, huntWig 2.4s ease-in-out .9s infinite; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); background: none; border: 0; padding: 4px; }
+  .hunt-egg:hover { transform: scale(1.25); }
+  @keyframes huntPeek { from { transform: translateY(16px) scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes huntWig { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-16deg); } 86% { transform: rotate(14deg); } 94% { transform: rotate(-8deg); } }
+  @media (prefers-reduced-motion: reduce) { .hunt-egg { animation: none; } }
   /* 🎮 接食材 */
   #gmArea { position: relative; height: 360px; border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, #e0f2fe 0%, #fef9c3 100%); border: 2px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; cursor: none; }
   #gmBasket { position: absolute; bottom: 6px; left: 50%; font-size: 46px; line-height: 1; transform: translateX(-50%); will-change: left; }
@@ -2464,7 +2471,8 @@
       el.classList.remove('wig', 'spin'); void el.offsetWidth; el.classList.add('spin');
       var f = eggFest();
       eggRain(f ? f.emo : ['🥕', '🥚', '🧅', '🍅', '🥦', '🧄', '🍋', '🧁', '🍤'], 30, 7000);
-      eggBanner(EGG_HIDDEN[Math.floor(Math.random() * EGG_HIDDEN.length)], 3500);
+      if (data && !data.student && !data.crewOrder && huntFound().indexOf('logo') < 0) setTimeout(function () { huntCatch(HUNT_LOGO); }, 1500);
+      else eggBanner(EGG_HIDDEN[Math.floor(Math.random() * EGG_HIDDEN.length)], 3500);
     } else { el.classList.remove('wig'); void el.offsetWidth; el.classList.add('wig'); }
   });
 
@@ -2512,6 +2520,52 @@
     return '<div style="margin-top:10px;padding:8px 10px;border:1px dashed #fcd34d;border-radius:12px;background:#fffbeb">' +
       '<div><b>🎁 每週任務：</b>星期' + WD[st.taskWd || 5] + '結束前把下週' + (t ? '（' + esc(shortDate(t.nw.from)) + '～' + esc(shortDate(t.nw.to)) + '）' : '') + '的課都叫完' + prog + '</div>' +
       '<div style="margin-top:6px">集章 <span class="stamp-row">' + slots + '</span> <span class="small muted">' + inCard + '／5' + (cards ? '・已集滿 ' + cards + ' 張卡' : '') + '（集滿 5 個拿「🎁 任務達人」）</span></div></div>';
+  }
+
+  // =================== 🥚 小彩蛋尋寶：藏在各頁、偶爾冒出來，點到就收集；5 個拿「彩蛋獵人」、全部拿「彩蛋大師」 ===================
+  var HUNT = {
+    viewOrder: { id: 'order', ico: '🥕', name: '訂貨頁的胡蘿蔔' }, viewMine: { id: 'mine', ico: '🍳', name: '我的訂單的荷包蛋' },
+    viewLessons: { id: 'lessons', ico: '🐣', name: '我的課的小雞' }, viewBadges: { id: 'badges', ico: '🧁', name: '徽章頁的杯子蛋糕' },
+    viewWish: { id: 'wish', ico: '🍀', name: '許願箱的幸運草' }, viewPassword: { id: 'password', ico: '🍙', name: '改密碼的飯糰' },
+    viewDone: { id: 'done', ico: '🍩', name: '送出成功的甜甜圈' }
+  };
+  var HUNT_LOGO = { id: 'logo', ico: '🏫', name: '校徽裡的祕密' }, huntEl = null, huntTimer = null;
+  function huntFound() { if (myStats && myStats.eggsFound) return myStats.eggsFound; try { return JSON.parse(localStorage.getItem('ckOrder.hunt.' + (data && data.account)) || '[]'); } catch (e) { return []; } }
+  function huntClear() { if (huntEl) huntEl.remove(); huntEl = null; clearTimeout(huntTimer); }
+  // 換頁時：還沒找到的那一頁，約 3 次有 1 次冒出來（送出成功頁 1/2），藏在某個區塊的角落，25 秒後縮回去
+  function huntMaybe(view) {
+    huntClear();
+    var h = HUNT[view];
+    if (!h || !data || data.student || data.crewOrder || huntFound().indexOf(h.id) >= 0) return;
+    if (Math.random() > (view === 'viewDone' ? 0.5 : 0.33)) return;
+    setTimeout(function () {
+      var sec = $(view); if (!sec || sec.classList.contains('hidden')) return;
+      var panels = Array.prototype.filter.call(sec.querySelectorAll('.panel'), function (x) { return x.offsetHeight > 60 && x.offsetParent; });
+      var host = panels.length ? panels[Math.floor(Math.random() * panels.length)] : sec;
+      if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'hunt-egg'; b.textContent = h.ico; b.title = '咦？這是什麼？';
+      b.style[Math.random() < 0.5 ? 'right' : 'left'] = (6 + Math.random() * 30) + 'px';
+      b.style[Math.random() < 0.6 ? 'bottom' : 'top'] = (4 + Math.random() * 10) + 'px';
+      b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); huntCatch(h); });
+      host.appendChild(b); huntEl = b;
+      huntTimer = setTimeout(huntClear, 25000);
+    }, 1200 + Math.random() * 2500);
+  }
+  function huntCatch(h) {
+    huntClear();
+    call('foundEgg', token, h.id).then(function (r) {
+      try { localStorage.setItem('ckOrder.hunt.' + data.account, JSON.stringify(r.found)); } catch (e) {}
+      if (myStats) myStats.eggsFound = r.found;
+      var n = r.found.length, t = r.total;
+      var extra = n === 5 && r.fresh ? '<div style="margin-top:10px;font-size:18px">🥚 獲得徽章「<b>彩蛋獵人</b>」！</div>' : n === t && r.fresh ? '<div style="margin-top:10px;font-size:18px">🐣 全部找到了！獲得徽章「<b>彩蛋大師</b>」！</div>' : '';
+      eggRain([h.ico, '✨', '🎉', '⭐'], 26, 6000);
+      ask('', '好耶！', { okOnly: true, html: '<div style="text-align:center"><div style="font-size:60px;line-height:1.2">' + h.ico + '</div>' +
+        '<div style="font-size:20px;font-weight:800;color:var(--brand);margin-top:6px">' + (r.fresh ? '🎉 恭喜你發現小彩蛋！' : '這個你找過了 😉') + '</div>' +
+        '<div style="margin-top:4px">「' + esc(h.name) + '」</div>' +
+        '<div style="margin:10px 0 4px;font-size:22px;letter-spacing:4px">' + new Array(t + 1).join('●').split('').map(function (c, i) { return i < n ? '🥚' : '⚪'; }).join('') + '</div>' +
+        '<div class="small muted">已收集 <b>' + n + '／' + t + '</b> 個' + (n < 5 ? '，再找 ' + (5 - n) + ' 個就有「彩蛋獵人」徽章' : n < t ? '，全部找到有「彩蛋大師」' : '') + '<br>彩蛋偶爾會出現在不同頁面的角落，仔細看喔 👀</div>' + extra + '</div>' });
+      if (r.fresh) loadMyStats(false);
+    }).catch(function (e) { notice(e.message); });
   }
 
   // =================== 🎮 小遊戲：接食材（在「🏅 我的徽章」頁） ===================
@@ -2601,7 +2655,7 @@
   }
   function badgesHtml(st, fresh) {
     var got = st.badges.filter(function (b) { return b.got; }).length;
-    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]\d|^m(gold|silver|bronze)/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean|task)/.test(k) ? '🌱 好習慣' : '🎭 隱藏徽章'; }, lastG = '';
+    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]\d|^m(gold|silver|bronze)/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean|task)/.test(k) ? '🌱 好習慣' : /^hunt/.test(k) ? '🥚 小彩蛋尋寶' : '🎭 隱藏徽章'; }, lastG = '';
     return '<details open style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
       st.badges.map(function (b) {
         var g = grp(b.k), head = g !== lastG ? '<div class="small" style="grid-column:1/-1;font-weight:700;margin-top:6px;color:var(--brand)">' + g + '</div>' : ''; lastG = g;
@@ -3086,6 +3140,7 @@
     if (view === 'viewLessons') loadLessons();
     if (view === 'viewBadges') { if (myStats) renderMyStats(); loadMyStats(false); }
     if (view === 'viewWish') wishLoad(true);
+    huntMaybe(view);
     if (view === 'viewSchedule') loadGrid();
     keepMine = false;
     if (view === 'viewSummary') issCount();

@@ -5750,28 +5750,46 @@ function badgesOf_(t) {
   [[1, '🐓'], [5, '🌅'], [10, '🏵️']].forEach(function (g) { out.push({ k: 'bird' + g[0], ico: g[1], name: '早起鳥' + (g[0] > 1 ? ' ×' + g[0] : ''), how: '當週第一位送出下週料單的老師（已 ' + (t.birds || 0) + ' 次）', got: (t.birds || 0) >= g[0] }); });
   [[10, '🧾'], [30, '✅']].forEach(function (g) { out.push({ k: 'clean' + g[0], ico: g[1], name: '一次就對 ' + g[0], how: '送出後沒再改過的訂單累計 ' + g[0] + ' 張（已 ' + (t.clean || 0) + ' 張）', got: (t.clean || 0) >= g[0] }); });
   [[5, '🎁'], [15, '🎖️']].forEach(function (g) { out.push({ k: 'task' + g[0], ico: g[1], name: g[0] === 5 ? '任務達人' : '任務大師', how: '每週任務（截止前一個上課日就叫完下週）集滿 ' + g[0] + ' 個章（已 ' + (t.stamps || 0) + ' 個）', got: (t.stamps || 0) >= g[0] }); });
+  // 🥚 彩蛋獵人：在網站各頁找到偶爾冒出來的小彩蛋
+  out.push({ k: 'hunt5', ico: '🥚', name: '彩蛋獵人', how: '在網站各頁面找到 5 個偶爾冒出來的小彩蛋（已 ' + (t.eggs || 0) + '／' + HUNT_EGGS_.length + ' 個）', got: (t.eggs || 0) >= 5 });
+  out.push({ k: 'huntall', ico: '🐣', name: '彩蛋大師', how: '全部 ' + HUNT_EGGS_.length + ' 個小彩蛋都找到（已 ' + (t.eggs || 0) + ' 個）', got: (t.eggs || 0) >= HUNT_EGGS_.length });
   // 隱藏徽章：拿到前不告訴怎麼拿
   out.push({ k: 'night', ico: '🌙', name: '夜貓子', how: (t.night ? '晚上 10 點後送出過訂單' : '？？？隱藏徽章'), got: (t.night || 0) > 0, hidden: !t.night });
   out.push({ k: 'dawn', ico: '☀️', name: '晨型人', how: (t.dawn ? '早上 7 點前送出過訂單' : '？？？隱藏徽章'), got: (t.dawn || 0) > 0, hidden: !t.dawn });
   return out;
 }
-function statsView_(t, semKey) {
-  t = t || { total: 0, sem: { n: 0, on: 0 }, streak: 0, best: 0 };
+// 🥚 藏在各頁的小彩蛋：找到幾個（存在指令碼屬性，換電腦也算）
+const HUNT_EGGS_ = ['order', 'mine', 'lessons', 'badges', 'wish', 'password', 'done', 'logo'];
+function huntFound_(account) {
+  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('EGG_FOUND_' + account) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
+}
+/** 老師點到小彩蛋 */
+function foundEgg(token, id) {
+  const account = auth_(token, false, false, true);
+  id = String(id || '');
+  if (HUNT_EGGS_.indexOf(id) < 0) throw new Error('沒有這個彩蛋。');
+  const f = huntFound_(account), fresh = !f[id];
+  if (fresh) { f[id] = fmtDateTime_(new Date()); PropertiesService.getScriptProperties().setProperty('EGG_FOUND_' + account, JSON.stringify(f)); }
+  return { fresh: fresh, found: Object.keys(f), total: HUNT_EGGS_.length };
+}
+function statsView_(t, semKey, eggs) {
+  t = Object.assign({ total: 0, sem: { n: 0, on: 0 }, streak: 0, best: 0 }, t || {});
+  t.eggs = eggs ? Object.keys(eggs).length : 0;
   const md = medalOf_(t);
   return { total: t.total, semKey: semKey, semN: t.sem.n, semOn: t.sem.on, rate: t.sem.n ? Math.round(t.sem.on / t.sem.n * 100) : null, stamps: t.stamps || 0, stampLast: t.stampLast || '', taskWd: lockRule_().wd === 1 ? 5 : lockRule_().wd - 1,
-    streak: t.streak || 0, best: t.best || 0, medal: md ? { ico: md.ico, name: md.name } : null, badges: badgesOf_(t) };
+    streak: t.streak || 0, best: t.best || 0, medal: md ? { ico: md.ico, name: md.name } : null, badges: badgesOf_(t), eggsFound: Object.keys(eggs || {}), eggsTotal: HUNT_EGGS_.length };
 }
 /** 老師：我的準時紀錄、徽章（fresh＝剛送出，重算） */
 function getMyStats(token, fresh) {
   const account = auth_(token, false, false, true);
   const all = orderStatsAll_(!!fresh);
-  return statsView_(all.by[account], all.sem);
+  return statsView_(all.by[account], all.sem, huntFound_(account));
 }
 /** 管理者：看某一位老師的徽章收藏冊、準時紀錄 */
 function adminGetTeacherBadges(token, who) {
   auth_(token, true);
   who = clean_(who, 30);
-  const all = orderStatsAll_(false), v = statsView_(all.by[who], all.sem);
+  const all = orderStatsAll_(false), v = statsView_(all.by[who], all.sem, huntFound_(who));
   v.who = who;
   return v;
 }
@@ -5782,7 +5800,7 @@ function adminGetTeacherStats(token) {
   Object.keys(all.by).forEach(function (w) { if (names.indexOf(w) < 0) names.push(w); });
   const MEDAL_PTS = { '金牌': 30, '銀牌': 20, '銅牌': 10 };
   return { sem: all.sem, at: all.at, minN: MEDAL_MIN_ORDERS_, list: names.map(function (w) {
-    const v = statsView_(all.by[w], all.sem); v.who = w; v.nBadges = v.badges.filter(function (b) { return b.got; }).length; delete v.badges;
+    const v = statsView_(all.by[w], all.sem, huntFound_(w)); v.who = w; v.nBadges = v.badges.filter(function (b) { return b.got; }).length; delete v.badges;
     // 綜合積分：本學期準時一張 10 分＋目前連續準時一週 5 分＋徽章一個 3 分＋獎牌（金 30／銀 20／銅 10）
     v.score = v.semOn * 10 + v.streak * 5 + v.nBadges * 3 + (v.medal ? MEDAL_PTS[v.medal.name] || 0 : 0);
     return v;
