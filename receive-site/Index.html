@@ -2384,9 +2384,14 @@
     if (t.hasAttribute && t.hasAttribute('data-pk')) { sl.papers[Number(t.getAttribute('data-pk'))].kind = t.getAttribute('data-k'); renderPapers(); saveDraft(); return; }
   });
   // Enter：品名 → 數量 → 單位 → 單價 → 金額 → 下一行品名（這一張最後一行就自動加一行）
+  // 中文輸入法：選字按的那一下 Enter 是「確定這個字」，不是跳下一格（不然會跳過數量）。
+  // 有的輸入法那一下 keyCode 是 229、有的先送 compositionend 才送 Enter：選完字 0.2 秒內的 Enter 都不算
+  var imeEndAt = 0;
+  $('slipBox').addEventListener('compositionend', function () { imeEndAt = Date.now(); });
   $('slipBox').addEventListener('keydown', function (e) {
     var t = e.target, f = t.getAttribute && t.getAttribute('data-pf');
-    if (e.key !== 'Enter' || e.isComposing || !f || f === 'pu') return;
+    if ((e.key !== 'Enter' && e.keyCode !== 229) || !f || f === 'pu') return;
+    if (e.isComposing || e.keyCode === 229 || Date.now() - imeEndAt < 200) return;
     e.preventDefault();
     var i = Number(t.getAttribute('data-pi')), j = Number(t.getAttribute('data-pj')), order = $('slipBox').querySelector('[data-pf="wt"]') ? ['name', 'qty', 'unit', 'wt', 'price', 'amount'] : ['name', 'qty', 'unit', 'price', 'amount'], k = order.indexOf(f);   // 照欄位順序：品名 → 數量 → 單位 → 單價 → 金額
     var go = function (jj, ff) { var x = $('slipBox').querySelector('[data-pi="' + i + '"][data-pj="' + jj + '"][data-pf="' + ff + '"]'); if (x) { x.focus(); try { x.select(); } catch (z) {} } return x; };
