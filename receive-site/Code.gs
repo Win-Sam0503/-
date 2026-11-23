@@ -171,6 +171,7 @@ function getWeek_(monday, mode) {
   if (mode === 'slip') slipWeekView_(out, f, recs, prices);
   else out.extras = extraSlips_(recs, f, t);
   out.lastUnits = lastUnits_();
+  out.vprices = prices;   // 臨時銷貨單、新增銷貨單也帶單價表最新的價格
   const drafts = readDrafts_();
   out.batches.forEach(function (b) { delete b.list; b.draft = drafts[b.id] || null; });
   return out;
@@ -1208,15 +1209,21 @@ function savePrices_(vendor, from, id, slip) {
   if (!list.length) return;
   ensureSheet_(SHEET.prices, PRICE_HEADERS);
   const t = readTable_(SHEET.prices, ['廠商', '食材名稱']);
-  const add = [];
+  const add = [], added = {};
   list.forEach(function (x) {
+    const d = x.date || from;   // 照銷貨單上的日期比新舊：最新日期的價格留在單價表，下一張自動帶
     const r = t.rows.find(function (y) { return String(y['廠商']).trim() === vendor && String(y['食材名稱']).trim() === x.name && String(y['單位'] || '').trim() === x.unit; });
     if (r) {
-      if (purchaseDate_(r['更新日期']) > from) return;   // 已經有更新的價格
-      setCell_(t, r._row, '單價', x.price); setCell_(t, r._row, '更新日期', from); setCell_(t, r._row, '驗收編號', id);
+      if (purchaseDate_(r['更新日期']) > d) return;   // 已經有更新的價格
+      setCell_(t, r._row, '單價', x.price); setCell_(t, r._row, '更新日期', d); setCell_(t, r._row, '驗收編號', id);
+      r['更新日期'] = d;
       if (x.slipName) setCell_(t, r._row, '銷貨單品名', x.slipName);
       if (x.code && t.cols['貨品編號'] !== undefined) setCell_(t, r._row, '貨品編號', x.code);
-    } else add.push({ '廠商': vendor, '食材名稱': x.name, '單位': x.unit, '單價': x.price, '銷貨單品名': x.slipName, '更新日期': from, '驗收編號': id, '貨品編號': x.code });
+    } else {
+      const k = x.name + '|' + x.unit, o = { '廠商': vendor, '食材名稱': x.name, '單位': x.unit, '單價': x.price, '銷貨單品名': x.slipName, '更新日期': d, '驗收編號': id, '貨品編號': x.code };
+      if (added[k] === undefined) { added[k] = add.length; add.push(o); }
+      else if (add[added[k]]['更新日期'] <= d) add[added[k]] = o;   // 同一張打了兩次：留日期新的
+    }
   });
   if (add.length) appendRows_(SHEET.prices, add);
 }
@@ -1254,7 +1261,7 @@ function getSlipBatch_(id) {
     if (!r) throw new Error('找不到這張臨時銷貨單，可能已經刪除了。');
     const x = extraSlips_(recs, r.date, r.date, r.vendor).filter(function (y) { return y.id === id; })[0];
     if (!x) throw new Error('找不到這張臨時銷貨單。');
-    return { extra: x };
+    return { extra: x, vprices: readPrices_(), lastUnits: lastUnits_() };
   }
   const m = id.match(/^R(\d{4})(\d{2})(\d{2})-/);
   if (!m) throw new Error('叫貨單編號不正確。');

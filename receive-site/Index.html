@@ -831,7 +831,9 @@
     if (t.id === 'slMonPrint') { document.body.classList.add('pmon'); window.print(); setTimeout(function () { document.body.classList.remove('pmon'); }, 500); }
   });
   // 臨時銷貨單（不在叫貨單裡）
-  function extraBatch(x) { return { id: x.id, extra: true, vendor: x.vendor, date: x.date, group: '', lines: [], totals: {}, prices: {}, slip: x.slip }; }
+  // 臨時銷貨單：單價照單價表最新的（上一張存的價格），不用每張重打
+  function vPrices(v) { return (week && week.vprices && week.vprices[v]) || {}; }
+  function extraBatch(x) { return { id: x.id, extra: true, vendor: x.vendor, date: x.date, group: '', lines: [], totals: {}, prices: vPrices(x.vendor), slip: x.slip }; }
   function extraCard(x, i) {
     var sl = x.slip;
     var xb = extraBatch(x);
@@ -858,7 +860,7 @@
     var v = vcode($('slNewV').value), d = $('slNewD').value;
     if (!v) { msg('slNewMsg', 'error', '請填廠商或店名。'); $('slNewV').focus(); return; }
     if (!d) { msg('slNewMsg', 'error', '請選送貨日期。'); return; }
-    openSlip({ id: '', extra: true, vendor: v, date: d, group: '', lines: [], totals: {}, prices: {}, slip: null });
+    openSlip({ id: '', extra: true, vendor: v, date: d, group: '', lines: [], totals: {}, prices: vPrices(v), slip: null });
   });
   $('cards').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing && (e.target.id === 'slNewV' || e.target.id === 'slNewD')) { e.preventDefault(); $('slNewGo').click(); } });
   // 這張叫貨單沒有銷貨單的原因（銷貨單頁按「這次沒有銷貨單」，或驗收標「整張停送」）；有填金額就不算
@@ -2953,7 +2955,7 @@
       msg('monMsg', 'info', '打開 ' + mdw(en.date) + ' ' + en.label + ' 的銷貨單…');
       call('getSlipBatch', en.id).then(function (r) {
         msg('monMsg', '', '');
-        if (r.lastUnits) { week = week || { from: r.batch.from, to: r.batch.from, batches: [], extras: [] }; week.lastUnits = r.lastUnits; }
+        if (r.lastUnits) { var f0 = r.batch ? r.batch.from : r.extra.date; week = week || { from: f0, to: f0, batches: [], extras: [] }; week.lastUnits = r.lastUnits; if (r.vprices) week.vprices = r.vprices; }
         slipRet = 'month';
         openSlip(r.extra ? extraBatch(r.extra) : r.batch);
         window.scrollTo(0, 0);
