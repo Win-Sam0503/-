@@ -220,6 +220,28 @@
   details.game-fold > summary::before { content: '▶'; display: inline-block; width: 1.2em; color: var(--brand); transition: transform .2s; }
   details.game-fold[open] > summary::before { transform: rotate(90deg); }
   details.game-fold[open] > summary { margin-bottom: 6px; }
+  /* 🗂️ ⚖️ 問答小遊戲、🍰 食譜排序 */
+  .qz-box { border: 2px solid var(--line); border-radius: 14px; padding: 14px; min-height: 180px; background: linear-gradient(180deg, #fff, #fffbeb); }
+  .qz-msg { text-align: center; padding: 50px 0; font-size: 18px; font-weight: 700; color: #7c2d12; white-space: pre-line; }
+  .qz-q { text-align: center; font-size: 26px; font-weight: 800; margin: 6px 0 4px; }
+  .qz-sub { text-align: center; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .qz-bar { height: 8px; border-radius: 999px; background: #eef0f3; overflow: hidden; margin: 8px 0 12px; }
+  .qz-bar i { display: block; height: 100%; background: #f59e0b; }
+  .qz-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .qz-opts button { border: 2px solid var(--line); background: #fff; border-radius: 12px; padding: 10px 8px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .qz-opts button:hover { border-color: #f59e0b; }
+  .qz-opts button.ok { background: #dcfce7; border-color: #22c55e; }
+  .qz-opts button.bad { background: #fee2e2; border-color: #ef4444; }
+  .qz-opts button:disabled { cursor: default; }
+  .rc-ans { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+  .rc-ans li { border: 2px dashed #fcd34d; border-radius: 10px; padding: 7px 10px; min-height: 22px; background: #fff; cursor: pointer; }
+  .rc-ans li.empty { color: #98a2b3; cursor: default; }
+  .rc-ans li.ok { border: 2px solid #22c55e; background: #f0fdf4; }
+  .rc-ans li.bad { border: 2px solid #ef4444; background: #fef2f2; }
+  .rc-ans li b { color: var(--brand); margin-right: 6px; }
+  .rc-pool { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rc-pool button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 14px; cursor: pointer; text-align: left; }
+  .rc-pool button:disabled { opacity: .3; cursor: default; }
   /* 🃏 翻牌配對 */
   #mmGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 420px; margin: 0 auto; }
   #mmGrid .mm-card { aspect-ratio: 1 / 1; border: 0; padding: 0; background: none; perspective: 600px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1127,6 +1149,27 @@
         <div class="stage-row" id="gmStages"></div><div class="small" id="gmGoal" style="font-weight:700"></div>
         <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="gmStart">▶ 開始</button><b id="gmScore" style="margin-left:12px;font-size:18px">分數 0</b><span id="gmTime" class="muted" style="margin-left:12px">⏱ 30 秒</span><span style="flex:1"></span><span id="gmBest" class="small"></span></div>
         <div id="gmArea" aria-label="接食材遊戲區"><div id="gmBasket">🧺</div><div id="gmMsg">按「▶ 開始」</div></div>
+      </details>
+      <details class="panel game-fold" id="soPanel" style="padding:12px 16px">
+        <summary><h2 style="margin:0;font-size:17px;display:inline">🎮 小遊戲：🗂️ 食材分類快手</h2> <span class="small muted" id="soFoldInfo">點開來玩</span></summary>
+        <div class="small muted">食材一個一個跳出來，快點它是跟哪一家叫的（A 菜商、B 肉商、C 蛋商…）。每關 10 題，答對夠多就過關；越後面的關，每題的秒數越少。玩熟了，叫貨就不會選錯廠商！</div>
+        <div class="stage-row" id="soStages"></div><div class="small" id="soGoal" style="font-weight:700"></div>
+        <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="soStart">▶ 開始</button><b id="soProg" style="margin-left:12px;font-size:18px"></b><span id="soTime" class="muted" style="margin-left:12px"></span><span style="flex:1"></span><span id="soBest" class="small"></span></div>
+        <div id="soBox" class="qz-box"><div class="qz-msg">按「▶ 開始」</div></div>
+      </details>
+      <details class="panel game-fold" id="unPanel" style="padding:12px 16px">
+        <summary><h2 style="margin:0;font-size:17px;display:inline">🎮 小遊戲：⚖️ 單位換算挑戰</h2> <span class="small muted" id="unFoldInfo">點開來玩</span></summary>
+        <div class="small muted">「3 兩＝幾 g？」「900 g＝幾斤？」四選一，每關 10 題、限時作答。1 斤＝600 g、1 兩＝37.5 g、1 公斤＝1000 g，越後面的關數字越難。</div>
+        <div class="stage-row" id="unStages"></div><div class="small" id="unGoal" style="font-weight:700"></div>
+        <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="unStart">▶ 開始</button><b id="unProg" style="margin-left:12px;font-size:18px"></b><span id="unTime" class="muted" style="margin-left:12px"></span><span style="flex:1"></span><span id="unBest" class="small"></span></div>
+        <div id="unBox" class="qz-box"><div class="qz-msg">按「▶ 開始」</div></div>
+      </details>
+      <details class="panel game-fold" id="rcPanel" style="padding:12px 16px">
+        <summary><h2 style="margin:0;font-size:17px;display:inline">🎮 小遊戲：🍰 食譜步驟排序</h2> <span class="small muted" id="rcFoldInfo">點開來玩</span></summary>
+        <div class="small muted">把打亂的製作步驟，依正確順序一個一個點下去（點錯了，點上面已排好的那一步就能拿掉）。排好按「✔ 檢查」，3 次內全對就過關；烘焙、中餐都有。</div>
+        <div class="stage-row" id="rcStages"></div><div class="small" id="rcGoal" style="font-weight:700"></div>
+        <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="rcStart">▶ 開始</button><b id="rcProg" style="margin-left:12px;font-size:18px"></b><span id="rcTime" class="muted" style="margin-left:12px"></span><span style="flex:1"></span><span id="rcBest" class="small"></span></div>
+        <div id="rcBox" class="qz-box"><div class="qz-msg">按「▶ 開始」</div></div>
       </details>
     </section>
 
@@ -2639,8 +2682,9 @@
   function stageRow(game, cur, onPick) {
     var max = stageMax(game), n = (myStats && myStats.game && myStats.game.stages) || 5, h = '';
     for (var i = 1; i <= n; i++) h += '<button type="button" data-stage="' + i + '" class="' + (i === cur ? 'cur ' : '') + (i <= max ? 'done' : '') + '"' + (i > max + 1 ? ' disabled title="先過前一關"' : '') + '>' + (i <= max ? '✅ ' : i > max + 1 ? '🔒 ' : '') + i + '</button>';
-    var el = $(game === 'catch' ? 'gmStages' : 'mmStages'); el.innerHTML = '<span class="small muted">闖關：</span>' + h;
-    var fi = $(game === 'catch' ? 'gmFoldInfo' : 'mmFoldInfo'); if (fi) fi.textContent = (max ? '已過 ' + max + '／' + n + ' 關' + (max >= n ? ' 🏆' : '') : '還沒闖關') + '・點開來玩';
+    var PX = { catch: 'gm', memo: 'mm', sort: 'so', unit: 'un', recipe: 'rc' }[game];
+    var el = $(PX + 'Stages'); el.innerHTML = '<span class="small muted">闖關：</span>' + h;
+    var fi = $(PX + 'FoldInfo'); if (fi) fi.textContent = (max ? '已過 ' + max + '／' + n + ' 關' + (max >= n ? ' 🏆' : '') : '還沒闖關') + '・點開來玩';
     el.onclick = function (e) { var b = e.target.closest('[data-stage]'); if (b && !b.disabled) onPick(Number(b.getAttribute('data-stage'))); };
   }
   function stageClear(game, stage, done) {
@@ -2804,6 +2848,166 @@
     window.catchStageRefresh = function () { if (!run) pickStage(Math.min(stage, stageMax('catch') + 1)); };
   })();
 
+  // =================== 🗂️ ⚖️ 問答小遊戲（每關 10 題、限時、四選一或點廠商） ===================
+  window.gameRefreshers = window.gameRefreshers || [];
+  function quizGame(game, px, cfg) {
+    var stage = 1, run = null, panel = $(px + 'Panel'), box = $(px + 'Box');
+    var bestKey = function () { return 'ckOrder.quizBest.' + game + '.' + (data ? data.account : ''); };
+    var pickStage = function (k) { if (run) return; stage = k; stageRow(game, stage, pickStage); var c = cfg.stages[k]; $(px + 'Goal').textContent = '🎯 ' + STAGE_NAMES[k] + '：' + c.n + ' 題答對 ' + c.pass + ' 題，每題 ' + c.sec + ' 秒' + (cfg.goalNote ? cfg.goalNote(k) : ''); };
+    function stop(msg) { if (!run) return; clearInterval(run.iv); run = null; box.innerHTML = '<div class="qz-msg">' + esc(msg) + '</div>'; $(px + 'Start').textContent = '▶ 開始'; stageRow(game, stage, pickStage); }
+    function show() {
+      var q = run.qs[run.i], c = cfg.stages[run.stage];
+      $(px + 'Prog').textContent = '第 ' + (run.i + 1) + '／' + run.qs.length + ' 題・對 ' + run.ok;
+      box.innerHTML = '<div class="qz-q">' + q.q + '</div><div class="qz-sub">' + (q.sub || '') + '</div><div class="qz-bar"><i style="width:100%"></i></div>' +
+        '<div class="qz-opts">' + q.opts.map(function (o, j) { return '<button type="button" data-qo="' + j + '">' + o + '</button>'; }).join('') + '</div>';
+      run.t0 = Date.now(); run.lock = false;
+      clearInterval(run.iv);
+      run.iv = setInterval(function () {
+        if (!run) return;
+        if ($('viewBadges').classList.contains('hidden') || !panel.open || document.hidden) { stop('暫停了，再按「▶ 開始」重新玩'); return; }
+        var left = c.sec - (Date.now() - run.t0) / 1000, bar = box.querySelector('.qz-bar i');
+        $(px + 'Time').textContent = '⏱ ' + Math.max(0, Math.ceil(left)) + ' 秒';
+        if (bar) bar.style.width = Math.max(0, left / c.sec * 100) + '%';
+        if (left <= 0 && !run.lock) answer(-1);
+      }, 100);
+    }
+    function answer(j) {
+      var q = run.qs[run.i]; run.lock = true; clearInterval(run.iv);
+      var bs = box.querySelectorAll('[data-qo]'), good = j === q.ans;
+      bs.forEach(function (b, k) { b.disabled = true; if (k === q.ans) b.classList.add('ok'); else if (k === j) b.classList.add('bad'); });
+      if (good) run.ok++;
+      box.querySelector('.qz-sub').innerHTML = good ? '✅ 答對了！' + (q.why ? ' ' + q.why : '') : (j < 0 ? '⏰ 時間到！' : '❌ ') + '答案是「' + q.opts[q.ans] + '」' + (q.why ? '・' + q.why : '');
+      $(px + 'Prog').textContent = '第 ' + (run.i + 1) + '／' + run.qs.length + ' 題・對 ' + run.ok;
+      setTimeout(function () {
+        if (!run) return;
+        run.i++;
+        if (run.i < run.qs.length) show(); else finish();
+      }, good ? 700 : 1700);
+    }
+    function finish() {
+      var r = run, c = cfg.stages[r.stage], need = Math.ceil(c.pass * r.qs.length / c.n), pass = r.ok >= need; clearInterval(r.iv); run = null;
+      var best = 0; try { best = Number(localStorage.getItem(bestKey()) || 0); } catch (e) {}
+      if (r.ok > best) try { localStorage.setItem(bestKey(), String(r.ok)); } catch (e) {}
+      $(px + 'Time').textContent = ''; $(px + 'Start').textContent = '▶ 再玩一次';
+      box.innerHTML = '<div class="qz-msg">' + (pass ? '✅ 通過' + STAGE_NAMES[r.stage] + '！' : '差一點！要答對 ' + need + ' 題才過關') + '\n答對 ' + r.ok + '／' + r.qs.length + ' 題</div>';
+      if (pass) stageClear(game, r.stage, function (res) { if (r.stage < 5 && res.max >= r.stage) pickStage(r.stage + 1); else pickStage(r.stage); });
+      else stageRow(game, stage, pickStage);
+    }
+    $(px + 'Start').addEventListener('click', function () {
+      if (run) { stop('重來囉，再按「▶ 開始」'); return; }
+      var qs = cfg.make(stage);
+      if (!qs.length) { box.innerHTML = '<div class="qz-msg">題目還不夠，等食材總表多一點再玩 🙏</div>'; return; }
+      run = { stage: stage, qs: qs, i: 0, ok: 0, iv: 0 };
+      $(px + 'Start').textContent = '↻ 重來';
+      $(px + 'Stages').querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      show();
+    });
+    box.addEventListener('click', function (e) { var b = e.target.closest('[data-qo]'); if (b && run && !run.lock) answer(Number(b.getAttribute('data-qo'))); });
+    window.gameRefreshers.push(function () { if (!run) pickStage(Math.min(stage, stageMax(game) + 1)); });
+    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(function () { if (!run) pickStage(Math.min(5, stageMax(game) + 1)); }, 0); });
+  }
+  function shuf(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function fmtN(n) { return String(Math.round(n * 100) / 100); }
+
+  // 🗂️ 食材分類快手：題目用食材總表真的食材
+  var SORT_CAT = { A: '🥬 A 菜商', B: '🍖 B 肉商', C: '🥚 C 蛋商', D: '🐟 D 海鮮', E: '🥫 E 乾貨', F: '🧋 F 飲調', G: '🧈 G 奶油' };
+  quizGame('sort', 'so', {
+    stages: [null, { n: 10, sec: 8, pass: 7 }, { n: 10, sec: 6, pass: 8 }, { n: 10, sec: 5, pass: 8 }, { n: 10, sec: 4, pass: 9 }, { n: 10, sec: 3, pass: 9 }],
+    make: function () {
+      var seen = {}, pool = (data && data.items || []).filter(function (it) {
+        var c = String(it.vendor || '').charAt(0).toUpperCase();
+        if (!SORT_CAT[c] || seen[it.name]) return false; seen[it.name] = 1; return true;
+      });
+      var cats = Object.keys(SORT_CAT).filter(function (c) { return pool.some(function (it) { return String(it.vendor).charAt(0).toUpperCase() === c; }); });
+      return shuf(pool).slice(0, 10).map(function (it) {
+        var c = String(it.vendor).charAt(0).toUpperCase();
+        return { q: esc(it.name), sub: '這樣要跟哪一家叫？', opts: cats.map(function (k) { return SORT_CAT[k]; }), ans: cats.indexOf(c), why: '' };
+      });
+    }
+  });
+
+  // ⚖️ 單位換算挑戰：越後面的關數字越難
+  quizGame('unit', 'un', {
+    stages: [null, { n: 10, sec: 15, pass: 7 }, { n: 10, sec: 12, pass: 8 }, { n: 10, sec: 10, pass: 8 }, { n: 10, sec: 8, pass: 9 }, { n: 10, sec: 6, pass: 9 }],
+    make: function (stage) {
+      var R = function (a) { return a[Math.floor(Math.random() * a.length)]; };
+      var easy = stage <= 2, gens = [
+        function () { var x = R(easy ? [1, 2, 3] : [0.5, 1.5, 2.5, 4]); return { q: x + ' 斤 ＝ ? g', a: x * 600, u: ' g', why: '1 斤＝600 g', wrong: [x * 500, x * 1000, x * 160] }; },
+        function () { var x = R(easy ? [1, 2, 4] : [3, 5, 6, 0.5]); return { q: x + ' 兩 ＝ ? g', a: x * 37.5, u: ' g', why: '1 兩＝37.5 g', wrong: [x * 50, x * 30, x * 40] }; },
+        function () { var x = R(easy ? [1, 2] : [0.5, 1.2, 2.5]); return { q: x + ' 公斤 ＝ ? g', a: x * 1000, u: ' g', why: '1 公斤＝1000 g', wrong: [x * 600, x * 100, x * 500] }; },
+        function () { var g = R(easy ? [600, 1200] : [300, 900, 1500, 150]); return { q: g + ' g ＝ ? 斤', a: g / 600, u: ' 斤', why: '600 g＝1 斤', wrong: [g / 500, g / 1000, g / 300] }; },
+        function () { var g = R(easy ? [75, 150] : [112.5, 225, 300]); return { q: g + ' g ＝ ? 兩', a: g / 37.5, u: ' 兩', why: '37.5 g＝1 兩', wrong: [g / 50, g / 30, g / 25] }; },
+        function () { var x = R([1, 2, 3]); return { q: x + ' 大匙 約 ? g（水）', a: x * 15, u: ' g', why: '1 大匙約 15 g', wrong: [x * 5, x * 10, x * 30] }; },
+        function () { var x = R([1, 2, 4]); return { q: x + ' 小匙 約 ? g（水）', a: x * 5, u: ' g', why: '1 小匙約 5 g', wrong: [x * 15, x * 2, x * 10] }; },
+        function () { return { q: '1 斤 ＝ ? 兩', a: 16, u: ' 兩', why: '台斤：1 斤＝16 兩', wrong: [10, 12, 20] }; },
+        function () { var x = R([1, 3, 6]); return { q: x + ' 公斤 ＝ ? 斤', a: x * 1000 / 600, u: ' 斤', why: '1 公斤約 1.67 斤', wrong: [x * 2, x, x * 1.5] }; }
+      ];
+      var use = easy ? gens.slice(0, 4).concat(gens.slice(5, 7)) : gens, out = [];
+      for (var i = 0; i < 10; i++) {
+        var g = R(use)(), ans = fmtN(g.a) + g.u, opts = [ans];
+        g.wrong.forEach(function (w) { var t = fmtN(w) + g.u; if (w > 0 && opts.indexOf(t) < 0) opts.push(t); });
+        var k = 2; while (opts.length < 4) { var t2 = fmtN(g.a * k) + g.u; if (opts.indexOf(t2) < 0) opts.push(t2); k++; }
+        opts = shuf(opts.slice(0, 4));
+        out.push({ q: esc(g.q), sub: '', opts: opts, ans: opts.indexOf(ans), why: g.why });
+      }
+      return out;
+    }
+  });
+
+  // =================== 🍰 食譜步驟排序 ===================
+  (function recipeGame() {
+    var RECIPES = [null,
+      { name: '🍅 番茄炒蛋（中餐）', steps: ['番茄切塊、雞蛋打散', '熱鍋下油，炒蛋到半熟先盛起', '下番茄炒到出汁，加糖、鹽調味', '倒回炒蛋拌炒均勻起鍋'] },
+      { name: '🍪 奶油小西餅（烘焙）', steps: ['奶油放室溫軟化', '奶油加糖粉打發', '分次加入蛋液拌勻', '篩入低筋麵粉拌成麵團', '擠花或塑形後烘烤'] },
+      { name: '🌶️ 宮保雞丁（中餐）', steps: ['雞腿肉切丁、醃漬', '調好綜合醬汁', '雞丁過油到熟先盛起', '爆香乾辣椒、花椒', '下蔥段、雞丁和醬汁快炒', '起鍋前拌入花生'] },
+      { name: '🍰 戚風蛋糕（烘焙）', steps: ['蛋黃、蛋白分開', '蛋黃加糖、油、水拌勻', '篩入低筋麵粉拌成蛋黃糊', '蛋白分次加糖打到濕性發泡', '蛋白霜分次和蛋黃糊拌勻', '倒入模具、震出氣泡後烘烤', '出爐倒扣放涼再脫模'] },
+      { name: '🍞 白吐司（烘焙）', steps: ['秤好所有材料', '奶油以外的材料攪拌成團', '加入奶油攪拌到擴展階段', '基本發酵', '分割滾圓、中間發酵', '整形放入吐司模', '最後發酵', '烘烤、出爐脫模'] }
+    ];
+    var stage = 1, run = null, box = $('rcBox');
+    var pickStage = function (k) { if (run) return; stage = k; stageRow('recipe', stage, pickStage); $('rcGoal').textContent = '🎯 ' + STAGE_NAMES[k] + '：' + RECIPES[k].name + '，' + RECIPES[k].steps.length + ' 個步驟，3 次內排對'; };
+    function draw(checked) {
+      var R = RECIPES[run.stage], n = R.steps.length;
+      $('rcProg').textContent = R.name; $('rcTime').textContent = '還可以檢查 ' + (3 - run.tries) + ' 次';
+      var lis = ''; for (var i = 0; i < n; i++) {
+        var si = run.ans[i], cls = si === undefined ? 'empty' : checked ? (R.steps[si] === R.steps[i] ? 'ok' : 'bad') : '';
+        lis += '<li class="' + cls + '"' + (si !== undefined && !checked ? ' data-rcrm="' + i + '" title="點一下拿掉"' : '') + '><b>' + (i + 1) + '.</b>' + (si === undefined ? '（點下面的步驟）' : esc(R.steps[si])) + '</li>';
+      }
+      box.innerHTML = '<ol class="rc-ans">' + lis + '</ol><div class="rc-pool">' + run.pool.map(function (si) { return '<button type="button" data-rcadd="' + si + '"' + (run.ans.indexOf(si) >= 0 || checked ? ' disabled' : '') + '>' + esc(R.steps[si]) + '</button>'; }).join('') + '</div>' +
+        '<div class="row" style="margin-top:10px;gap:8px">' + (checked ? '<button type="button" class="btn" data-rcretry>↻ 把錯的拿掉再排</button>' : '<button type="button" class="btn" data-rccheck' + (run.ans.length < n ? ' disabled' : '') + '>✔ 檢查</button><button type="button" class="btn ghost" data-rcclear>清空</button>') + '</div>';
+    }
+    function end(pass) {
+      var r = run; run = null; $('rcStart').textContent = '▶ 再玩一次'; $('rcTime').textContent = '';
+      var rb = box.querySelector('[data-rcretry]'); if (rb) rb.remove();
+      if (pass) { box.insertAdjacentHTML('beforeend', '<div class="qz-msg" style="padding:14px 0 0">✅ 通過' + STAGE_NAMES[r.stage] + '！' + (r.tries === 1 ? '一次就排對 👏' : '') + '</div>'); stageClear('recipe', r.stage, function (res) { if (r.stage < 5 && res.max >= r.stage) pickStage(r.stage + 1); else pickStage(r.stage); }); }
+      else { box.insertAdjacentHTML('beforeend', '<div class="qz-msg" style="padding:14px 0 0">3 次用完了，正確順序是綠色那樣，再試一次吧！</div>'); stageRow('recipe', stage, pickStage); }
+    }
+    $('rcStart').addEventListener('click', function () {
+      var n = RECIPES[stage].steps.length, idx = []; for (var i = 0; i < n; i++) idx.push(i);
+      var pool = shuf(idx); while (n > 1 && pool.every(function (v, i) { return v === i; })) pool = shuf(idx);
+      run = { stage: stage, ans: [], pool: pool, tries: 0 };
+      $('rcStart').textContent = '↻ 重新打亂';
+      $('rcStages').querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      draw(false);
+    });
+    box.addEventListener('click', function (e) {
+      if (!run) return;
+      var t = e.target.closest('button, li'); if (!t) return;
+      var R = RECIPES[run.stage];
+      if (t.hasAttribute('data-rcadd')) { run.ans.push(Number(t.getAttribute('data-rcadd'))); draw(false); }
+      else if (t.hasAttribute('data-rcrm')) { run.ans.splice(Number(t.getAttribute('data-rcrm')), 1); draw(false); }
+      else if (t.hasAttribute('data-rcclear')) { run.ans = []; draw(false); }
+      else if (t.hasAttribute('data-rccheck')) {
+        run.tries++;
+        var allOk = run.ans.every(function (si, i) { return R.steps[si] === R.steps[i]; });
+        draw(true);
+        if (allOk) end(true);
+        else if (run.tries >= 3) { run.ans = R.steps.map(function (_, i) { return i; }); draw(true); end(false); }
+      } else if (t.hasAttribute('data-rcretry')) { run.ans = run.ans.filter(function (si, i) { return R.steps[si] === R.steps[i] && run.ans.slice(0, i).every(function (x, j) { return R.steps[x] === R.steps[j]; }); }); draw(false); }
+    });
+    window.gameRefreshers.push(function () { if (!run) pickStage(Math.min(stage, stageMax('recipe') + 1)); });
+    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(function () { if (!run) pickStage(Math.min(5, stageMax('recipe') + 1)); }, 0); });
+  })();
+
   // =================== 🏅 準時達人、徽章收藏冊 ===================
   var myStats = null;
   function badgeKey() { return 'ckOrder.badges.' + (data ? data.account : ''); }
@@ -2870,6 +3074,7 @@
         .catch(function (e) { notice(e.message); }).then(function () { ts.disabled = false; });
     });
     if (window.memoStageRefresh) window.memoStageRefresh();
+    (window.gameRefreshers || []).forEach(function (f) { f(); });
     if (window.catchStageRefresh) window.catchStageRefresh();
   }
   function setWhoTitle() {

@@ -5639,6 +5639,8 @@ const LEVELS_ = [
 ];
 // 🎮 闖關：每個遊戲 5 關；第一次過關拿「關卡×10」經驗，之後重玩過關一次 2 點、一天最多 10 點
 const GAME_STAGES_ = 5, GAME_DAILY_CAP_ = 10;
+// 小遊戲：catch 接食材、memo 翻牌配對、sort 食材分類快手、unit 單位換算挑戰、recipe 食譜步驟排序
+const GAMES_ = ['catch', 'memo', 'sort', 'unit', 'recipe'];
 
 /** 截止時間：上課日期那週的星期一往前一週的「截止星期幾 幾點」 */
 function deadlineFor_(classDate) {
@@ -5782,8 +5784,8 @@ function badgesOf_(t) {
   fam('prec', '精準叫貨', '張', [['prec10', '⚖️', '精準叫貨', 10], ['prec30', '📏', '精準叫貨高手', 30], ['prec60', '🔬', '精準叫貨大師', 60]], t.precise || 0, function (g) { return '整張料單都用 g、斤、顆這類算得出價錢的單位（沒有杯、少許、匙或空白），累計 ' + g + ' 張'; });
   fam('team', '全科團隊週', '週', [['team1', '🤝', '團隊準時週', 1], ['team3', '🫶', '團隊好夥伴', 3], ['team6', '🏟️', '團隊傳奇', 6]], t.team || 0, function (g) { return '全科老師那週都準時送出（至少 ' + TEAM_MIN_ORDERS_ + ' 張），而且你那週也有叫料，累計 ' + g + ' 週'; });
   // 🎮 闖關
-  const gm = t.game || {}, stages = (gm.catch || 0) + (gm.memo || 0);
-  fam('game', '小遊戲闖關', '關', [['game3', '🎮', '闖關新手', 3], ['game6', '🕹️', '闖關高手', 6], ['game10', '🏆', '闖關王', GAME_STAGES_ * 2]], stages, function (g) { return '兩個小遊戲加起來過了 ' + g + ' 關'; });
+  const gm = t.game || {}, stages = GAMES_.reduce(function (a, k) { return a + (gm[k] || 0); }, 0);
+  fam('game', '小遊戲闖關', '關', [['game3', '🎮', '闖關新手', 3], ['game6', '🕹️', '闖關高手', 10], ['game10', '🏆', '闖關王', GAME_STAGES_ * GAMES_.length]], stages, function (g) { return '所有小遊戲加起來過了 ' + g + ' 關'; });
   // 🥚 彩蛋獵人：在網站各頁找到偶爾冒出來的小彩蛋
   fam('hunt', '小彩蛋尋寶', '個', [['hunt5', '🥚', '彩蛋獵人', 5], ['huntall', '🐣', '彩蛋大師', HUNT_EGGS_.length]], t.eggs || 0, function (g) { return '在網站各頁面找到 ' + g + ' 個偶爾冒出來的小彩蛋'; });
   // 🎄 期間限定：還沒開始或進行中的都顯示；過了沒拿到就不顯示
@@ -5830,7 +5832,7 @@ function statsView_(t, semKey, eggs, who) {
   const title = who ? titleOf_(who, titles) : '';
   return { total: t.total, semKey: semKey, semN: t.sem.n, semOn: t.sem.on, rate: t.sem.n ? Math.round(t.sem.on / t.sem.n * 100) : null, stamps: t.stamps || 0, stampLast: t.stampLast || '', taskWd: lockRule_().wd === 1 ? 5 : lockRule_().wd - 1,
     streak: t.streak || 0, best: t.best || 0, medal: md ? { ico: md.ico, name: md.name } : null, badges: badges, eggsFound: Object.keys(eggs || {}), eggsTotal: HUNT_EGGS_.length,
-    level: level, titles: titles, title: title, game: { catch: t.game.catch || 0, memo: t.game.memo || 0, xp: t.game.xp || 0, stages: GAME_STAGES_ } };
+    level: level, titles: titles, title: title, game: GAMES_.reduce(function (o, k) { o[k] = t.game[k] || 0; return o; }, { xp: t.game.xp || 0, stages: GAME_STAGES_ }) };
 }
 // 🎮 闖關紀錄（指令碼屬性 GAME_<帳號>）
 function gameState_(account) {
@@ -5839,7 +5841,7 @@ function gameState_(account) {
 /** 老師過關：game＝catch（接食材）或 memo（翻牌配對），stage＝第幾關 */
 function gameClear(token, game, stage) {
   const account = auth_(token, false, false, true);
-  if (['catch', 'memo'].indexOf(game) < 0) throw new Error('沒有這個遊戲。');
+  if (GAMES_.indexOf(game) < 0) throw new Error('沒有這個遊戲。');
   stage = Number(stage);
   const lock = LockService.getScriptLock(); lock.waitLock(10000);
   try {
