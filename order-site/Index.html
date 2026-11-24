@@ -213,6 +213,20 @@
   @keyframes huntPeek { from { transform: translateY(16px) scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
   @keyframes huntWig { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-16deg); } 86% { transform: rotate(14deg); } 94% { transform: rotate(-8deg); } }
   @media (prefers-reduced-motion: reduce) { .hunt-egg { animation: none; } }
+
+  /* 🃏 翻牌配對 */
+  #mmGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 420px; margin: 0 auto; }
+  #mmGrid .mm-card { aspect-ratio: 1 / 1; border: 0; padding: 0; background: none; perspective: 600px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  #mmGrid .mm-in { position: relative; width: 100%; height: 100%; transition: transform .35s; transform-style: preserve-3d; }
+  #mmGrid .mm-card.up .mm-in, #mmGrid .mm-card.ok .mm-in { transform: rotateY(180deg); }
+  #mmGrid .mm-f, #mmGrid .mm-b { position: absolute; inset: 0; border-radius: 12px; display: flex; align-items: center; justify-content: center; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+  #mmGrid .mm-f { background: linear-gradient(135deg, var(--brand, #8a2b1a), #b45309); color: #fff; font-size: 26px; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  #mmGrid .mm-b { background: #fff; border: 2px solid #fcd34d; transform: rotateY(180deg); font-size: clamp(28px, 8vw, 44px); }
+  #mmGrid .mm-card.ok .mm-b { background: #ecfdf3; border-color: #22c55e; animation: mmPop .4s ease-out; }
+  #mmGrid .mm-card.bad .mm-b { border-color: #ef4444; }
+  #mmGrid .mm-empty { grid-column: 1 / -1; text-align: center; padding: 30px 0; color: var(--muted); }
+  @keyframes mmPop { 50% { transform: rotateY(180deg) scale(1.12); } }
+  @media (prefers-reduced-motion: reduce) { #mmGrid .mm-in { transition: none; } #mmGrid .mm-card.ok .mm-b { animation: none; } }
   /* 🎮 接食材 */
   #gmArea { position: relative; height: 360px; border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, #e0f2fe 0%, #fef9c3 100%); border: 2px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; cursor: none; }
   #gmBasket { position: absolute; bottom: 6px; left: 50%; font-size: 46px; line-height: 1; transform: translateX(-50%); will-change: left; }
@@ -1073,6 +1087,12 @@
 
     <section id="viewBadges" class="hidden">
       <div class="panel" id="myStats" style="padding:12px 16px"><span class="muted">讀取中…</span></div>
+      <div class="panel" id="memoPanel" style="padding:12px 16px">
+        <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🃏 食材翻牌配對</h2>
+        <div class="small muted">一次翻兩張，一樣的食材就配對成功。16 張全部配完就過關，翻越少次、越快越厲害！</div>
+        <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="mmStart">▶ 開始</button><b id="mmMoves" style="margin-left:12px;font-size:18px">翻了 0 次</b><span id="mmTime" class="muted" style="margin-left:12px">⏱ 0 秒</span><span style="flex:1"></span><span id="mmBest" class="small"></span></div>
+        <div id="mmGrid" aria-label="翻牌配對遊戲區"></div>
+      </div>
       <div class="panel" id="gamePanel" style="padding:12px 16px">
         <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🧺 接食材</h2>
         <div class="small muted">左右移動籃子接住掉下來的食材：🥕🥚🧅 各 1 分、⭐ 3 分，接到 ❌ 扣 2 分。30 秒，越後面掉越快！<br>電腦用滑鼠或 ← → 鍵，手機用手指左右滑。</div>
@@ -2567,6 +2587,63 @@
       if (r.fresh) loadMyStats(false);
     }).catch(function (e) { notice(e.message); });
   }
+
+  // =================== 🃏 小遊戲：食材翻牌配對（在「🏅 我的徽章」頁） ===================
+  (function memoGame() {
+    var POOL = ['🥕', '🥚', '🧅', '🍅', '🥦', '🍖', '🐟', '🧈', '🍋', '🥬', '🍄', '🌶️', '🧄', '🍤', '🥔', '🍓', '🥛', '🧁'];
+    var st = null, iv = null;
+    var bestKey = function () { return 'ckOrder.memoBest.' + (data ? data.account : ''); };
+    var best = function () { try { return JSON.parse(localStorage.getItem(bestKey()) || 'null'); } catch (e) { return null; } };
+    var showBest = function () { var b = best(); $('mmBest').textContent = b ? '🏆 最佳：' + b.moves + ' 次・' + b.sec + ' 秒' : ''; };
+    $('mmGrid').innerHTML = '<div class="mm-empty">按「▶ 開始」洗牌 🃏</div>';
+    function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+    function sec() { return st ? Math.floor((Date.now() - st.t0) / 1000) : 0; }
+    function tick() {
+      if (!st || st.done) return;
+      if ($('viewBadges').classList.contains('hidden')) { clearInterval(iv); iv = null; return; }   // 換頁就停表
+      $('mmTime').textContent = '⏱ ' + sec() + ' 秒';
+    }
+    function start() {
+      var picks = shuffle(POOL.slice()).slice(0, 8), deck = shuffle(picks.concat(picks));
+      st = { deck: deck, open: [], ok: 0, moves: 0, t0: Date.now(), lock: false, done: false };
+      $('mmGrid').innerHTML = deck.map(function (f, i) { return '<button type="button" class="mm-card" data-mi="' + i + '" aria-label="第 ' + (i + 1) + ' 張牌"><div class="mm-in"><div class="mm-f">？</div><div class="mm-b">' + f + '</div></div></button>'; }).join('');
+      $('mmMoves').textContent = '翻了 0 次'; $('mmTime').textContent = '⏱ 0 秒'; $('mmStart').textContent = '↻ 重新洗牌';
+      clearInterval(iv); iv = setInterval(tick, 500);
+      showBest();
+    }
+    function win() {
+      st.done = true; clearInterval(iv); iv = null;
+      var s0 = sec(), b = best(), rec = !b || st.moves < b.moves || (st.moves === b.moves && s0 < b.sec);
+      if (rec) try { localStorage.setItem(bestKey(), JSON.stringify({ moves: st.moves, sec: s0 })); } catch (e) {}
+      showBest();
+      eggRain(st.deck.slice(0, 8).concat(['🎉', '✨']), 26, 6000);
+      setTimeout(function () {
+        ask('', '再玩一次', { noText: '休息一下', html: '<div style="text-align:center"><div style="font-size:54px">🃏</div><div style="font-size:20px;font-weight:800;color:var(--brand);margin-top:4px">' + (rec ? '🎉 新紀錄！' : '過關！') + '</div>' +
+          '<div style="margin-top:6px;font-size:17px">翻了 <b>' + st.moves + '</b> 次・用了 <b>' + s0 + '</b> 秒</div>' +
+          (b && !rec ? '<div class="small muted" style="margin-top:4px">你的最佳：' + b.moves + ' 次・' + b.sec + ' 秒</div>' : '') +
+          '<div class="small muted" style="margin-top:6px">' + (st.moves <= 10 ? '記憶力超好 🧠✨' : st.moves <= 14 ? '很厲害喔 👍' : '多玩幾次會越來越快 💪') + '</div></div>' })
+          .then(function (again) { if (again) start(); });
+      }, 600);
+    }
+    $('mmStart').addEventListener('click', start);
+    $('mmGrid').addEventListener('click', function (e) {
+      var c = e.target.closest('.mm-card'); if (!c || !st || st.lock || st.done) return;
+      if (c.classList.contains('up') || c.classList.contains('ok')) return;
+      if (!iv) iv = setInterval(tick, 500);   // 換頁回來繼續計時
+      c.classList.add('up'); st.open.push(c);
+      if (st.open.length < 2) return;
+      st.moves++; $('mmMoves').textContent = '翻了 ' + st.moves + ' 次';
+      var a = st.open[0], b = st.open[1];
+      if (st.deck[a.getAttribute('data-mi')] === st.deck[b.getAttribute('data-mi')]) {
+        a.classList.add('ok'); b.classList.add('ok'); st.open = []; st.ok++;
+        if (st.ok === 8) win();
+      } else {
+        st.lock = true; a.classList.add('bad'); b.classList.add('bad');
+        setTimeout(function () { a.classList.remove('up', 'bad'); b.classList.remove('up', 'bad'); st.open = []; st.lock = false; }, 800);
+      }
+    });
+    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(showBest, 0); });
+  })();
 
   // =================== 🎮 小遊戲：接食材（在「🏅 我的徽章」頁） ===================
   (function catchGame() {
