@@ -89,6 +89,13 @@ const VENDOR_SPLIT = {
   'C蛋商': { baking: 'C烘焙蛋', other: 'C中餐蛋' },
 };
 const BAKING_DEPTS = ['烘焙'];
+const DRINK_DEPTS = ['飲調'], DRINK_VENDOR = 'F飲調';
+let DRINK_NOT_F_ = null;
+function drinkNotF_() {
+  if (DRINK_NOT_F_) return DRINK_NOT_F_;
+  try { DRINK_NOT_F_ = JSON.parse(PropertiesService.getScriptProperties().getProperty('DRINK_NOT_F') || '{}') || {}; } catch (e) { DRINK_NOT_F_ = {}; }
+  return DRINK_NOT_F_;
+}
 
 const SHEET = {
   accounts: '帳號設定',
@@ -1298,7 +1305,7 @@ function validateOrder_(p, account, isAdmin) {
     const name = String(r['食材名稱']).trim();
     const vendor = String(r['廠商']).trim();
     lines.push({
-      id: id, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
+      id: id, name: name, vendor: orderVendor_(vendor, dept, name), catVendor: vendor,
       qty: qty_(it.qty, name), unit: allowUnit_(r, unit_(it.unit, r['單位'], name, newUnits), name), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder || vendor === SELF_VENDOR, section: clean_(it.section, 20),
@@ -1316,7 +1323,7 @@ function validateOrder_(p, account, isAdmin) {
       const r = catalog[hit], realVendor = String(r['廠商']).trim(), realName = String(r['食材名稱']).trim();
       if (learnKey_(name) !== learnKey_(realName)) learned.push({ from: name, to: realName });
       lines.push({
-        id: hit, name: realName, vendor: orderVendor_(realVendor, dept), catVendor: realVendor,
+        id: hit, name: realName, vendor: orderVendor_(realVendor, dept, realName), catVendor: realVendor,
         qty: qty_(it.qty, realName), unit: allowUnit_(r, unit_(it.unit, r['單位'], realName, newUnits), realName), note: clean_(it.note, 100),
         group: deliveryGroup_(realVendor, dow, vendorGroups),
         noOrder: !!it.noOrder || realVendor === SELF_VENDOR, section: clean_(it.section, 20),
@@ -1325,7 +1332,7 @@ function validateOrder_(p, account, isAdmin) {
     }
     if (!vendor) throw new Error('請選擇「' + name + '」的廠商。');
     lines.push({
-      id: PENDING_ID, name: name, vendor: orderVendor_(vendor, dept), catVendor: vendor,
+      id: PENDING_ID, name: name, vendor: orderVendor_(vendor, dept, name), catVendor: vendor,
       qty: qty_(it.qty, name), unit: unit_(it.unit, '', name, newUnits), note: clean_(it.note, 100),
       group: deliveryGroup_(vendor, dow, vendorGroups),
       noOrder: !!it.noOrder || vendor === SELF_VENDOR, section: clean_(it.section, 20),
@@ -1344,7 +1351,7 @@ function validateOrder_(p, account, isAdmin) {
       const r = catalog[id], realVendor = String(r['廠商']).trim(), realName = String(r['食材名稱']).trim();
       const prev = learned.find(function (x) { return x.to === l.name; });   // 牛奶 → 鮮奶(全) → 保久乳：合成一筆
       if (prev) { prev.to = realName; prev.dept = dept; } else learned.push({ from: l.name, to: realName, dept: dept });
-      lines[i] = Object.assign({}, l, { id: id, name: realName, vendor: orderVendor_(realVendor, dept), catVendor: realVendor,
+      lines[i] = Object.assign({}, l, { id: id, name: realName, vendor: orderVendor_(realVendor, dept, realName), catVendor: realVendor,
         group: deliveryGroup_(realVendor, dow, vendorGroups), noOrder: l.noOrder || realVendor === SELF_VENDOR });
     });
   }
@@ -1627,7 +1634,10 @@ function readVendorGroups_() {
 }
 
 /** 訂單上要寫的廠商：E乾貨、C蛋商依科別分成烘焙／中餐兩種。 */
-function orderVendor_(vendor, dept) {
+function orderVendor_(vendor, dept, name) {
+  // 🧋 飲調課的乾貨（E乾貨、E烘焙乾貨、E中餐乾貨）一律跟五洲（F飲調）叫，不跟旺來興混；
+  // 五洲沒賣的：管理者在 ② 訂貨單換回乾貨廠商時記下來（DRINK_NOT_F），之後這樣就不再改五洲
+  if (DRINK_DEPTS.indexOf(String(dept || '').trim()) >= 0 && /^E/.test(String(vendor || '').trim()) && !drinkNotF_()[String(name || '').trim()]) return DRINK_VENDOR;
   const split = VENDOR_SPLIT[String(vendor || '').trim()];
   if (!split) return vendor;
   return BAKING_DEPTS.indexOf(String(dept || '').trim()) >= 0 ? split.baking : split.other;
@@ -3090,7 +3100,7 @@ function adminUpdateOrder(token, orderNo, changes, info, reason, notify) {
         name = String(it['食材名稱']).trim();
         setCell_(t, r._row, '食材ID', String(c.itemId).trim());
         setCell_(t, r._row, '食材名稱', name);
-        if (t.cols['廠商'] !== undefined) setCell_(t, r._row, '廠商', orderVendor_(vendor, r['科別']));
+        if (t.cols['廠商'] !== undefined) setCell_(t, r._row, '廠商', orderVendor_(vendor, r['科別'], name));
         if (vendor === SELF_VENDOR) c.noOrder = true;
         if (t.cols['送貨組別'] !== undefined && d) setCell_(t, r._row, '送貨組別', deliveryGroup_(vendor, d.getDay(), vendorGroups));
         isTool = false; catUnit = it['單位'] || '';
@@ -3353,7 +3363,7 @@ function adminSetDryGoods(token, base, changes) {
         const d = toDate_(r['使用日期']);
         const st = String(r['狀態'] || '').trim();
         if (!v || !d || d < today || (st !== '待處理' && st !== '已審核')) return;
-        const nv = orderVendor_(v, r['科別']);
+        const nv = orderVendor_(v, r['科別'], r['食材名稱']);
         if (String(r['廠商'] || '').trim() === nv) return;
         setCell_(o, r._row, '廠商', nv);
         lines++;
@@ -3417,6 +3427,12 @@ function adminMoveLineVendor(token, orderNo, name, fromVendor, toVendor, remembe
     lock.releaseLock();
   }
   if (!lines) throw new Error('找不到這筆訂單品項（可能已經被修改或取消），請重新產生。');
+  // 🧋 五洲沒賣：從五洲換回乾貨廠商 → 記下來，飲調課以後這樣就直接跟乾貨廠商叫；換到五洲 → 拿掉
+  try {
+    const nf = Object.assign({}, drinkNotF_());
+    if (fromVendor === DRINK_VENDOR && /^E/.test(toVendor)) nf[name] = 1; else if (toVendor === DRINK_VENDOR) delete nf[name];
+    PropertiesService.getScriptProperties().setProperty('DRINK_NOT_F', JSON.stringify(nf)); DRINK_NOT_F_ = nf;
+  } catch (e) {}
   const keep = !!(remember && id && id !== PENDING_ID);
   const more = keep ? setItemVendor_(id, toVendor) : [];
   return { lines: lines, id: id, moved: moved, remembered: keep, more: more.length, moreMoved: more };
@@ -3466,7 +3482,7 @@ function adminSetItemVendors(token, changes) {
       if (!v) return;
       const d = toDate_(x['使用日期']), st = String(x['狀態'] || '').trim();
       if (!d || d < today || (st !== '待處理' && st !== '已審核')) return;
-      const nv = orderVendor_(v, x['科別']);
+      const nv = orderVendor_(v, x['科別'], x['食材名稱']);
       if (String(x['廠商'] || '').trim() === nv) return;
       ov.values[x._row - 2][0] = nv; ov.dirty = true;
       if (og) { og.values[x._row - 2][0] = deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups); og.dirty = true; }
@@ -3497,7 +3513,7 @@ function setItemVendor_(id, vendor) {
       if (String(x['食材ID'] || '').trim() !== id) return;
       const d = toDate_(x['使用日期']), st = String(x['狀態'] || '').trim();
       if (!d || d < today || (st !== '待處理' && st !== '已審核')) return;
-      const nv = orderVendor_(vendor, x['科別']);
+      const nv = orderVendor_(vendor, x['科別'], x['食材名稱']);
       if (String(x['廠商'] || '').trim() === nv) return;
       const g = deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups);
       setCell_(o, x._row, '廠商', nv);
@@ -3698,7 +3714,7 @@ function relinkItem_(fromId, toId, name, vendor) {
     if (toId !== fromId) setCell_(o, x._row, '食材ID', toId);
     if (String(x['食材名稱']).trim() !== name) setCell_(o, x._row, '食材名稱', name);
     if (vendor && o.cols['廠商'] !== undefined) {
-      const nv = orderVendor_(vendor, x['科別']), d = toDate_(x['使用日期']);
+      const nv = orderVendor_(vendor, x['科別'], x['食材名稱']), d = toDate_(x['使用日期']);
       if (String(x['廠商'] || '').trim() !== nv) {
         setCell_(o, x._row, '廠商', nv);
         if (d && o.cols['送貨組別'] !== undefined) setCell_(o, x._row, '送貨組別', deliveryGroup_(groupVendor_(nv), d.getDay(), vendorGroups));
@@ -3887,7 +3903,7 @@ function fixPendingLines_(origName, to) {
     n++;
     const v = { '食材ID': to.id, '食材名稱': to.name };
     if (to.vendor && t.cols['廠商'] !== undefined) {
-      v['廠商'] = orderVendor_(to.vendor, r['科別']);
+      v['廠商'] = orderVendor_(to.vendor, r['科別'], to.name);
       const d = toDate_(r['使用日期']);
       if (d && t.cols['送貨組別'] !== undefined) v['送貨組別'] = deliveryGroup_(to.vendor, d.getDay(), vendorGroups);
     }

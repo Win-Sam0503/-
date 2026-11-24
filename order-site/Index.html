@@ -9773,6 +9773,9 @@
     return '老師訂 ' + c.n + ' 筆；<span class="pd-diff">改量 ' + c.diff + ' 筆</span>；<span class="pd-zero">不叫（用庫存）' + c.zero + ' 筆</span>；<span class="pd-add">補庫存 ' + c.add + ' 筆</span>';
   }
   // 某一天的合計表（老師訂 → 實際叫貨），改數量時即時重算
+  // 食材總表上這樣食材原本的廠商（看飲調課的乾貨是不是被自動改成五洲）
+  var catVendorMap = null;
+  function catVendorOf(name) { if (!catVendorMap) { catVendorMap = {}; (data.items || []).forEach(function (it) { catVendorMap[it.name] = it.vendor || ''; }); } return catVendorMap[name] || ''; }
   function pTotalsHtml(list) {
     var need = sumLines(list, 'need', 'needUnit', true), act = sumLines(list, 'qty', 'unit', true), m = {}, keys = [];
     need.forEach(function (t) { var k = t.name + '|' + t.unit; m[k] = { name: t.name, unit: t.unit, need: t.qty, qty: 0 }; keys.push(k); });
@@ -9792,7 +9795,9 @@
         var edit = ov ? '<button type="button" class="btn ghost small noprint" data-povrreset="' + esc(t.name) + '">恢復</button>' : '';
         var seenK = list[0] ? list[0].vendor + '|' + (list[0].group || '') + '|' + t.name : '';
         var rc = (ov ? 'p-diff' : cls.replace(/^ class="|"$/g, '')) + (pState.seen && pState.seen[seenK] ? ' seen' : '');
+        var dryMoved = list[0] && list[0].vendor === 'F飲調' && /^E/.test(catVendorOf(t.name));
         return '<tr' + (rc.trim() ? ' class="' + rc.trim() + '"' : '') + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
+          (dryMoved ? ' <span class="badge noprint" style="background:#ecfeff;color:#0e7490" title="食材總表是 ' + esc(catVendorOf(t.name)) + '，飲調課自動改跟五洲叫。五洲沒賣的話按右邊「全部換廠商」換回旺來興，系統會記住，以後這樣就不再改五洲">🧋 飲調乾貨改五洲・五洲沒賣請按「全部換廠商」換回</span>' : '') +
           (ov ? ' <span class="badge warn noprint" title="直接改過合計，給廠商的是這個數字">已改（各班加總 ' + esc(fmtTotal(t.qty, t.unit, t.name)) + '）</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + shown + '</td>' +
           move.replace('<td class="noprint">', '<td class="noprint" style="white-space:nowrap">' + edit) + '</tr>';
       }).join('') + '</tbody></table>';
