@@ -7466,7 +7466,7 @@ function crewWeek(token, mon, to) {
   const orders0 = ordersBetween_(m, fri).filter(function (o) { return o.status !== '已取消'; });
   const ded = deductNotes_(orders0);   // 扣貨扣掉的：旁邊標「扣貨已扣掉」，校隊才不會以為廠商沒送
   const orders = orders0.map(function (o) {
-    return { orderNo: o.orderNo, date: o.useDate, session: o.classTime, teacher: o.onBehalfOf || o.teacher, className: o.className || '', project: o.project || '', groups: o.groups || '', room: o.room || '', status: o.status, dept: o.dept || '',
+    return { orderNo: o.orderNo, date: o.useDate, session: o.classTime, teacher: o.onBehalfOf || o.teacher, className: o.className || '', project: o.project || '', groups: o.groups || '', room: o.room || '', status: o.status, dept: o.dept || '', career: !!o.career,
       items: o.items.filter(function (i) { return i.status !== '已取消' && i.name; }).map(function (i) { return { name: i.name, qty: Math.round(Number(i.qty) * 100) / 100, unit: i.unit || '', vendor: i.vendor || '', noOrder: !!i.noOrder, tool: i.id === TOOL_ID, note: i.note || '', ded: ded[o.orderNo + '|' + i.name] || '' }; }) };
   });
   return { who: who, mon: dateStr_(m), fri: dateStr_(fri), lessons: lessons, orders: orders, holidays: holidaysBetween_(m, fri) };
@@ -7992,15 +7992,40 @@ function escHtml_(s) {
 // 共用：訂單
 // =====================================================================
 
+// 🎓 生涯實作：管理者標記的訂單（訂單編號 → 誰、何時），存在指令碼屬性；這些訂單的料另外叫（送貨組別後面加「生涯」）
+const CAREER_TAG_ = '生涯';
+function careerOrders_() {
+  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('CAREER_ORDERS') || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
+}
+/** 管理者：把一張訂單標成／取消「生涯實作」。回傳 { on, purchased: 這張已經產生叫貨紀錄的行數 } */
+function adminSetCareer(token, orderNo, on) {
+  const admin = auth_(token, true);
+  orderNo = String(orderNo || '').trim();
+  if (!/^O\d{10,}/.test(orderNo)) throw new Error('訂單編號不對。');
+  const lock = scriptLock_(); lock.waitLock(20000);
+  try {
+    const m = careerOrders_(), now = new Date();
+    if (on) m[orderNo] = { by: admin, at: fmtDateTime_(now) }; else delete m[orderNo];
+    // 清掉半年前的（訂單編號就是送出時間）
+    const old = dateStr_(addDays_(now, -200)).replace(/-/g, '');
+    Object.keys(m).forEach(function (k) { if (k.slice(1, 9) < old) delete m[k]; });
+    PropertiesService.getScriptProperties().setProperty('CAREER_ORDERS', JSON.stringify(m));
+  } finally { lock.releaseLock(); }
+  let purchased = 0;
+  if (ss_().getSheetByName(SHEET.purchase)) readTable_(SHEET.purchase, ['訂單編號']).rows.forEach(function (r) { if (String(r['訂單編號']).trim() === orderNo && String(r['狀態'] || '').trim() !== '草稿') purchased++; });
+  return { on: !!on, purchased: purchased };
+}
+
 function groupOrders_(rows, account) {
   const map = {};
   const list = [];
   const selfIds = rows.length ? selfItemIds_() : {};
   const vendorGroups = readVendorGroups_();
   // 舊訂單可能所有廠商都寫了送貨組別；廠商設定沒有分組別的廠商一律不分
+  const career = careerOrders_();
   const groupOf = function (r) {
-    const v = String(r['廠商'] || '').trim();
-    return vendorGroups[v] ? String(r['送貨組別'] || '') : '';
+    const v = String(r['廠商'] || '').trim(), g = vendorGroups[v] ? String(r['送貨組別'] || '') : '';
+    return career[String(r['訂單編號']).trim()] ? g + CAREER_TAG_ : g;   // 🎓 生涯實作：送貨組別加「生涯」，叫貨單、驗收、核銷自動另外一張
   };
   rows.forEach(function (r) {
     const no = String(r['訂單編號']).trim();
@@ -8021,6 +8046,7 @@ function groupOrders_(rows, account) {
         groups: r['組數'] === '' || r['組數'] === undefined ? '' : Number(r['組數']) || '',
         reviewer: String(r['審核人'] || ''),
         student: String(r['操作學生'] || '').trim(),
+        career: !!career[no],
         items: [],
       };
       list.push(map[no]);

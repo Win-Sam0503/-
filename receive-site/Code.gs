@@ -258,14 +258,15 @@ function weekBatches_(rows, f, checked, prices, recs) {
   rows.forEach(function (r) {
     const sv = SITE_VENDORS[r.vendor];
     if (r.status === '草稿') { drafts[sv ? sv.base : r.vendor] = true; return; }
-    const k = sv ? sv.base + '|' : r.vendor + '|' + r.group;
+    // 🎓 生涯實作（送貨組別後面有「生涯」）：另外一張，不跟一般課混
+    const k = sv ? sv.base + '|' + (/生涯$/.test(r.group) ? '生涯' : '') : r.vendor + '|' + r.group;
     (by[k] = by[k] || []).push(r);
   });
   const batches = Object.keys(by).sort().map(function (k) {
     const list = by[k], sv = SITE_VENDORS[list[0].vendor];
-    const vendor = sv ? sv.base : list[0].vendor, group = sv ? '' : list[0].group;
-    const id = checkId_(f, vendor, group);
-    const b = { id: id, vendor: vendor, group: group, label: vendor + (group ? '（送貨組別 ' + group + '，星期' + group.split('').join('、') + '）' : ''),
+    const vendor = sv ? sv.base : list[0].vendor, group = sv ? (/生涯$/.test(list[0].group) ? '生涯' : '') : list[0].group;
+    const id = checkId_(f, vendor, group), gb = group.replace(/生涯$/, '');
+    const b = { id: id, vendor: vendor, group: group, career: /生涯$/.test(group), label: (/生涯$/.test(group) ? '🎓 生涯實作・' : '') + vendor + (gb ? '（送貨組別 ' + gb + '，星期' + gb.split('').join('、') + '）' : ''),
       perClass: PER_CLASS.test(vendor), lines: sv ? siteLines_(list) : batchLines_(list, vendor), check: checked[id] || null,
       prices: prices[vendor] || {}, list: list,
       // 扣貨全部扣掉（叫貨量 0）的：不用點、廠商不會送，另外列出來，免得以為沒送

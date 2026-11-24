@@ -1358,9 +1358,9 @@
             <option value="teacher">教師料單（A～F 分類）</option>
           </select>
           <label for="pSort" style="margin:0">排序</label>
-          <select id="pSort"><option value="date">依日期</option><option value="dept">依科別（中餐→烘焙→飲調）</option></select>
+          <select id="pSort"><option value="date">依日期</option><option value="dept">依科別（中餐→烘焙→飲調→🎓 生涯實作）</option></select>
           <label for="pDept" style="margin:0">科別</label>
-          <select id="pDept"><option value="">全部</option><option value="中餐">只印中餐</option><option value="烘焙">只印烘焙</option><option value="飲調">只印飲調</option></select>
+          <select id="pDept"><option value="">全部</option><option value="中餐">只印中餐</option><option value="烘焙">只印烘焙</option><option value="飲調">只印飲調</option><option value="生涯實作">只印 🎓 生涯實作</option></select>
           <button type="button" class="btn" id="pPrint">列印</button>
           <button type="button" class="btn secondary" id="pPdf" title="先看排好的 A4 頁面，沒問題再存成 PDF（平板、手機印不會跑掉）">👁 預覽／存 PDF</button>
           <button type="button" class="btn ghost" id="pBack">返回</button>
@@ -4910,6 +4910,8 @@
     });
   }
   var iflagOn = {}, sumPick = {}, sumWaitNos = [];
+  // 班級、實作項目寫了生涯／國中（不含國技）→ 提醒管理者可能是生涯實作
+  function careerGuess(o) { return /生涯/.test((o.className || '') + (o.project || '')) || /國中/.test(o.className || ''); }
   function orderCard(o, opts) {
     var info = [shortDate(o.useDate), o.dept, o.className ? o.className + ' 班' : '', o.groups ? o.groups + ' 組' : '', o.classTime, o.room].filter(Boolean).join('・');
     var who = '操作：' + o.teacher + (o.student ? '（學生：' + o.student + '）' : '') + (o.onBehalfOf ? '，代訂：' + o.onBehalfOf : '');
@@ -4959,6 +4961,7 @@
       var no = esc(o.orderNo);
       buttons += '<details class="more noprint"><summary class="btn ghost small">⋯ 更多</summary><div>' +
         '<button type="button" class="btn ghost small" data-act="edit" data-no="' + no + '">✏️ 修改明細</button>' +
+        '<button type="button" class="btn ghost small" data-act="career" data-no="' + no + '">' + (o.career ? '🎓 取消生涯實作' : '🎓 標成生涯實作（另外叫料）') + '</button>' +
         (o.status !== '已取消' ? '<button type="button" class="btn danger small" data-act="return" data-no="' + no + '">↩ 退單給老師</button>' : '') +
         '<button type="button" class="btn small ' + (o.flag ? 'danger' : 'ghost') + '" data-act="flag" data-no="' + no + '" title="標記這張訂單有問題，之後方便查看（不影響叫貨）">⚠ ' + (o.flag ? '異常（改／解除）' : '標記整張異常') + '</button>' +
         '<button type="button" class="btn ghost small" data-act="iflagmode" data-no="' + no + '">' + (iflagOn[o.orderNo] ? '✔ 收起食材勾選' : '⚠ 標記某項食材異常') + '</button>' +
@@ -4967,6 +4970,8 @@
     }
     return '<div class="order' + (opts.admin && iflagOn[o.orderNo] ? ' iflag-on' : '') + '" data-order="' + esc(o.orderNo) + '"><div class="head"><b>' + (canApprove ? '<label class="pick noprint" title="勾選後可以一次審核"><input type="checkbox" data-pick="' + esc(o.orderNo) + '"' + (sumPick[o.orderNo] ? ' checked' : '') + '></label>' : '') + esc(o.project || '（未填實作項目）') + '</b><span>' +
         (o.archived ? '<span class="badge" title="上課日期已過 2 週，已搬到歷史訂單，不能再修改">已封存</span> ' : '') +
+        (o.career ? '<span class="badge" style="background:#ede9fe;color:#6d28d9" title="生涯實作：料另外叫（另一張叫貨單、驗收、核銷），請料單也分開印">🎓 生涯實作</span> ' : '') +
+        (opts.admin && !o.career && !o.archived && o.status !== '已取消' && careerGuess(o) ? '<button type="button" class="badge noprint" data-act="career" data-no="' + esc(o.orderNo) + '" style="border:1px dashed #8b5cf6;background:#faf5ff;color:#6d28d9;cursor:pointer" title="班級或實作項目看起來是生涯實作，點一下標記">🎓 是生涯實作？</button> ' : '') +
         (opts.admin && o.flag ? '<span class="badge unprinted noprint" title="' + esc(o.flag.by + ' ' + o.flag.time) + '">⚠ 異常</span> ' : '') +
         (opts.admin && o.itemFlags && Object.keys(o.itemFlags).length ? '<span class="badge unprinted noprint">⚠ 食材異常 ' + Object.keys(o.itemFlags).length + ' 項</span> ' : '') +
         (opts.admin && o.dup && o.dup.length ? '<span class="badge bad noprint" title="同一位老師、同一天、同一時段、同一班還有：' + esc(o.dup.join('、')) + '">⚠ 可能重複（跟 ' + esc(o.dup.join('、')) + '）</span> ' : '') +
@@ -6669,6 +6674,18 @@
       return;
     }
     if (act === 'addlesson') { addLessonFromOrder(o, b); return; }
+    if (act === 'career') {
+      var on = !o.career;
+      if (!safeConfirm(on ? '把「' + (o.project || o.orderNo) + '」（' + o.className + '）標成 🎓 生涯實作？\n這張的料會另外叫：廠商叫貨單另開一張、驗收和核銷另外一批、請料單分開印。' : '取消「' + (o.project || o.orderNo) + '」的生涯實作標記？\n之後的料會跟一般課一起叫。')) return;
+      setBusy(b, true, '儲存中…');
+      call('adminSetCareer', token, o.orderNo, on).then(function (r) {
+        o.career = r.on; o.items.forEach(function (it) { if (it.vendor) it.group = String(it.group || '').replace(/生涯$/, '') + (r.on ? '生涯' : ''); });
+        renderSummary();
+        msg('sumMsg', r.purchased ? 'error' : 'ok', '訂單 ' + o.orderNo + (r.on ? ' 已標成 🎓 生涯實作。' : ' 已取消生涯實作。') +
+          (r.purchased ? '⚠ 這張已經產生 ' + r.purchased + ' 行叫貨紀錄（已經叫過了），已叫的不會自動搬；請到「② 訂貨單」那週檢查，必要時通知廠商。' : '之後產生 ② 訂貨單時會另外一張。'));
+      }).catch(function (err) { msg('sumMsg', 'error', err.message); setBusy(b, false); });
+      return;
+    }
     if (act === 'flag') {
       ask('', '儲存', { noText: '取消', html: '<div class="info-check"><h3>⚠ 標記異常：' + esc(o.project || o.orderNo) + '</h3>' +
         '<div class="muted small" style="margin-bottom:6px">寫下哪裡有問題，之後在訂單彙整按「⚠ 異常」篩選就找得到。只是標記，不影響叫貨和狀態。</div>' +
@@ -7937,8 +7954,8 @@
   }
 
   // 料單的科別大類：烘焙（烘焙、西點…）、飲調、其他都算中餐（中餐、西餐、日料…）
-  function deptCat(o) { var d = String(o.dept || ''); return (data.bakingDepts || []).indexOf(d) >= 0 || /烘|西點|麵包/.test(d) ? '烘焙' : /飲|調|咖啡|吧/.test(d) ? '飲調' : '中餐'; }
-  var DEPT_ORDER = { '中餐': 1, '烘焙': 2, '飲調': 3 };
+  function deptCat(o) { if (o.career) return '生涯實作'; var d = String(o.dept || ''); return (data.bakingDepts || []).indexOf(d) >= 0 || /烘|西點|麵包/.test(d) ? '烘焙' : /飲|調|咖啡|吧/.test(d) ? '飲調' : '中餐'; }
+  var DEPT_ORDER = { '中餐': 1, '烘焙': 2, '飲調': 3, '生涯實作': 4 };
   function printList() {
     var how = $('pSort').value, only = $('pDept').value, SO = { '上午': 1, '下午': 2, '晚上': 3 };
     var list = printing.filter(function (o) { return !only || deptCat(o) === only; });
@@ -7951,7 +7968,7 @@
   function renderPrint() {
     var pick = $('pFormat').value, list = printList();
     var cnt = {}; printing.forEach(function (o) { var c = deptCat(o); cnt[c] = (cnt[c] || 0) + 1; });
-    $('pCount').textContent = printing.length > 1 ? '共 ' + printing.length + ' 張（' + ['中餐', '烘焙', '飲調'].filter(function (c) { return cnt[c]; }).map(function (c) { return c + ' ' + cnt[c]; }).join('・') + '）' + (list.length !== printing.length ? '，這次印 ' + list.length + ' 張' : '') + '，每張一頁' : '';
+    $('pCount').textContent = printing.length > 1 ? '共 ' + printing.length + ' 張（' + ['中餐', '烘焙', '飲調', '生涯實作'].filter(function (c) { return cnt[c]; }).map(function (c) { return c + ' ' + cnt[c]; }).join('・') + '）' + (list.length !== printing.length ? '，這次印 ' + list.length + ' 張' : '') + '，每張一頁' : '';
     $('printArea').innerHTML = list.length ? '' : '<div class="panel muted">這個科別沒有料單。</div>';
     $('printArea').innerHTML += list.map(function (o) {
       var live = o.items.filter(function (it) { return it.status !== '已取消' || o.status === '已取消'; });
@@ -7980,7 +7997,7 @@
     var html = '<div class="sheet"><table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
       '<colgroup><col style="width:6%"><col style="width:20%"><col style="width:8%"><col style="width:9%"><col style="width:11%">' +
       '<col style="width:6%"><col style="width:20%"><col style="width:10%"><col style="width:10%"></colgroup>' +
-      '<tr><td colspan="9" class="title">' + esc(o.dept || '') + '實習專用請料單</td></tr>' +
+      '<tr><td colspan="9" class="title">' + (o.career ? '【生涯實作・另外叫料】' : '') + esc(o.dept || '') + '實習專用請料單</td></tr>' +
       '<tr class="hdr"><td colspan="9">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + time + '</td></tr>' +
       '<tr class="hdr"><td colspan="5">上課班級：' + esc(o.className) + (classSizeText(o.className, o.course) ? '（' + esc(classSizeText(o.className, o.course)) + '）' : '') + '　共' + groupsText(o) + '組</td><td colspan="4" class="c">實習項目</td></tr>' +
       '<tr class="hdr"><td colspan="5">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="3" class="c wrap">' + esc(o.project) + '</td></tr>' +
@@ -8014,7 +8031,7 @@
     var html = '<div class="sheet"><table style="' + fit(N, 277 - 10 - 8.5 * 4 - 8 - 7 - 8.5) + '">' +
       '<colgroup><col style="width:6%"><col style="width:17%"><col style="width:8%"><col style="width:7%"><col style="width:7%">' +
       '<col style="width:10%"><col style="width:8%"><col style="width:12%"><col style="width:17%"><col style="width:8%"></colgroup>' +
-      '<tr><td colspan="10" class="title wrap">' + esc(o.dept || '') + esc(o.project || '') + '實習專用請料單</td></tr>' +
+      '<tr><td colspan="10" class="title wrap">' + (o.career ? '【生涯實作・另外叫料】' : '') + esc(o.dept || '') + esc(o.project || '') + '實習專用請料單</td></tr>' +
       '<tr class="hdr"><td colspan="10">上課時間：第 ' + blank(8) + ' 週　' + dp.m + ' 月 ' + dp.d + ' 日（星期' + dp.w + '）　' + esc(o.classTime) + '</td></tr>' +
       '<tr class="hdr"><td colspan="7">上課班級：' + esc(o.className) + (classSizeText(o.className, o.course) ? '（' + esc(classSizeText(o.className, o.course)) + '）' : '') + '　共' + groupsText(o) + '組</td><td colspan="3" class="c">實習項目</td></tr>' +
       '<tr class="hdr"><td colspan="7">使用教室：' + esc(o.room) + '</td><td class="c">1</td><td colspan="2" class="c wrap">' + esc(o.project) + '</td></tr>' +
@@ -8075,7 +8092,7 @@
       return h + '</table>';
     }
     var dp = dateParts(o);
-    var html = '<div class="sheet teacher"><h1>三信家商餐飲科教師料單</h1>' +
+    var html = '<div class="sheet teacher"><h1>' + (o.career ? '【生涯實作・另外叫料】' : '') + '三信家商餐飲科教師料單</h1>' +
       '<div class="meta"><div>教師姓名：' + esc(teacherShow(o)) + '</div><div>上課班級：' + esc(o.className) + (classSizeText(o.className, o.course) ? '（' + esc(classSizeText(o.className, o.course)) + '）' : '') + '</div><div>實習項目：' + esc(o.project) + '</div>' +
       '<div>上課日期：' + dp.m + '/' + dp.d + '（' + dp.w + '）</div><div>上課時間(上午/下午)：' + esc(o.classTime) + '</div><div>上課專業教室：' + esc(o.room) + '</div>' +
       '<div>分組：' + (o.groups ? esc(o.groups) + ' 組' : '') + '</div>' + (function (oc) { return oc.real || oc.est ? '<div>料單成本：$' + money0(oc.sum) + (oc.est || oc.none ? '（部分估算）' : '') + '</div>' : ''; })(orderCost(o)) + '</div>' +
@@ -8333,7 +8350,11 @@
   }
   function pKey(r) { return [r.orderNo, r.name, r.needUnit, r.group || ''].join('|'); }
   // 送貨批次：菜商、肉商、海鮮照「廠商設定」分 一二／三四五（同一批的幾天合在一起）；其他廠商不分，整段期間一起
-  function batchLabel(g) { return /^送/.test(g || '') ? g : g ? '送貨組別 ' + g + '（星期' + g.split('').join('、') + '）' : '整段期間合併'; }
+  function batchLabel(g) {
+    if (/^送/.test(g || '')) return g;
+    var c = /生涯$/.test(g || ''), b = String(g || '').replace(/生涯$/, '');
+    return (c ? '🎓 生涯實作（另外一張叫貨單）・' : '') + (b ? '送貨組別 ' + b + '（星期' + b.split('').join('、') + '）' : '整段期間合併');
+  }
   // 同一家廠商送到不同教室（蛋商：烘焙蛋送烘焙教室、中餐蛋送中餐教室）：① ③ 單據上合成一家，照送貨地點分段（資料裡還是 C烘焙蛋／C中餐蛋）
   var SITE_VENDORS = { 'C蛋商': true };
   function siteOf(v) {
@@ -8726,7 +8747,8 @@
     var row = function (i) { return '<tr' + (i.noOrder ? ' class="muted"' : '') + '><td>' + esc(i.name) + (i.noOrder ? '（有貨）' : '') + (i.ded ? ' <span style="color:#1d4ed8;font-weight:700;white-space:nowrap">（' + esc(i.ded) + '）</span>' : '') + (i.note ? '<div class="muted small">' + esc(i.note) + '</div>' : '') + '</td><td class="num" style="white-space:nowrap">' + esc(fmtQty(i.qty)) + ' ' + esc(i.unit) + '</td></tr>'; };
     return '<div class="cl-order" style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:#fff">' +
       (compact ? '' : '<div><b>' + esc(o.teacher) + '</b>　' + esc(o.className) + '　<span class="muted small">' + esc(shortDate(o.date)) + ' ' + esc(o.session === '晚上' ? '夜間' : o.session) + (o.room ? '・' + esc(o.room) : '') + '</span></div>') +
-      '<div style="margin:2px 0 4px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b>' + (o.groups ? '・' + esc(o.groups) + ' 組' : '') + ' <span class="muted small">' + esc(o.status) + '</span></div>' +
+      '<div style="margin:2px 0 4px">📝 <b>' + esc(o.project || '（沒填實作項目）') + '</b>' + (o.groups ? '・' + esc(o.groups) + ' 組' : '') + ' <span class="muted small">' + esc(o.status) + '</span>' +
+        (o.career ? ' <span style="background:#ede9fe;color:#6d28d9;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:700">🎓 生涯實作・另外分、不要跟其他課混</span>' : '') + '</div>' +
       '<div class="tablewrap"><table class="small"><tbody>' + food.map(row).join('') + '</tbody></table></div>' +
       (tools.length ? '<div class="small muted" style="margin-top:4px">器具：' + tools.map(function (i) { return esc(i.name) + ' ' + esc(fmtQty(i.qty)) + esc(i.unit); }).join('、') + '</div>' : '') + '</div>';
   }

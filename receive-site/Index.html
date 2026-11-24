@@ -471,6 +471,12 @@
   }
   var iso = function (d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); };
   var md = function (s) { var p = String(s).split('-'); return Number(p[1]) + '/' + Number(p[2]); };
+  // 送貨組別：一二／三四五；後面有「生涯」＝🎓 生涯實作，另外一批（不跟一般課混）
+  function grpHtml(g) {
+    var c = /生涯$/.test(g), b = String(g).replace(/生涯$/, '');
+    return (c ? '<div style="display:inline-block;background:#ede9fe;color:#6d28d9;border-radius:999px;padding:1px 10px;font-weight:700;font-size:13px">🎓 生涯實作・另外一批</div>' : '') +
+      (b ? '<div class="muted">送貨組別 ' + esc(b) + '（星期' + esc(b.split('').join('、')) + '）</div>' : '');
+  }
   var WD = ['日', '一', '二', '三', '四', '五', '六'];
   var mdw = function (s) { var p = String(s).split('-'); return md(s) + '（' + WD[new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])).getDay()] + '）'; };
   function mondayOf(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7); }
@@ -735,7 +741,7 @@
         var stopAll = c && c.lines.length && c.lines.every(function (l) { return l.status === '停送'; });
         var st = stopAll ? '<span class="badge none">⛔ 停送</span>' : b.draft ? '<span class="badge warn">💾 暫存中 ' + esc(b.draft.at) + '</span>' : !c ? '<span class="badge none">還沒驗收</span>' : c.issues ? '<span class="badge bad">⚠ ' + c.issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
         return '<button type="button" class="card' + (c ? (c.issues ? ' issue' : ' done') : '') + '" data-b="' + i + '"><b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) +
-          (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
+          (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? grpHtml(b.group) : '<div class="muted">' + (!b.perClass && b.lines.some(function (x) { return x.cls; }) ? '整週合併・分送中餐／烘焙教室' : '整週合併') + '</div>') +
           '<div style="margin-top:6px">' + st + ' <span class="muted small">' + n + ' 項' + (b.perClass ? '・照班級點' : '・點總量') + (c ? '・' + esc(c.time) : '') + '</span></div></button>';
       }).join('');
     }).catch(function (e) { msg('listMsg', 'error', '載入失敗：' + e.message); });
@@ -894,7 +900,7 @@
     var stop = slipStopped(b), wp = listMode === 'slip' ? slipWeekPart(b) : null;
     var st = wp && wp.part ? '<span class="badge ok">💰 這週 $' + money(wp.amt) + '</span> <span class="muted small">整張 $' + money(sl.amount) + '</span>' : sl && sl.amount ? '<span class="badge ok">💰 $' + money(sl.amount) + '</span>' : stop ? '<span class="badge none">⛔ 停送・沒有銷貨單（' + esc(stop) + '）</span>' : sl && sl.photos.length ? '<span class="badge warn">📷 有照片、還沒填金額</span>' : '<span class="badge none">還沒填</span>';
     return '<button type="button" class="card' + (sl && sl.amount || stop ? ' done' : '') + (slipPicked(b) ? ' picked' : '') + '" data-b="' + i + '">' + slipPickMark(b) + '<b>' + esc(b.vendor) + '</b>' + coTag(b.vendor) + codeTag(sl) +
-      (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? '<div class="muted">送貨組別 ' + esc(b.group) + '（星期' + esc(b.group.split('').join('、')) + '）</div>' : '<div class="muted">整週合併</div>') +
+      (b.early ? '<div class="small" style="color:#1d4ed8;font-weight:700">📦 下週（' + esc(md(b.from)) + ' 起）一二用・這週四五送到</div>' : '') + (b.group ? grpHtml(b.group) : '<div class="muted">整週合併</div>') +
       (b.otherWeek ? '<div class="small" style="color:var(--warn)">📅 ' + esc(md(b.from)) + ' 那週叫的貨</div>' : '') +
       (b.late ? '<div class="small" style="color:#b45309;font-weight:700">📮 ' + esc(md(b.from)) + ' 那週叫的貨・還沒填銷貨單（晚開單的打這張）</div>' : '') +
       '<div style="margin-top:6px">' + st + (d ? ' <span class="badge warn">✏️ 這台還沒存 ' + esc(d.at) + '</span>' : '') +
