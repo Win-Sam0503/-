@@ -246,6 +246,26 @@
   .bdg .bn { font-size: 12px; font-weight: 700; margin-top: 2px; }
   .bdg.off { background: #f9fafb; color: #98a2b3; }
   .bdg.off .bi { filter: grayscale(1); opacity: .35; }
+  /* ⭐ 等級、徽章升級、闖關 */
+  .lv-card { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 14px; background: linear-gradient(135deg, #fff7ed, #fef3c7); border: 1px solid #fcd34d; margin-bottom: 10px; flex-wrap: wrap; }
+  .lv-card .lv-ico { font-size: 40px; line-height: 1; }
+  .lv-card .lv-main { flex: 1; min-width: 200px; }
+  .lv-card .lv-name { font-weight: 800; font-size: 18px; color: #92400e; }
+  .xp-bar { height: 12px; border-radius: 999px; background: #fde68a; overflow: hidden; margin: 6px 0 3px; }
+  .xp-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #f59e0b, #ea580c); transition: width .8s ease-out; }
+  .lv-card select { max-width: 100%; }
+  .bdg .tier-row { display: flex; justify-content: center; gap: 2px; margin-top: 4px; font-size: 14px; }
+  .bdg .tier-row span.off { filter: grayscale(1); opacity: .3; }
+  .bdg .tier-lbl { display: inline-block; font-size: 11px; font-weight: 800; padding: 0 6px; border-radius: 999px; margin-top: 2px; }
+  .tier-1 { background: #f3e1d0; color: #8a4b1a; } .tier-2 { background: #e5e7eb; color: #475467; } .tier-3 { background: #fef08a; color: #854d0e; } .tier-4 { background: #cffafe; color: #0e7490; } .tier-5 { background: #ede9fe; color: #6d28d9; }
+  .bdg .mini-bar { height: 5px; border-radius: 999px; background: #eef0f3; margin: 5px 4px 0; overflow: hidden; }
+  .bdg .mini-bar i { display: block; height: 100%; background: #f59e0b; }
+  .bdg.lim { border-color: #86efac; background: #f0fdf4; }
+  .stage-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 2px; }
+  .stage-row button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 3px 10px; font-weight: 700; cursor: pointer; }
+  .stage-row button.cur { background: var(--brand, #8a2b1a); color: #fff; border-color: transparent; }
+  .stage-row button.done { border-color: #22c55e; }
+  .stage-row button:disabled { opacity: .45; cursor: not-allowed; }
   .bdg.new { border-color: #f59e0b; box-shadow: 0 0 0 3px #fde68a; animation: popIn .5s ease-out both; }
   #doneStats .st-row { justify-content: center; margin: 6px 0; }
   /* 💌 給老師的留言卡 */
@@ -1089,13 +1109,15 @@
       <div class="panel" id="myStats" style="padding:12px 16px"><span class="muted">讀取中…</span></div>
       <div class="panel" id="memoPanel" style="padding:12px 16px">
         <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🃏 食材翻牌配對</h2>
-        <div class="small muted">一次翻兩張，一樣的食材就配對成功。16 張全部配完就過關，翻越少次、越快越厲害！</div>
+        <div class="small muted">一次翻兩張，一樣的食材就配對成功。全部配完、達成那一關的條件就過關，第一次過關拿經驗值（⭐ 等級會升）！</div>
+        <div class="stage-row" id="mmStages"></div><div class="small" id="mmGoal" style="font-weight:700"></div>
         <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="mmStart">▶ 開始</button><b id="mmMoves" style="margin-left:12px;font-size:18px">翻了 0 次</b><span id="mmTime" class="muted" style="margin-left:12px">⏱ 0 秒</span><span style="flex:1"></span><span id="mmBest" class="small"></span></div>
         <div id="mmGrid" aria-label="翻牌配對遊戲區"></div>
       </div>
       <div class="panel" id="gamePanel" style="padding:12px 16px">
         <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🧺 接食材</h2>
-        <div class="small muted">左右移動籃子接住掉下來的食材：🥕🥚🧅 各 1 分、⭐ 3 分，接到 ❌ 扣 2 分。30 秒，越後面掉越快！<br>電腦用滑鼠或 ← → 鍵，手機用手指左右滑。</div>
+        <div class="small muted">左右移動籃子接住掉下來的食材：🥕🥚🧅 各 1 分、⭐ 3 分，接到 ❌ 扣 2 分。30 秒內達到那一關的分數就過關，越後面的關掉越快！<br>電腦用滑鼠或 ← → 鍵，手機用手指左右滑。</div>
+        <div class="stage-row" id="gmStages"></div><div class="small" id="gmGoal" style="font-weight:700"></div>
         <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="gmStart">▶ 開始</button><b id="gmScore" style="margin-left:12px;font-size:18px">分數 0</b><span id="gmTime" class="muted" style="margin-left:12px">⏱ 30 秒</span><span style="flex:1"></span><span id="gmBest" class="small"></span></div>
         <div id="gmArea" aria-label="接食材遊戲區"><div id="gmBasket">🧺</div><div id="gmMsg">按「▶ 開始」</div></div>
       </div>
@@ -2252,6 +2274,7 @@
   } catch (e) {}
   function setupApp() {
     $('who').textContent = data.account + (data.student ? '（' + data.student + '）' : '') + (data.isAdmin ? '（管理者）' : data.crewOrder ? '（校隊・代訂）' : '') + ' 已登入';
+    $('who').removeAttribute('data-base');
     // 同一台裝置之前是校隊登入（只留放置登記）：老師的按鈕要顯示回來
     Array.prototype.forEach.call(document.querySelectorAll('#nav button[data-view]:not(.admin-only):not(.crew-only)'), function (el) { el.classList.remove('hidden'); });
     Array.prototype.forEach.call(document.querySelectorAll('.crew-only'), function (el) { el.classList.toggle('hidden', !data.crewOrder); });
@@ -2318,6 +2341,20 @@
     noteLogin();
     loadMyStats(false);
     wishLoad(false);
+    if (data.isAdmin) badgeFeedLogin();
+  }
+  // 管理者登入：有老師拿到新的稀有徽章就提醒一次
+  function badgeFeedLogin() {
+    call('adminBadgeFeed', token).then(function (feed) {
+      var k = 'ckOrder.feedSeen.' + data.account, seen = ''; try { seen = localStorage.getItem(k) || ''; } catch (e) {}
+      var fresh = feed.filter(function (f) { return f.at > seen; });
+      if (!feed.length) return;
+      try { localStorage.setItem(k, feed[0].at); } catch (e) {}
+      if (!seen || !fresh.length) return;
+      setTimeout(function () {
+        eggBanner('🔔 ' + fresh.slice(0, 3).map(function (f) { return f.who + ' 拿到 ' + f.ico + ' ' + f.name; }).join('、') + (fresh.length > 3 ? ' 等 ' + fresh.length + ' 個' : '') + '。到「系統設定 → 老師準時排行」可以送謝謝卡 💌', 7000);
+      }, 2500);
+    }).catch(function () {});
   }
 
   // =================== 🎁 彩蛋 ===================
@@ -2589,9 +2626,32 @@
   }
 
   // =================== 🃏 小遊戲：食材翻牌配對（在「🏅 我的徽章」頁） ===================
+  // 🎮 闖關共用：關卡按鈕、過關回報
+  var STAGE_NAMES = ['', '第 1 關', '第 2 關', '第 3 關', '第 4 關', '第 5 關'];
+  function stageMax(game) { return myStats && myStats.game ? myStats.game[game] || 0 : 0; }
+  function stageRow(game, cur, onPick) {
+    var max = stageMax(game), n = (myStats && myStats.game && myStats.game.stages) || 5, h = '';
+    for (var i = 1; i <= n; i++) h += '<button type="button" data-stage="' + i + '" class="' + (i === cur ? 'cur ' : '') + (i <= max ? 'done' : '') + '"' + (i > max + 1 ? ' disabled title="先過前一關"' : '') + '>' + (i <= max ? '✅ ' : i > max + 1 ? '🔒 ' : '') + i + '</button>';
+    var el = $(game === 'catch' ? 'gmStages' : 'mmStages'); el.innerHTML = '<span class="small muted">闖關：</span>' + h;
+    el.onclick = function (e) { var b = e.target.closest('[data-stage]'); if (b && !b.disabled) onPick(Number(b.getAttribute('data-stage'))); };
+  }
+  function stageClear(game, stage, done) {
+    call('gameClear', token, game, stage).then(function (r) {
+      if (myStats && myStats.game) myStats.game[game] = r.max;
+      var msg = r.first ? '🎉 第一次通過' + STAGE_NAMES[stage] + '！經驗值 +' + r.gained : r.gained ? '過關！經驗值 +' + r.gained + '（重玩一天最多 +10）' : '過關！（今天重玩的經驗值已經拿滿了，明天再來）';
+      eggBanner(msg, 4000);
+      if (r.first) eggRain(['⭐', '🎮', '🎉', '✨'], 22, 5000);
+      loadMyStats(false);
+      if (done) done(r);
+    }).catch(function (e) { notice(e.message); });
+  }
   (function memoGame() {
     var POOL = ['🥕', '🥚', '🧅', '🍅', '🥦', '🍖', '🐟', '🧈', '🍋', '🥬', '🍄', '🌶️', '🧄', '🍤', '🥔', '🍓', '🥛', '🧁'];
-    var st = null, iv = null;
+    var st = null, iv = null, stage = 1;
+    // 各關：幾對牌、限制（翻牌次數上限 moves、秒數上限 sec）
+    var MM = [null, { pairs: 6 }, { pairs: 8 }, { pairs: 8, moves: 16 }, { pairs: 10 }, { pairs: 10, sec: 75 }];
+    var goalText = function (k) { var c = MM[k]; return STAGE_NAMES[k] + '：' + c.pairs * 2 + ' 張牌' + (c.moves ? '，翻 ' + c.moves + ' 次以內' : '') + (c.sec ? '，' + c.sec + ' 秒以內' : '') + '配完'; };
+    var pickStage = function (k) { if (st && !st.done && st.moves) return; stage = k; stageRow('memo', stage, pickStage); $('mmGoal').textContent = '🎯 ' + goalText(stage); };
     var bestKey = function () { return 'ckOrder.memoBest.' + (data ? data.account : ''); };
     var best = function () { try { return JSON.parse(localStorage.getItem(bestKey()) || 'null'); } catch (e) { return null; } };
     var showBest = function () { var b = best(); $('mmBest').textContent = b ? '🏆 最佳：' + b.moves + ' 次・' + b.sec + ' 秒' : ''; };
@@ -2604,8 +2664,9 @@
       $('mmTime').textContent = '⏱ ' + sec() + ' 秒';
     }
     function start() {
-      var picks = shuffle(POOL.slice()).slice(0, 8), deck = shuffle(picks.concat(picks));
-      st = { deck: deck, open: [], ok: 0, moves: 0, t0: Date.now(), lock: false, done: false };
+      var c = MM[stage], picks = shuffle(POOL.slice()).slice(0, c.pairs), deck = shuffle(picks.concat(picks));
+      $('mmGrid').style.gridTemplateColumns = 'repeat(' + (c.pairs === 10 ? 5 : 4) + ', 1fr)'; $('mmGrid').style.maxWidth = c.pairs === 10 ? '500px' : '';
+      st = { deck: deck, open: [], ok: 0, moves: 0, t0: Date.now(), lock: false, done: false, stage: stage, pairs: c.pairs };
       $('mmGrid').innerHTML = deck.map(function (f, i) { return '<button type="button" class="mm-card" data-mi="' + i + '" aria-label="第 ' + (i + 1) + ' 張牌"><div class="mm-in"><div class="mm-f">？</div><div class="mm-b">' + f + '</div></div></button>'; }).join('');
       $('mmMoves').textContent = '翻了 0 次'; $('mmTime').textContent = '⏱ 0 秒'; $('mmStart').textContent = '↻ 重新洗牌';
       clearInterval(iv); iv = setInterval(tick, 500);
@@ -2613,14 +2674,17 @@
     }
     function win() {
       st.done = true; clearInterval(iv); iv = null;
-      var s0 = sec(), b = best(), rec = !b || st.moves < b.moves || (st.moves === b.moves && s0 < b.sec);
+      var c = MM[st.stage], s0 = sec(), pass = (!c.moves || st.moves <= c.moves) && (!c.sec || s0 <= c.sec);
+      if (pass) stageClear('memo', st.stage, function (r) { if (st.stage < 5 && stage === st.stage && r.max >= stage) pickStage(stage + 1); else pickStage(stage); });
+      var b = st.pairs === 8 ? best() : null, rec = st.pairs === 8 && (!b || st.moves < b.moves || (st.moves === b.moves && s0 < b.sec));
       if (rec) try { localStorage.setItem(bestKey(), JSON.stringify({ moves: st.moves, sec: s0 })); } catch (e) {}
       showBest();
       eggRain(st.deck.slice(0, 8).concat(['🎉', '✨']), 26, 6000);
       setTimeout(function () {
         ask('', '再玩一次', { noText: '休息一下', html: '<div style="text-align:center"><div style="font-size:54px">🃏</div><div style="font-size:20px;font-weight:800;color:var(--brand);margin-top:4px">' + (rec ? '🎉 新紀錄！' : '過關！') + '</div>' +
           '<div style="margin-top:6px;font-size:17px">翻了 <b>' + st.moves + '</b> 次・用了 <b>' + s0 + '</b> 秒</div>' +
-          (b && !rec ? '<div class="small muted" style="margin-top:4px">你的最佳：' + b.moves + ' 次・' + b.sec + ' 秒</div>' : '') +
+          '<div style="margin-top:4px;font-weight:700;color:' + (pass ? '#15803d' : '#b45309') + '">' + (pass ? '✅ 通過' + STAGE_NAMES[st.stage] : '差一點！' + goalText(st.stage) + '才算過關') + '</div>' +
+          (b && !rec ? '<div class="small muted" style="margin-top:4px">你的最佳（16 張）：' + b.moves + ' 次・' + b.sec + ' 秒</div>' : '') +
           '<div class="small muted" style="margin-top:6px">' + (st.moves <= 10 ? '記憶力超好 🧠✨' : st.moves <= 14 ? '很厲害喔 👍' : '多玩幾次會越來越快 💪') + '</div></div>' })
           .then(function (again) { if (again) start(); });
       }, 600);
@@ -2636,20 +2700,24 @@
       var a = st.open[0], b = st.open[1];
       if (st.deck[a.getAttribute('data-mi')] === st.deck[b.getAttribute('data-mi')]) {
         a.classList.add('ok'); b.classList.add('ok'); st.open = []; st.ok++;
-        if (st.ok === 8) win();
+        if (st.ok === st.pairs) win();
       } else {
         st.lock = true; a.classList.add('bad'); b.classList.add('bad');
         setTimeout(function () { a.classList.remove('up', 'bad'); b.classList.remove('up', 'bad'); st.open = []; st.lock = false; }, 800);
       }
     });
-    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(showBest, 0); });
+    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(function () { showBest(); pickStage(Math.min(5, stageMax('memo') + 1)); }, 0); });
+    window.memoStageRefresh = function () { if (!st || st.done || !st.moves) pickStage(Math.min(stage, stageMax('memo') + 1)); else stageRow('memo', stage, pickStage); };
   })();
 
   // =================== 🎮 小遊戲：接食材（在「🏅 我的徽章」頁） ===================
   (function catchGame() {
     var area = $('gmArea'), basket = $('gmBasket'), msgEl = $('gmMsg');
     var GOOD = ['🥕', '🥚', '🧅', '🍅', '🥦', '🍖', '🐟', '🧈', '🍋', '🥬'];
-    var run = null, bx = 0.5;
+    var run = null, bx = 0.5, stage = 1;
+    // 各關：過關分數、速度倍率、❌ 比例
+    var CG = [null, { target: 12, sp: 1, bad: 0.12 }, { target: 20, sp: 1.15, bad: 0.15 }, { target: 28, sp: 1.3, bad: 0.18 }, { target: 36, sp: 1.45, bad: 0.21 }, { target: 45, sp: 1.6, bad: 0.24 }];
+    var pickStage = function (k) { if (run) return; stage = k; stageRow('catch', stage, pickStage); $('gmGoal').textContent = '🎯 ' + STAGE_NAMES[k] + '：30 秒內拿到 ' + CG[k].target + ' 分' + (k > 1 ? '（掉落速度 ×' + CG[k].sp + '）' : ''); };
     var bestKey = function () { return 'ckOrder.gameBest.' + (data ? data.account : ''); };
     var best = function () { try { return Number(localStorage.getItem(bestKey()) || 0); } catch (e) { return 0; } };
     var showBest = function () { var b = best(); $('gmBest').textContent = b ? '🏆 你的最高分：' + b : ''; };
@@ -2667,19 +2735,24 @@
     }
     function end(why) {
       if (!run) return;
-      cancelAnimationFrame(run.raf); var sc = run.score; run.items.forEach(function (it) { it.el.remove(); }); run = null;
+      cancelAnimationFrame(run.raf); var sc = run.score, stg = run.stage; run.items.forEach(function (it) { it.el.remove(); }); run = null;
+      var pass = why === 'time' && sc >= CG[stg].target;
+      if (pass) stageClear('catch', stg, function (r) { if (stg < 5 && r.max >= stg) pickStage(stg + 1); else pickStage(stg); });
+      else if (why === 'time') $('gmGoal').textContent = '差 ' + (CG[stg].target - sc) + ' 分！🎯 ' + STAGE_NAMES[stg] + '：30 秒內拿到 ' + CG[stg].target + ' 分';
       var b = best(), rec = sc > b;
       if (rec) try { localStorage.setItem(bestKey(), String(sc)); } catch (e) {}
       showBest();
-      msgEl.textContent = why === 'stop' ? '暫停了，再按「▶ 開始」重新玩' : (rec ? '🎉 新紀錄！' : '時間到！') + '\n得分 ' + sc + (rec || !b ? '' : '（最高 ' + b + '）') + '\n按「▶ 再玩一次」';
+      msgEl.textContent = why === 'stop' ? '暫停了，再按「▶ 開始」重新玩' : (pass ? '✅ 通過' + STAGE_NAMES[stg] + '！' : rec ? '🎉 新紀錄！' : '時間到！') + '\n得分 ' + sc + (rec || !b ? '' : '（最高 ' + b + '）') + '\n按「▶ 再玩一次」';
       msgEl.classList.remove('hidden');
       $('gmStart').textContent = '▶ 再玩一次';
+      if (!pass) stageRow('catch', stage, pickStage);
       if (rec && sc >= 20 && typeof eggRain === 'function') eggRain(['🥕', '🥚', '🧺', '🎉', '⭐'], 24, 6000);
     }
     function start() {
       if (run) end('stop');
       msgEl.classList.add('hidden'); setX(0.5);
-      run = { score: 0, t0: performance.now(), last: performance.now(), spawn: 0, items: [], raf: 0 };
+      run = { score: 0, t0: performance.now(), last: performance.now(), spawn: 0, items: [], raf: 0, stage: stage };
+      $('gmStages').querySelectorAll('button').forEach(function (b) { b.disabled = true; });
       $('gmScore').textContent = '分數 0'; $('gmStart').textContent = '↻ 重來';
       var W = area.clientWidth, H = area.clientHeight;
       var tick = function (now) {
@@ -2691,11 +2764,11 @@
         if (left <= 0) { end('time'); return; }
         if (keys.ArrowLeft) setX(bx - dt * 1.1);
         if (keys.ArrowRight) setX(bx + dt * 1.1);
-        var speed = 140 + el * 9;   // 越後面掉越快
+        var speed = (140 + el * 9) * CG[run.stage].sp;   // 越後面掉越快、越後面的關越快
         run.spawn -= dt;
         if (run.spawn <= 0) {
           run.spawn = Math.max(0.32, 0.8 - el * 0.015);
-          var r = Math.random(), kind = r < 0.14 ? 'bad' : r < 0.22 ? 'star' : 'good';
+          var r = Math.random(), kind = r < CG[run.stage].bad ? 'bad' : r < CG[run.stage].bad + 0.08 ? 'star' : 'good';
           var e = document.createElement('div'); e.className = 'gm-it'; e.textContent = kind === 'bad' ? '❌' : kind === 'star' ? '⭐' : GOOD[Math.floor(Math.random() * GOOD.length)];
           var x = 16 + Math.random() * (W - 48); e.style.left = x + 'px'; area.appendChild(e);
           run.items.push({ el: e, x: x, y: -36, v: speed * (0.85 + Math.random() * 0.35), kind: kind });
@@ -2717,7 +2790,8 @@
       run.raf = requestAnimationFrame(tick);
     }
     $('gmStart').addEventListener('click', start);
-    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(showBest, 0); });
+    document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(function () { showBest(); pickStage(Math.min(5, stageMax('catch') + 1)); }, 0); });
+    window.catchStageRefresh = function () { if (!run) pickStage(Math.min(stage, stageMax('catch') + 1)); };
   })();
 
   // =================== 🏅 準時達人、徽章收藏冊 ===================
@@ -2730,16 +2804,45 @@
     h += '<span class="st-pill">📝 共 ' + st.total + ' 張</span>';
     return '<div class="st-row">' + h + '</div>';
   }
+  var TIER_NAME = { 2: ['銅', '金'], 3: ['銅', '銀', '金'], 5: ['銅', '銀', '金', '白金', '鑽石'] };
+  function tierLbl(b) { var L = TIER_NAME[b.tiers] || TIER_NAME[3], cls = b.tiers === 2 ? (b.tier === 1 ? 1 : 3) : b.tier; return '<span class="tier-lbl tier-' + cls + '">' + L[b.tier - 1] + '</span>'; }
+  function levelHtml(st, mine) {
+    var L = st.level; if (!L) return '';
+    var pct = L.to ? Math.min(100, Math.round((L.xp - L.from) / (L.to - L.from) * 100)) : 100;
+    var sel = mine && st.titles ? '<div class="small" style="margin-top:6px">🏷️ 稱號 <select id="titleSel" aria-label="選擇要顯示的稱號"><option value="">（不掛稱號）</option>' + st.titles.map(function (t) { return '<option' + (t === st.title ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select> <span class="muted">會顯示在你的名字旁邊</span></div>' : (st.title ? '<div class="small" style="margin-top:4px">🏷️ ' + esc(st.title) + '</div>' : '');
+    return '<div class="lv-card"><div class="lv-ico">' + L.ico + '</div><div class="lv-main"><div class="lv-name">Lv.' + L.lv + ' ' + esc(L.name) + '</div>' +
+      '<div class="xp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="small muted">經驗值 ' + L.xp + (L.to ? '／' + L.to + '・再 ' + (L.to - L.xp) + ' 點升到 Lv.' + (L.lv + 1) + ' ' + esc(L.nextName) : '・已經是最高等級 👑') + '</div>' +
+      '<div class="small muted" style="margin-top:2px">準時一張 +10・遲交 +3・每個徽章 +20・小彩蛋 +5・小遊戲第一次過關 +關卡×10</div>' + sel + '</div></div>';
+  }
   function badgesHtml(st, fresh) {
     var got = st.badges.filter(function (b) { return b.got; }).length;
-    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]\d|^m(gold|silver|bronze)/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean|task)/.test(k) ? '🌱 好習慣' : /^hunt/.test(k) ? '🥚 小彩蛋尋寶' : '🎭 隱藏徽章'; }, lastG = '';
-    return '<details open style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="bdg-grid">' +
-      st.badges.map(function (b) {
+    var grp = function (k) { return /^n\d/.test(k) ? '📝 累計張數' : /^[sm]\d|^m(gold|silver|bronze)/.test(k) ? '⏰ 準時' : /^(rainbow|items|cls|depts)/.test(k) ? '🧭 探索' : /^(bird|clean|task)/.test(k) ? '🌱 好習慣' : /^(save|prec)/.test(k) ? '🧊 惜料・⚖️ 精準' : /^team/.test(k) ? '🤝 全科團隊' : /^game/.test(k) ? '🎮 小遊戲闖關' : /^hunt/.test(k) ? '🥚 小彩蛋尋寶' : /^lim/.test(k) ? '🎄 期間限定' : '🎭 隱藏徽章'; }, lastG = '';
+    // 同一系列只顯示一張卡：目前等級（銅／銀／金…）＋到下一級的進度
+    var seen = {}, cards = [];
+    st.badges.forEach(function (b) {
+      if (!b.fam) { cards.push(b); return; }
+      if (seen[b.fam]) return; seen[b.fam] = 1;
+      var fs = st.badges.filter(function (x) { return x.fam === b.fam; }), top = null, next = null;
+      fs.forEach(function (x) { if (x.got) top = x; else if (!next) next = x; });
+      cards.push({ famCard: true, list: fs, top: top, next: next, k: (top || fs[0]).k, fam: b.fam });
+    });
+    return '<details open style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">🏅 我的徽章收藏冊（' + got + '／' + st.badges.length + '）</summary><div class="small muted" style="margin-top:4px">同一系列的徽章會升級：🥉 銅 → 🥈 銀 → 🥇 金，下面的進度條是離下一級還差多少。</div><div class="bdg-grid">' +
+      cards.map(function (b) {
         var g = grp(b.k), head = g !== lastG ? '<div class="small" style="grid-column:1/-1;font-weight:700;margin-top:6px;color:var(--brand)">' + g + '</div>' : ''; lastG = g;
-        return head + bdgHtml(b);
+        return head + (b.famCard ? famHtml(b) : bdgHtml(b));
       }).join('') + '</div><div class="small muted" style="margin-top:6px">準時＝在那堂課那週的訂貨截止前送出（' + esc(data.lockRule || '') + '）。</div></details>';
+    function famHtml(c) {
+      var b = c.top || c.list[0], nx = c.next, isNew = fresh && c.list.some(function (x) { return x.got && fresh.indexOf(x.k) >= 0; });
+      var pct = nx ? Math.min(100, Math.round(nx.cur / nx.goal * 100)) : 100;
+      var tip = c.list.map(function (x) { return (x.got ? '✅ ' : '⬜ ') + x.name + '：' + x.how; }).join('\n');
+      return '<div class="bdg' + (c.top ? '' : ' off') + (isNew ? ' new' : '') + '" title="' + esc(tip) + '"><div class="bi">' + (c.top ? b.ico : '❔') + '</div><div class="bn">' + esc(c.top ? b.name : b.famName || b.name) + '</div>' +
+        (c.top ? tierLbl(b) : '') +
+        '<div class="tier-row">' + c.list.map(function (x) { return '<span class="' + (x.got ? '' : 'off') + '" title="' + esc(x.name) + '">' + x.ico + '</span>'; }).join('') + '</div>' +
+        (nx ? '<div class="mini-bar"><i style="width:' + pct + '%"></i></div><div class="small" style="font-size:11px;margin-top:2px">' + (c.top ? '升級到「' + esc(nx.name) + '」' : esc(nx.name)) + '：' + nx.cur + '／' + nx.goal + ' ' + esc(nx.unit || '') + '</div>' : '<div class="small" style="font-size:11px;margin-top:3px;color:#15803d;font-weight:700">已經滿級 ✨</div>') + '</div>';
+    }
     function bdgHtml(b) {
-        return '<div class="bdg' + (b.got ? '' : ' off') + (fresh && fresh.indexOf(b.k) >= 0 ? ' new' : '') + '" title="' + esc(b.how) + '"><div class="bi">' + (b.got ? b.ico : '❔') + '</div><div class="bn">' + esc(b.hidden ? '？？？' : b.name) + '</div>' +
+        return '<div class="bdg' + (b.got ? '' : ' off') + (b.limited ? ' lim' : '') + (fresh && fresh.indexOf(b.k) >= 0 ? ' new' : '') + '" title="' + esc(b.how) + '"><div class="bi">' + (b.got ? b.ico : '❔') + '</div><div class="bn">' + esc(b.hidden ? '？？？' : b.name) + '</div>' +
           (b.got ? '' : '<div class="small" style="font-size:11px;margin-top:2px">' + esc(b.how) + '</div>') + '</div>';
     }
   }
@@ -2748,14 +2851,34 @@
     if (!myStats) return;
     var nb = myStats.badges.filter(function (b) { return b.got; }).length;
     $('badgeCount').textContent = nb; $('badgeCount').classList.toggle('hidden', !nb);
-    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">🏅 我的徽章・⏰ 準時達人</h2>' + statsPills(myStats) + taskHtml(myStats) + badgesHtml(myStats, fresh);
+    box.innerHTML = '<h2 style="margin:0 0 8px;font-size:17px">🏅 我的徽章・⏰ 準時達人</h2>' + levelHtml(myStats, true) + statsPills(myStats) + taskHtml(myStats) + badgesHtml(myStats, fresh);
     box.classList.remove('hidden');
+    var ts = $('titleSel');
+    if (ts) ts.addEventListener('change', function () {
+      var v = ts.value; ts.disabled = true;
+      call('setMyTitle', token, v).then(function (r) { myStats.title = r.title; setWhoTitle(); eggBanner(r.title ? '🏷️ 稱號換成「' + r.title + '」' : '已拿掉稱號', 2500); })
+        .catch(function (e) { notice(e.message); }).then(function () { ts.disabled = false; });
+    });
+    if (window.memoStageRefresh) window.memoStageRefresh();
+    if (window.catchStageRefresh) window.catchStageRefresh();
+  }
+  function setWhoTitle() {
+    if (!data || !$('who')) return;
+    var base = $('who').getAttribute('data-base') || $('who').textContent;
+    $('who').setAttribute('data-base', base);
+    $('who').textContent = (myStats && myStats.level ? 'Lv.' + myStats.level.lv + ' ' : '') + base + (myStats && myStats.title ? '・' + myStats.title : '');
   }
   // 登入、送出後：拿最新的；送出後比對有沒有新徽章
   function loadMyStats(afterSubmit) {
     if (!data || data.crewOrder || data.student) return;
     call('getMyStats', token, !!afterSubmit).then(function (st) {
+      var lvKey = 'ckOrder.level.' + data.account, oldLv = 0; try { oldLv = Number(localStorage.getItem(lvKey) || 0); } catch (e) {}
       myStats = st;
+      setWhoTitle();
+      if (st.level) {
+        try { localStorage.setItem(lvKey, String(st.level.lv)); } catch (e) {}
+        if (oldLv && st.level.lv > oldLv) setTimeout(function () { eggBanner('⭐ 升級了！Lv.' + st.level.lv + ' ' + st.level.ico + ' ' + st.level.name, 5000); eggRain([st.level.ico, '⭐', '🎉', '✨'], 28, 7000); }, afterSubmit ? 9500 : 800);
+      }
       var had = null; try { had = JSON.parse(localStorage.getItem(badgeKey()) || 'null'); } catch (e) {}
       var now = st.badges.filter(function (b) { return b.got; }).map(function (b) { return b.k; });
       var fresh = had ? now.filter(function (k) { return had.indexOf(k) < 0; }) : [];
@@ -2787,13 +2910,19 @@
     var topHtml = '<div style="border:2px solid #fcd34d;background:#fffbeb;border-radius:14px;padding:10px 12px;margin-bottom:10px"><div style="font-weight:800;font-size:16px;margin-bottom:6px">🏆 本學期前五名（綜合積分）</div>' +
       (top.length ? top.map(function (x, i) {
         return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0;' + (i ? 'border-top:1px dashed #fde68a;' : '') + (i < 3 ? 'font-size:' + (17 - i) + 'px' : '') + '"><span style="font-size:' + (i < 3 ? 26 : 20) + 'px;width:32px;text-align:center">' + RK[i] + '</span><b style="flex:1">' + esc(x.who) + '</b>' +
-          '<span class="small muted">準時 ' + x.rate + '%' + (x.streak ? '・🔥' + x.streak + ' 週' : '') + '・🏅' + x.nBadges + '</span><b style="color:#b45309">' + x.score + ' 分</b>' +
+          '<span class="small muted">' + (x.level ? 'Lv.' + x.level.lv + '・' : '') + '準時 ' + x.rate + '%' + (x.streak ? '・🔥' + x.streak + ' 週' : '') + '・🏅' + x.nBadges + '</span><b style="color:#b45309">' + x.score + ' 分</b>' +
           '<button type="button" class="btn ghost small" data-tsthank="' + esc(x.who) + '">💌</button></div>';
       }).join('') : '<div class="muted small">這學期還沒有老師送出 ' + (tsList.minN || 3) + ' 張以上的訂單。</div>') +
       '<div class="small muted" style="margin-top:6px">積分＝本學期準時一張 10 分＋目前連續準時一週 5 分＋徽章一個 3 分＋獎牌（🥇30／🥈20／🥉10）。這學期至少 ' + (tsList.minN || 3) + ' 張才上榜。只有管理者看得到。</div></div>';
-    $('tsBox').innerHTML = topHtml + '<div class="small muted" style="margin-bottom:6px">本學期（' + esc(tsList.sem) + '）・更新 ' + esc(tsList.at) + '・點標題排序</div><div style="overflow:auto"><table class="small"><tr><th>老師</th>' + th('score', '積分') + th('rate', '準時率') + '<th>本學期張數</th>' + th('streak', '目前連續') + '<th>最長連續</th>' + th('total', '累計張數') + th('badges', '徽章') + '<th></th></tr>' +
+    var feed = tsList.feed || [];
+    var feedHtml = '<div style="border:2px solid #86efac;background:#f0fdf4;border-radius:14px;padding:10px 12px;margin-bottom:10px"><div style="font-weight:800;font-size:16px;margin-bottom:6px">🔔 最近拿到稀有徽章（金級、期間限定、升到 Lv.4 以上）</div>' +
+      (feed.length ? feed.slice(0, 15).map(function (f, i) {
+        return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;' + (i ? 'border-top:1px dashed #bbf7d0;' : '') + '"><span style="font-size:22px">' + f.ico + '</span><b>' + esc(f.who) + '</b><span style="flex:1">' + esc(f.name) + '</span><span class="small muted">' + esc(String(f.at).slice(5, 16)) + '</span><button type="button" class="btn ghost small" data-tsthank="' + esc(f.who) + '" data-tsbadgename="' + esc(f.ico + ' ' + f.name) + '">💌 謝謝卡</button></div>';
+      }).join('') : '<div class="small muted">還沒有。老師登入後拿到稀有徽章就會出現在這裡。</div>') +
+      '<div class="small muted" style="margin-top:4px">本學期已有 ' + (tsList.teamWeeks || 0) + ' 週是「全科團隊準時週」。</div></div>';
+    $('tsBox').innerHTML = feedHtml + topHtml + '<div class="small muted" style="margin-bottom:6px">本學期（' + esc(tsList.sem) + '）・更新 ' + esc(tsList.at) + '・點標題排序</div><div style="overflow:auto"><table class="small"><tr><th>老師</th>' + th('score', '積分') + th('rate', '準時率') + '<th>本學期張數</th>' + th('streak', '目前連續') + '<th>最長連續</th>' + th('total', '累計張數') + th('badges', '徽章') + '<th></th></tr>' +
       L.map(function (x) {
-        return '<tr><td><button type="button" class="btn ghost small" data-tsbadge="' + esc(x.who) + '" title="看這位老師的徽章收藏冊" style="padding:1px 8px;font-weight:700">🏅 ' + esc(x.who) + '</button></td><td><b>' + x.score + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
+        return '<tr><td><button type="button" class="btn ghost small" data-tsbadge="' + esc(x.who) + '" title="看這位老師的徽章收藏冊" style="padding:1px 8px;font-weight:700">🏅 ' + esc(x.who) + '</button>' + (x.level ? '<div class="small muted">' + x.level.ico + ' Lv.' + x.level.lv + (x.title ? '・' + esc(x.title) : '') + '</div>' : '') + '</td><td><b>' + x.score + '</b></td><td>' + (x.rate === null ? '<span class="muted">—</span>' : (x.medal ? x.medal.ico + ' ' : '') + x.rate + '%') + '</td><td>' + x.semOn + '／' + x.semN + '</td><td>' + (x.streak >= 3 ? '🔥 ' : '') + x.streak + ' 週</td><td>' + x.best + ' 週</td><td>' + x.total + '</td><td>' + x.nBadges + '</td>' +
           '<td><button type="button" class="btn ghost small" data-tsthank="' + esc(x.who) + '">💌 感謝卡</button></td></tr>';
       }).join('') + '</table></div>';
   }
@@ -2809,7 +2938,7 @@
       var w0 = bg.getAttribute('data-tsbadge'); setBusy(bg, true, '讀取中…');
       call('adminGetTeacherBadges', token, w0).then(function (st) {
         var stamps = '<div class="small" style="margin-top:6px">🎁 每週任務集章：<b>' + (st.stamps || 0) + '</b> 個</div>';
-        ask('', '關閉', { okOnly: true, html: '<div style="text-align:left;max-height:70vh;overflow:auto"><h3 style="margin:0 0 8px">🏅 ' + esc(w0) + ' 老師的徽章</h3>' + statsPills(st) + stamps + badgesHtml(st, []).replace('我的徽章收藏冊', '徽章收藏冊') + '</div>' });
+        ask('', '關閉', { okOnly: true, html: '<div style="text-align:left;max-height:70vh;overflow:auto"><h3 style="margin:0 0 8px">🏅 ' + esc(w0) + ' 老師的徽章</h3>' + levelHtml(st, false) + statsPills(st) + stamps + badgesHtml(st, []).replace('我的徽章收藏冊', '徽章收藏冊') + '</div>' });
       }).catch(function (err) { msg('tsMsg', 'error', err.message); }).then(function () { setBusy(bg, false); });
       return;
     }
@@ -2817,7 +2946,8 @@
     var who = t.getAttribute('data-tsthank'), x = tsList.list.filter(function (y) { return y.who === who; })[0] || {};
     var np = $('notePanel'); np.open = true; np.dispatchEvent(new Event('toggle'));
     ntReset();
-    $('ntText').value = who + '老師，謝謝您' + (x.streak >= 3 ? '連續 ' + x.streak + ' 週' : '這學期') + '都準時叫料' + (x.medal ? '，拿到本學期' + x.medal.name + ' ' + x.medal.ico : '') + '！您的準時讓備料順利很多，辛苦了 💐';
+    var bn = t.getAttribute('data-tsbadgename');
+    $('ntText').value = bn ? who + '老師，恭喜您拿到「' + bn + '」！謝謝您一直這麼用心叫料，備料順利很多，辛苦了 💐' : who + '老師，謝謝您' + (x.streak >= 3 ? '連續 ' + x.streak + ' 週' : '這學期') + '都準時叫料' + (x.medal ? '，拿到本學期' + x.medal.name + ' ' + x.medal.ico : '') + '！您的準時讓備料順利很多，辛苦了 💐';
     $('ntStyle').value = 'thanks';
     document.querySelector('input[name="ntTo"][value="pick"]').checked = true; $('ntPick').classList.remove('hidden'); ntPickRender([who]);
     ntDraftSave();
