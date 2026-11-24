@@ -5800,8 +5800,11 @@ function badgesOf_(t) {
 }
 // 🥚 藏在各頁的小彩蛋：找到幾個（存在指令碼屬性，換電腦也算）
 const HUNT_EGGS_ = ['order', 'mine', 'lessons', 'badges', 'wish', 'password', 'done', 'logo'];
+// 排行榜一次算很多老師：先把指令碼屬性一次讀進來（PROP_CACHE_），不用每位老師各讀好幾次
+let PROP_CACHE_ = null;
+function prop_(key) { return PROP_CACHE_ ? (PROP_CACHE_[key] || null) : PropertiesService.getScriptProperties().getProperty(key); }
 function huntFound_(account) {
-  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('EGG_FOUND_' + account) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
+  try { const v = JSON.parse(prop_('EGG_FOUND_' + account) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
 }
 /** 老師點到小彩蛋 */
 function foundEgg(token, id) {
@@ -5831,7 +5834,7 @@ function statsView_(t, semKey, eggs, who) {
 }
 // 🎮 闖關紀錄（指令碼屬性 GAME_<帳號>）
 function gameState_(account) {
-  try { const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('GAME_' + account) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
+  try { const v = JSON.parse(prop_('GAME_' + account) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
 }
 /** 老師過關：game＝catch（接食材）或 memo（翻牌配對），stage＝第幾關 */
 function gameClear(token, game, stage) {
@@ -5852,7 +5855,7 @@ function gameClear(token, game, stage) {
   } finally { lock.releaseLock(); }
 }
 function titleOf_(account, allowed) {
-  const t = PropertiesService.getScriptProperties().getProperty('TITLE_' + account) || '';
+  const t = prop_('TITLE_' + account) || '';
   return allowed.indexOf(t) >= 0 ? t : '';
 }
 /** 老師選稱號（空字串＝不掛） */
@@ -5885,7 +5888,7 @@ function noteRareBadges_(who, v) {
       const b = v.badges.filter(function (x) { return x.k === k; })[0];
       feed.unshift(b ? { who: who, k: k, ico: b.ico, name: b.name, at: at } : { who: who, k: k, ico: v.level.ico, name: '升到 Lv.' + v.level.lv + ' ' + v.level.name, at: at });
     });
-    p.setProperty('BADGE_FEED', JSON.stringify(feed.slice(0, 60)));
+    p.setProperty('BADGE_FEED', JSON.stringify(feed.slice(0, 40)));   // 一格指令碼屬性最多 9KB，40 筆約 4～5KB
   } catch (e) {}
 }
 /** 老師：我的準時紀錄、徽章（fresh＝剛送出，重算） */
@@ -5910,13 +5913,16 @@ function adminGetTeacherStats(token) {
   const all = orderStatsAll_(true), names = bootStatic_().teachers || [];
   Object.keys(all.by).forEach(function (w) { if (names.indexOf(w) < 0) names.push(w); });
   const MEDAL_PTS = { '金牌': 30, '銀牌': 20, '銅牌': 10 };
-  let feed = []; try { feed = JSON.parse(PropertiesService.getScriptProperties().getProperty('BADGE_FEED') || '[]'); } catch (e) {}
+  PROP_CACHE_ = PropertiesService.getScriptProperties().getProperties();
+  try {
+  let feed = []; try { feed = JSON.parse(prop_('BADGE_FEED') || '[]'); } catch (e) {}
   return { sem: all.sem, at: all.at, minN: MEDAL_MIN_ORDERS_, teamWeeks: all.teamWeeks || 0, feed: feed, list: names.map(function (w) {
     const v = statsView_(all.by[w], all.sem, huntFound_(w), w); v.who = w; v.nBadges = v.badges.filter(function (b) { return b.got; }).length; delete v.badges; delete v.titles;
     // 綜合積分：本學期準時一張 10 分＋目前連續準時一週 5 分＋徽章一個 3 分＋獎牌（金 30／銀 20／銅 10）
     v.score = v.semOn * 10 + v.streak * 5 + v.nBadges * 3 + (v.medal ? MEDAL_PTS[v.medal.name] || 0 : 0);
     return v;
   }) };
+  } finally { PROP_CACHE_ = null; }
 }
 
 

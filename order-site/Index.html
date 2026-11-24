@@ -214,6 +214,12 @@
   @keyframes huntWig { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-16deg); } 86% { transform: rotate(14deg); } 94% { transform: rotate(-8deg); } }
   @media (prefers-reduced-motion: reduce) { .hunt-egg { animation: none; } }
 
+  /* 小遊戲平常收起來，點了才展開（頁面短、不佔記憶體） */
+  details.game-fold > summary { cursor: pointer; list-style: none; padding: 2px 0; }
+  details.game-fold > summary::-webkit-details-marker { display: none; }
+  details.game-fold > summary::before { content: '▶'; display: inline-block; width: 1.2em; color: var(--brand); transition: transform .2s; }
+  details.game-fold[open] > summary::before { transform: rotate(90deg); }
+  details.game-fold[open] > summary { margin-bottom: 6px; }
   /* 🃏 翻牌配對 */
   #mmGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 420px; margin: 0 auto; }
   #mmGrid .mm-card { aspect-ratio: 1 / 1; border: 0; padding: 0; background: none; perspective: 600px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1108,20 +1114,20 @@
 
     <section id="viewBadges" class="hidden">
       <div class="panel" id="myStats" style="padding:12px 16px"><span class="muted">讀取中…</span></div>
-      <div class="panel" id="memoPanel" style="padding:12px 16px">
-        <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🃏 食材翻牌配對</h2>
+      <details class="panel game-fold" id="memoPanel" style="padding:12px 16px">
+        <summary><h2 style="margin:0;font-size:17px;display:inline">🎮 小遊戲：🃏 食材翻牌配對</h2> <span class="small muted" id="mmFoldInfo">點開來玩</span></summary>
         <div class="small muted">一次翻兩張，一樣的食材就配對成功。全部配完、達成那一關的條件就過關，第一次過關拿經驗值（⭐ 等級會升）！</div>
         <div class="stage-row" id="mmStages"></div><div class="small" id="mmGoal" style="font-weight:700"></div>
         <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="mmStart">▶ 開始</button><b id="mmMoves" style="margin-left:12px;font-size:18px">翻了 0 次</b><span id="mmTime" class="muted" style="margin-left:12px">⏱ 0 秒</span><span style="flex:1"></span><span id="mmBest" class="small"></span></div>
         <div id="mmGrid" aria-label="翻牌配對遊戲區"></div>
-      </div>
-      <div class="panel" id="gamePanel" style="padding:12px 16px">
-        <h2 style="margin:0 0 6px;font-size:17px">🎮 小遊戲：🧺 接食材</h2>
+      </details>
+      <details class="panel game-fold" id="gamePanel" style="padding:12px 16px">
+        <summary><h2 style="margin:0;font-size:17px;display:inline">🎮 小遊戲：🧺 接食材</h2> <span class="small muted" id="gmFoldInfo">點開來玩</span></summary>
         <div class="small muted">左右移動籃子接住掉下來的食材：🥕🥚🧅 各 1 分、⭐ 3 分，接到 ❌ 扣 2 分。30 秒內達到那一關的分數就過關，越後面的關掉越快！<br>電腦用滑鼠或 ← → 鍵，手機用手指左右滑。</div>
         <div class="stage-row" id="gmStages"></div><div class="small" id="gmGoal" style="font-weight:700"></div>
         <div class="row" style="margin:8px 0;gap:12px;align-items:center"><button type="button" class="btn" id="gmStart">▶ 開始</button><b id="gmScore" style="margin-left:12px;font-size:18px">分數 0</b><span id="gmTime" class="muted" style="margin-left:12px">⏱ 30 秒</span><span style="flex:1"></span><span id="gmBest" class="small"></span></div>
         <div id="gmArea" aria-label="接食材遊戲區"><div id="gmBasket">🧺</div><div id="gmMsg">按「▶ 開始」</div></div>
-      </div>
+      </details>
     </section>
 
     <section id="viewMine" class="hidden">
@@ -2634,6 +2640,7 @@
     var max = stageMax(game), n = (myStats && myStats.game && myStats.game.stages) || 5, h = '';
     for (var i = 1; i <= n; i++) h += '<button type="button" data-stage="' + i + '" class="' + (i === cur ? 'cur ' : '') + (i <= max ? 'done' : '') + '"' + (i > max + 1 ? ' disabled title="先過前一關"' : '') + '>' + (i <= max ? '✅ ' : i > max + 1 ? '🔒 ' : '') + i + '</button>';
     var el = $(game === 'catch' ? 'gmStages' : 'mmStages'); el.innerHTML = '<span class="small muted">闖關：</span>' + h;
+    var fi = $(game === 'catch' ? 'gmFoldInfo' : 'mmFoldInfo'); if (fi) fi.textContent = (max ? '已過 ' + max + '／' + n + ' 關' + (max >= n ? ' 🏆' : '') : '還沒闖關') + '・點開來玩';
     el.onclick = function (e) { var b = e.target.closest('[data-stage]'); if (b && !b.disabled) onPick(Number(b.getAttribute('data-stage'))); };
   }
   function stageClear(game, stage, done) {
@@ -2661,7 +2668,7 @@
     function sec() { return st ? Math.floor((Date.now() - st.t0) / 1000) : 0; }
     function tick() {
       if (!st || st.done) return;
-      if ($('viewBadges').classList.contains('hidden')) { clearInterval(iv); iv = null; return; }   // 換頁就停表
+      if ($('viewBadges').classList.contains('hidden') || !$('memoPanel').open) { clearInterval(iv); iv = null; return; }   // 換頁、收起來就停表
       $('mmTime').textContent = '⏱ ' + sec() + ' 秒';
     }
     function start() {
@@ -2760,7 +2767,7 @@
       var W = area.clientWidth, H = area.clientHeight;
       var tick = function (now) {
         if (!run) return;
-        if ($('viewBadges').classList.contains('hidden') || document.hidden) { end('stop'); return; }   // 換頁、切走就停
+        if ($('viewBadges').classList.contains('hidden') || document.hidden || !$('gamePanel').open) { end('stop'); return; }   // 換頁、切走、收起來就停
         var dt = Math.min(50, now - run.last) / 1000, el = (now - run.t0) / 1000, left = Math.max(0, 30 - el);
         run.last = now;
         $('gmTime').textContent = '⏱ ' + Math.ceil(left) + ' 秒';
