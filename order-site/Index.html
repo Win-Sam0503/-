@@ -11591,6 +11591,7 @@
           if (/類/.test(only) && vendorHint(only)) { vendor = vendorHint(only); tool = false; continue; }
         }
         if (isHeaderCell(name)) continue;                       // 又出現一次標題列
+        if (VENDOR_ONLY.test(name.replace(/\s+/g, ''))) { var vh = vendorHint(name); if (vh) vendor = vh; continue; }   // 品名欄只寫「菜商」「肉商」
         var codeCell = cell(b.code);
         if (codeCell && vendorHint(codeCell) && !/\d/.test(codeCell)) vendor = vendorHint(codeCell);   // Excel 左邊的「菜商」「肉商」
         if (!name || !/[A-Za-z\u4e00-\u9fff]/.test(name) || /^(總價|總計|合計|小計)$/.test(name.replace(/\s+/g, ''))) continue;
@@ -11634,6 +11635,8 @@
   var NOT_ITEM = /料單|請料|丙級|乙級|家商|學校|已修改|總價/;
   var HEADER_WORDS = /^(編號|品名|名稱|數量|單位|備註|需求量|單價|全班|價格)(\s+(編號|品名|名稱|數量|單位|備註|需求量|單價|全班|價格))*$/;
   var VENDOR_LABEL = /^(銘哲|菜商|肉商|蛋商|海鮮|乾貨|飲調)\s+/;
+  // 請料單左邊直書的廠商欄（銘哲、菜商、肉商…）：PDF 讀出來會變成單獨一格，不是段落也不是食材，直接略過
+  var VENDOR_ONLY = /^(銘哲|菜商|肉商|蛋商|海鮮|乾貨|飲調|旺來興|五洲|統清|烘焙乾貨|中餐乾貨|調飲)(類)?$/;
   // allowSections：照片會拍到旁邊的字（人名、菜名），所以照片不判斷段落
   function parseLines(lines, allowSections) {
     var out = [], cur = null, section = '', vendor = '', tool = false;
@@ -11647,6 +11650,7 @@
         if (/^[^\d]{0,12}類\s*\(\s*[A-Za-z]\s*\)$/.test(seg)) { vendor = vendorHint(seg); tool = false; cur = null; return; }
         if (/器具|用具/.test(seg) && seg.length <= 10) { tool = true; cur = null; return; }
         if (HEADER_WORDS.test(seg) || NOT_ITEM.test(seg)) return;
+        if (VENDOR_ONLY.test(seg.replace(/\s+/g, ''))) return;
         var lab = seg.match(VENDOR_LABEL);   // 「銘哲 番茄醬 …」「菜商 蔥 …」：前面是廠商分類
         if (lab) { vendor = vendorHint(lab[1]) || vendor; seg = seg.slice(lab[0].length); }
         var noCode = seg.replace(/[A-Za-z]+\d{2,}/g, ' ');   // 編號（例如 A85）不是數量
