@@ -1412,7 +1412,7 @@
 
     <section id="viewSchedule" class="hidden">
       <div class="panel noprint">
-        <h2 style="margin:0">總課表 <button type="button" class="btn ghost small" id="gridReload">重新整理</button> <button type="button" class="btn secondary small" id="gridAddBtn">＋ 新增一堂課</button> <button type="button" class="btn small" id="gridPrint">🖨 列印這週課表</button></h2>
+        <h2 style="margin:0">總課表 <button type="button" class="btn ghost small" id="gridReload">重新整理</button> <button type="button" class="btn secondary small" id="gridAddBtn">＋ 新增一堂課</button> <button type="button" class="btn small" id="gridPrint">🖨 列印這週課表</button> <button type="button" class="btn secondary small" id="todoBtn">📋 未叫料名單（貼 LINE 群）</button></h2>
         <div class="muted small">試算表「課表」分頁的每週固定課。點一堂課可以改老師、課程、班級、教室、節次，或永久取消／恢復；點空白格子的「＋」可以新增一堂課（新教室請按上面的「新增一堂課」）；改完老師的「我的課」和訂貨提醒會跟著變。只有某一週不上，請到「我的課」選那位老師、按那一週的「不用訂貨」。</div>
         <div class="grid-tools">
           <div><label for="gridWeek">哪一週</label><input id="gridWeek" type="date"></div>
@@ -3006,6 +3006,41 @@
     });
     window.gameRefreshers.push(function () { if (!run) pickStage(Math.min(stage, stageMax('recipe') + 1)); });
     document.querySelector('#nav button[data-view="viewBadges"]').addEventListener('click', function () { setTimeout(function () { if (!run) pickStage(Math.min(5, stageMax('recipe') + 1)); }, 0); });
+  })();
+
+  // =================== 📋 未叫料名單：整理成文字，複製貼到 LINE 群組 ===================
+  (function todoList() {
+    var b = $('todoBtn'); if (!b) return;
+    var later = false, brief = false;
+    function load() {
+      $('todoTxt').value = '整理中…';
+      call('adminTodoText', token, later, brief).then(function (r) { $('todoTxt').value = r.text; $('todoInfo').textContent = r.n ? r.n + ' 位老師、' + r.lessons + ' 堂還沒叫料' : '大家都叫好了 👍'; })
+        .catch(function (e) { $('todoTxt').value = ''; $('todoInfo').textContent = e.message; });
+    }
+    b.addEventListener('click', function () {
+      ask('', '📋 複製', { noText: '關閉', html: '<div style="text-align:left"><h3 style="margin:0 0 6px">📋 還沒叫料的名單</h3>' +
+        '<div class="status-chips" style="margin:4px 0"><button type="button" data-tdw="0" class="on">下週</button><button type="button" data-tdw="1">下下週</button>' +
+        '<span style="width:12px;display:inline-block"></span><button type="button" data-tdb="0" class="on">列出每一堂</button><button type="button" data-tdb="1">只列老師</button></div>' +
+        '<div class="small muted" id="todoInfo" style="margin:4px 0"></div><textarea id="todoTxt" rows="14" style="width:100%;font-size:14px" aria-label="未叫料名單文字"></textarea>' +
+        '<div class="small muted">可以先在框裡改字，再按「📋 複製」貼到 LINE 群組。「我的課」標了不用訂貨、放假日的課不會列出來。</div></div>' }).then(function (ok) {
+        if (!ok) return;
+        var t = $('todoTxt') ? $('todoTxt').value : '';
+        (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('已複製，到 LINE 群組貼上就好 📣'); }, function () { window.prompt('複製下面的文字：', t); });
+      });
+      setTimeout(function () {
+        var box = $('askBox') || document;
+        if (!box._tdBound) box._tdBound = 1, box.addEventListener('click', function (e) {
+          if (!$('todoTxt')) return;
+          var w = e.target.closest('[data-tdw]'), d = e.target.closest('[data-tdb]');
+          if (!w && !d) return;
+          var el = w || d, attr = w ? 'data-tdw' : 'data-tdb';
+          Array.prototype.forEach.call(box.querySelectorAll('[' + attr + ']'), function (x) { x.classList.toggle('on', x === el); });
+          if (w) later = w.getAttribute('data-tdw') === '1'; else brief = d.getAttribute('data-tdb') === '1';
+          load();
+        });
+        later = false; brief = false; load();
+      }, 0);
+    });
   })();
 
   // =================== 🏅 準時達人、徽章收藏冊 ===================

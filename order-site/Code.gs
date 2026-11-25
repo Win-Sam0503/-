@@ -7627,6 +7627,7 @@ function lineTeacherMsgs_(q) {
 }
 function lineAdminReply_(text, userId) {
   const t = String(text || '').trim();
+  if (/^(📋\s*)?(還沒叫料|未叫料)(名單)?\s*文字(版)?(\s*下下週)?(\s*簡短)?$/.test(t) && isAdmin_(lineAccountOf_(userId))) return [{ type: 'text', text: todoTeachersText_(/下下週/.test(t), /簡短/.test(t)).text.slice(0, 4900) }];
   if (/^(❗\s*)?(還沒叫料|未叫料|還沒訂貨|沒叫料的老師|還沒叫料的老師)(\s*下下週)?$/.test(t) && isAdmin_(lineAccountOf_(userId))) return lineTodoTeachersMsgs_(/下下週/.test(t));
   if (/^(📊\s*)?(下週)?訂貨進度(\s*下下週)?$/.test(t) && isAdmin_(lineAccountOf_(userId))) return lineWeekProgressMsgs_(/下下週/.test(t));
   const m = t.match(/^(今天|明天|後天|昨天)?\s*(課表|料單|叫貨單)\s*(.{0,20})$/);
@@ -8729,7 +8730,7 @@ function lineTodoTeachersMsgs_(later) {
   const ls = lessonsWithStatus_(w.from, w.fri, null).filter(function (x) { return x.status === 'todo'; });
   const title = (later ? '下下週' : '下週') + ' ' + shortDateTw_(w.from) + '～' + shortDateTw_(w.fri);
   const dl = currentDeadline_(new Date()), dlText = '截止：' + shortDateTw_(dl > new Date() ? dl : addDays_(dl, 7)) + ' ' + lockTime_();
-  const qr = { items: [['下下週', '還沒叫料 下下週'], ['下週', '還沒叫料'], ['📊 訂貨進度', '訂貨進度']].map(function (a) { return { type: 'action', action: { type: 'message', label: a[0], text: a[1] } }; }) };
+  const qr = { items: [['📋 文字版（貼群組）', '還沒叫料文字' + (later ? ' 下下週' : '')], ['📋 只列名字', '還沒叫料文字' + (later ? ' 下下週' : '') + ' 簡短'], ['下下週', '還沒叫料 下下週'], ['下週', '還沒叫料'], ['📊 訂貨進度', '訂貨進度']].map(function (a) { return { type: 'action', action: { type: 'message', label: a[0], text: a[1] } }; }) };
   if (!ls.length) return [Object.assign({ type: 'text', text: '👍 ' + title + ' 的課都叫料了（或標了不用訂貨）。\n' + dlText }, { quickReply: qr })];
   const by = {};
   ls.forEach(function (x) { (by[x.teacher] = by[x.teacher] || []).push(x); });
@@ -8747,6 +8748,27 @@ function lineTodoTeachersMsgs_(later) {
   if (rows.length > 70) { rows.length = 70; rows.push(fxT_('…太多了，其他請到網站「總課表」看。', { size: 'xs', color: FX_MUTED })); }
   return [Object.assign(fxFlexMsg_('還沒叫料：' + names.length + ' 位老師、' + ls.length + ' 堂', [fxB_('❗ 還沒叫料的老師', title + '・' + names.length + ' 位、' + ls.length + ' 堂\n' + dlText, rows)]), { quickReply: qr })];
 }
+/** 📋 還沒叫料的名單（純文字，貼到 LINE 群組用）。later＝下下週；brief＝只列老師、不列每一堂 */
+function todoTeachersText_(later, brief) {
+  const w = adminOrderWeek_(later);
+  const ls = lessonsWithStatus_(w.from, w.fri, null).filter(function (x) { return x.status === 'todo'; });
+  const dl = currentDeadline_(new Date()), dd = dl > new Date() ? dl : addDays_(dl, 7);
+  const head = '📣 ' + (later ? '下下週' : '下週') + '（' + shortDateTw_(w.from) + '～' + shortDateTw_(w.fri) + '）料單提醒\n⏰ 截止：' + shortDateTw_(dd) + ' ' + lockTime_();
+  if (!ls.length) return { text: head + '\n\n👍 大家的課都叫好料了，謝謝各位老師！', n: 0, lessons: 0 };
+  const by = {}, SO = { '上午': 1, '下午': 2, '晚上': 3 };
+  ls.forEach(function (x) { (by[x.teacher] = by[x.teacher] || []).push(x); });
+  const names = Object.keys(by).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+  const lines = names.map(function (n) {
+    if (brief) return '・' + n + '老師（' + by[n].length + ' 堂）';
+    const ps = by[n].sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (SO[a.session] || 9) - (SO[b.session] || 9); })
+      .map(function (x) { return shortDateTw_(parseDate_(x.date)) + x.session + ' ' + (x.course || '') + (x.className ? ' ' + x.className : ''); });
+    return '・' + n + '老師：\n　' + ps.join('\n　');
+  });
+  return { n: names.length, lessons: ls.length, text: head + '\n\n還沒叫料的課（' + names.length + ' 位老師、' + ls.length + ' 堂）：\n' + lines.join('\n') +
+    '\n\n請到訂貨網送出料單 🙏\n這週不用上課、不用叫料的，請在「我的課」按「不用訂貨」。\n已經送出的老師請忽略，謝謝大家！' };
+}
+/** 管理者網頁：還沒叫料名單文字 */
+function adminTodoText(token, later, brief) { auth_(token, true); return todoTeachersText_(!!later, !!brief); }
 function lineWeekProgressMsgs_(later) {
   const w = adminOrderWeek_(later);
   const ls = lessonsWithStatus_(w.from, w.fri, null);
