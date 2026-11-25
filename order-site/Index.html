@@ -3019,7 +3019,7 @@
     }
     b.addEventListener('click', function () {
       ask('', '📋 複製', { noText: '關閉', html: '<div style="text-align:left"><h3 style="margin:0 0 6px">📋 還沒叫料的名單</h3>' +
-        '<div class="status-chips" style="margin:4px 0"><button type="button" data-tdw="0" class="on">下週</button><button type="button" data-tdw="1">下下週</button>' +
+        '<div class="status-chips" style="margin:4px 0"><button type="button" data-tdw="this">本週</button><button type="button" data-tdw="0" class="on">下週</button><button type="button" data-tdw="1">下下週</button>' +
         '<span style="width:12px;display:inline-block"></span><button type="button" data-tdb="0" class="on">列出每一堂</button><button type="button" data-tdb="1">只列老師</button></div>' +
         '<div class="small muted" id="todoInfo" style="margin:4px 0"></div><textarea id="todoTxt" rows="14" style="width:100%;font-size:14px" aria-label="未叫料名單文字"></textarea>' +
         '<div class="small muted">可以先在框裡改字，再按「📋 複製」貼到 LINE 群組。「我的課」標了不用訂貨、放假日的課不會列出來。</div></div>' }).then(function (ok) {
@@ -3035,7 +3035,7 @@
           if (!w && !d) return;
           var el = w || d, attr = w ? 'data-tdw' : 'data-tdb';
           Array.prototype.forEach.call(box.querySelectorAll('[' + attr + ']'), function (x) { x.classList.toggle('on', x === el); });
-          if (w) later = w.getAttribute('data-tdw') === '1'; else brief = d.getAttribute('data-tdb') === '1';
+          if (w) later = w.getAttribute('data-tdw') === 'this' ? 'this' : w.getAttribute('data-tdw') === '1'; else brief = d.getAttribute('data-tdb') === '1';
           load();
         });
         later = false; brief = false; load();
