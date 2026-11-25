@@ -9800,7 +9800,11 @@
           (dryMoved ? ' <span class="badge noprint" style="background:#ecfeff;color:#0e7490" title="食材總表是 ' + esc(catVendorOf(t.name)) + '，飲調課自動改跟五洲叫。五洲沒賣的話按右邊「全部換廠商」換回旺來興，系統會記住，以後這樣就不再改五洲">🧋 飲調乾貨改五洲・五洲沒賣請按「全部換廠商」換回</span>' : '') +
           (ov ? ' <span class="badge warn noprint" title="直接改過合計，給廠商的是這個數字">已改（各班加總 ' + esc(fmtTotal(t.qty, t.unit, t.name)) + '）</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + shown + '</td>' +
           move.replace('<td class="noprint">', '<td class="noprint" style="white-space:nowrap">' + edit) + '</tr>';
-      }).join('') + '</tbody></table>';
+      }).join('') + (list[0] ? '<tr class="noprint pa-row" data-pav="' + esc(list[0].vendor) + '" data-pag="' + esc(list[0].group || '') + '" data-pad="' + esc(list[0].date) + '">' +
+        '<td><input type="text" class="pa-name" list="pItems-' + esc(list[0].vendor) + '" autocomplete="off" maxlength="40" placeholder="＋ 補庫存：打食材名稱" title="食材總表沒有的會自動新增" aria-label="補庫存食材名稱"></td>' +
+        '<td class="num muted small">補庫存</td>' +
+        '<td class="num"><span class="tin"><input type="text" class="pa-qty" autocomplete="off" placeholder="數量" aria-label="補庫存數量"><input type="text" class="pa-unit unit-input" data-free="1" maxlength="10" autocomplete="off" placeholder="單位" aria-label="補庫存單位"></span></td>' +
+        '<td><button type="button" class="btn small" data-paddinline>＋ 加入</button></td></tr>' : '') + '</tbody></table>';
   }
   // 合計格子的預設值：兩換成斤、克取整數
   function totInput(q, u) {
@@ -10058,7 +10062,7 @@
     if (!items.length) { pAdd(v, date, group); return; }
     var had = {};
     pState.rows.forEach(function (r) { if (r.vendor === v && r.date === date && r.kind === '補庫存' && r.name) had[r.name] = true; });
-    var blank = false;
+    var blank = false, newName = '';
     ask('', '加入勾選的', { noText: '取消', html: '<div class="info-check"><h3>補庫存：' + esc(v) + '（' + esc(shortDate(date)) + '）</h3>' +
       '<div class="muted small">勾要補的食材，旁邊填數量、單位（直接填數量也會自動勾）。最後按「加入勾選的」一次加進去。</div>' +
       '<input id="ppQ" type="search" placeholder="🔍 搜尋食材" autocomplete="off" style="margin-top:8px">' +
@@ -10069,8 +10073,10 @@
           '<input type="text" class="unit-input" data-free="1" data-ppu="' + i + '" autocomplete="off" maxlength="10" placeholder="單位" value="' + esc(it.unit || '') + '"></div>';
       }).join('') + '</div>' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap"><span class="small" id="ppCount">已勾 0 項</span>' +
-      '<button type="button" class="btn ghost small" id="ppBlank">＋ 清單沒有的（空白一列）</button></div></div>' }).then(function (ok) {
+      '<button type="button" class="btn ghost small" id="ppBlank">＋ 清單沒有的（空白一列）</button></div>' +
+      '<div id="ppNewBox" class="hidden" style="margin-top:8px;padding:8px;border:1px dashed #f59e0b;border-radius:10px;background:#fffbeb">找不到這樣食材 → <button type="button" class="btn small" id="ppNew"></button><div class="muted small">會加進食材總表（' + esc(v) + '），再加進補庫存</div></div></div>' }).then(function (ok) {
       if (blank) { pAdd(v, date, group); return; }
+      if (newName) { pAddStock(v, date, group, newName, '', '').then(function () { renderPurchase(); toast('已加入補庫存「' + newName + '」，數量、單位填好再儲存。'); }).catch(function (err) { notice(err.message); }); return; }
       if (!ok) return;
       var n = 0;
       items.forEach(function (it, i) {
@@ -10105,12 +10111,57 @@
     var filt = function (e) {
       if (e && e.isComposing) return;
       var q = normName($('ppQ').value);
-      Array.prototype.forEach.call(list.querySelectorAll('.pp-row'), function (row) { row.style.display = !q || row.getAttribute('data-ppn').indexOf(q) >= 0 ? '' : 'none'; });
+      var shown = 0;
+      Array.prototype.forEach.call(list.querySelectorAll('.pp-row'), function (row) { var on = !q || row.getAttribute('data-ppn').indexOf(q) >= 0; row.style.display = on ? '' : 'none'; if (on) shown++; });
+      var raw = $('ppQ').value.trim();
+      $('ppNewBox').classList.toggle('hidden', !raw || shown > 0);
+      $('ppNew').textContent = '＋ 新增「' + raw + '」';
     };
     $('ppQ').addEventListener('input', filt);
     $('ppQ').addEventListener('compositionend', filt);
     $('ppBlank').addEventListener('click', function () { blank = true; $('askNo').click(); });
+    $('ppNew').addEventListener('click', function () { newName = $('ppQ').value.trim(); $('askNo').click(); });
   }
+  // 補庫存：用名稱加一項；食材總表沒有的，先自動新增成這家廠商的新食材
+  function pAddStock(v, date, group, name, qty, unit) {
+    name = String(name || '').trim();
+    if (!name) return Promise.resolve(false);
+    var it = data.items.filter(function (x) { return x.name === name && x.vendor === v; })[0] || data.items.filter(function (x) { return x.name === name || (x.alias && (' ' + x.alias + ' ').replace(/[、,，]/g, ' ').indexOf(' ' + name + ' ') >= 0); })[0];
+    var made = it ? Promise.resolve(it) : call('adminAddItem', token, { name: name, vendor: v, unit: unit || '', dept: '通用' }).then(function (ni) {
+      ni = Object.assign({ name: name, vendor: v, unit: unit || '', dept: '通用' }, ni || {});
+      data.items.push(ni); if (typeof itemById === 'object' && ni.id) itemById[ni.id] = ni; catVendorMap = null;
+      toast('「' + name + '」是新食材，已加進食材總表（' + v + '）。');
+      return ni;
+    });
+    return made.then(function (x) {
+      var q = normNum(String(qty == null ? '' : qty));
+      pState.rows.push({ date: date, group: group, vendor: v, name: x.name, id: x.id || '', need: '', needUnit: '', kind: '補庫存',
+        qty: q === '' ? '' : q === null ? NaN : Number(q), unit: unit || x.unit || '', note: '' });
+      pState.dirty[v] = true;
+      return true;
+    });
+  }
+  function paInline(tr) {
+    var v = tr.getAttribute('data-pav'), g = tr.getAttribute('data-pag'), d = tr.getAttribute('data-pad');
+    var nm = tr.querySelector('.pa-name').value.trim(), q = tr.querySelector('.pa-qty').value.trim(), u = tr.querySelector('.pa-unit').value.trim();
+    if (!nm) { tr.querySelector('.pa-name').focus(); toast('請打食材名稱。'); return; }
+    var b = tr.querySelector('[data-paddinline]'); setBusy(b, true, '加入中…');
+    pAddStock(v, d, g, nm, q, u).then(function () {
+      renderPurchase();
+      var w = vBox(v + '|' + g, 'data-pday'), nr = w && w.querySelector('.pa-name'); if (nr) nr.focus();
+      toast('已加入補庫存「' + nm + '」，記得按「先儲存」或「確定叫貨」。');
+    }).catch(function (err) { notice(err.message); setBusy(b, false); });
+  }
+  $('vendorSheets').addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-paddinline]'); if (b && pState) paInline(b.closest('tr')); });
+  $('vendorSheets').addEventListener('keydown', function (e) {
+    var inp = e.target.closest && e.target.closest('.pa-row input');
+    if (!inp || e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    var tr = inp.closest('tr');
+    if (inp.classList.contains('pa-name')) { tr.querySelector('.pa-qty').focus(); return; }   // 名稱 → 數量 → 單位 → 加入
+    if (inp.classList.contains('pa-qty')) { var it = data.items.filter(function (x) { return x.name === tr.querySelector('.pa-name').value.trim(); })[0]; var uu = tr.querySelector('.pa-unit'); if (!uu.value && it && it.unit) uu.value = it.unit; uu.focus(); return; }
+    paInline(tr);
+  });
   function pAdd(v, date, group) {
     pState.rows.push({ date: date, group: group, vendor: v, name: '', id: '', need: '', needUnit: '', kind: '補庫存', qty: '', unit: '', note: '' });
     var idx = pState.rows.length - 1;
@@ -10216,8 +10267,25 @@
       if (tr) { tr.scrollIntoView({ block: 'center' }); tr.classList.add('field-err'); }
       return;
     }
+    // 補庫存打了食材總表沒有的名稱：先自動新增成新食材，再儲存
+    var news = mine.filter(function (r) { return r.kind === '補庫存' && !r.id && r.name && !data.items.some(function (x) { return x.name === r.name; }); });
+    if (news.length) {
+      setBusy(btn, true, '新增食材中…');
+      var chain = Promise.resolve();
+      news.forEach(function (r) {
+        chain = chain.then(function () {
+          if (data.items.some(function (x) { return x.name === r.name; })) return;
+          return call('adminAddItem', token, { name: r.name, vendor: r.vendor, unit: r.unit || '', dept: '通用' }).then(function (ni) {
+            ni = Object.assign({ name: r.name, vendor: r.vendor, unit: r.unit || '', dept: '通用' }, ni || {}); data.items.push(ni); catVendorMap = null;
+          });
+        });
+      });
+      chain.then(function () { setBusy(btn, false); toast('新食材已加進食材總表：' + news.map(function (r) { return r.name; }).join('、')); savePurchase(btn, v, confirm); })
+        .catch(function (e) { setBusy(btn, false); msg('vendorMsg', 'error', '新增食材失敗：' + e.message); });
+      return;
+    }
     var rows = mine.map(function (r) {
-      var it = r.kind === '補庫存' && !r.id ? data.items.find(function (x) { return x.name === r.name && x.vendor === r.vendor; }) : null;
+      var it = r.kind === '補庫存' && !r.id ? data.items.find(function (x) { return x.name === r.name && x.vendor === r.vendor; }) || data.items.find(function (x) { return x.name === r.name; }) : null;
       return { date: r.date, group: r.group, vendor: r.vendor, orderNo: r.orderNo || '', className: r.className || '', teacher: r.teacher || '',
         name: r.name, id: r.id || (it ? it.id : ''), need: r.need, needUnit: r.needUnit, qty: Number(r.qty), unit: r.unit, kind: r.kind, note: r.note };
     }).concat((pState.overrides || []).filter(function (o) { return o.vendor === v; }).map(function (o) {   // ③ 叫貨單直接改的合計，重新儲存也保留
