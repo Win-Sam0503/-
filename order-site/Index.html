@@ -9770,7 +9770,29 @@
   function pSummary(v) {
     var c = { n: 0, diff: 0, zero: 0, add: 0 };
     pState.rows.forEach(function (r) { if (r.vendor !== v) return; var d = pDiff(r); if (r.kind === '訂單') c.n++; if (d) c[d]++; });
-    return '老師訂 ' + c.n + ' 筆；<span class="pd-diff">改量 ' + c.diff + ' 筆</span>；<span class="pd-zero">不叫（用庫存）' + c.zero + ' 筆</span>；<span class="pd-add">補庫存 ' + c.add + ' 筆</span>';
+    var g = {}; pState.rows.forEach(function (r) { if (r.vendor === v) (g[r.group || ''] = g[r.group || ''] || []).push(r); });
+    var e = { sum: 0, miss: 0 }; Object.keys(g).forEach(function (k) { var x = pEst(g[k]); e.sum += x.sum; e.miss += x.miss; });
+    return '老師訂 ' + c.n + ' 筆；<span class="pd-diff">改量 ' + c.diff + ' 筆</span>；<span class="pd-zero">不叫（用庫存）' + c.zero + ' 筆</span>；<span class="pd-add">補庫存 ' + c.add + ' 筆</span>' +
+      '<div style="margin-top:4px;font-weight:700;color:#475467">💰 這家估計約 $' + money0(e.sum) + (e.miss ? '<span class="muted small" style="font-weight:400">（另有 ' + e.miss + ' 樣沒單價、沒算進去）</span>' : '') + '<span class="muted small" style="font-weight:400">・照單價表最近的價錢估，實際以銷貨單為準</span></div>';
+  }
+  // 💰 估價：一段（一張叫貨單）實際叫貨合計 × 單價表最近的單價；直接改過合計的用改過的數字
+  function pEstRow(v, d, list, name, qty, unit) {
+    var ov = (pState.overrides || []).filter(function (o) { return o.vendor === v && (o.group || '') === (list[0].group || '') && o.name === name; })[0];
+    if (ov) { qty = Number(ov.qty) || 0; unit = ov.unit; }
+    if (!(qty > 0)) return { amt: 0, zero: true };
+    var amt = estCost({ name: name, qty: qty, unit: unit, vendor: v, d: d });
+    return amt === null ? null : { amt: amt };
+  }
+  function pEst(list) {
+    var out = { sum: 0, miss: 0, by: {} };
+    if (!list.length) return out;
+    var act = sumLines(list, 'qty', 'unit', true);
+    act.forEach(function (t) {
+      var r = pEstRow(list[0].vendor, list[0].date, list, t.name, t.qty, t.unit);
+      out.by[t.name + '|' + t.unit] = r;
+      if (r === null) out.miss++; else out.sum += r.amt;
+    });
+    return out;
   }
   // 某一天的合計表（老師訂 → 實際叫貨），改數量時即時重算
   // 食材總表上這樣食材原本的廠商（看飲調課的乾貨是不是被自動改成五洲）
@@ -9781,7 +9803,8 @@
     need.forEach(function (t) { var k = t.name + '|' + t.unit; m[k] = { name: t.name, unit: t.unit, need: t.qty, qty: 0 }; keys.push(k); });
     act.forEach(function (t) { var k = t.name + '|' + t.unit; if (!m[k]) { m[k] = { name: t.name, unit: t.unit, need: 0, qty: 0 }; keys.push(k); } m[k].qty = t.qty; });
     var mixed = mixedNames(keys.map(function (k) { return m[k]; }));
-    return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th><th class="noprint"></th></tr></thead><tbody>' +
+    var est = pEst(list);
+    return '<table class="ptot"><thead><tr><th>食材</th><th class="num">老師訂合計</th><th class="num">實際叫貨合計</th><th class="num noprint">估價</th><th class="noprint"></th></tr></thead><tbody>' +
       keys.sort(byItemKey).map(function (k) {
         var t = m[k], cls = t.qty === t.need ? '' : t.qty === 0 ? ' class="p-zero"' : ' class="p-diff"';
         var move = '<td class="noprint">' + (t.need ? '<button type="button" class="btn ghost small" data-pmoveall="' + esc(t.name) + '" title="這家沒有賣，這段期間所有班的「' + esc(t.name) + '」都改跟別家叫">全部換廠商</button>' : '') + '</td>';
@@ -9796,15 +9819,17 @@
         var seenK = list[0] ? list[0].vendor + '|' + (list[0].group || '') + '|' + t.name : '';
         var rc = (ov ? 'p-diff' : cls.replace(/^ class="|"$/g, '')) + (pState.seen && pState.seen[seenK] ? ' seen' : '');
         var dryMoved = list[0] && list[0].vendor === 'F飲調' && /^E/.test(catVendorOf(t.name));
+        var er = est.by[k], estTd = '<td class="num noprint" style="color:#475467;white-space:nowrap">' + (er === undefined || (er && er.zero) ? '' : er === null ? '<span class="muted small" title="單價表沒有這樣，或單位換不過去">沒單價</span>' : '約 $' + money0(er.amt)) + '</td>';
         return '<tr' + (rc.trim() ? ' class="' + rc.trim() + '"' : '') + ' data-pname="' + esc(t.name) + '"><td>' + esc(t.name) + unitBadges(t, mixed) +
           (dryMoved ? ' <span class="badge noprint" style="background:#ecfeff;color:#0e7490" title="食材總表是 ' + esc(catVendorOf(t.name)) + '，飲調課自動改跟五洲叫。五洲沒賣的話按右邊「全部換廠商」換回旺來興，系統會記住，以後這樣就不再改五洲">🧋 飲調乾貨改五洲・五洲沒賣請按「全部換廠商」換回</span>' : '') +
-          (ov ? ' <span class="badge warn noprint" title="直接改過合計，給廠商的是這個數字">已改（各班加總 ' + esc(fmtTotal(t.qty, t.unit, t.name)) + '）</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + shown + '</td>' +
+          (ov ? ' <span class="badge warn noprint" title="直接改過合計，給廠商的是這個數字">已改（各班加總 ' + esc(fmtTotal(t.qty, t.unit, t.name)) + '）</span>' : '') + '</td><td class="num">' + (t.need ? esc(fmtTotal(t.need, t.unit, t.name)) : '—') + '</td><td class="num vq">' + shown + '</td>' + estTd +
           move.replace('<td class="noprint">', '<td class="noprint" style="white-space:nowrap">' + edit) + '</tr>';
       }).join('') + (list[0] ? '<tr class="noprint pa-row" data-pav="' + esc(list[0].vendor) + '" data-pag="' + esc(list[0].group || '') + '" data-pad="' + esc(list[0].date) + '">' +
         '<td><input type="text" class="pa-name" list="pItems-' + esc(list[0].vendor) + '" autocomplete="off" maxlength="40" placeholder="＋ 補庫存：打食材名稱" title="食材總表沒有的會自動新增" aria-label="補庫存食材名稱"></td>' +
         '<td class="num muted small">補庫存</td>' +
         '<td class="num"><span class="tin"><input type="text" class="pa-qty" autocomplete="off" placeholder="數量" aria-label="補庫存數量"><input type="text" class="pa-unit unit-input" data-free="1" maxlength="10" autocomplete="off" placeholder="單位" aria-label="補庫存單位"></span></td>' +
-        '<td><button type="button" class="btn small" data-paddinline>＋ 加入</button></td></tr>' : '') + '</tbody></table>';
+        '<td class="noprint"></td><td><button type="button" class="btn small" data-paddinline>＋ 加入</button></td></tr>' : '') +
+        '<tr class="noprint"><td colspan="3" style="text-align:right;font-weight:700">這段估計</td><td class="num" style="font-weight:700;white-space:nowrap">約 $' + money0(est.sum) + '</td><td class="small muted">' + (est.miss ? est.miss + ' 樣沒單價' : '') + '</td></tr></tbody></table>';
   }
   // 合計格子的預設值：兩換成斤、克取整數
   function totInput(q, u) {
