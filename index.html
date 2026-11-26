@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- ===== SEO：Google 搜尋結果會顯示這裡的標題與描述 ===== -->
+  <title>系統工作室｜訂貨系統・排課系統・Excel 自動化整理 客製化開發</title>
+  <meta name="description" content="專門為小店家、補習班、工作室客製化管理系統：線上訂貨系統、排課系統、Excel 報表自動化整理。免費諮詢、依需求報價，讓你少做重複工作、多賺時間。">
+  <meta name="keywords" content="訂貨系統,排課系統,Excel 自動化,Excel 整理,報表自動化,客製化系統,系統開發,小店家系統,補習班排課,Google 試算表">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/">
+  <meta name="robots" content="index, follow">
+  <!-- Google Search Console 驗證：把 Google 給你的那行貼到這裡取代下一行 -->
+  <!-- <meta name="google-site-verification" content="貼上你的驗證碼"> -->
+
+  <!-- 分享到 LINE / Facebook 時顯示的預覽 -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="系統工作室｜訂貨系統・排課系統・Excel 自動化">
+  <meta property="og:description" content="客製化管理系統開發，免費諮詢、依需求報價。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/">
+  <meta property="og:locale" content="zh_TW">
+
+  <!-- 結構化資料：幫助 Google 了解這是一個提供服務的商家 -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ProfessionalService",
+    "name": "系統工作室",
+    "description": "客製化訂貨系統、排課系統、Excel 自動化整理開發服務",
+    "url": "https://win-sam0503.github.io/-/",
+    "areaServed": "TW",
+    "serviceType": ["訂貨系統開發", "排課系統開發", "Excel 自動化整理"]
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --text: #1d2433;
+      --muted: #5b6475;
+      --line: #e3e6ec;
+      --brand: #2457d6;
+      --brand-dark: #1a42a8;
+      --brand-soft: #e8eefc;
+      --accent: #06c755; /* LINE 綠 */
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+    a { color: inherit; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+    /* 導覽列 */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .logo { font-weight: 800; font-size: 1.15rem; text-decoration: none; }
+    .logo span { color: var(--brand); }
+    .nav-links { display: flex; gap: 22px; align-items: center; }
+    .nav-links a { text-decoration: none; color: var(--muted); font-size: .95rem; }
+    .nav-links a:hover { color: var(--brand); }
+    .nav-links a.btn-primary, .nav-links a.btn-primary:hover { color: #fff; }
+
+    .btn {
+      display: inline-block; text-decoration: none; font-weight: 700;
+      padding: 12px 22px; border-radius: 10px; border: 0; cursor: pointer;
+      font-size: 1rem; font-family: inherit; transition: background .15s;
+    }
+    .btn-primary { background: var(--brand); color: #fff; }
+    .btn-primary:hover { background: var(--brand-dark); }
+    .btn-line { background: var(--accent); color: #fff; }
+    .btn-ghost { background: var(--brand-soft); color: var(--brand); }
+    .nav .btn { padding: 8px 16px; font-size: .9rem; }
+
+    /* 主視覺 */
+    .hero { padding-top: 80px; padding-bottom: 64px; text-align: center; }
+    .tag {
+      display: inline-block; background: var(--brand-soft); color: var(--brand);
+      padding: 4px 14px; border-radius: 99px; font-size: .85rem; font-weight: 700; margin-bottom: 18px;
+    }
+    .hero h1 { font-size: clamp(1.9rem, 5vw, 3rem); line-height: 1.3; margin-bottom: 16px; }
+    .hero h1 em { font-style: normal; color: var(--brand); }
+    .hero p { color: var(--muted); font-size: 1.1rem; max-width: 620px; margin: 0 auto 30px; }
+    .hero .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    section { padding: 64px 0; }
+    .section-title { text-align: center; margin-bottom: 40px; }
+    .section-title h2 { font-size: clamp(1.5rem, 3.5vw, 2rem); margin-bottom: 8px; }
+    .section-title p { color: var(--muted); }
+
+    .grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px;
+    }
+    .icon {
+      width: 48px; height: 48px; border-radius: 12px; background: var(--brand-soft);
+      display: grid; place-items: center; font-size: 1.5rem; margin-bottom: 16px;
+    }
+    .card h3 { font-size: 1.2rem; margin-bottom: 8px; }
+    .card p { color: var(--muted); margin-bottom: 14px; }
+    .card ul { list-style: none; }
+    .card li { padding-left: 22px; position: relative; margin-bottom: 6px; font-size: .95rem; }
+    .card li::before { content: "✓"; position: absolute; left: 0; color: var(--brand); font-weight: 800; }
+
+    /* 痛點 */
+    .pain { background: var(--card); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .pain-list { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .pain-item { padding: 18px 20px; border-radius: 12px; background: var(--bg); font-weight: 600; }
+    .pain-item span { color: #d64545; margin-right: 6px; }
+
+    /* 案例 */
+    .case .result {
+      margin-top: 12px; padding: 12px 14px; background: var(--brand-soft);
+      border-radius: 10px; font-size: .92rem; color: var(--brand-dark); font-weight: 600;
+    }
+    .case .who { font-size: .85rem; color: var(--brand); font-weight: 700; margin-bottom: 4px; }
+
+    /* 流程 */
+    .steps { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); counter-reset: s; }
+    .step { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+    .step::before {
+      counter-increment: s; content: counter(s);
+      display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+      background: var(--brand); color: #fff; font-weight: 800; margin-bottom: 10px;
+    }
+    .step h3 { font-size: 1.05rem; margin-bottom: 4px; }
+    .step p { color: var(--muted); font-size: .92rem; }
+
+    /* FAQ */
+    details {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 20px; margin-bottom: 12px;
+    }
+    summary { font-weight: 700; cursor: pointer; }
+    details p { color: var(--muted); margin-top: 10px; }
+
+    /* 聯絡 */
+    .contact { background: var(--brand); color: #fff; border-radius: 20px; padding: 48px 28px; }
+    .contact .section-title p { color: #d6e0fb; }
+    .contact-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .contact-ways { display: flex; flex-direction: column; gap: 12px; }
+    .contact-ways .btn { text-align: center; }
+    .contact-ways .btn-ghost { background: rgba(255,255,255,.15); color: #fff; }
+    form { display: flex; flex-direction: column; gap: 12px; }
+    label { font-size: .9rem; font-weight: 600; }
+    input, select, textarea {
+      width: 100%; padding: 11px 12px; border-radius: 10px; border: 0;
+      font-family: inherit; font-size: 1rem; margin-top: 4px; color: var(--text);
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    form .btn { background: #fff; color: var(--brand); }
+
+    footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 32px 0 40px; }
+
+    @media (max-width: 720px) {
+      .nav-links a:not(.btn) { display: none; }
+      .hero { padding-top: 56px; padding-bottom: 40px; }
+      section { padding: 48px 0; }
+      .contact { padding: 36px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="#" class="logo">系統<span>工作室</span></a>
+    <nav class="nav-links">
+      <a href="#services">服務項目</a>
+      <a href="#cases">作品案例</a>
+      <a href="#process">合作流程</a>
+      <a href="#faq">常見問題</a>
+      <a href="#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- 主視覺 -->
+  <div class="wrap hero">
+    <div class="tag">客製化系統開發｜免費諮詢</div>
+    <h1>把每天重複的工作<br><em>交給系統</em>處理</h1>
+    <p>訂貨系統、排課系統、Excel 自動化整理。依照你的工作流程量身打造，不用學複雜的軟體，打開就會用。</p>
+    <div class="actions">
+      <a href="#contact" class="btn btn-primary">我要免費諮詢</a>
+      <a href="#cases" class="btn btn-ghost">看作品案例</a>
+    </div>
+  </div>
+
+  <!-- 痛點 -->
+  <section class="pain">
+    <div class="wrap">
+      <div class="section-title">
+        <h2>你是不是也有這些困擾？</h2>
+      </div>
+      <div class="pain-list">
+        <div class="pain-item"><span>✕</span>客人用 LINE 訂貨，每天手動抄單、對單</div>
+        <div class="pain-item"><span>✕</span>老師、教室、學生時間喬到頭痛</div>
+        <div class="pain-item"><span>✕</span>每月花好幾天整理 Excel 報表</div>
+        <div class="pain-item"><span>✕</span>資料散在很多檔案，找不到也對不起來</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 服務項目 -->
+  <section id="services">
+    <div class="wrap">
+      <div class="section-title">
+        <h2>服務項目</h2>
+        <p>從小工具到完整系統，依你的需求和預算規劃</p>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <div class="icon">📦</div>
+          <h3>訂貨系統</h3>
+          <p>讓客戶自己線上下單，訂單自動彙整，不再手動抄單。</p>
+          <ul>
+            <li>線上訂貨表單／商品目錄</li>
+            <li>訂單自動彙整、出貨統計</li>
+            <li>庫存與對帳報表</li>
+            <li>手機、電腦都能用</li>
+          </ul>
+        </article>
+        <article class="card">
+          <div class="icon">📅</div>
+          <h3>排課系統</h3>
+          <p>適合補習班、才藝教室、工作室，課表一目了然。</p>
+          <ul>
+            <li>老師／教室／學生課表</li>
+            <li>時段衝突自動檢查</li>
+            <li>上課紀錄與堂數統計</li>
+            <li>學費、薪資計算</li>
+          </ul>
+        </article>
+        <article class="card">
+          <div class="icon">📊</div>
+          <h3>Excel 系統與整理</h3>
+          <p>把雜亂的資料整理好，報表一鍵產出。</p>
+          <ul>
+            <li>Excel／Google 試算表自動化</li>
+            <li>函數、樞紐分析、VBA 巨集</li>
+            <li>多個檔案合併整理</li>
+            <li>客製化報表範本</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 作品案例 -->
+  <section id="cases" style="padding-top:0">
+    <div class="wrap">
+      <div class="section-title">
+        <h2>作品案例</h2>
+        <p>實際做過的系統</p>
+      </div>
+      <div class="grid">
+        <article class="card case">
+          <div class="who">訂貨系統</div>
+          <h3>批發商線上訂貨系統</h3>
+          <p>客戶透過線上表單下單，系統自動整理成出貨單與每日統計。</p>
+          <div class="result">成果：每天省下約 1–2 小時的抄單時間</div>
+        </article>
+        <article class="card case">
+          <div class="who">排課系統</div>
+          <h3>教室排課管理系統</h3>
+          <p>集中管理老師、教室與學生課表，排課時自動檢查時間衝突。</p>
+          <div class="result">成果：排課錯誤大幅減少，課表即時更新</div>
+        </article>
+        <article class="card case">
+          <div class="who">Excel 整理</div>
+          <h3>月報表自動化</h3>
+          <p>把多個分店的 Excel 資料自動合併，一鍵產生月報與圖表。</p>
+          <div class="result">成果：月報從數天縮短到幾分鐘</div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 合作流程 -->
+  <section id="process" style="padding-top:0">
+    <div class="wrap">
+      <div class="section-title">
+        <h2>合作流程</h2>
+        <p>簡單四步驟，清楚透明</p>
+      </div>
+      <div class="steps">
+        <div class="step"><h3>免費諮詢</h3><p>聊聊你現在的工作方式和遇到的問題。</p></div>
+        <div class="step"><h3>規劃報價</h3><p>提出功能規劃與報價，確認後才開始。</p></div>
+        <div class="step"><h3>開發測試</h3><p>過程中讓你試用，隨時調整。</p></div>
+        <div class="step"><h3>交付教學</h3><p>完成交付並教你使用，提供售後維護。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 常見問題 -->
+  <section id="faq" style="padding-top:0">
+    <div class="wrap" style="max-width:760px">
+      <div class="section-title">
+        <h2>常見問題</h2>
+      </div>
+      <details>
+        <summary>做一套系統大概多少錢？</summary>
+        <p>依功能複雜度而定，小型 Excel 整理工具到完整系統都有。歡迎先免費諮詢，確認需求後提供明確報價。</p>
+      </details>
+      <details>
+        <summary>需要多久時間完成？</summary>
+        <p>簡單的 Excel 自動化通常幾天內完成；訂貨、排課系統依功能約 1–4 週。</p>
+      </details>
+      <details>
+        <summary>我不懂電腦，用得來嗎？</summary>
+        <p>可以！系統會依照你習慣的方式設計，交付時也會一步一步教學。</p>
+      </details>
+      <details>
+        <summary>做完之後可以修改嗎？</summary>
+        <p>可以，交付後提供一段時間的免費小幅修改，之後也能依需求加功能。</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- 聯絡 -->
+  <section id="contact" style="padding-top:0">
+    <div class="wrap">
+      <div class="contact">
+        <div class="section-title">
+          <h2>免費諮詢，聊聊你的需求</h2>
+          <p>留下需求，通常 24 小時內回覆</p>
+        </div>
+        <div class="contact-grid">
+          <div class="contact-ways">
+            <!-- ★ 請把下面的 LINE ID、Email、電話換成你自己的 ★ -->
+            <a class="btn btn-line" href="https://line.me/ti/p/~你的LINE_ID" target="_blank" rel="noopener">加 LINE 諮詢</a>
+            <a class="btn btn-ghost" href="mailto:your@email.com">寄 Email：your@email.com</a>
+            <a class="btn btn-ghost" href="tel:0900000000">電話：0900-000-000</a>
+          </div>
+          <form id="inquiry">
+            <label>你的稱呼
+              <input name="name" required placeholder="例如：王小姐">
+            </label>
+            <label>聯絡方式（LINE / 電話 / Email）
+              <input name="contact" required>
+            </label>
+            <label>想做的系統
+              <select name="type">
+                <option>訂貨系統</option>
+                <option>排課系統</option>
+                <option>Excel 系統／整理</option>
+                <option>其他／還不確定</option>
+              </select>
+            </label>
+            <label>簡單描述你的需求
+              <textarea name="msg" placeholder="例如：目前用 LINE 接單，每天大約 30 筆…"></textarea>
+            </label>
+            <button class="btn" type="submit">送出需求</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  © <span id="year"></span> 系統工作室｜訂貨系統・排課系統・Excel 自動化
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // 表單送出：打開使用者的 Email 程式，自動帶入需求內容
+  // ★ 把 your@email.com 換成你的 Email ★
+  const MY_EMAIL = 'your@email.com';
+  document.getElementById('inquiry').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const f = new FormData(this);
+    const subject = '系統諮詢：' + f.get('type') + '（' + f.get('name') + '）';
+    const body = '稱呼：' + f.get('name') + '\n聯絡方式：' + f.get('contact') +
+                 '\n想做的系統：' + f.get('type') + '\n\n需求：\n' + f.get('msg');
+    location.href = 'mailto:' + MY_EMAIL + '?subject=' + encodeURIComponent(subject) +
+                    '&body=' + encodeURIComponent(body);
+  });
+</script>
+</body>
+</html>
