@@ -36,14 +36,16 @@
 
   <style>
     :root {
-      --bg: #f7f8fa;
+      --bg: #f4f7f6;
       --card: #ffffff;
-      --text: #1d2433;
-      --muted: #5b6475;
-      --line: #e3e6ec;
-      --brand: #2457d6;
-      --brand-dark: #1a42a8;
-      --brand-soft: #e8eefc;
+      --text: #15302c;
+      --muted: #55675f;
+      --line: #dfe8e4;
+      --brand: #1f8a70;
+      --deep: #0f3d3e;
+      --mint: #5fd3b0;
+      --brand-dark: #166b57;
+      --brand-soft: #e2f2ec;
       --accent: #06c755; /* LINE 綠 */
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -130,10 +132,11 @@
     .about { display: grid; gap: 28px; grid-template-columns: 200px 1fr; align-items: center; }
     .avatar {
       width: 200px; height: 200px; border-radius: 50%;
-      background: linear-gradient(135deg, #2f66e8, #1a42a8); color: #fff;
+      background: var(--deep); color: #fff;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       font-weight: 900; font-size: 5rem; line-height: 1;
     }
+    .avatar small i { font-style: normal; color: var(--mint); }
     .avatar small { font-size: 1.05rem; font-weight: 800; letter-spacing: 2px; margin-top: 10px; }
     .about h2 { font-size: clamp(1.4rem, 3.2vw, 1.8rem); margin-bottom: 10px; }
     .about p { color: var(--muted); margin-bottom: 10px; }
@@ -169,8 +172,8 @@
     details p { color: var(--muted); margin-top: 10px; }
 
     /* 聯絡 */
-    .contact { background: var(--brand); color: #fff; border-radius: 20px; padding: 48px 28px; }
-    .contact .section-title p { color: #d6e0fb; }
+    .contact { background: var(--deep); color: #fff; border-radius: 20px; padding: 48px 28px; }
+    .contact .section-title p { color: #b9e3d6; }
     .contact-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
     .contact-ways { display: flex; flex-direction: column; gap: 12px; }
     .contact-ways .btn { text-align: center; }
@@ -198,7 +201,7 @@
 
 <header>
   <div class="wrap nav">
-    <a href="#" class="logo">煒<span>程式工作室</span></a>
+    <a href="#" class="logo">煒<span>程</span>式工作室</a>
     <nav class="nav-links">
       <a href="#services">服務項目</a>
       <a href="#cases">作品案例</a>
@@ -316,7 +319,7 @@
   <section id="about" style="padding-top:0">
     <div class="wrap">
       <div class="card about">
-        <div class="avatar">煒<small>程式工作室</small></div>
+        <div class="avatar">煒<small><i>程</i>式工作室</small></div>
         <div>
           <h2>嗨，我是阿程 👋</h2>
           <p>「煒程式工作室」的名字來自我自己：<strong>煒程</strong>是我的名字，而<strong>程</strong>剛好也是我每天在寫的<strong>程式</strong>的「程」。</p>
