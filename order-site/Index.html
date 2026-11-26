@@ -9561,12 +9561,13 @@
         '<div class="noprint" style="text-align:right;margin-bottom:6px"><button type="button" class="btn secondary small" data-pcopy="' + esc(v) + '">複製叫貨文字</button></div>' +
         Object.keys(by[v]).sort().map(function (dk) {
           var real = fromPage(v, dk), tot = purchaseTotals(rows, real.v, real.dk), mixed = mixedNames(tot);
-          return '<h3>' + esc(batchLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th><th class="noprint" style="width:150px"></th></tr></thead><tbody>' +
+          return '<h3>' + esc(batchLabel(dk)) + '</h3><table><thead><tr><th>食材</th><th style="width:20%">叫貨合計</th><th style="width:28%">備註</th><th class="noprint" style="width:150px"></th></tr></thead><tbody>' +
             tot.map(function (t) {
               var key = esc(real.v + '|' + real.dk + '|' + t.name);
               return '<tr' + (t.deleted ? ' class="noprint" style="color:var(--muted);text-decoration:line-through"' : '') + '><td>' + esc(t.name) + unitBadges(t, mixed) +
                 (t.ovr ? ' <span class="badge warn noprint" title="在叫貨單直接改過">已改（原本 ' + esc(t.orig) + '）</span>' : '') + '</td>' +
                 '<td class="vq" style="text-align:right">' + (t.deleted ? '不叫' : esc(fmtTotal(t.qty, t.unit, t.name))) + '</td>' +
+                '<td style="font-size:13px">' + (t.deleted ? '' : esc(purchaseNotes(rows, real.v, real.dk, t.name))) + '</td>' +
                 '<td class="noprint" style="white-space:nowrap">' + (t.deleted ? '' : '<button type="button" class="btn ghost small" data-tedit="' + key + '">改量</button><button type="button" class="btn ghost small" data-tdel="' + key + '">刪除</button>') +
                 (t.ovr ? '<button type="button" class="btn ghost small" data-treset="' + key + '">恢復</button>' : '') + '</td></tr>';
             }).join('') + '</tbody></table>';
@@ -9647,10 +9648,20 @@
     return Object.keys(by[v] || {}).sort().map(function (dk) {
       var real = fromPage(v, dk);
       return '【' + v + '】' + batchLabel(dk) + '\n' + purchaseTotals(purchaseCache, real.v, real.dk).filter(function (t) { return !t.deleted; })
-        .map(function (t) { return t.name + ' ' + fmtTotal(t.qty, t.unit, t.name); }).join('\n');
+        .map(function (t) { var nt = purchaseNotes(purchaseCache, real.v, real.dk, t.name); return t.name + ' ' + fmtTotal(t.qty, t.unit, t.name) + (nt ? '（' + nt + '）' : ''); }).join('\n');
     }).join('\n\n');
   }
   // ③ 叫貨單的合計：各班加總，再套用在叫貨單直接改的合計（類型「合計」：這家廠商這個送貨組別這個食材的總量，0 ＝ 不叫）
+  // 叫貨單合計旁邊的備註：同一家、同一送貨組別、同一樣食材，各班寫的備註（重複的只留一個）
+  function purchaseNotes(rows, v, dk, name) {
+    var out = [];
+    rows.forEach(function (r) {
+      if (r.vendor !== v || (r.group || '') !== dk || r.name !== name || !r.note) return;
+      if (r.kind !== '合計' && !(Number(r.qty) > 0)) return;
+      String(r.note).split(/[；;]/).forEach(function (n) { n = n.trim(); if (n && out.indexOf(n) < 0) out.push(n); });
+    });
+    return out.join('；');
+  }
   function purchaseTotals(rows, v, dk) {
     var mine = rows.filter(function (r) { return r.vendor === v && (r.group || '') === dk; });
     var tot = sumLines(mine.filter(function (r) { return r.kind !== '合計'; }), 'qty', 'unit');

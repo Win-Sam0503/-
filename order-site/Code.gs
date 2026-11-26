@@ -7760,16 +7760,18 @@ function linePurchaseMsgs_(d) {
   const by = {}, order = [];
   rows.forEach(function (r) {
     const v = String(r['廠商'] || '').trim(), k = String(r['食材名稱'] || '').trim() + '|' + String(r['叫貨單位'] || '').trim();
-    const g = by[v] = by[v] || (order.push(v), { items: {}, keys: [], draft: false, groups: {} });
+    const g = by[v] = by[v] || (order.push(v), { items: {}, keys: [], draft: false, groups: {}, notes: {} });
     if (!g.items[k]) { g.items[k] = 0; g.keys.push(k); }
     g.items[k] += Number(r['叫貨量']) || 0;
+    const nt = String(r['備註'] || '').trim();   // 備註一起給廠商看（例如 6 公分長）
+    if (nt) { const a = g.notes[k] = g.notes[k] || []; if (a.indexOf(nt) < 0) a.push(nt); }
     if (/草稿/.test(String(r['狀態'] || ''))) g.draft = true;
     if (String(r['送貨組別'] || '').trim()) g.groups[String(r['送貨組別']).trim()] = true;
   });
   order.sort();
   const bubbles = order.map(function (v) {
     const g = by[v];
-    const items = g.keys.map(function (k) { const p = k.split('|'); return { type: 'box', layout: 'horizontal', contents: [fxT_(p[0], { size: 'sm', flex: 6 }), fxT_((Math.round(g.items[k] * 100) / 100) + ' ' + p[1], { size: 'sm', align: 'end', flex: 3 })] }; });
+    const items = g.keys.map(function (k) { const p = k.split('|'); return { type: 'box', layout: 'horizontal', contents: [fxT_(p[0] + (g.notes[k] ? '（' + g.notes[k].join('；') + '）' : ''), { size: 'sm', flex: 6, wrap: true }), fxT_((Math.round(g.items[k] * 100) / 100) + ' ' + p[1], { size: 'sm', align: 'end', flex: 3 })] }; });
     if (items.length > 30) { items.length = 30; items.push(fxT_('…還有 ' + (g.keys.length - 30) + ' 樣，請到網站「廠商訂貨單」看。', { size: 'xs', color: FX_MUTED })); }
     return fxB_('🚚 ' + v, shortDateTw_(d) + ' 送貨・' + g.keys.length + ' 樣' + (Object.keys(g.groups).length ? '・組別 ' + Object.keys(g.groups).join('、') : '') + (g.draft ? '・⚠ 還是草稿' : ''), items);
   });
