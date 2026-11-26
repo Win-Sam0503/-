@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>訂貨系統線上試用｜高雄 煒程式工作室</title>
+  <meta name="description" content="免費線上試用訂貨系統：用老師身分下單，再切換成管理者，看系統如何自動彙整訂單、把公克換算成斤兩、估算各廠商金額。不用註冊，打開就能玩。">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/demo/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="訂貨系統線上試用｜煒程式工作室">
+  <meta property="og:description" content="不用註冊，打開就能試：老師下單 → 管理者一鍵彙整、單位自動換算、估算金額。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/demo/">
+  <meta property="og:locale" content="zh_TW">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .demo-bar { background: #fff7e0; border-bottom: 1px solid #f0dfae; font-size: .9rem; }
+    .demo-bar .wrap { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+    .demo-bar b { color: #8a5a00; }
+    .linkbtn { background: none; border: 0; color: var(--brand); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; }
+    .d-head { padding-top: 28px; padding-bottom: 8px; text-align: center; }
+    .d-head h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); margin-bottom: 6px; }
+    .d-head p { color: var(--muted); }
+    .roles { display: flex; gap: 8px; justify-content: center; margin: 18px 0 8px; flex-wrap: wrap; }
+    .role { border: 2px solid var(--line); background: var(--card); border-radius: 999px; padding: 10px 20px; font: inherit; font-weight: 800; cursor: pointer; color: var(--text); }
+    .role[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .steps-mini { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 8px 0 18px; font-size: .85rem; }
+    .steps-mini span { background: var(--brand-soft); color: var(--brand-dark); padding: 4px 10px; border-radius: 999px; font-weight: 700; }
+    .steps-mini span.done { background: var(--brand); color: #fff; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+    .panel h2 { font-size: 1.15rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .panel h2 small { font-weight: 500; color: var(--muted); font-size: .85rem; }
+    .fgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+    .fgrid label, .fl { font-size: .85rem; font-weight: 700; color: var(--muted); display: block; }
+    .in { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 1rem; background: #fff; color: var(--text); margin-top: 4px; }
+    .in:focus { outline: 2px solid var(--brand); border-color: var(--brand); }
+    .in.err { border-color: #d64545; background: #fff3f3; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+    .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .9rem; cursor: pointer; color: var(--text); }
+    .chip.on { background: var(--deep); color: #fff; border-color: var(--deep); }
+    .items { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); max-height: 330px; overflow: auto; padding: 2px; }
+    .item { text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 10px 12px; cursor: pointer; font: inherit; color: var(--text); position: relative; }
+    .item:hover { border-color: var(--brand); }
+    .item b { display: block; }
+    .item small { color: var(--muted); font-size: .8rem; }
+    .item .plus { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--brand); font-weight: 900; font-size: 1.2rem; }
+    .item.sel { background: var(--brand-soft); border-color: var(--brand); }
+    .cart-row { display: grid; grid-template-columns: 1.4fr 80px 90px 1.4fr 32px; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .cart-row .nm b { display: block; }
+    .cart-row .nm small { color: var(--muted); font-size: .8rem; }
+    .cart-row .in { margin-top: 0; padding: 8px 10px; }
+    .x { border: 0; background: none; font-size: 1.2rem; color: var(--muted); cursor: pointer; }
+    .vhead { margin-top: 14px; font-weight: 800; color: var(--brand-dark); font-size: .9rem; }
+    .empty { color: var(--muted); text-align: center; padding: 18px; border: 2px dashed var(--line); border-radius: 12px; }
+    .sumbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .total { font-weight: 800; color: var(--brand-dark); }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--deep); color: #fff; padding: 12px 18px; border-radius: 12px; font-weight: 700; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 92%; text-align: center; }
+    .ok-box { text-align: center; padding: 24px 12px; }
+    .ok-box .big { font-size: 3rem; }
+    .orders { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    .ocard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff; font-size: .92rem; }
+    .ocard.mine { border: 2px solid var(--brand); background: var(--brand-soft); }
+    .ocard b { display: block; }
+    .ocard small { color: var(--muted); }
+    .tag-mine { display: inline-block; background: var(--brand); color: #fff; font-size: .75rem; padding: 1px 8px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
+    .vsheet { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-top: 14px; background: #fff; }
+    .vsheet-h { background: var(--deep); color: #fff; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .vsheet-h b { font-size: 1.05rem; }
+    .vsheet-h .btn { padding: 6px 12px; font-size: .85rem; background: rgba(255,255,255,.15); color: #fff; }
+    table.t { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    table.t th, table.t td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+    table.t th { background: #f4f7f6; font-size: .8rem; color: var(--muted); }
+    table.t td.num { text-align: right; font-weight: 800; white-space: nowrap; }
+    table.t tr.foot td { background: #f4f7f6; font-weight: 800; }
+    .conv { font-size: .78rem; color: var(--brand); font-weight: 700; display: block; }
+    details.detail { padding: 8px 14px 12px; }
+    details.detail summary { cursor: pointer; font-weight: 700; color: var(--brand-dark); font-size: .9rem; }
+    .hint { background: var(--brand-soft); border-radius: 12px; padding: 12px 14px; font-size: .92rem; margin-bottom: 14px; }
+    .hint b { color: var(--brand-dark); }
+    @media (max-width: 640px) {
+      .cart-row { grid-template-columns: 1fr 70px 80px 28px; }
+      .cart-row .note { grid-column: 1 / -2; grid-row: 2; }
+      .panel { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../#services">服務項目</a>
+      <a href="../order-system/">訂貨系統介紹</a>
+      <a href="../#videos">操作影片</a>
+      <a href="../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<div class="demo-bar">
+  <div class="wrap">
+    <span>🧪 <b>示範模式</b>：資料都是假的，只存在你自己的瀏覽器，不會送出給任何人。</span>
+    <button class="linkbtn" id="resetBtn" type="button">↺ 重新開始</button>
+  </div>
+</div>
+
+<main class="wrap" style="max-width:980px">
+  <div class="d-head">
+    <h1>訂貨系統線上試用</h1>
+    <p>先用「老師」身分下一張單，再切換成「管理者」，看系統怎麼自動彙整。</p>
+  </div>
+
+  <div class="roles" role="tablist">
+    <button class="role" role="tab" id="tabT" aria-selected="true" type="button">👩‍🏫 老師下單</button>
+    <button class="role" role="tab" id="tabA" aria-selected="false" type="button">🧑‍💼 管理者彙整</button>
+  </div>
+
+  <!-- ===== 老師 ===== -->
+  <section id="viewT" style="padding:0">
+    <div class="steps-mini" id="stepsMini"></div>
+    <div id="orderForm">
+      <div class="panel">
+        <h2>① 上課資訊</h2>
+        <div class="fgrid">
+          <div><label for="fDate">上課日期</label><input class="in" id="fDate" type="date"></div>
+          <div><label for="fClass">上課班級</label><input class="in" id="fClass" placeholder="例：302" maxlength="10"></div>
+          <div><label for="fGroups">組數（選填）</label><input class="in" id="fGroups" inputmode="numeric" placeholder="例：6" maxlength="3"></div>
+          <div style="grid-column:1/-1"><label for="fProject">實作項目</label><input class="in" id="fProject" placeholder="例：宮保雞丁、番茄炒蛋" maxlength="40"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>② 選擇食材 <small>打「蔥」也找得到青蔥，點一下加入</small></h2>
+        <input class="in" id="search" type="search" placeholder="🔍 搜尋食材，例如：蔥、雞腿、糖" autocomplete="off">
+        <div class="chips" id="vchips"></div>
+        <div class="items" id="items"></div>
+      </div>
+
+      <div class="panel">
+        <h2>③ 訂購清單 <small>可以用公克、斤、大匙…任何習慣的單位</small></h2>
+        <div id="cart"></div>
+        <div class="sumbar">
+          <span class="total" id="cartTotal"></span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost" type="button" id="fillSample">✨ 幫我填範例</button>
+            <button class="btn btn-primary" type="button" id="submitBtn">④ 送出訂單</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel ok-box hidden" id="okBox" hidden>
+      <div class="big">✅</div>
+      <h2 style="justify-content:center">訂單送出了！</h2>
+      <p style="color:var(--muted);margin-bottom:18px">接下來換成管理者，看看系統怎麼把所有老師的訂單自動彙整成廠商叫貨單。</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-primary" type="button" id="goAdmin">切換到管理者看彙整 →</button>
+        <button class="btn btn-ghost" type="button" id="orderAgain">再下一張</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 管理者 ===== -->
+  <section id="viewA" style="padding:0" hidden>
+    <div class="hint">💡 <b>這就是系統最省時間的地方：</b>每位老師用自己習慣的單位訂，系統自動加總、<b>換算成廠商要的單位</b>（菜商、肉商用斤兩），並用單價表<b>估算金額</b>。以前要手抄、拿計算機算半天，現在打開就好了。</div>
+    <div class="panel">
+      <h2>📋 這週的訂單 <small id="oCount"></small></h2>
+      <div class="orders" id="orders"></div>
+    </div>
+    <div class="panel">
+      <h2>🚚 廠商叫貨單 <small>自動彙整・單位換算・估價</small></h2>
+      <div class="chips" id="achips"></div>
+      <div id="sheets"></div>
+    </div>
+  </section>
+
+  <section style="padding-top:12px">
+    <div class="cta-band">
+      <h2>想要一套自己的訂貨系統？</h2>
+      <p>這只是簡化版示範。真正的系統會依你的品項、廠商、流程量身打造｜📍 高雄可約面談，全台線上服務</p>
+      <div class="actions">
+        <a class="btn btn-line" href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 諮詢（@376yuevo）</a>
+        <a class="btn btn-ghost" href="tel:0903667950">電話：0903-667-950</a>
+        <a class="btn btn-ghost" href="../order-system/">看完整功能介紹</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜訂貨系統線上試用（示範資料）</footer>
+
+<script>
+(function () {
+  'use strict';
+  // ---------- 資料 ----------
+  var VENDORS = [
+    { id: 'A菜商', icon: '🥬', jin: true }, { id: 'B肉商', icon: '🍖', jin: true }, { id: 'C蛋商', icon: '🥚' },
+    { id: 'D海鮮', icon: '🐟', jin: true }, { id: 'E乾貨', icon: '🌾' }, { id: 'F飲調', icon: '🧋' }
+  ];
+  var VMAP = {}; VENDORS.forEach(function (v) { VMAP[v.id] = v; });
+  // price：單價；pu：單價單位
+  var ITEMS = [
+    ['洋蔥', '黃洋蔥', 'A菜商', 'g', ['g', '斤', '公斤', '顆'], 28, '斤'],
+    ['青蔥', '蔥', 'A菜商', '把', ['把', 'g', '斤'], 35, '把'],
+    ['蒜頭', '蒜仁,大蒜', 'A菜商', 'g', ['g', '斤', '兩'], 90, '斤'],
+    ['老薑', '薑', 'A菜商', 'g', ['g', '斤', '兩'], 70, '斤'],
+    ['高麗菜', '甘藍,捲心菜', 'A菜商', '顆', ['顆', '斤'], 45, '顆'],
+    ['番茄', '牛番茄,蕃茄', 'A菜商', 'g', ['g', '斤', '公斤', '顆'], 50, '斤'],
+    ['紅蘿蔔', '胡蘿蔔', 'A菜商', 'g', ['g', '斤', '條'], 30, '斤'],
+    ['馬鈴薯', '洋芋', 'A菜商', 'g', ['g', '斤', '顆'], 45, '斤'],
+    ['豬五花肉', '五花,三層肉', 'B肉商', 'g', ['g', '斤', '公斤'], 165, '斤'],
+    ['去骨雞腿', '雞腿,雞腿肉', 'B肉商', 'g', ['g', '斤', '支'], 130, '斤'],
+    ['豬絞肉', '絞肉', 'B肉商', 'g', ['g', '斤'], 150, '斤'],
+    ['牛腱', '牛肉', 'B肉商', 'g', ['g', '斤', '公斤'], 320, '斤'],
+    ['雞蛋', '蛋,全蛋', 'C蛋商', '顆', ['顆', 'g'], 6, '顆'],
+    ['白蝦', '蝦,蝦子', 'D海鮮', 'g', ['g', '斤'], 380, '斤'],
+    ['鯛魚片', '魚片,魚', 'D海鮮', 'g', ['g', '斤', '片'], 220, '斤'],
+    ['高筋麵粉', '麵粉,高粉', 'E乾貨', 'g', ['g', '公斤'], 52, '公斤'],
+    ['低筋麵粉', '麵粉,低粉', 'E乾貨', 'g', ['g', '公斤'], 48, '公斤'],
+    ['細砂糖', '砂糖,糖,白糖', 'E乾貨', 'g', ['g', '公斤', 'T', 't'], 45, '公斤'],
+    ['無鹽奶油', '奶油', 'E乾貨', 'g', ['g', '公斤'], 320, '公斤'],
+    ['醬油', '', 'E乾貨', '瓶', ['瓶', 'T', 't', 'ml'], 85, '瓶'],
+    ['沙拉油', '油,食用油', 'E乾貨', 'T', ['T', 'ml', '瓶'], 120, '瓶'],
+    ['鹽', '鹽巴,食鹽', 'E乾貨', 'g', ['g', 't', 'T'], 30, '公斤'],
+    ['鮮奶', '牛奶,牛乳', 'F飲調', '瓶', ['瓶', 'ml'], 95, '瓶'],
+    ['紅茶葉', '紅茶,茶葉', 'F飲調', 'g', ['g', '包'], 180, '包']
+  ].map(function (r, i) { return { id: 'I' + i, name: r[0], alias: r[1], vendor: r[2], unit: r[3], units: r[4], price: r[5], pu: r[6] }; });
+  var BYNAME = {}; ITEMS.forEach(function (it) { BYNAME[it.name] = it; });
+
+  // ---------- 單位換算 ----------
+  var G = { g: 1, '公克': 1, '公斤': 1000, kg: 1000, '斤': 600, '台斤': 600, '兩': 37.5, T: 15, t: 5 };
+  var COUNT_SAME = { '個': '顆', '粒': '顆', '根': '條', '支': '條' };
+  function grams(q, u) { return G[u] ? q * G[u] : null; }
+  function fmt(n, d) { var k = Math.pow(10, d || 0); return String(Math.round(n * k) / k); }
+  function jinLiang(g) {
+    var liang = Math.ceil(g / 37.5 - 1e-9), jin = Math.floor(liang / 16), r = liang % 16;
+    return (jin ? jin + ' 斤' : '') + (jin && r ? ' ' : '') + (r ? r + ' 兩' : '') || '0 兩';
+  }
+  function weightText(g, vendor) {
+    if (VMAP[vendor] && VMAP[vendor].jin) return jinLiang(g);
+    return g >= 1000 ? fmt(g / 1000, 2) + ' 公斤' : fmt(g) + ' g';
+  }
+  // 一樣食材的合計（rows: [{qty, unit}]）→ { parts: [文字], cost, costOk, converted }
+  function total(item, rows) {
+    var g = 0, cnt = {}, converted = false, origUnits = {};
+    rows.forEach(function (r) {
+      if (!(r.qty > 0)) return;
+      origUnits[r.unit] = 1;
+      var w = grams(r.qty, r.unit);
+      if (w != null && !(item.name === '雞蛋')) { g += w; return; }
+      if (w != null && item.name === '雞蛋') { var n = Math.ceil(w / 50); cnt['顆'] = (cnt['顆'] || 0) + n; converted = true; return; }
+      var u = COUNT_SAME[r.unit] || r.unit;
+      cnt[u] = (cnt[u] || 0) + r.qty;
+    });
+    var parts = [];
+    if (g > 0) parts.push(weightText(g, item.vendor));
+    Object.keys(cnt).forEach(function (u) { parts.push(fmt(cnt[u], 2) + ' ' + u); });
+    var keys = Object.keys(origUnits);
+    if (g > 0 && keys.some(function (u) { return u !== '斤' && u !== '兩' && G[u]; })) converted = true;
+    // 估價
+    var cost = 0, ok = true;
+    if (g > 0) { if (G[item.pu]) cost += g / G[item.pu] * item.price; else ok = false; }
+    Object.keys(cnt).forEach(function (u) { if (u === item.pu) cost += cnt[u] * item.price; else ok = false; });
+    if (item.pu === '瓶' && g === 0 && cnt['瓶'] == null && Object.keys(cnt).length) ok = false;
+    return { parts: parts, text: parts.join('＋') || '—', cost: cost, costOk: ok, converted: converted, origUnits: keys };
+  }
+  function money(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function $(id) { return document.getElementById(id); }
+
+  // ---------- 範例訂單（其他老師） ----------
+  function nextMonday(add) { var d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7) + (add || 0)); return d; }
+  function iso(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function md(s) { var p = s.split('-'); var d = new Date(+p[0], p[1] - 1, +p[2]); return (+p[1]) + '/' + (+p[2]) + '（' + '日一二三四五六'[d.getDay()] + '）'; }
+  function L(n, q, u, note) { return { name: n, qty: q, unit: u, note: note || '' }; }
+  var SAMPLE = [
+    { id: 'S1', teacher: '林老師', cls: '305', project: '番茄炒蛋、蒜炒高麗菜', date: iso(nextMonday(0)), groups: 6,
+      items: [L('番茄', 1800, 'g'), L('雞蛋', 24, '顆'), L('青蔥', 1, '把'), L('高麗菜', 3, '顆'), L('蒜頭', 150, 'g'), L('沙拉油', 6, 'T')] },
+    { id: 'S2', teacher: '陳老師', cls: '201', project: '紅酒燉牛肉', date: iso(nextMonday(1)), groups: 5,
+      items: [L('牛腱', 2.5, '公斤'), L('洋蔥', 1500, 'g'), L('紅蘿蔔', 900, 'g'), L('馬鈴薯', 2, '斤'), L('番茄', 600, 'g')] },
+    { id: 'S3', teacher: '張老師', cls: '103', project: '戚風蛋糕', date: iso(nextMonday(2)), groups: 8,
+      items: [L('雞蛋', 2400, 'g', '蛋白蛋黃分開'), L('低筋麵粉', 800, 'g'), L('細砂糖', 1200, 'g'), L('沙拉油', 10, 'T'), L('鮮奶', 2, '瓶')] },
+    { id: 'S4', teacher: '黃老師', cls: '306', project: '三杯雞、蝦仁炒蛋', date: iso(nextMonday(3)), groups: 6,
+      items: [L('去骨雞腿', 1800, 'g', '切塊'), L('老薑', 150, 'g'), L('蒜頭', 150, 'g'), L('白蝦', 1.5, '斤'), L('雞蛋', 18, '顆'), L('醬油', 1, '瓶')] }
+  ];
+
+  // ---------- 狀態（只存在這個瀏覽器） ----------
+  var KEY = 'wcDemoOrder.v1';
+  var st = { mine: [], cart: [], role: 'T', vendor: '' };
+  try { var sv = JSON.parse(localStorage.getItem(KEY) || 'null'); if (sv && Array.isArray(sv.mine)) { st.mine = sv.mine; st.cart = Array.isArray(sv.cart) ? sv.cart : []; } } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ mine: st.mine, cart: st.cart })); } catch (e) {} }
+
+  function toast(msg) {
+    var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2600);
+  }
+
+  // ---------- 老師：選食材 ----------
+  var filterV = '';
+  function renderChips() {
+    $('vchips').innerHTML = '<button type="button" class="chip' + (filterV ? '' : ' on') + '" data-v="">🧺 全部</button>' +
+      VENDORS.map(function (v) { return '<button type="button" class="chip' + (filterV === v.id ? ' on' : '') + '" data-v="' + v.id + '">' + v.icon + ' ' + v.id + '</button>'; }).join('');
+  }
+  function renderItems() {
+    var q = $('search').value.trim();
+    var list = ITEMS.filter(function (it) {
+      if (filterV && it.vendor !== filterV) return false;
+      if (!q) return true;
+      return it.name.indexOf(q) >= 0 || it.alias.split(',').some(function (a) { return a && (a.indexOf(q) >= 0 || q.indexOf(a) >= 0); });
+    });
+    var inCart = {}; st.cart.forEach(function (c) { inCart[c.name] = 1; });
+    $('items').innerHTML = list.length ? list.map(function (it) {
+      return '<button type="button" class="item' + (inCart[it.name] ? ' sel' : '') + '" data-n="' + esc(it.name) + '"><b>' + esc(it.name) + '</b><small>' + VMAP[it.vendor].icon + ' ' + it.vendor + '・$' + it.price + '/' + it.pu + '</small><span class="plus">' + (inCart[it.name] ? '✓' : '+') + '</span></button>';
+    }).join('') : '<div class="empty" style="grid-column:1/-1">找不到「' + esc(q) + '」，換個字試試，例如「肉」「糖」</div>';
+  }
+  function addItem(name) {
+    var it = BYNAME[name]; if (!it) return;
+    st.cart.push({ name: name, qty: '', unit: it.unit, note: '' });
+    save(); renderCart(); renderItems(); renderSteps();
+    var rows = document.querySelectorAll('#cart .cart-row .qty');
+    if (rows.length) rows[rows.length - 1].focus({ preventScroll: true });
+    toast('已加入「' + name + '」，記得填數量');
+  }
+
+  // ---------- 老師：訂購清單 ----------
+  function renderCart() {
+    if (!st.cart.length) { $('cart').innerHTML = '<div class="empty">還沒有食材，從上面點一下加入，或按「✨ 幫我填範例」</div>'; $('cartTotal').textContent = ''; return; }
+    var byV = {};
+    st.cart.forEach(function (c, i) { var v = BYNAME[c.name].vendor; (byV[v] = byV[v] || []).push(i); });
+    var html = '', sum = 0, miss = 0;
+    VENDORS.forEach(function (v) {
+      if (!byV[v.id]) return;
+      html += '<div class="vhead">' + v.icon + ' ' + v.id + '</div>';
+      byV[v.id].forEach(function (i) {
+        var c = st.cart[i], it = BYNAME[c.name], q = parseFloat(c.qty);
+        var tt = total(it, [{ qty: q, unit: c.unit }]);
+        var est = q > 0 ? (tt.costOk ? '約 ' + money(tt.cost) : '單位不同，管理者確認') : '單價 $' + it.price + '/' + it.pu;
+        if (q > 0 && tt.costOk) sum += tt.cost; else if (q > 0) miss++;
+        html += '<div class="cart-row" data-i="' + i + '"><div class="nm"><b>' + esc(c.name) + '</b><small>' + est + '</small></div>' +
+          '<input class="in qty" inputmode="decimal" placeholder="數量" value="' + esc(c.qty) + '" aria-label="' + esc(c.name) + ' 數量">' +
+          '<select class="in unit" aria-label="單位">' + it.units.map(function (u) { return '<option' + (u === c.unit ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>' +
+          '<input class="in note" placeholder="備註（選填）" value="' + esc(c.note) + '" maxlength="30">' +
+          '<button type="button" class="x" aria-label="刪除">✕</button></div>';
+      });
+    });
+    $('cart').innerHTML = html;
+    $('cartTotal').textContent = '食材 ' + st.cart.length + ' 項・預估約 ' + money(sum) + (miss ? '（' + miss + ' 項另外算）' : '');
+  }
+  function renderSteps() {
+    var s1 = $('fClass').value.trim() && $('fProject').value.trim(), s2 = st.cart.length > 0, s3 = s2 && st.cart.every(function (c) { return parseFloat(c.qty) > 0; });
+    var done = [s1, s2, s3, st.mine.length > 0];
+    $('stepsMini').innerHTML = ['① 填上課資訊', '② 加食材', '③ 填數量', '④ 送出 → 換管理者看彙整'].map(function (t, i) { return '<span class="' + (done[i] ? 'done' : '') + '">' + (done[i] ? '✓ ' : '') + t + '</span>'; }).join('');
+  }
+  $('cart').addEventListener('input', function (e) {
+    var row = e.target.closest('.cart-row'); if (!row) return;
+    var c = st.cart[+row.getAttribute('data-i')];
+    if (e.target.classList.contains('qty')) { c.qty = e.target.value.replace(/[^\d.]/g, ''); }
+    if (e.target.classList.contains('note')) c.note = e.target.value;
+    save();
+    if (e.target.classList.contains('qty')) {
+      // 只更新估價，不重畫整個清單（避免輸入時游標跳走）
+      var it = BYNAME[c.name], q = parseFloat(c.qty), tt = total(it, [{ qty: q, unit: c.unit }]);
+      row.querySelector('.nm small').textContent = q > 0 ? (tt.costOk ? '約 ' + money(tt.cost) : '單位不同，管理者確認') : '單價 $' + it.price + '/' + it.pu;
+      var sum = 0, miss = 0;
+      st.cart.forEach(function (x) { var qq = parseFloat(x.qty); if (!(qq > 0)) return; var t2 = total(BYNAME[x.name], [{ qty: qq, unit: x.unit }]); if (t2.costOk) sum += t2.cost; else miss++; });
+      $('cartTotal').textContent = '食材 ' + st.cart.length + ' 項・預估約 ' + money(sum) + (miss ? '（' + miss + ' 項另外算）' : '');
+      e.target.classList.remove('err'); renderSteps();
+    }
+  });
+  $('cart').addEventListener('change', function (e) {
+    var row = e.target.closest('.cart-row'); if (!row) return;
+    if (e.target.classList.contains('unit')) { st.cart[+row.getAttribute('data-i')].unit = e.target.value; save(); renderCart(); }
+  });
+  $('cart').addEventListener('click', function (e) {
+    if (!e.target.classList.contains('x')) return;
+    var row = e.target.closest('.cart-row'); st.cart.splice(+row.getAttribute('data-i'), 1); save(); renderCart(); renderItems(); renderSteps();
+  });
+  $('items').addEventListener('click', function (e) { var b = e.target.closest('.item'); if (b) addItem(b.getAttribute('data-n')); });
+  $('vchips').addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (!b) return; filterV = b.getAttribute('data-v'); renderChips(); renderItems(); });
+  $('search').addEventListener('input', renderItems);
+  ['fClass', 'fProject'].forEach(function (id) { $(id).addEventListener('input', function () { $(id).classList.remove('err'); renderSteps(); }); });
+
+  $('fillSample').addEventListener('click', function () {
+    if (!$('fClass').value.trim()) $('fClass').value = '302';
+    if (!$('fProject').value.trim()) $('fProject').value = '宮保雞丁、蒜泥白肉';
+    if (!$('fGroups').value.trim()) $('fGroups').value = '6';
+    st.cart = [L('去骨雞腿', 1800, 'g', '切丁'), L('豬五花肉', 1.5, '斤'), L('青蔥', 2, '把', '切蔥花'), L('蒜頭', 300, 'g'), L('老薑', 200, 'g'), L('醬油', 1, '瓶')]
+      .map(function (x) { return { name: x.name, qty: String(x.qty), unit: x.unit, note: x.note }; });
+    save(); renderCart(); renderItems(); renderSteps(); toast('範例已填好，按「④ 送出訂單」試試看');
+  });
+
+  $('submitBtn').addEventListener('click', function () {
+    var bad = [];
+    if (!$('fClass').value.trim()) { $('fClass').classList.add('err'); bad.push('上課班級'); }
+    if (!$('fProject').value.trim()) { $('fProject').classList.add('err'); bad.push('實作項目'); }
+    if (!st.cart.length) bad.push('至少一樣食材');
+    var noQty = [];
+    document.querySelectorAll('#cart .cart-row').forEach(function (r) { var c = st.cart[+r.getAttribute('data-i')]; if (!(parseFloat(c.qty) > 0)) { r.querySelector('.qty').classList.add('err'); noQty.push(c.name); } });
+    if (noQty.length) bad.push(noQty.join('、') + ' 的數量');
+    if (bad.length) { toast('還沒填：' + bad.join('、')); var f = document.querySelector('.err'); if (f) f.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    st.mine.push({ id: 'M' + Date.now(), teacher: '你（試用）', mine: true, cls: $('fClass').value.trim(), project: $('fProject').value.trim(),
+      groups: $('fGroups').value.trim(), date: $('fDate').value || iso(nextMonday(0)),
+      items: st.cart.map(function (c) { return { name: c.name, qty: parseFloat(c.qty), unit: c.unit, note: c.note }; }) });
+    st.cart = []; save();
+    $('orderForm').hidden = true; $('okBox').hidden = false; renderSteps();
+    $('okBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  $('orderAgain').addEventListener('click', function () {
+    $('okBox').hidden = true; $('orderForm').hidden = false; $('fClass').value = ''; $('fProject').value = ''; $('fGroups').value = '';
+    renderCart(); renderItems(); renderSteps(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  $('goAdmin').addEventListener('click', function () { setRole('A'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  // ---------- 管理者 ----------
+  function allOrders() { return SAMPLE.concat(st.mine).slice().sort(function (a, b) { return a.date.localeCompare(b.date); }); }
+  function renderAdmin() {
+    var os = allOrders();
+    $('oCount').textContent = os.length + ' 張・' + (st.mine.length ? '含你下的 ' + st.mine.length + ' 張' : '你還沒下單，先到「老師下單」試試');
+    $('orders').innerHTML = os.map(function (o) {
+      return '<div class="ocard' + (o.mine ? ' mine' : '') + '"><b>' + md(o.date) + '　' + esc(o.cls) + ' 班' + (o.mine ? '<span class="tag-mine">你下的</span>' : '') + '</b>' +
+        esc(o.project) + '<br><small>' + esc(o.teacher) + '・' + o.items.length + ' 項食材' + (o.groups ? '・' + esc(o.groups) + ' 組' : '') + '</small></div>';
+    }).join('');
+    // 依廠商
+    var byV = {};
+    os.forEach(function (o) { o.items.forEach(function (x) { var it = BYNAME[x.name]; if (!it) return; var v = it.vendor;
+      byV[v] = byV[v] || {}; (byV[v][x.name] = byV[v][x.name] || []).push({ qty: x.qty, unit: x.unit, note: x.note, o: o }); }); });
+    var vs = VENDORS.filter(function (v) { return byV[v.id]; });
+    if (st.vendor && !byV[st.vendor]) st.vendor = '';
+    $('achips').innerHTML = '<button type="button" class="chip' + (st.vendor ? '' : ' on') + '" data-v="">全部廠商（' + vs.length + '）</button>' +
+      vs.map(function (v) { return '<button type="button" class="chip' + (st.vendor === v.id ? ' on' : '') + '" data-v="' + v.id + '">' + v.icon + ' ' + v.id + '</button>'; }).join('');
+    $('sheets').innerHTML = vs.filter(function (v) { return !st.vendor || st.vendor === v.id; }).map(function (v) {
+      var names = Object.keys(byV[v.id]).sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); });
+      var sum = 0, rows = names.map(function (n) {
+        var it = BYNAME[n], rs = byV[v.id][n], t = total(it, rs);
+        if (t.costOk) sum += t.cost;
+        var from = rs.map(function (r) { return fmt(r.qty, 2) + ' ' + r.unit; }).join('＋');
+        var changed = from.replace(/\s/g, '') !== t.text.replace(/\s/g, '');
+        return '<tr' + (rs.some(function (r) { return r.o.mine; }) ? ' style="background:#f1faf6"' : '') + '><td>' + esc(n) + (changed ? '<span class="conv">老師訂：' + esc(from) + ' → 自動' + (rs.every(function (r) { return r.unit === rs[0].unit; }) && t.parts.length === 1 && t.text.indexOf(rs[0].unit) >= 0 && !/斤|兩/.test(t.text + rs[0].unit) ? '加總' : (rs.length > 1 ? '加總、換算' : '換算')) + '</span>' : '') + '</td><td class="num">' + esc(t.text) + '</td><td class="num">' + (t.costOk ? money(t.cost) : '<span style="color:#b45309">待確認</span>') + '</td></tr>';
+      }).join('');
+      var detail = os.filter(function (o) { return o.items.some(function (x) { return BYNAME[x.name] && BYNAME[x.name].vendor === v.id; }); }).map(function (o) {
+        return '<tr><td>' + md(o.date) + ' ' + esc(o.cls) + ' 班・' + esc(o.teacher) + (o.mine ? '<span class="tag-mine">你</span>' : '') + '</td><td>' +
+          o.items.filter(function (x) { return BYNAME[x.name] && BYNAME[x.name].vendor === v.id; }).map(function (x) { return esc(x.name) + ' ' + fmt(x.qty, 2) + ' ' + esc(x.unit) + (x.note ? '（' + esc(x.note) + '）' : ''); }).join('、') + '</td></tr>';
+      }).join('');
+      return '<div class="vsheet"><div class="vsheet-h"><b>' + v.icon + ' ' + v.id + ' 叫貨單</b><button type="button" class="btn copy" data-v="' + v.id + '">📋 複製叫貨文字</button></div>' +
+        '<table class="t"><thead><tr><th>食材</th><th style="text-align:right">合計（廠商單位）</th><th style="text-align:right">估價</th></tr></thead><tbody>' + rows +
+        '<tr class="foot"><td>估計小計</td><td></td><td class="num">' + money(sum) + '</td></tr></tbody></table>' +
+        '<details class="detail"><summary>看各班明細</summary><table class="t" style="margin-top:6px"><tbody>' + detail + '</tbody></table></details></div>';
+    }).join('');
+    $('sheets').setAttribute('data-copy', JSON.stringify(vs.map(function (v) {
+      return { v: v.id, lines: Object.keys(byV[v.id]).map(function (n) { return n + ' ' + total(BYNAME[n], byV[v.id][n]).text; }) };
+    })));
+  }
+  $('achips').addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (!b) return; st.vendor = b.getAttribute('data-v'); renderAdmin(); });
+  $('sheets').addEventListener('click', function (e) {
+    var b = e.target.closest('.copy'); if (!b) return;
+    var data = JSON.parse($('sheets').getAttribute('data-copy') || '[]').filter(function (x) { return x.v === b.getAttribute('data-v'); })[0];
+    if (!data) return;
+    var text = '【' + data.v + ' 叫貨】\n' + data.lines.join('\n') + '\n謝謝！';
+    var done = function () { toast('已複製，可以直接貼到 LINE 給廠商'); };
+    try { navigator.clipboard.writeText(text).then(done, function () { window.prompt('複製下面的文字：', text); }); } catch (err) { window.prompt('複製下面的文字：', text); }
+  });
+
+  // ---------- 角色切換 ----------
+  function setRole(r) {
+    st.role = r;
+    $('tabT').setAttribute('aria-selected', r === 'T'); $('tabA').setAttribute('aria-selected', r === 'A');
+    $('viewT').hidden = r !== 'T'; $('viewA').hidden = r !== 'A';
+    if (r === 'A') renderAdmin();
+  }
+  $('tabT').addEventListener('click', function () { setRole('T'); });
+  $('tabA').addEventListener('click', function () { setRole('A'); });
+  $('resetBtn').addEventListener('click', function () {
+    st.mine = []; st.cart = []; save();
+    $('fClass').value = ''; $('fProject').value = ''; $('fGroups').value = '';
+    $('okBox').hidden = true; $('orderForm').hidden = false; setRole('T');
+    renderCart(); renderItems(); renderSteps(); toast('已重新開始');
+  });
+
+  // ---------- 開始 ----------
+  $('fDate').value = iso(nextMonday(0));
+  renderChips(); renderItems(); renderCart(); renderSteps();
+})();
+</script>
+</body>
+</html>
