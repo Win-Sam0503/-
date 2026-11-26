@@ -6355,7 +6355,7 @@ function lessonsWithStatus_(from, to, teacher, st0) {
     const hol = holidayOf_(x.date);
     x.status = have[k] || manual[k] ? 'ordered' : skip[k] ? 'skipped' : hol ? 'holiday' : 'todo';
     if (x.status === 'skipped' && typeof skip[k] === 'string') x.skipNote = skip[k];
-    if (have[k]) x.orders = have[k].map(function (o) { return { project: o.project, status: o.status, orderNo: o.orderNo }; });   // 我的課顯示訂了什麼（例如巧克力餅乾）
+    if (have[k]) x.orders = have[k].map(function (o) { return { project: o.project, status: o.status, orderNo: o.orderNo, career: !!o.career }; });   // 我的課顯示訂了什麼（例如巧克力餅乾）
     if (hol) x.holiday = hol;
     return x;
   });
@@ -6860,7 +6860,7 @@ function lessonStatusMaps_(from, to) {
     list.push({ teacher: o.onBehalfOf || o.teacher, date: o.useDate, session: sessionOf_(o.classTime), project: o.project, className: o.className, orderNo: o.orderNo,
       classTime: o.classTime, room: o.room, status: o.status });
     const k = (o.onBehalfOf || o.teacher) + '|' + o.useDate + '|' + sessionOf_(o.classTime);
-    (have[k] = have[k] || []).push({ orderNo: o.orderNo, project: o.project, status: o.status, className: o.className });
+    (have[k] = have[k] || []).push({ orderNo: o.orderNo, project: o.project, status: o.status, className: o.className, career: !!o.career });
   });
   const sh = ss_().getSheetByName(SHEET.skips);
   if (sh && sh.getLastRow() >= 2) {

@@ -12684,50 +12684,60 @@
     var lessons = [];
     (r.rows || []).forEach(function (x) { if (x.need && !x.skipped && !x.outOfWeek && x.date) lessons.push(x); });
     (r.extras || []).forEach(function (x) { if (x.date) lessons.push(x); });
-    var day = lessons.filter(function (x) { return x.session !== '晚上'; }), night = lessons.filter(function (x) { return x.session === '晚上'; });
-    // 教室順序：跟學校總表一樣，中餐、廚藝、西餐、烘焙在前，飲調、其他在後；沒寫教室的放最後
-    var PRE = ['中一', '中二', '中三', '廚一', '廚三', '西餐', '廚二', '烘一', '烘二', '調一', '調二'];
-    var rooms = [];
-    (r.rows || []).concat(r.extras || []).forEach(function (x) { var rm = x.room || ''; if (rooms.indexOf(rm) < 0) rooms.push(rm); });
-    rooms = rooms.filter(function (rm) { return day.some(function (x) { return (x.room || '') === rm; }); });
-    rooms.sort(function (a, b) { var ia = PRE.indexOf(a), ib = PRE.indexOf(b); if (!a) return 1; if (!b) return -1; return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+    // 🎓 生涯實作：訂單標了生涯實作，或班級／課程寫了「生涯」→ 另外一張
+    var isCareer = function (x) { return (x.orders || []).some(function (o) { return o.career; }) || /生涯/.test((x.className || '') + (x.course || '')); };
+    var career = lessons.filter(isCareer), rest = lessons.filter(function (x) { return !isCareer(x); });
+    var day = rest.filter(function (x) { return x.session !== '晚上'; }), night = rest.filter(function (x) { return x.session === '晚上'; });
     var md = function (d) { var p = d.split('-'); return Number(p[1]) + '月' + Number(p[2]) + '日'; };
-    var cell = function (list) {
-      return list.map(function (x) {
-        var pjs = []; (x.orders || []).forEach(function (o) { var t2 = o.project || ''; if (t2 && pjs.indexOf(t2) < 0) pjs.push(t2); });
-        var cn = String(x.course || ''), small = cn.length > 5 ? 'font-size:9px' : 'font-size:11px';
-        return '<div style="line-height:1.25;margin-bottom:2px"><div style="' + small + ';font-weight:700">' + esc(cn) + '</div>' +
-          (x.period ? '<div>' + esc(x.period) + '</div>' : '') + '<div>' + esc(x.className || '') + '</div><div>' + esc(x.teacher || '') + '</div>' +
-          (pjs.length ? '<div style="color:#1d4ed8;font-size:9px;font-weight:700">📝' + esc(pjs.join('、')) + '</div>' :
-            x.status === 'todo' ? '<div style="color:#b42318;font-size:9px">未叫料</div>' :
-            x.status === 'holiday' ? '<div style="color:#777;font-size:9px">放假</div>' :
-            x.status === 'skipped' ? '<div style="color:#475467;font-size:9px;font-weight:700">➖不用訂貨</div>' :
-            x.status === 'ordered' ? '<div style="color:#067647;font-size:9px">已叫料（手動）</div>' : '') + '</div>';
-      }).join('');
+    // 不用訂貨：那一堂畫紅色叉叉（跟紙本一樣）
+    var X = '<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"><line x1="4" y1="4" x2="96" y2="96" stroke="#d92d20" stroke-width="3" vector-effect="non-scaling-stroke"/><line x1="96" y1="4" x2="4" y2="96" stroke="#d92d20" stroke-width="3" vector-effect="non-scaling-stroke"/></svg>';
+    var one = function (x) {
+      var pjs = []; (x.orders || []).forEach(function (o) { var t2 = o.project || ''; if (t2 && pjs.indexOf(t2) < 0) pjs.push(t2); });
+      var cn = String(x.course || ''), small = cn.length > 5 ? 'font-size:8.5px' : 'font-size:11px', no = x.status === 'skipped';
+      return '<div style="position:relative;line-height:1.2;padding:1px 0;margin-bottom:2px"><div style="' + small + ';font-weight:700">' + esc(cn) + '</div>' +
+        (x.period ? '<div>' + esc(x.period) + '</div>' : '') + '<div>' + esc(x.className || '') + '</div><div>' + esc(x.teacher || '') + '</div>' +
+        (pjs.length ? '<div style="color:#1d4ed8;font-size:8.5px;font-weight:700">📝' + esc(pjs.join('、')) + '</div>' :
+          x.status === 'todo' ? '<div style="color:#b42318;font-size:8.5px">未叫料</div>' :
+          x.status === 'holiday' ? '<div style="color:#777;font-size:8.5px">放假</div>' :
+          no ? '<div style="color:#d92d20;font-size:8.5px;font-weight:700">不用訂貨</div>' :
+          x.status === 'ordered' ? '<div style="color:#067647;font-size:8.5px">已叫料（手動）</div>' : '') + (no ? X : '') + '</div>';
     };
-    var th = 'border:1px solid #333;background:#ddd;padding:2px;font-size:11px;text-align:center;color:#111', td = 'border:1px solid #333;padding:2px;text-align:center;vertical-align:middle;font-size:10px;height:62px';
-    var head = '<tr><th rowspan="3" style="' + th + ';width:34px">日期<br><br>教室</th>' + wk.dates.map(function (d, i) { return '<th colspan="2" style="' + th + '">' + md(d) + (wk.holidays && wk.holidays[i] ? '（放假）' : '') + '</th>'; }).join('') + '</tr>' +
-      '<tr>' + wk.dates.map(function (d, i) { return '<th colspan="2" style="' + th + ';background:#eee">星期' + '一二三四五'.charAt(i) + '</th>'; }).join('') + '</tr>' +
-      '<tr>' + wk.dates.map(function () { return '<th style="' + th + ';background:#bbb">上午</th><th style="' + th + ';background:#bbb">下午</th>'; }).join('') + '</tr>';
-    var body = rooms.map(function (rm) {
-      return '<tr><th style="' + th + ';font-size:15px;line-height:1.3;background:#ccc">' + String(rm || '其他').split('').map(esc).join('<br>') + '</th>' + wk.dates.map(function (d) {
-        return ['上午', '下午'].map(function (se) { return '<td style="' + td + '">' + cell(day.filter(function (x) { return (x.room || '') === rm && x.date === d && x.session === se; })) + '</td>'; }).join('');
-      }).join('') + '</tr>';
-    }).join('');
-    var nightHtml = night.length ? '<div style="margin-top:6px;font-size:11px"><b>夜間：</b>' + night.sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (x) {
-      var pjs = (x.orders || []).map(function (o) { return o.project; }).filter(Boolean);
-      return md(x.date) + ' ' + esc((x.room ? x.room + ' ' : '') + (x.course || '') + ' ' + (x.className || '') + ' ' + (x.teacher || '')) + (pjs.length ? '（📝' + esc(pjs.join('、')) + '）' : '');
-    }).join('；') + '</div>' : '';
-    return '<div><h2 style="text-align:center;margin:0 0 4px;font-size:18px">中西餐、烘焙、飲調、餐服　總表　' + md(wk.from) + '～' + md(wk.to) + '</h2>' +
-      '<table style="width:100%;border-collapse:collapse;table-layout:fixed">' + head + body + '</table>' + nightHtml +
-      '<div style="text-align:right;font-size:9px;color:#666;margin-top:2px">印出日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '・📝＝老師訂單上的實作項目</div></div>';
+    var cell = function (list) { return list.map(one).join(''); };
+    var PRE = ['中一', '中二', '中三', '廚一', '廚三', '西餐', '廚二', '烘一', '烘二', '調一', '調二', '餐服二', '餐服三', '餐服四', '迦咖啡', '丹日料'];
+    var roomsOf = function (list) {
+      var rooms = [];
+      list.forEach(function (x) { var rm = x.room || ''; if (rooms.indexOf(rm) < 0) rooms.push(rm); });
+      return rooms.sort(function (a, b) { var ia = PRE.indexOf(a), ib = PRE.indexOf(b); if (!a) return 1; if (!b) return -1; return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, 'zh-Hant'); });
+    };
+    var th = 'border:1px solid #333;background:#ddd;padding:2px;font-size:11px;text-align:center;color:#111', td = 'border:1px solid #333;padding:2px;text-align:center;vertical-align:middle;font-size:9.5px';
+    // sessions：['上午','下午'] 或 ['晚上']；直式 A4：一天兩格（或一格）
+    var sheet = function (title, list, sessions, minH) {
+      var rooms = roomsOf(list); if (!rooms.length) return '';
+      var n = sessions.length;
+      var head = '<tr><th rowspan="' + (n > 1 ? 3 : 2) + '" style="' + th + ';width:7%">日<br>期<br><br>教<br>室</th>' + wk.dates.map(function (d, i) { return '<th colspan="' + n + '" style="' + th + ';font-size:13px">' + md(d) + (wk.holidays && wk.holidays[i] ? '<br><span style="font-size:10px">（放假）</span>' : '') + '</th>'; }).join('') + '</tr>' +
+        '<tr>' + wk.dates.map(function (d, i) { return '<th colspan="' + n + '" style="' + th + ';background:#eee;font-size:12px">星期' + '一二三四五'.charAt(i) + '</th>'; }).join('') + '</tr>' +
+        (n > 1 ? '<tr>' + wk.dates.map(function () { return sessions.map(function (se) { return '<th style="' + th + ';background:#bbb">' + se + '</th>'; }).join(''); }).join('') + '</tr>' : '');
+      var h = Math.max(minH, Math.min(26, Math.floor(232 / rooms.length)));   // 一列多高（mm），整張剛好一頁
+      var body = rooms.map(function (rm) {
+        return '<tr style="height:' + h + 'mm"><th style="' + th + ';font-size:15px;line-height:1.25;background:#ccc">' + String(rm || '其他').split('').map(esc).join('<br>') + '</th>' + wk.dates.map(function (d) {
+          return sessions.map(function (se) { return '<td style="' + td + '">' + cell(list.filter(function (x) { return (x.room || '') === rm && x.date === d && x.session === se; })) + '</td>'; }).join('');
+        }).join('') + '</tr>';
+      }).join('');
+      return '<div class="msheet" style="page-break-after:always;break-after:page"><h2 style="text-align:center;margin:0 0 4px;font-size:17px">' + esc(title) + '　' + md(wk.from) + '～' + md(wk.to) + '</h2>' +
+        '<table style="width:100%;border-collapse:collapse;table-layout:fixed">' + head + body + '</table>' +
+        '<div style="text-align:right;font-size:9px;color:#666;margin-top:2px">印出日期 ' + esc(new Date().toLocaleDateString('zh-TW')) + '・📝＝老師訂單上的實作項目・紅色叉叉＝不用訂貨</div></div>';
+    };
+    var html = sheet('中西餐、烘焙、飲調、餐服　總表', day, ['上午', '下午'], 13) +
+      sheet('夜間部　總表', night, ['晚上'], 20) +
+      sheet('🎓 生涯實作　總表（另外叫料）', career, ['上午', '下午', '晚上'].filter(function (se) { return career.some(function (x) { return x.session === se; }); }), 20);
+    return html;
   }
   $('gridPrintAll').addEventListener('click', function () {
     if (!gridData || !gridData.week) { notice('請先選一週，等課表載入好再印。'); return; }
     var body = masterSheetHtml(gridData);
     if (!body) { notice('這一週沒有課。'); return; }
     var d = document.createElement('div');
-    d.innerHTML = '<style>@page{size:A4 landscape;margin:7mm}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}tr{page-break-inside:avoid;break-inside:avoid}thead{display:table-header-group}</style>' + body;
+    d.innerHTML = '<style>@page{size:A4 portrait;margin:7mm}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}tr{page-break-inside:avoid;break-inside:avoid}.msheet:last-child{page-break-after:auto!important;break-after:auto!important}</style>' + body;
     printSection(d);
   });
   $('gridPrintT').addEventListener('click', function () {
