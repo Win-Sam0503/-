@@ -65,7 +65,7 @@
     .section-title p { color: var(--muted); }
 
     .grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-    .grid-4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
     @media (min-width: 721px) { .grid-2 { grid-template-columns: repeat(2, 1fr); } }
     .card {
       background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px;
@@ -200,3 +200,15 @@
     .more { display: inline-block; margin-top: 14px; font-weight: 700; color: var(--brand); text-decoration: none; }
     .more:hover { text-decoration: underline; }
     @media (max-width: 720px) { .case-wide { grid-template-columns: 1fr; } }
+
+    /* ===== 影片 ===== */
+    .vids { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+    .vid { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
+    .vid video { display: block; width: 100%; border-radius: 10px; background: #000; }
+    .vid figcaption { font-weight: 700; font-size: .95rem; padding: 10px 4px 2px; color: var(--text); }
+    .vid-tall { width: 280px; max-width: 100%; }
+    .vid-tall video { aspect-ratio: 1 / 2; object-fit: contain; }
+    .vid-wide { width: 640px; max-width: 100%; }
+    .vid-mid { width: 420px; max-width: 100%; }
+    .vid-mid video { aspect-ratio: 820 / 1000; object-fit: contain; }
+    .vid-wide video { aspect-ratio: 16 / 9; object-fit: contain; }
