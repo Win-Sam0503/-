@@ -8471,7 +8471,9 @@
     // 欄寬用同一組 colgroup，標題表和每一段的欄位才對得齊
     var ths = head.match(/<th\b[^>]*>/g) || [];
     // 日期、班級（含【科別】）、老師：班級最長（207/208【西餐】），給寬一點，才不會擠到老師那一格
-    var cols = '<colgroup><col style="width:9%"><col style="width:15%"><col style="width:11%">' + ths.map(function (t) {
+    var hw = ths.reduce(function (a, t) { var w = t.match(/width:\s*([\d.]+)%/); return a + (w ? +w[1] : 0); }, 0);
+    var fix = hw > 60 ? ['8%', '13%', '10%'] : ['9%', '15%', '11%'];   // 後面欄位比較多（② 訂貨單）時，日期、班級、老師窄一點，食材才不會被擠成一字一行
+    var cols = '<colgroup><col style="width:' + fix[0] + '"><col style="width:' + fix[1] + '"><col style="width:' + fix[2] + '">' + ths.map(function (t) {
       var w = t.match(/width:\s*([\d.]+%)/), np = /noprint/.test(t);
       return '<col' + (w ? ' style="width:' + w[1] + '"' : '') + (np ? ' class="noprint-col"' : '') + '>';
     }).join('') + '</colgroup>';
@@ -9909,7 +9911,7 @@
       Object.keys(groups[v]).sort().forEach(function (dk) {
         var list = sortLines(groups[v][dk]);
         html += '<h3>' + esc(batchLabel(dk)) + '</h3>' +
-          '<div class="tablewrap ptable">' + blockTable(list, '<th>食材</th><th class="num" style="width:11%">老師訂</th><th style="width:12%">實際叫貨</th><th style="width:12%">單位</th><th style="width:16%">備註</th><th class="noprint" style="width:10%"></th>', function (r) {
+          '<div class="tablewrap ptable">' + blockTable(list, '<th style="width:20%">食材</th><th class="num" style="width:9%">老師訂</th><th style="width:10%">實際叫貨</th><th style="width:8%">單位</th><th style="width:12%">備註</th><th class="noprint" style="width:9%"></th>', function (r) {
             var add = r.kind === '補庫存', c = ' class="p-' + pDiff(r) + '"';
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
