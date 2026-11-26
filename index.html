@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- ===== SEO：Google 搜尋結果會顯示這裡的標題與描述 ===== -->
-  <title>系統工作室｜訂貨系統・排課系統・Excel 自動化整理 客製化開發</title>
+  <title>煒程工作系統｜訂貨系統・排課系統・Excel 自動化整理 客製化開發</title>
   <meta name="description" content="專門為小店家、補習班、工作室客製化管理系統：線上訂貨系統、排課系統、Excel 報表自動化整理。免費諮詢、依需求報價，讓你少做重複工作、多賺時間。">
   <meta name="keywords" content="訂貨系統,排課系統,Excel 自動化,Excel 整理,報表自動化,客製化系統,系統開發,小店家系統,補習班排課,Google 試算表">
   <link rel="canonical" href="https://win-sam0503.github.io/-/">
@@ -15,7 +15,7 @@
 
   <!-- 分享到 LINE / Facebook 時顯示的預覽 -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="系統工作室｜訂貨系統・排課系統・Excel 自動化">
+  <meta property="og:title" content="煒程工作系統｜訂貨系統・排課系統・Excel 自動化">
   <meta property="og:description" content="客製化管理系統開發，免費諮詢、依需求報價。">
   <meta property="og:url" content="https://win-sam0503.github.io/-/">
   <meta property="og:locale" content="zh_TW">
@@ -25,7 +25,8 @@
   {
     "@context": "https://schema.org",
     "@type": "ProfessionalService",
-    "name": "系統工作室",
+    "name": "煒程工作系統",
+    "alternateName": "阿程",
     "description": "客製化訂貨系統、排課系統、Excel 自動化整理開發服務",
     "url": "https://win-sam0503.github.io/-/",
     "areaServed": "TW",
@@ -125,6 +126,29 @@
     }
     .case .who { font-size: .85rem; color: var(--brand); font-weight: 700; margin-bottom: 4px; }
 
+    /* 關於我 */
+    .about { display: grid; gap: 28px; grid-template-columns: 200px 1fr; align-items: center; }
+    .avatar {
+      width: 200px; height: 200px; border-radius: 50%;
+      background: linear-gradient(135deg, #2f66e8, #1a42a8); color: #fff;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 3.4rem; line-height: 1.1; letter-spacing: 2px;
+    }
+    .avatar small { font-size: .95rem; font-weight: 700; letter-spacing: 6px; opacity: .9; margin-top: 6px; }
+    .about h2 { font-size: clamp(1.4rem, 3.2vw, 1.8rem); margin-bottom: 10px; }
+    .about p { color: var(--muted); margin-bottom: 10px; }
+    .name-meaning { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .name-meaning div {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 16px; font-size: .95rem;
+    }
+    .name-meaning b { color: var(--brand); font-size: 1.3rem; margin-right: 6px; }
+    @media (max-width: 720px) {
+      .about { grid-template-columns: 1fr; text-align: center; }
+      .avatar { margin: 0 auto; width: 160px; height: 160px; font-size: 2.7rem; }
+      .name-meaning { justify-content: center; }
+    }
+
     /* 流程 */
     .steps { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); counter-reset: s; }
     .step { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
@@ -174,10 +198,11 @@
 
 <header>
   <div class="wrap nav">
-    <a href="#" class="logo">系統<span>工作室</span></a>
+    <a href="#" class="logo">煒程<span>工作系統</span></a>
     <nav class="nav-links">
       <a href="#services">服務項目</a>
       <a href="#cases">作品案例</a>
+      <a href="#about">關於我</a>
       <a href="#process">合作流程</a>
       <a href="#faq">常見問題</a>
       <a href="#contact" class="btn btn-primary">免費諮詢</a>
@@ -188,7 +213,7 @@
 <main>
   <!-- 主視覺 -->
   <div class="wrap hero">
-    <div class="tag">客製化系統開發｜免費諮詢</div>
+    <div class="tag">煒程工作系統｜客製化系統開發</div>
     <h1>把每天重複的工作<br><em>交給系統</em>處理</h1>
     <p>訂貨系統、排課系統、Excel 自動化整理。依照你的工作流程量身打造，不用學複雜的軟體，打開就會用。</p>
     <div class="actions">
@@ -287,6 +312,24 @@
     </div>
   </section>
 
+  <!-- 關於我 -->
+  <section id="about" style="padding-top:0">
+    <div class="wrap">
+      <div class="card about">
+        <div class="avatar">煒程<small>工作系統</small></div>
+        <div>
+          <h2>嗨，我是阿程 👋</h2>
+          <p>「煒程工作系統」的名字來自我自己：<strong>煒</strong>是我的名字，<strong>程</strong>就是我每天在寫的<strong>程式</strong>。</p>
+          <p>我做過訂貨系統、排課系統，也常幫人把雜亂的 Excel 整理成一鍵就能產出的報表。我相信好的系統不用複雜，要讓你打開就會用、每天幫你省下時間。</p>
+          <div class="name-meaning">
+            <div><b>煒</b>我的名字，用心負責</div>
+            <div><b>程</b>程式，幫你自動化</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- 合作流程 -->
   <section id="process" style="padding-top:0">
     <div class="wrap">
@@ -370,7 +413,7 @@
 </main>
 
 <footer>
-  © <span id="year"></span> 系統工作室｜訂貨系統・排課系統・Excel 自動化
+  © <span id="year"></span> 煒程工作系統｜訂貨系統・排課系統・Excel 自動化
 </footer>
 
 <script>
