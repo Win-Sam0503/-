@@ -122,10 +122,12 @@
     .pain-item span { color: #d64545; margin-right: 6px; }
 
     /* 案例 */
+    .case { display: flex; flex-direction: column; }
     .case .result {
-      margin-top: 12px; padding: 12px 14px; background: var(--brand-soft);
+      margin-top: auto; padding: 12px 14px; background: var(--brand-soft);
       border-radius: 10px; font-size: .92rem; color: var(--brand-dark); font-weight: 600;
     }
+    .case ul { margin-bottom: 16px; }
     .case .who { font-size: .85rem; color: var(--brand); font-weight: 700; margin-bottom: 4px; }
 
     /* 關於我 */
@@ -290,26 +292,43 @@
     <div class="wrap">
       <div class="section-title">
         <h2>作品案例</h2>
-        <p>實際做過的系統</p>
+        <p>實際開發、正在使用中的系統</p>
       </div>
       <div class="grid">
         <article class="card case">
-          <div class="who">訂貨系統</div>
-          <h3>批發商線上訂貨系統</h3>
-          <p>客戶透過線上表單下單，系統自動整理成出貨單與每日統計。</p>
-          <div class="result">成果：每天省下約 1–2 小時的抄單時間</div>
+          <div class="who">訂貨系統｜高職餐飲科</div>
+          <h3>餐飲科食材訂貨系統</h3>
+          <p>全科老師用手機上網訂食材，系統自動彙整成每家廠商的叫貨單。</p>
+          <ul>
+            <li>每週自動鎖單，截止後不能再改</li>
+            <li>拍照或上傳 PDF 請料單，自動辨識食材</li>
+            <li>一鍵產生扣貨單、訂貨單、廠商叫貨單</li>
+            <li>LINE 官方帳號通知老師、提醒還沒訂的課</li>
+          </ul>
+          <div class="result">成果：從手抄、對單，變成一鍵產生各廠商叫貨單</div>
         </article>
         <article class="card case">
-          <div class="who">排課系統</div>
-          <h3>教室排課管理系統</h3>
-          <p>集中管理老師、教室與學生課表，排課時自動檢查時間衝突。</p>
-          <div class="result">成果：排課錯誤大幅減少，課表即時更新</div>
+          <div class="who">Excel 系統｜成本換算</div>
+          <h3>食材單位與成本換算</h3>
+          <p>老師用各種單位訂貨，系統自動換算成廠商要的單位，並估算成本。</p>
+          <ul>
+            <li>公克自動換成斤兩、公斤（1 斤＝600 g）</li>
+            <li>大匙、小匙換成公克，雞蛋重量換成顆數</li>
+            <li>單價表記錄最新價格，自動估算每家廠商金額</li>
+            <li>月結對帳：自動加總，和發票金額比對</li>
+          </ul>
+          <div class="result">成果：不用再拿計算機換算，成本一目了然</div>
         </article>
         <article class="card case">
-          <div class="who">Excel 整理</div>
-          <h3>月報表自動化</h3>
-          <p>把多個分店的 Excel 資料自動合併，一鍵產生月報與圖表。</p>
-          <div class="result">成果：月報從數天縮短到幾分鐘</div>
+          <div class="who">驗收系統｜平板點貨</div>
+          <h3>進貨驗收系統</h3>
+          <p>和訂貨系統資料互通，貨到時用平板直接點貨、留紀錄。</p>
+          <ul>
+            <li>少送、送錯、品質不好一鍵標記，可拍照留證</li>
+            <li>拍銷貨單，自動讀出品項、數量、金額</li>
+            <li>驗收人手寫簽名，存到雲端</li>
+          </ul>
+          <div class="result">成果：叫貨、驗收、對帳全部串在一起</div>
         </article>
       </div>
     </div>
