@@ -11287,8 +11287,21 @@
       imp = { fileName: file.name, kind: res.kind, res: res, sheet: res.kind === 'sheet' ? pickSheet(res.tables || []) : -1 };
       parseImport();
       renderImport();
+      // 📷 照片（或掃描的 PDF）是用文字辨識讀的，容易讀錯：跳視窗提醒老師一項一項核對
+      if (res.kind === 'ocr' || /^image\//.test(file.type || '')) photoCheckAlert();
     }).catch(function (e) { msg('impMsg', 'error', '讀取失敗：' + e.message); });
   });
+  function photoCheckAlert() {
+    var n = imp && imp.rows ? imp.rows.filter(function (r) { return !r.tool; }).length : 0;
+    ask('', '我知道了，我會一項一項核對', { okOnly: true, html: '<div style="text-align:center"><div style="font-size:46px;line-height:1.2">📷⚠️</div>' +
+      '<div style="font-size:19px;font-weight:800;color:#b42318;margin-top:6px">照片辨識容易不準確</div>' +
+      '<div style="margin-top:8px;text-align:left;line-height:1.7">請<b>再次確認訂貨內容</b>，特別是：' +
+      '<ul style="margin:4px 0 0;padding-left:1.4em"><li><b>數量</b>：小數點、0 和 8、1 和 7 常會看錯</li><li><b>單位</b>：g、斤、兩、顆、條有沒有對</li>' +
+      '<li><b>品名</b>：有沒有漏掉的、多出來的，或對到錯的食材</li><li>上課日期、班級、組數</li></ul></div>' +
+      '<div class="small muted" style="margin-top:8px">這次讀到 ' + n + ' 項食材。核對好、改好之後再按「加入」。可以的話，用 Excel、Word 或 PDF 檔帶入會比較準。</div></div>' }).then(function () {
+      var box = $('impReview'); if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
   // ✍ 打字輸入：一行一樣（食材 數量 單位），跟讀檔案一樣比對食材總表，確認後加入訂購清單
   $('impTypeBtn').addEventListener('click', function () {
     var box = $('impTypeBox'); box.classList.toggle('hidden');
@@ -11792,8 +11805,8 @@
     var foods = imp.rows.filter(function (r) { return !r.tool; });
     var found = foods.filter(function (r) { return r.id; }).length;
     var tools = imp.rows.length - foods.length;
-    msg('impMsg', imp.rows.length ? 'ok' : 'error', imp.rows.length
-      ? '讀到 ' + foods.length + ' 項食材（' + found + ' 項對應到食材總表）' + (tools ? '、' + tools + ' 項器具' : '') + '。請確認下面的內容，有勾選的才會加入。'
+    msg('impMsg', imp.rows.length ? (imp.kind === 'ocr' ? 'warn' : 'ok') : 'error', imp.rows.length
+      ? (imp.kind === 'ocr' ? '📷 照片辨識容易不準，請一項一項核對數量、單位、品名。' : '') + '讀到 ' + foods.length + ' 項食材（' + found + ' 項對應到食材總表）' + (tools ? '、' + tools + ' 項器具' : '') + '。請確認下面的內容，有勾選的才會加入。'
       : '沒有讀到食材。' + (imp.kind === 'ocr' ? '照片請拍正、拍清楚，或改用 Excel／Word 檔。' : '請確認檔案裡有「品名」和「數量」欄位' + (imp.sheet >= 0 ? '，或換一個工作表' : '') + '。'));
     var sheets = imp.sheet >= 0 ? '<div class="tpl-row" style="margin:6px 0"><div><label for="impSheet">這個 Excel 有 ' + imp.res.tables.length + ' 個工作表，要帶入哪一個？</label>' +
       '<select id="impSheet">' + imp.res.tables.map(function (t, i) { return '<option value="' + i + '"' + (i === imp.sheet ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</select></div></div>' : '';
