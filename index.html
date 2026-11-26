@@ -123,6 +123,12 @@
 
     /* 案例 */
     .case { display: flex; flex-direction: column; }
+    .shot {
+      display: block; margin: -8px -8px 18px; border-radius: 10px; overflow: hidden;
+      border: 1px solid var(--line); aspect-ratio: 16 / 10; background: #fff;
+    }
+    .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; transition: transform .3s; }
+    .shot:hover img { transform: scale(1.03); }
     .case .result {
       margin-top: auto; padding: 12px 14px; background: var(--brand-soft);
       border-radius: 10px; font-size: .92rem; color: var(--brand-dark); font-weight: 600;
@@ -292,10 +298,11 @@
     <div class="wrap">
       <div class="section-title">
         <h2>作品案例</h2>
-        <p>實際開發、正在使用中的系統</p>
+        <p>實際開發、正在使用中的系統（畫面為示範資料，點圖片可放大）</p>
       </div>
       <div class="grid">
         <article class="card case">
+          <a class="shot" href="img/case-order.jpg" target="_blank"><img src="img/case-order-thumb.jpg" alt="訂貨系統畫面：老師的訂購清單，依廠商分類、自動估算金額" loading="lazy"></a>
           <div class="who">訂貨系統｜高職餐飲科</div>
           <h3>餐飲科食材訂貨系統</h3>
           <p>全科老師用手機上網訂食材，系統自動彙整成每家廠商的叫貨單。</p>
@@ -308,6 +315,7 @@
           <div class="result">成果：從手抄、對單，變成一鍵產生各廠商叫貨單</div>
         </article>
         <article class="card case">
+          <a class="shot" href="img/case-convert.jpg" target="_blank"><img src="img/case-convert-thumb.jpg" alt="單位換算畫面：老師訂的公克自動換算成斤兩，彙整成廠商扣貨單" loading="lazy"></a>
           <div class="who">Excel 系統｜成本換算</div>
           <h3>食材單位與成本換算</h3>
           <p>老師用各種單位訂貨，系統自動換算成廠商要的單位，並估算成本。</p>
