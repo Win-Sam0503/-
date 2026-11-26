@@ -9723,6 +9723,13 @@
   // 訂貨單（可直接改實際叫貨量）：每一班每個食材一列，「實際叫貨」預設＝老師訂的，合計即時重算。
   // 每家廠商各自「先儲存（草稿）」或「確定叫貨」；可以改單位、加補庫存項目。不會改到老師的訂單。
   var pState = null, vKeepMsg = '';
+  // 菜商用支、條、個、顆…叫的，老師訂 1.5、2.5、0.5 → 實際叫貨直接進位成整數（2、3、1）
+  var PIECE_UNITS = /^(支|條|個|顆|根|粒|朵|片|把|塊|隻|尾|付|盒|包|袋|罐|瓶|台|球|串|株|顆|粒)$/;
+  function pRound(vendor, need, unit) {
+    var n = Number(need);
+    if (!/^A/.test(String(vendor || '')) || !PIECE_UNITS.test(String(unit || '').trim()) || !(n > 0) || n === Math.floor(n)) return null;
+    return Math.ceil(n - 1e-9);
+  }
   function openPurchase(from, to, orders, saved, only) {
     var savedMap = {}, rows = [], vstate = {};
     saved.forEach(function (r) {
@@ -9734,6 +9741,8 @@
       var s = savedMap[d.key];
       var r = { date: d.date, group: d.group, vendor: d.vendor, orderNo: d.orderNo, className: d.className, teacher: d.teacher, name: d.name, id: d.id,
         need: d.need, needUnit: d.needUnit, kind: '訂單', qty: d.need, unit: d.needUnit, note: d.note };
+      var rq = pRound(d.vendor, d.need, d.needUnit);
+      if (rq !== null) { r.qty = rq; r.roundQ = rq; }
       if (s) {
         r.qty = s.qty; r.unit = s.unit; r.note = s.note;
         if (s.need !== d.need) r.flag = '老師改過：從 ' + fmtQty(s.need) + ' 變成 ' + fmtQty(d.need) + '，請確認';
@@ -9802,6 +9811,7 @@
   function pDiff(r) {
     if (r.kind === '補庫存') return 'add';
     if (!(Number(r.qty) > 0)) return 'zero';
+    if (r.roundQ != null && Number(r.qty) === r.roundQ && r.unit === r.needUnit) return '';   // 自動進位成整數的不算改量
     return Number(r.qty) !== r.need || r.unit !== r.needUnit ? 'diff' : '';
   }
   function pSummary(v) {
@@ -9915,7 +9925,7 @@
             var add = r.kind === '補庫存', c = ' class="p-' + pDiff(r) + '"';
             return '<td' + c + '>' + (add ? '<input class="pname" list="pItems-' + esc(v) + '" value="' + esc(r.name) + '" placeholder="食材名稱">' : esc(r.name)) +
               (r.flag ? '<div class="pflag noprint">⚠ ' + esc(r.flag) + '</div>' : '') + '</td>' +
-              '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(vendorQty(r.need, r.needUnit, r.vendor, r.name, true))) + '</td>' +
+              '<td class="num p-' + pDiff(r) + '">' + (add ? '—' : esc(vendorQty(r.need, r.needUnit, r.vendor, r.name, true)) + (r.roundQ != null && Number(r.qty) === r.roundQ ? '<div class="small noprint" style="color:#b45309;white-space:nowrap" title="菜商一支一條算，自動進位成整數">↑ 進位成 ' + r.roundQ + '</div>' : '')) + '</td>' +
               '<td' + c + '><input class="pqty num-input" type="text" autocomplete="off" value="' + esc(r.qty === '' ? '' : String(r.qty)) + '"></td>' +
               '<td' + c + '><input type="text" class="punit unit-input" data-free="1" autocomplete="off" maxlength="10" placeholder="單位" value="' + esc(r.unit || '') + '"></td>' +   // 可以直接打字，也可以從清單選
               '<td' + c + '><input class="pnote" maxlength="60" value="' + esc(r.note) + '"></td>' +
@@ -10255,7 +10265,7 @@
     if ((b = t.closest('[data-preset]'))) {
       var vr = b.getAttribute('data-preset');
       if (!safeConfirm('把' + vr + '所有「實際叫貨」改回老師訂的數量和單位？（補庫存項目保留）')) return;
-      pState.rows.forEach(function (x) { if (x.vendor === vr && x.kind === '訂單') { x.qty = x.need; x.unit = x.needUnit; } });
+      pState.rows.forEach(function (x) { if (x.vendor === vr && x.kind === '訂單') { x.qty = x.roundQ != null ? x.roundQ : x.need; x.unit = x.needUnit; } });
       pState.dirty[vr] = true;
       renderPurchase(); return;
     }
