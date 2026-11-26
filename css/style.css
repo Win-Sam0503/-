@@ -212,3 +212,9 @@
     .vid-mid { width: 420px; max-width: 100%; }
     .vid-mid video { aspect-ratio: 820 / 1000; object-fit: contain; }
     .vid-wide video { aspect-ratio: 16 / 9; object-fit: contain; }
+
+    /* ===== 客戶推薦 ===== */
+    .review { margin: 0; }
+    .review .stars { color: #e5a50a; letter-spacing: 2px; margin-bottom: 8px; }
+    .review blockquote { margin: 0 0 12px; font-size: 1rem; line-height: 1.8; }
+    .review figcaption { color: var(--muted); font-size: .9rem; }
