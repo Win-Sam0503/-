@@ -225,3 +225,16 @@
     @media (max-width: 1100px) {
       .nav-links a[href$="#process"], .nav-links a[href$="#about"], .nav-links a[href$="#faq"] { display: none; }
     }
+
+    /* ===== 收費方式 ===== */
+    .offer { text-align: center; background: #fff7e0; border: 1px solid #f0dfae; color: #8a5a00; border-radius: 999px; padding: 8px 16px; width: fit-content; margin: -16px auto 22px; font-weight: 700; }
+    .price-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .price { text-align: center; }
+    .price .icon { margin: 0 auto 10px; }
+    .price .amt { font-size: 1.6rem; font-weight: 900; color: var(--brand-dark); margin: 4px 0 8px; }
+    .price .amt small { font-size: .9rem; font-weight: 700; color: var(--muted); }
+    .price p { margin-bottom: 0; }
+    .price.hl { border: 2px solid var(--brand); }
+    .pay { list-style: none; max-width: 640px; margin: 22px auto 0; display: grid; gap: 8px; }
+    .pay li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: .95rem; }
+    .svc-price { display: inline-block; background: #fff7e0; color: #8a5a00; border-radius: 999px; padding: 4px 14px; font-weight: 800; margin-bottom: 18px; }
