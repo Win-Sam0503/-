@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>排班系統線上試玩｜餐廳・零售・診所排班表｜高雄 煒程式工作室</title>
+  <meta name="description" content="免費線上試玩排班系統：以餐廳為例，外場、內場、收銀各需要幾個人，員工請假、每週上限自動檢查，缺人立刻提醒；按「自動排班」一鍵排好、工時平均。不用註冊，打開就能玩。">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/demo/shift/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="排班系統線上試玩｜煒程式工作室">
+  <meta property="og:description" content="缺人、請假、超時自動提醒，一鍵自動排班、工時平均。不用註冊，打開就能玩。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/demo/shift/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <link rel="stylesheet" href="../../css/style.css">
+  <style>
+    .demo-bar { background: #fff7e0; border-bottom: 1px solid #f0dfae; font-size: .9rem; }
+    .demo-bar .wrap { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+    .demo-bar b { color: #8a5a00; }
+    .linkbtn { background: none; border: 0; color: var(--brand); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; }
+    .d-head { padding-top: 28px; padding-bottom: 6px; text-align: center; }
+    .d-head h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); margin-bottom: 6px; }
+    .d-head p { color: var(--muted); }
+    .how { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 12px 0 18px; font-size: .85rem; }
+    .how span { background: var(--brand-soft); color: var(--brand-dark); padding: 4px 10px; border-radius: 999px; font-weight: 700; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; }
+    .panel h2 { font-size: 1.08rem; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .panel h2 small { font-weight: 500; color: var(--muted); font-size: .85rem; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .stat { flex: 1; min-width: 120px; background: #f4f7f6; border-radius: 12px; padding: 10px 12px; }
+    .stat span { display: block; font-size: .8rem; color: var(--muted); }
+    .stat b { font-size: 1.3rem; }
+    .stat.bad b { color: #c0392b; } .stat.warn b { color: #b45309; } .stat.ok b { color: var(--brand); }
+    .staff { display: flex; gap: 8px; flex-wrap: wrap; }
+    .person { border: 2px solid transparent; border-radius: 12px; padding: 7px 10px; font: inherit; font-size: .85rem; cursor: pointer; background: #f4f7f6; text-align: left; line-height: 1.35; color: var(--text); min-width: 104px; }
+    .person b { display: block; }
+    .person small { color: var(--muted); font-size: .72rem; display: block; }
+    .person .bar { display: block; height: 5px; background: #e2e8e5; border-radius: 99px; margin-top: 4px; overflow: hidden; }
+    .person .bar i { display: block; height: 100%; background: var(--brand); }
+    .person.over .bar i { background: #c0392b; }
+    .person.sel { border-color: var(--deep); background: #fff; box-shadow: 0 0 0 3px rgba(31,138,112,.3); }
+    .gridwrap { overflow-x: auto; }
+    table.sh { border-collapse: separate; border-spacing: 4px; min-width: 760px; width: 100%; table-layout: fixed; }
+    table.sh th { font-size: .8rem; color: var(--muted); padding: 4px; }
+    table.sh th.p { width: 76px; text-align: right; }
+    table.sh th.we { color: #b45309; }
+    table.sh td { vertical-align: top; background: #f7faf9; border: 1px dashed #d3e0db; border-radius: 10px; padding: 4px; }
+    .role { border-radius: 8px; padding: 3px 5px; margin-bottom: 4px; cursor: pointer; font-size: .76rem; border: 1px solid transparent; }
+    .role:last-child { margin-bottom: 0; }
+    .role .rh { display: flex; justify-content: space-between; font-weight: 800; color: var(--muted); }
+    .role.short { background: #fff4e0; border-color: #f2c98a; }
+    .role.short .rh { color: #b45309; }
+    .role.full { background: #eaf7f1; }
+    .role.full .rh { color: var(--brand); }
+    .role.can { outline: 2px dashed var(--brand); outline-offset: -2px; background: #e0f4ec; }
+    .nm { display: inline-block; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; margin: 2px 2px 0 0; font-weight: 700; color: var(--text); cursor: pointer; }
+    .nm.bad { background: #fde2e0; border-color: #c0392b; color: #c0392b; }
+    .nm.bad::before { content: "⚠"; margin-right: 2px; }
+    .nm.me { background: var(--deep); color: #fff; border-color: var(--deep); }
+    .probs { font-size: .9rem; }
+    .probs li { margin: 4px 0 4px 1.2em; }
+    .probs .ok { color: var(--brand); font-weight: 700; list-style: none; margin-left: 0; }
+    .legend { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--deep); color: #fff; padding: 12px 18px; border-radius: 12px; font-weight: 700; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 92%; text-align: center; }
+    @media (max-width: 640px) { .panel { padding: 14px; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../../scheduling-system/">排課・排班系統</a>
+      <a href="../schedule/">排課試玩</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<div class="demo-bar">
+  <div class="wrap">
+    <span>🧪 <b>示範模式</b>：員工都是假的，資料只存在你的瀏覽器。</span>
+    <button class="linkbtn" id="resetBtn" type="button">↺ 重新開始</button>
+  </div>
+</div>
+
+<main class="wrap" style="max-width:1100px">
+  <div class="d-head">
+    <h1>排班系統線上試玩 <small style="font-size:.55em;color:var(--muted)">（以餐廳為例）</small></h1>
+    <p>外場、內場、收銀各要幾個人？誰請假？誰超時？系統自動幫你檢查，也能一鍵自動排班。</p>
+  </div>
+  <div class="how"><span>① 點一位員工</span><span>② 點班表上綠框的職位加進去</span><span>③ 點已排的名字可以移除</span><span>④ 或直接 ⚡ 自動排班</span></div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <b>本週班表</b>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary" type="button" id="autoBtn">⚡ 自動排班</button>
+      <button class="btn btn-ghost" type="button" id="clearBtn">清空</button>
+    </div>
+    <div class="stats">
+      <div class="stat" id="stShort"><span>缺人的班</span><b>—</b></div>
+      <div class="stat" id="stBad"><span>請假／超時衝突</span><b>—</b></div>
+      <div class="stat" id="stFair"><span>工時最多／最少</span><b>—</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>👥 員工 <small id="hint">點一位員工，再點班表上的職位</small></h2>
+    <div class="staff" id="staff"></div>
+  </div>
+
+  <div class="panel">
+    <h2>🗓️ 班表 <small>早班 10:00–14:00・晚班 17:00–21:00</small></h2>
+    <div class="gridwrap"><table class="sh" id="grid"></table></div>
+    <div class="legend">「外場 1/2」＝需要 2 人、目前 1 人　🟧 橘色＝缺人　⚠ 紅色名字＝請假或超過每週上限</div>
+  </div>
+
+  <div class="panel">
+    <h2>🔍 自動檢查</h2>
+    <ul class="probs" id="probs"></ul>
+  </div>
+
+  <section style="padding-top:8px">
+    <div class="cta-band">
+      <h2>店裡排班也很頭痛？</h2>
+      <p>這是簡化版示範。真正的系統可以依你的職位、班別、員工規則量身打造，員工用手機查班表、登記休假｜📍 高雄可約面談，全台線上服務</p>
+      <div class="actions">
+        <a class="btn btn-line" href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 諮詢（@376yuevo）</a>
+        <a class="btn btn-ghost" href="../../scheduling-system/">看完整功能介紹</a>
+        <a class="btn btn-ghost" href="../schedule/">也試試排課版</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜排班系統線上試玩（示範資料）</footer>
+
+<script>
+(function () {
+  'use strict';
+  var DAYS = ['一', '二', '三', '四', '五', '六', '日'];
+  var SHIFTS = [{ n: '早班', t: '10–14', h: 4 }, { n: '晚班', t: '17–21', h: 4 }];
+  var ROLES = ['外場', '內場', '收銀'];
+  // 每班需要幾人 [外場, 內場, 收銀]
+  function need(d, s) {
+    var we = d >= 5;
+    if (s === 0) return we ? [1, 1, 1] : [1, 1, 0];
+    return we ? [2, 2, 1] : [2, 1, 1];
+  }
+  // 員工：可做的職位（第一個是主要職位）、每週最多幾班、請假（'星期-班別'）
+  var STAFF = [
+    { n: '小美', r: ['外場'], max: 7, off: [] },
+    { n: '阿明', r: ['外場', '收銀'], max: 7, off: ['5-1'] },
+    { n: '小華', r: ['外場'], max: 6, off: ['2-1', '3-1'] },
+    { n: '小芳', r: ['收銀', '外場'], max: 7, off: [] },
+    { n: '小琪', r: ['收銀', '外場'], max: 6, off: ['0-0', '0-1'] },
+    { n: '阿傑', r: ['內場'], max: 7, off: [] },
+    { n: '大雄', r: ['內場'], max: 7, off: ['0-0'] },
+    { n: '阿凱', r: ['內場', '外場'], max: 7, off: ['6-0'] }
+  ];
+  var SMAP = {}; STAFF.forEach(function (p) { SMAP[p.n] = p; });
+  // 一開始先排幾個，其中故意有請假衝突、也有缺人
+  var START = [
+    { p: '小美', d: 0, s: 1, r: '外場' }, { p: '阿傑', d: 0, s: 1, r: '內場' }, { p: '小芳', d: 0, s: 1, r: '收銀' },
+    { p: '小華', d: 2, s: 1, r: '外場' }, { p: '阿傑', d: 2, s: 1, r: '內場' }
+  ];
+
+  var KEY = 'wcDemoShift.v1';
+  var st = { a: [], sel: null };
+  try { var sv = JSON.parse(localStorage.getItem(KEY) || 'null'); st.a = sv && Array.isArray(sv.a) ? sv.a : START.slice(); } catch (e) { st.a = START.slice(); }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ a: st.a })); } catch (e) {} }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+
+  function count(p) { return st.a.filter(function (x) { return x.p === p; }).length; }
+  function inShift(p, d, s) { return st.a.some(function (x) { return x.p === p && x.d === d && x.s === s; }); }
+  function isOff(p, d, s) { return SMAP[p].off.indexOf(d + '-' + s) >= 0; }
+  function check() {
+    var bad = {}, list = [], short = 0;
+    st.a.forEach(function (x, i) { if (isOff(x.p, x.d, x.s)) { bad[i] = 1; list.push('<b>請假衝突</b>：' + x.p + ' 週' + DAYS[x.d] + SHIFTS[x.s].n + '請假，卻被排班'); } });
+    STAFF.forEach(function (p) {
+      var c = count(p.n);
+      if (c > p.max) { st.a.forEach(function (x, i) { if (x.p === p.n) bad[i] = 1; }); list.push('<b>超過上限</b>：' + p.n + ' 排了 ' + c + ' 班，每週最多 ' + p.max + ' 班'); }
+    });
+    var shorts = [];
+    DAYS.forEach(function (dd, d) { SHIFTS.forEach(function (sh, s) { var nd = need(d, s); ROLES.forEach(function (r, ri) {
+      var have = st.a.filter(function (x) { return x.d === d && x.s === s && x.r === r; }).length;
+      if (have < nd[ri]) { short++; shorts.push('週' + dd + sh.n + r + '（' + have + '/' + nd[ri] + '）'); }
+    }); }); });
+    if (shorts.length) list.push('<b>缺人</b>：' + shorts.slice(0, 8).join('、') + (shorts.length > 8 ? '…等 ' + shorts.length + ' 個' : ''));
+    return { bad: bad, list: list, short: short };
+  }
+
+  function renderStaff() {
+    $('staff').innerHTML = STAFF.map(function (p) {
+      var c = count(p.n), pct = Math.min(100, c / p.max * 100);
+      return '<button type="button" class="person' + (st.sel === p.n ? ' sel' : '') + (c > p.max ? ' over' : '') + '" data-p="' + p.n + '"><b>' + p.n + '</b><small>' + p.r.join('・') + '｜' + c + '/' + p.max + ' 班</small>' +
+        (p.off.length ? '<small>休：' + p.off.map(function (o) { var a = o.split('-'); return DAYS[+a[0]] + SHIFTS[+a[1]].n[0]; }).join('、') + '</small>' : '') + '<span class="bar"><i style="width:' + pct + '%"></i></span></button>';
+    }).join('');
+    $('hint').textContent = st.sel ? '已選「' + st.sel + '」：點綠框的職位加進去（' + SMAP[st.sel].r.join('、') + '）' : '點一位員工，再點班表上的職位';
+  }
+  function renderGrid(ck) {
+    var h = '<thead><tr><th class="p"></th>' + DAYS.map(function (d, i) { return '<th class="' + (i >= 5 ? 'we' : '') + '">週' + d + '</th>'; }).join('') + '</tr></thead><tbody>';
+    SHIFTS.forEach(function (sh, s) {
+      h += '<tr><th class="p">' + sh.n + '<br><small>' + sh.t + '</small></th>';
+      DAYS.forEach(function (dd, d) {
+        var nd = need(d, s);
+        h += '<td>' + ROLES.map(function (r, ri) {
+          if (!nd[ri]) return '';
+          var who = st.a.map(function (x, i) { return { x: x, i: i }; }).filter(function (o) { return o.x.d === d && o.x.s === s && o.x.r === r; });
+          var cls = who.length < nd[ri] ? 'short' : 'full';
+          var can = st.sel && SMAP[st.sel].r.indexOf(r) >= 0 && !inShift(st.sel, d, s) && !isOff(st.sel, d, s);
+          return '<div class="role ' + cls + (can ? ' can' : '') + '" data-d="' + d + '" data-s="' + s + '" data-r="' + r + '"><div class="rh"><span>' + r + '</span><span>' + who.length + '/' + nd[ri] + '</span></div>' +
+            who.map(function (o) { return '<span class="nm' + (ck.bad[o.i] ? ' bad' : '') + (st.sel === o.x.p ? ' me' : '') + '" data-i="' + o.i + '">' + esc(o.x.p) + '</span>'; }).join('') + '</div>';
+        }).join('') + '</td>';
+      });
+      h += '</tr>';
+    });
+    $('grid').innerHTML = h + '</tbody>';
+  }
+  function renderStats(ck) {
+    var bad = Object.keys(ck.bad).length;
+    $('stShort').className = 'stat ' + (ck.short ? 'warn' : 'ok'); $('stShort').querySelector('b').textContent = ck.short ? '🟧 ' + ck.short + ' 個' : '0 ✓';
+    $('stBad').className = 'stat ' + (bad ? 'bad' : 'ok'); $('stBad').querySelector('b').textContent = bad ? '⚠ ' + bad + ' 筆' : '0 ✓';
+    var hs = STAFF.map(function (p) { return count(p.n) * 4; });
+    $('stFair').querySelector('b').textContent = Math.max.apply(null, hs) + ' / ' + Math.min.apply(null, hs) + ' 小時';
+    $('probs').innerHTML = ck.list.length ? ck.list.map(function (x) { return '<li>' + x + '</li>'; }).join('') : '<li class="ok">🎉 每一班人數都夠，沒有請假衝突，也沒有人超時！</li>';
+  }
+  function render() { var ck = check(); renderStaff(); renderGrid(ck); renderStats(ck); }
+
+  $('staff').addEventListener('click', function (e) { var b = e.target.closest('[data-p]'); if (!b) return; st.sel = st.sel === b.getAttribute('data-p') ? null : b.getAttribute('data-p'); render(); });
+  $('grid').addEventListener('click', function (e) {
+    var nm = e.target.closest('[data-i]');
+    if (nm) { var x = st.a[+nm.getAttribute('data-i')]; st.a.splice(+nm.getAttribute('data-i'), 1); save(); render(); toast('已把 ' + x.p + ' 從週' + DAYS[x.d] + SHIFTS[x.s].n + '移除'); return; }
+    var role = e.target.closest('.role'); if (!role) return;
+    if (!st.sel) { toast('先點上面一位員工'); return; }
+    var d = +role.getAttribute('data-d'), s = +role.getAttribute('data-s'), r = role.getAttribute('data-r'), p = SMAP[st.sel];
+    if (p.r.indexOf(r) < 0) { toast(st.sel + ' 不會做「' + r + '」，只能排：' + p.r.join('、')); return; }
+    if (inShift(st.sel, d, s)) { toast(st.sel + ' 這一班已經排了'); return; }
+    st.a.push({ p: st.sel, d: d, s: s, r: r });
+    if (isOff(st.sel, d, s)) toast('⚠ ' + st.sel + ' 這天請假！系統標成紅色提醒你');
+    else if (count(st.sel) > p.max) toast('⚠ ' + st.sel + ' 超過每週上限 ' + p.max + ' 班了');
+    save(); render();
+  });
+  $('clearBtn').addEventListener('click', function () { st.a = []; st.sel = null; save(); render(); toast('已清空'); });
+  $('resetBtn').addEventListener('click', function () { st.a = START.slice(); st.sel = null; save(); render(); toast('已重新開始'); });
+
+  // ---------- 自動排班：缺口少人能補的先排，選目前班數最少的人（工時平均） ----------
+  $('autoBtn').addEventListener('click', function () {
+    var slots = [];
+    DAYS.forEach(function (dd, d) { SHIFTS.forEach(function (sh, s) { var nd = need(d, s); ROLES.forEach(function (r, ri) { for (var k = 0; k < nd[ri]; k++) slots.push({ d: d, s: s, r: r }); }); }); });
+    function elig(sl) { return STAFF.filter(function (p) { return p.r.indexOf(sl.r) >= 0 && !isOff(p.n, sl.d, sl.s); }); }
+    slots.sort(function (a, b) { return elig(a).length - elig(b).length; });
+    var out = [], cnt = {}, steps = 0;
+    STAFF.forEach(function (p) { cnt[p.n] = 0; });
+    function busy(p, d, s) { return out.some(function (x) { return x.p === p && x.d === d && x.s === s; }); }
+    function solve(i) {
+      if (i === slots.length) return true;
+      if (++steps > 300000) return false;
+      var sl = slots[i];
+      var cands = elig(sl).filter(function (p) { return cnt[p.n] < p.max && !busy(p.n, sl.d, sl.s); })
+        .sort(function (a, b) { return (cnt[a.n] / a.max - cnt[b.n] / b.max) || (a.r.indexOf(sl.r) - b.r.indexOf(sl.r)); });
+      for (var k = 0; k < cands.length; k++) {
+        var p = cands[k];
+        out.push({ p: p.n, d: sl.d, s: sl.s, r: sl.r }); cnt[p.n]++;
+        if (solve(i + 1)) return true;
+        out.pop(); cnt[p.n]--;
+      }
+      return false;
+    }
+    var t0 = Date.now();
+    if (solve(0)) {
+      st.a = out; st.sel = null; save(); render();
+      var hs = STAFF.map(function (p) { return cnt[p.n] * 4; });
+      toast('⚡ 自動排班完成：' + out.length + ' 個班次全部補滿，沒有人請假被排、沒有人超時（' + Math.max(1, Date.now() - t0) + ' 毫秒）');
+    } else toast('人手不夠，排不滿，請增加員工或放寬每週上限');
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
