@@ -14,7 +14,7 @@
   <meta property="og:url" content="https://win-sam0503.github.io/-/articles/staff-shift-schedule/">
   <meta property="og:locale" content="zh_TW">
   <meta property="og:site_name" content="煒程式工作室">
-  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式", "description": "餐廳、飲料店、門市每週排班最怕缺人、有人請假卻被排班、工時不平均。整理排班 5 步驟、勞基法排班要注意的地方，附 Excel／Google 試算表自動檢查缺人、重複、請假、超時的公式。", "datePublished": "2026-11-27", "dateModified": "2026-11-27", "inLanguage": "zh-Hant-TW", "author": {"@type": "Person", "name": "阿程", "url": "https://win-sam0503.github.io/-/#about"}, "publisher": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "mainEntityOfPage": "https://win-sam0503.github.io/-/articles/staff-shift-schedule/"}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式", "description": "餐廳、飲料店、門市每週排班最怕缺人、有人請假卻被排班、工時不平均。整理排班 5 步驟、勞基法排班要注意的地方，附 Excel／Google 試算表自動檢查缺人、重複、請假、超時的公式。", "datePublished": "2026-11-27", "dateModified": "2026-11-27", "inLanguage": "zh-Hant-TW", "author": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "publisher": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "mainEntityOfPage": "https://win-sam0503.github.io/-/articles/staff-shift-schedule/"}</script>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "排班表要怎麼開始排？", "acceptedAnswer": {"@type": "Answer", "text": "先定好每一班、每個職位需要幾個人，再收集員工會做的職位、每週上限和請假時段，最後依照「最難補人的班先排」的順序排班。"}}, {"@type": "Question", "name": "Excel 怎麼檢查排班有沒有缺人？", "acceptedAnswer": {"@type": "Answer", "text": "把排班資料一筆一列記錄（星期、班別、職位、員工），在人力需求表用 COUNTIFS 算每班每個職位目前的人數，再和需要人數比較，例如 =IF(E2<D2,\"缺 \"&(D2-E2)&\" 人\",\"✓\")。"}}, {"@type": "Question", "name": "Excel 怎麼找出請假卻被排班的人？", "acceptedAnswer": {"@type": "Answer", "text": "另外建立請假工作表，在排班表用 =IF(COUNTIFS(請假!$A:$A,A2,請假!$B:$B,B2,請假!$C:$C,D2)>0,\"⚠ 請假\",\"\") 檢查。"}}, {"@type": "Question", "name": "排班要注意哪些勞基法規定？", "acceptedAnswer": {"@type": "Answer", "text": "一般原則是每日正常工時不超過 8 小時、每週不超過 40 小時，每 7 天應有 2 天休息，輪班換班時原則上至少連續休息 11 小時；實際適用情況請以勞動部規定為準。"}}]}</script>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "煒程式工作室", "item": "https://win-sam0503.github.io/-/"}, {"@type": "ListItem", "position": 2, "name": "教學文章", "item": "https://win-sam0503.github.io/-/articles/"}, {"@type": "ListItem", "position": 3, "name": "員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式", "item": "https://win-sam0503.github.io/-/articles/staff-shift-schedule/"}]}</script>
   <link rel="stylesheet" href="../../css/style.css">
@@ -42,7 +42,7 @@
   <div class="crumb"><a href="../../">首頁</a> › <a href="../">教學文章</a> › 員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式</div>
 
   <h1>員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式</h1>
-  <p class="meta">2026/11/27・阿程（煒程式工作室）・閱讀約 7 分鐘</p>
+  <p class="meta">2026/11/27・煒程式工作室・閱讀約 7 分鐘</p>
 
   <div class="answer"><b>重點整理：</b>先定好<b>每一班需要幾個人（分職位）</b>，收集<b>員工可上班時間與請假</b>，排班時把資料「一筆一列」記錄，再用 <code>COUNTIFS</code> 自動檢查<b>缺人、重複、請假衝突</b>，用 <code>SUMIFS</code> 算每人工時。最後記得檢查勞基法的工時與休息規定。</div>
 
@@ -136,7 +136,7 @@
   <div class="author">
     <div class="avatar-sm">煒</div>
     <div>
-      <b>阿程｜煒程式工作室</b><br>
+      <b>煒程式工作室</b><br>
       <span>高雄在地，專門做訂貨系統、排課系統、進貨驗收與 Excel 自動化。有 Excel 或系統的問題，歡迎<a href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 問我</a>。</span>
     </div>
   </div>
