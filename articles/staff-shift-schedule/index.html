@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>員工排班表怎麼排？餐廳門市排班 5 步驟＋Excel 範本公式（缺人・請假・超時自動檢查）｜煒程式工作室</title>
+  <meta name="description" content="餐廳、飲料店、門市每週排班最怕缺人、有人請假卻被排班、工時不平均。整理排班 5 步驟、勞基法排班要注意的地方，附 Excel／Google 試算表自動檢查缺人、重複、請假、超時的公式。">
+  <meta name="keywords" content="排班表,員工排班,排班表範本,餐廳排班,門市排班,Excel 排班,排班 公式,排班軟體,排班系統,輪班">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/articles/staff-shift-schedule/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式">
+  <meta property="og:description" content="餐廳、飲料店、門市每週排班最怕缺人、有人請假卻被排班、工時不平均。整理排班 5 步驟、勞基法排班要注意的地方，附 Excel／Google 試算表自動檢查缺人、重複、請假、超時的公式。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/articles/staff-shift-schedule/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式", "description": "餐廳、飲料店、門市每週排班最怕缺人、有人請假卻被排班、工時不平均。整理排班 5 步驟、勞基法排班要注意的地方，附 Excel／Google 試算表自動檢查缺人、重複、請假、超時的公式。", "datePublished": "2026-11-27", "dateModified": "2026-11-27", "inLanguage": "zh-Hant-TW", "author": {"@type": "Person", "name": "阿程", "url": "https://win-sam0503.github.io/-/#about"}, "publisher": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "mainEntityOfPage": "https://win-sam0503.github.io/-/articles/staff-shift-schedule/"}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "排班表要怎麼開始排？", "acceptedAnswer": {"@type": "Answer", "text": "先定好每一班、每個職位需要幾個人，再收集員工會做的職位、每週上限和請假時段，最後依照「最難補人的班先排」的順序排班。"}}, {"@type": "Question", "name": "Excel 怎麼檢查排班有沒有缺人？", "acceptedAnswer": {"@type": "Answer", "text": "把排班資料一筆一列記錄（星期、班別、職位、員工），在人力需求表用 COUNTIFS 算每班每個職位目前的人數，再和需要人數比較，例如 =IF(E2<D2,\"缺 \"&(D2-E2)&\" 人\",\"✓\")。"}}, {"@type": "Question", "name": "Excel 怎麼找出請假卻被排班的人？", "acceptedAnswer": {"@type": "Answer", "text": "另外建立請假工作表，在排班表用 =IF(COUNTIFS(請假!$A:$A,A2,請假!$B:$B,B2,請假!$C:$C,D2)>0,\"⚠ 請假\",\"\") 檢查。"}}, {"@type": "Question", "name": "排班要注意哪些勞基法規定？", "acceptedAnswer": {"@type": "Answer", "text": "一般原則是每日正常工時不超過 8 小時、每週不超過 40 小時，每 7 天應有 2 天休息，輪班換班時原則上至少連續休息 11 小時；實際適用情況請以勞動部規定為準。"}}]}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "煒程式工作室", "item": "https://win-sam0503.github.io/-/"}, {"@type": "ListItem", "position": 2, "name": "教學文章", "item": "https://win-sam0503.github.io/-/articles/"}, {"@type": "ListItem", "position": 3, "name": "員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式", "item": "https://win-sam0503.github.io/-/articles/staff-shift-schedule/"}]}</script>
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../article.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../">教學文章</a>
+      <a href="../../demo/">線上試用</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap article">
+  <div class="crumb"><a href="../../">首頁</a> › <a href="../">教學文章</a> › 員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式</div>
+
+  <h1>員工排班表怎麼排？餐廳、門市排班 5 步驟＋Excel 自動檢查公式</h1>
+  <p class="meta">2026/11/27・阿程（煒程式工作室）・閱讀約 7 分鐘</p>
+
+  <div class="answer"><b>重點整理：</b>先定好<b>每一班需要幾個人（分職位）</b>，收集<b>員工可上班時間與請假</b>，排班時把資料「一筆一列」記錄，再用 <code>COUNTIFS</code> 自動檢查<b>缺人、重複、請假衝突</b>，用 <code>SUMIFS</code> 算每人工時。最後記得檢查勞基法的工時與休息規定。</div>
+
+<p>餐廳、飲料店、門市的老闆或店長，每週都要花時間排班：有人請假、有人只能上晚班、週末要多排人……排完才發現某一班缺人，或某位員工班太多、另一位太少。</p>
+<p>這篇整理出排班的 <b>5 個步驟</b>，並附上 Excel／Google 試算表的<b>自動檢查公式</b>，讓表格幫你抓出問題。</p>
+
+<h2>步驟 1：先定好「每一班需要幾個人」</h2>
+<p>排班前先列出<b>人力需求</b>，而且要<b>分職位</b>，不要只寫「晚班 4 個人」。例如：</p>
+<table class="t"><thead><tr><th>班別</th><th>外場</th><th>內場</th><th>收銀</th></tr></thead><tbody>
+<tr><td>平日早班 10–14</td><td>1</td><td>1</td><td>0</td></tr>
+<tr><td>平日晚班 17–21</td><td>2</td><td>1</td><td>1</td></tr>
+<tr><td>週末早班</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>週末晚班</td><td>2</td><td>2</td><td>1</td></tr>
+</tbody></table>
+<p class="tip">💡 人力需求可以參考過去的營業額或來客數：最忙的時段多排人，離峰時段少排，人事成本就不會浪費。</p>
+
+<h2>步驟 2：收集員工的可上班時間與請假</h2>
+<p>固定每週的某一天（例如週三）前，請員工登記下週<b>不能上班的時段</b>和<b>請假</b>。用 Google 表單收集最方便，資料會自動進到試算表。</p>
+<p>同時整理每位員工的基本資料：</p>
+<ul class="list">
+<li><b>會做的職位</b>：外場、內場、收銀（有人會好幾種）</li>
+<li><b>每週上限</b>：正職、兼職的工時上限不同</li>
+<li><b>固定不能上班的時段</b>：例如學生兼職平日白天要上課</li>
+</ul>
+
+<h2>步驟 3：排班資料「一筆一列」記錄</h2>
+<p>跟<a href="../class-scheduling/">排課</a>一樣，班表格子看起來直覺，但很難讓電腦幫你檢查。建議另外開一張「<b>排班</b>」工作表，每個人每一班一列：</p>
+<table class="t"><thead><tr><th>A 星期</th><th>B 班別</th><th>C 職位</th><th>D 員工</th><th>E 工時</th></tr></thead><tbody>
+<tr><td>一</td><td>晚班</td><td>外場</td><td>小美</td><td>4</td></tr>
+<tr><td>一</td><td>晚班</td><td>內場</td><td>阿傑</td><td>4</td></tr>
+<tr><td>三</td><td>晚班</td><td>外場</td><td>小華</td><td>4</td></tr>
+</tbody></table>
+<p>另外再開「<b>請假</b>」工作表（A 星期、B 班別、C 員工），和「<b>人力需求</b>」工作表（A 星期、B 班別、C 職位、D 需要人數）。</p>
+
+<h2>步驟 4：用公式自動檢查 4 種問題</h2>
+<p>以下公式在 Excel 和 Google 試算表都能用，<b>我實際在試算表測試過，結果正確</b>。</p>
+
+<h3>① 缺人：每一班的人數夠不夠</h3>
+<p>在「人力需求」工作表的 E 欄算目前排了幾人：</p>
+<pre><code>=COUNTIFS(排班!$A:$A,A2,排班!$B:$B,B2,排班!$C:$C,C2)</code></pre>
+<p>F 欄顯示缺幾人：</p>
+<pre><code>=IF(E2&lt;D2,"🟧 缺 "&amp;(D2-E2)&amp;" 人","✓")</code></pre>
+
+<h3>② 重複：同一個人同一班被排兩次</h3>
+<p>在「排班」工作表的 F 欄：</p>
+<pre><code>=IF(COUNTIFS($A:$A,A2,$B:$B,B2,$D:$D,D2)&gt;1,"⚠ 重複","")</code></pre>
+
+<h3>③ 請假衝突：請假了卻被排班</h3>
+<p>在「排班」工作表的 G 欄：</p>
+<pre><code>=IF(COUNTIFS(請假!$A:$A,A2,請假!$B:$B,B2,請假!$C:$C,D2)&gt;0,"⚠ 請假","")</code></pre>
+
+<h3>④ 超時：每個人這週排了幾小時</h3>
+<p>開一張「工時」工作表，A 欄是員工、C 欄是每週上限，B 欄算本週工時：</p>
+<pre><code>=SUMIFS(排班!$E:$E,排班!$D:$D,A2)</code></pre>
+<p>D 欄檢查：</p>
+<pre><code>=IF(B2&gt;C2,"⚠ 超時","✓")</code></pre>
+<p class="tip">💡 搭配「條件式格式設定」，把有「⚠」或「🟧」的列整列標色，一眼就看得到問題在哪。</p>
+
+<h2>步驟 5：排完檢查勞基法規定</h2>
+<p>排班也要注意勞動法規。以下是<b>一般常見的原則</b>，實際適用情況（例如變形工時、部分工時）請以勞動部的規定為準：</p>
+<ul class="list">
+<li><b>正常工時</b>：每日原則上不超過 8 小時、每週不超過 40 小時。</li>
+<li><b>休息日</b>：每 7 天中應有 2 天休息（1 天例假、1 天休息日）。</li>
+<li><b>輪班換班</b>：更換班次時，原則上至少要有連續 11 小時的休息時間。</li>
+</ul>
+<p>例如「晚班做到 21:00，隔天早上 8:00 又排早班」，中間只休息 11 小時，就要特別留意。</p>
+
+<h2>技巧：怎麼排比較快、比較公平</h2>
+<ol class="list">
+<li><b>先排最難補人的班</b>：例如只有少數人會做的職位、很多人請假的時段。</li>
+<li><b>優先排班數比較少的人</b>：讓大家的工時平均，比較不會有怨言。</li>
+<li><b>固定班先排</b>：例如店長固定週末晚班。</li>
+<li><b>排好後再跑一次檢查</b>：全部都是 ✓ 再公布。</li>
+</ol>
+
+<h2>人一多，就交給系統自動排</h2>
+<p>員工 5 個以下，用 Excel 加上面的檢查公式就很夠用。員工多、職位多、請假又常常變動時，光是換一個人的班，就可能牽動好幾個班。</p>
+<p>我做的排班系統可以<b>一鍵自動排班</b>：依每一班需要的人數和職位，避開請假、不超過每週上限，同時讓大家的工時盡量平均；員工也能用手機查自己的班表。</p>
+
+  <div class="cta-mini">
+    <div><b>👥 想看自動排班怎麼運作？</b><br><span>免費線上試玩：缺人、請假、超時自動提醒，一鍵自動排班。</span></div>
+    <a class="btn btn-primary" href="../../demo/shift/">線上試玩排班</a>
+  </div>
+
+  <h2>常見問題</h2>
+  <details><summary>排班表要怎麼開始排？</summary><p>先定好每一班、每個職位需要幾個人，再收集員工會做的職位、每週上限和請假時段，最後依照「最難補人的班先排」的順序排班。</p></details>
+  <details><summary>Excel 怎麼檢查排班有沒有缺人？</summary><p>把排班資料一筆一列記錄（星期、班別、職位、員工），在人力需求表用 COUNTIFS 算每班每個職位目前的人數，再和需要人數比較，例如 =IF(E2&lt;D2,&quot;缺 &quot;&amp;(D2-E2)&amp;&quot; 人&quot;,&quot;✓&quot;)。</p></details>
+  <details><summary>Excel 怎麼找出請假卻被排班的人？</summary><p>另外建立請假工作表，在排班表用 =IF(COUNTIFS(請假!$A:$A,A2,請假!$B:$B,B2,請假!$C:$C,D2)&gt;0,&quot;⚠ 請假&quot;,&quot;&quot;) 檢查。</p></details>
+  <details><summary>排班要注意哪些勞基法規定？</summary><p>一般原則是每日正常工時不超過 8 小時、每週不超過 40 小時，每 7 天應有 2 天休息，輪班換班時原則上至少連續休息 11 小時；實際適用情況請以勞動部規定為準。</p></details>
+
+  <div class="author">
+    <div class="avatar-sm">煒</div>
+    <div>
+      <b>阿程｜煒程式工作室</b><br>
+      <span>高雄在地，專門做訂貨系統、排課系統、進貨驗收與 Excel 自動化。有 Excel 或系統的問題，歡迎<a href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 問我</a>。</span>
+    </div>
+  </div>
+
+  <section style="padding:24px 0 0">
+    <h2 style="margin-top:0">相關服務</h2>
+    <div class="other-svc">
+      <a href="../../scheduling-system/">📅 排課・排班系統 →</a>
+      <a href="../../excel-system/">📊 Excel 系統與整理 →</a>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜<a href="../">更多教學文章</a></footer>
+</body>
+</html>
