@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>排課系統線上試玩｜高雄 煒程式工作室</title>
+  <meta name="description" content="免費線上試玩排課系統：點一下就能排課，老師、教室、班級撞課會立刻標紅提醒；按「自動排課」一鍵排好、零衝堂。不用註冊，打開就能玩。">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/demo/schedule/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="排課系統線上試玩｜煒程式工作室">
+  <meta property="og:description" content="點一下排課、撞課立刻提醒、一鍵自動排課。不用註冊，打開就能玩。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/demo/schedule/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <link rel="stylesheet" href="../../css/style.css">
+  <style>
+    .demo-bar { background: #fff7e0; border-bottom: 1px solid #f0dfae; font-size: .9rem; }
+    .demo-bar .wrap { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+    .demo-bar b { color: #8a5a00; }
+    .linkbtn { background: none; border: 0; color: var(--brand); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; }
+    .d-head { padding-top: 28px; padding-bottom: 6px; text-align: center; }
+    .d-head h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); margin-bottom: 6px; }
+    .d-head p { color: var(--muted); }
+    .how { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 12px 0 18px; font-size: .85rem; }
+    .how span { background: var(--brand-soft); color: var(--brand-dark); padding: 4px 10px; border-radius: 999px; font-weight: 700; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; }
+    .panel h2 { font-size: 1.08rem; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .panel h2 small { font-weight: 500; color: var(--muted); font-size: .85rem; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+    .seg button { border: 0; background: #fff; padding: 8px 14px; font: inherit; font-weight: 700; cursor: pointer; color: var(--text); }
+    .seg button[aria-pressed="true"] { background: var(--deep); color: #fff; }
+    select.in { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-weight: 700; background: #fff; color: var(--text); }
+    .stats { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
+    .stat { flex: 1; min-width: 120px; background: #f4f7f6; border-radius: 12px; padding: 10px 12px; }
+    .stat span { display: block; font-size: .8rem; color: var(--muted); }
+    .stat b { font-size: 1.3rem; }
+    .stat.bad b { color: #c0392b; }
+    .stat.ok b { color: var(--brand); }
+    .pool { display: flex; gap: 8px; flex-wrap: wrap; min-height: 44px; }
+    .chip { border: 2px solid transparent; border-radius: 10px; padding: 6px 10px; font: inherit; font-size: .85rem; cursor: pointer; text-align: left; line-height: 1.35; color: #15302c; }
+    .chip small { display: block; font-size: .72rem; opacity: .8; }
+    .chip .n { font-weight: 800; }
+    .chip.sel { border-color: #15302c; box-shadow: 0 0 0 3px rgba(31,138,112,.35); }
+    .chip.lock { outline: 2px dashed #15302c; outline-offset: -4px; }
+    .empty { color: var(--muted); font-size: .9rem; padding: 8px 0; }
+    .gridwrap { overflow-x: auto; }
+    table.tt { width: 100%; border-collapse: separate; border-spacing: 4px; min-width: 560px; table-layout: fixed; }
+    table.tt th { font-size: .8rem; color: var(--muted); font-weight: 700; padding: 4px; }
+    table.tt th.p { width: 64px; text-align: right; }
+    table.tt td { height: 70px; vertical-align: top; background: #f7faf9; border: 1px dashed #d3e0db; border-radius: 10px; padding: 3px; cursor: pointer; position: relative; }
+    table.tt td.can { background: #e6f6ef; border: 2px dashed var(--brand); }
+    table.tt td.na { background: repeating-linear-gradient(45deg, #f3f3f3, #f3f3f3 6px, #e9e9e9 6px, #e9e9e9 12px); }
+    table.tt td.na::after { content: "不可排"; position: absolute; right: 6px; bottom: 4px; font-size: .68rem; color: #999; }
+    table.tt td .chip { width: 100%; margin-bottom: 3px; padding: 4px 6px; font-size: .78rem; }
+    table.tt td .chip.bad { border-color: #c0392b; background: #fde2e0 !important; }
+    table.tt td .chip.bad::before { content: "⚠ "; color: #c0392b; font-weight: 900; }
+    .probs { font-size: .9rem; }
+    .probs li { margin: 4px 0 4px 1.2em; }
+    .probs .ok { color: var(--brand); font-weight: 700; list-style: none; margin-left: 0; }
+    .legend { font-size: .8rem; color: var(--muted); margin-top: 8px; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--deep); color: #fff; padding: 12px 18px; border-radius: 12px; font-weight: 700; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 92%; text-align: center; }
+    .c0 { background: #dbeafe; } .c1 { background: #fde68a; } .c2 { background: #d9f99d; } .c3 { background: #fbcfe8; }
+    .c4 { background: #c7d2fe; } .c5 { background: #fed7aa; } .c6 { background: #bae6fd; } .c7 { background: #e9d5ff; }
+    @media (max-width: 640px) { .panel { padding: 14px; } table.tt td { height: 62px; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../../scheduling-system/">排課系統介紹</a>
+      <a href="../">訂貨試用</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<div class="demo-bar">
+  <div class="wrap">
+    <span>🧪 <b>示範模式</b>：老師、班級都是假的，資料只存在你的瀏覽器。</span>
+    <button class="linkbtn" id="resetBtn" type="button">↺ 重新開始</button>
+  </div>
+</div>
+
+<main class="wrap" style="max-width:1040px">
+  <div class="d-head">
+    <h1>排課系統線上試玩</h1>
+    <p>自己排排看，撞課會立刻變紅色；排不完就按「⚡ 自動排課」。</p>
+  </div>
+  <div class="how"><span>① 點下方「待排課程」選一堂</span><span>② 點課表空格放進去</span><span>③ 點已排的課可以移回</span><span>④ 或直接 ⚡ 自動排課</span></div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="課表檢視">
+        <button type="button" data-v="cls" aria-pressed="true">👥 班級</button>
+        <button type="button" data-v="teacher" aria-pressed="false">👩‍🏫 老師</button>
+        <button type="button" data-v="room" aria-pressed="false">🏫 教室</button>
+      </div>
+      <select class="in" id="who" aria-label="選擇"></select>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary" type="button" id="autoBtn">⚡ 自動排課</button>
+      <button class="btn btn-ghost" type="button" id="clearBtn">清空</button>
+    </div>
+    <div class="stats">
+      <div class="stat" id="stPlaced"><span>已排節數</span><b>—</b></div>
+      <div class="stat" id="stConf"><span>衝堂</span><b>—</b></div>
+      <div class="stat"><span>班級／老師／教室</span><b id="stSize">—</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>📋 待排課程 <small id="poolHint"></small></h2>
+    <div class="pool" id="pool"></div>
+  </div>
+
+  <div class="panel">
+    <h2 id="gridTitle">課表</h2>
+    <div class="gridwrap"><table class="tt" id="grid"></table></div>
+    <div class="legend">🔒 虛線框＝鎖定的固定課（自動排課不會動）　▨ 斜線＝這位老師不可排的時段　⚠ 紅框＝衝堂</div>
+  </div>
+
+  <div class="panel">
+    <h2>🔍 衝堂檢查</h2>
+    <ul class="probs" id="probs"></ul>
+  </div>
+
+  <section style="padding-top:8px">
+    <div class="cta-band">
+      <h2>想要一套自己的排課系統？</h2>
+      <p>這是簡化版示範。真正的系統用 Google 試算表管理，老師、教室、配課直接改表格，還能產生每位老師的專屬課表網址｜📍 高雄可約面談，全台線上服務</p>
+      <div class="actions">
+        <a class="btn btn-line" href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 諮詢（@376yuevo）</a>
+        <a class="btn btn-ghost" href="../../scheduling-system/">看完整功能介紹</a>
+        <a class="btn btn-ghost" href="../">也試試訂貨系統</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜排課系統線上試玩（示範資料）</footer>
+
+<script>
+(function () {
+  'use strict';
+  var DAYS = ['一', '二', '三', '四', '五'];
+  var PERIODS = ['1', '2', '3', '4', '5', '6'];
+  var PLABEL = ['08:10', '09:10', '10:10', '11:10', '13:10', '14:10'];
+  // 配課：班級、科目、老師、教室、每週節數
+  var COURSES = [
+    ['101', '國文', '王老師', '101教室', 3], ['101', '數學', '林老師', '101教室', 3], ['101', '英文', '陳老師', '101教室', 2], ['101', '烘焙實習', '張老師', '烘焙教室', 3], ['101', '電腦', '李老師', '電腦教室', 2],
+    ['102', '國文', '王老師', '102教室', 3], ['102', '數學', '林老師', '102教室', 3], ['102', '英文', '陳老師', '102教室', 2], ['102', '中餐實習', '黃老師', '中餐教室', 3], ['102', '電腦', '李老師', '電腦教室', 2],
+    ['201', '國文', '王老師', '201教室', 2], ['201', '數學', '林老師', '201教室', 2], ['201', '英文', '陳老師', '201教室', 3], ['201', '烘焙實習', '張老師', '烘焙教室', 3], ['201', '中餐實習', '黃老師', '中餐教室', 3],
+    ['202', '國文', '王老師', '202教室', 2], ['202', '數學', '林老師', '202教室', 2], ['202', '英文', '陳老師', '202教室', 3], ['202', '中餐實習', '黃老師', '中餐教室', 3], ['202', '電腦', '李老師', '電腦教室', 2]
+  ].map(function (r, i) { return { id: 'C' + i, cls: r[0], subj: r[1], teacher: r[2], room: r[3], hours: r[4] }; });
+  var CMAP = {}; COURSES.forEach(function (c) { CMAP[c.id] = c; });
+  var COLOR = { '國文': 'c0', '數學': 'c1', '英文': 'c2', '烘焙實習': 'c3', '中餐實習': 'c5', '電腦': 'c6' };
+  // 老師不可排時段：'星期index-節index'
+  var NA = { '林老師': ['2-4', '2-5'], '張老師': ['0-0', '0-1'], '黃老師': ['4-4', '4-5'] };
+  // 鎖定的固定課（例如每週固定的社團時間被拿來當示範）
+  var LOCKS = [{ cid: 'C0', d: 0, p: 0 }];
+  // 一開始先排好幾堂，其中故意有一個衝堂
+  var START = [{ cid: 'C0', d: 0, p: 0, lock: true }, { cid: 'C1', d: 0, p: 1 }, { cid: 'C5', d: 0, p: 1 }, { cid: 'C6', d: 0, p: 1 }, { cid: 'C3', d: 1, p: 4 }];
+
+  var CLASSES = uniq('cls'), TEACHERS = uniq('teacher'), ROOMS = uniq('room');
+  function uniq(k) { var o = []; COURSES.forEach(function (c) { if (o.indexOf(c[k]) < 0) o.push(c[k]); }); return o; }
+
+  var KEY = 'wcDemoSched.v1';
+  var st = { pl: [], view: 'cls', who: '101', sel: null };
+  try { var sv = JSON.parse(localStorage.getItem(KEY) || 'null'); if (sv && Array.isArray(sv.pl)) st.pl = sv.pl; else st.pl = START.slice(); } catch (e) { st.pl = START.slice(); }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ pl: st.pl })); } catch (e) {} }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+
+  function placedCount(cid) { return st.pl.filter(function (x) { return x.cid === cid; }).length; }
+  function isNA(teacher, d, p) { return (NA[teacher] || []).indexOf(d + '-' + p) >= 0; }
+  // 衝堂：同一時段同老師／同教室／同班級
+  function conflicts() {
+    var bad = {}, list = [], by = {};
+    st.pl.forEach(function (x, i) { var k = x.d + '-' + x.p; (by[k] = by[k] || []).push(i); });
+    Object.keys(by).forEach(function (k) {
+      var idx = by[k]; if (idx.length < 2 && !idx.some(function (i) { var c = CMAP[st.pl[i].cid]; return isNA(c.teacher, st.pl[i].d, st.pl[i].p); })) return;
+      ['teacher', 'room', 'cls'].forEach(function (f) {
+        var g = {}; idx.forEach(function (i) { var v = CMAP[st.pl[i].cid][f]; (g[v] = g[v] || []).push(i); });
+        Object.keys(g).forEach(function (v) { if (g[v].length > 1) { g[v].forEach(function (i) { bad[i] = 1; }); list.push({ f: f, v: v, k: k, n: g[v].length }); } });
+      });
+    });
+    st.pl.forEach(function (x, i) { var c = CMAP[x.cid]; if (isNA(c.teacher, x.d, x.p)) { bad[i] = 1; list.push({ f: 'na', v: c.teacher, k: x.d + '-' + x.p }); } });
+    return { bad: bad, list: list };
+  }
+  function slotLabel(k) { var a = k.split('-'); return '週' + DAYS[+a[0]] + ' 第 ' + PERIODS[+a[1]] + ' 節'; }
+
+  function viewField() { return st.view; }
+  function whoList() { return st.view === 'cls' ? CLASSES : st.view === 'teacher' ? TEACHERS : ROOMS; }
+  function renderWho() {
+    var L = whoList(); if (L.indexOf(st.who) < 0) st.who = L[0];
+    $('who').innerHTML = L.map(function (w) { return '<option' + (w === st.who ? ' selected' : '') + '>' + esc(w) + (st.view === 'cls' ? ' 班' : '') + '</option>'; }).join('');
+    $('who').value = st.who + (st.view === 'cls' ? ' 班' : '');
+  }
+  function chipHtml(c, extra, label) {
+    return '<button type="button" class="chip ' + (COLOR[c.subj] || 'c7') + ' ' + (extra || '') + '"' + label + '><span class="n">' + esc(c.subj) + '</span>' +
+      '<small>' + (st.view === 'cls' ? esc(c.teacher) + '・' + esc(c.room) : st.view === 'teacher' ? esc(c.cls) + '班・' + esc(c.room) : esc(c.cls) + '班・' + esc(c.teacher)) + '</small></button>';
+  }
+  function renderPool() {
+    var mine = COURSES.filter(function (c) { return c[viewField()] === st.who; });
+    var left = mine.filter(function (c) { return placedCount(c.id) < c.hours; });
+    $('pool').innerHTML = left.length ? left.map(function (c) {
+      var rem = c.hours - placedCount(c.id);
+      return chipHtml(c, st.sel === c.id ? 'sel' : '', ' data-c="' + c.id + '"').replace('</span>', ' ×' + rem + '</span>');
+    }).join('') : '<div class="empty">✅ ' + esc(st.who) + (st.view === 'cls' ? ' 班' : '') + ' 的課都排好了！換別的' + (st.view === 'cls' ? '班級' : st.view === 'teacher' ? '老師' : '教室') + '看看，或切換檢視方式。</div>';
+    $('poolHint').textContent = st.sel ? '已選「' + CMAP[st.sel].subj + '」，點課表的綠色格子放進去' : '點一堂課選取';
+  }
+  function renderGrid(cf) {
+    var f = viewField(), selC = st.sel ? CMAP[st.sel] : null;
+    var h = '<thead><tr><th class="p"></th>' + DAYS.map(function (d) { return '<th>週' + d + '</th>'; }).join('') + '</tr></thead><tbody>';
+    PERIODS.forEach(function (pp, p) {
+      h += '<tr><th class="p">第' + pp + '節<br><small>' + PLABEL[p] + '</small></th>';
+      DAYS.forEach(function (dd, d) {
+        var items = st.pl.map(function (x, i) { return { x: x, i: i }; }).filter(function (o) { return o.x.d === d && o.x.p === p && CMAP[o.x.cid][f] === st.who; });
+        var na = st.view === 'teacher' && isNA(st.who, d, p);
+        var can = selC && !items.length && !(selC && isNA(selC.teacher, d, p));
+        h += '<td data-d="' + d + '" data-p="' + p + '" class="' + (na ? 'na ' : '') + (can ? 'can' : '') + '">' +
+          items.map(function (o) { var c = CMAP[o.x.cid]; return chipHtml(c, (cf.bad[o.i] ? 'bad ' : '') + (o.x.lock ? 'lock' : ''), ' data-i="' + o.i + '"'); }).join('') + '</td>';
+      });
+      h += '</tr>';
+    });
+    $('grid').innerHTML = h + '</tbody>';
+    $('gridTitle').textContent = (st.view === 'cls' ? '👥 ' + st.who + ' 班' : st.view === 'teacher' ? '👩‍🏫 ' + st.who : '🏫 ' + st.who) + ' 的課表';
+  }
+  function renderProbs(cf) {
+    var name = { teacher: '老師衝堂', room: '教室衝堂', cls: '班級衝堂', na: '老師不可排' };
+    var seen = {}, out = [];
+    cf.list.forEach(function (x) { var k = x.f + x.v + x.k; if (seen[k]) return; seen[k] = 1; out.push('<li><b>' + name[x.f] + '</b>：' + esc(x.v) + (x.f === 'cls' ? ' 班' : '') + '・' + slotLabel(x.k) + (x.n ? '（排了 ' + x.n + ' 堂）' : '') + '</li>'); });
+    var total = COURSES.reduce(function (s, c) { return s + c.hours; }, 0);
+    $('probs').innerHTML = out.length ? out.join('') : (st.pl.length >= total ? '<li class="ok">🎉 全部 ' + total + ' 節都排好了，沒有任何衝堂！</li>' : '<li class="ok">✓ 目前沒有衝堂</li>');
+  }
+  function renderStats(cf) {
+    var total = COURSES.reduce(function (s, c) { return s + c.hours; }, 0);
+    $('stPlaced').querySelector('b').textContent = st.pl.length + ' / ' + total;
+    var n = Object.keys(cf.bad).length;
+    $('stConf').className = 'stat ' + (n ? 'bad' : 'ok');
+    $('stConf').querySelector('b').textContent = n ? '⚠ ' + n + ' 堂' : '0 ✓';
+    $('stSize').textContent = CLASSES.length + '／' + TEACHERS.length + '／' + ROOMS.length;
+  }
+  function render() {
+    var cf = conflicts();
+    document.querySelectorAll('.seg button').forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-v') === st.view); });
+    renderWho(); renderPool(); renderGrid(cf); renderProbs(cf); renderStats(cf);
+  }
+
+  // ---------- 互動 ----------
+  $('pool').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-c]'); if (!b) return;
+    st.sel = st.sel === b.getAttribute('data-c') ? null : b.getAttribute('data-c'); render();
+  });
+  $('grid').addEventListener('click', function (e) {
+    var chip = e.target.closest('[data-i]');
+    if (chip) {
+      var i = +chip.getAttribute('data-i'), x = st.pl[i];
+      if (x.lock) { toast('🔒 這是鎖定的固定課，不能移動'); return; }
+      st.pl.splice(i, 1); st.sel = x.cid; save(); render(); toast('已移回待排，點綠色格子可以放到別的時段'); return;
+    }
+    var td = e.target.closest('td'); if (!td) return;
+    if (!st.sel) { toast('先從上面「待排課程」點一堂課'); return; }
+    var c = CMAP[st.sel], d = +td.getAttribute('data-d'), p = +td.getAttribute('data-p');
+    st.pl.push({ cid: st.sel, d: d, p: p });
+    var cf = conflicts(), i = st.pl.length - 1;
+    if (cf.bad[i]) toast('⚠ 衝堂了！看下面「衝堂檢查」，點紅框的課可以移回');
+    if (placedCount(st.sel) >= c.hours) st.sel = null;
+    save(); render();
+  });
+  document.querySelector('.seg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return; st.view = b.getAttribute('data-v'); st.sel = null; st.who = whoList()[0]; render();
+  });
+  $('who').addEventListener('change', function () { st.who = $('who').value.replace(/ 班$/, ''); st.sel = null; render(); });
+  $('clearBtn').addEventListener('click', function () { st.pl = st.pl.filter(function (x) { return x.lock; }); st.sel = null; save(); render(); toast('已清空（鎖定的課保留）'); });
+  $('resetBtn').addEventListener('click', function () { st.pl = START.slice(); st.sel = null; st.view = 'cls'; st.who = '101'; save(); render(); toast('已重新開始'); });
+
+  // ---------- 自動排課：先排限制多的，回溯搜尋 ----------
+  $('autoBtn').addEventListener('click', function () {
+    var keep = st.pl.filter(function (x) { return x.lock; });
+    var units = [];
+    COURSES.forEach(function (c) { var n = c.hours - keep.filter(function (x) { return x.cid === c.id; }).length; for (var k = 0; k < n; k++) units.push(c); });
+    // 限制多的先排：實習（專科教室）＞有不可排時段的老師＞其他
+    function weight(c) { return (/實習|電腦/.test(c.subj) ? 100 : 0) + (NA[c.teacher] ? 10 : 0) + c.hours; }
+    units.sort(function (a, b) { return weight(b) - weight(a); });
+    var used = { t: {}, r: {}, c: {} }, perDay = {};
+    function key(a, d, p) { return a + '|' + d + '|' + p; }
+    function take(c, d, p, on) {
+      var v = on ? 1 : undefined;
+      used.t[key(c.teacher, d, p)] = v; used.r[key(c.room, d, p)] = v; used.c[key(c.cls, d, p)] = v;
+      var dk = c.id + '|' + d; perDay[dk] = (perDay[dk] || 0) + (on ? 1 : -1);
+    }
+    keep.forEach(function (x) { take(CMAP[x.cid], x.d, x.p, true); });
+    var slots = []; for (var d = 0; d < 5; d++) for (var p = 0; p < 6; p++) slots.push([d, p]);
+    var out = [], steps = 0;
+    function ok(c, d, p) {
+      return !used.t[key(c.teacher, d, p)] && !used.r[key(c.room, d, p)] && !used.c[key(c.cls, d, p)] && !isNA(c.teacher, d, p) &&
+        (perDay[c.id + '|' + d] || 0) < (/實習/.test(c.subj) ? 3 : 1);
+    }
+    function solve(i) {
+      if (i === units.length) return true;
+      if (++steps > 200000) return false;
+      var c = units[i];
+      // 同一堂課優先接在同一天（實習課連排），其他課分散在不同天
+      var order = slots.slice().sort(function (a, b) { return score(c, b) - score(c, a); });
+      for (var s = 0; s < order.length; s++) {
+        var d2 = order[s][0], p2 = order[s][1];
+        if (!ok(c, d2, p2)) continue;
+        take(c, d2, p2, true); out.push({ cid: c.id, d: d2, p: p2 });
+        if (solve(i + 1)) return true;
+        out.pop(); take(c, d2, p2, false);
+      }
+      return false;
+    }
+    function score(c, sl) {
+      var d = sl[0], p = sl[1], s = 0, n = perDay[c.id + '|' + d] || 0;
+      if (/實習/.test(c.subj)) { s += n ? 50 : 0; s += out.some(function (x) { return x.cid === c.id && x.d === d && Math.abs(x.p - p) === 1; }) ? 30 : 0; }
+      else s -= n * 50;
+      return s - p * 0.1 - d * 0.01;
+    }
+    var t0 = Date.now();
+    if (solve(0)) {
+      st.pl = keep.concat(out); st.sel = null; save(); render();
+      toast('⚡ 自動排課完成：' + st.pl.length + ' 節全部排入、零衝堂（' + Math.max(1, Date.now() - t0) + ' 毫秒）');
+    } else toast('條件太嚴格，排不出來，請放寬老師的不可排時段');
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
