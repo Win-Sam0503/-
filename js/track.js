@@ -8,6 +8,7 @@
     var h = a.getAttribute('href') || '';
     var label = (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
     if (/line\.me/.test(h)) send('contact_line', { link_text: label });
+    else if (/instagram\.com/.test(h)) send('contact_instagram', { link_text: label });
     else if (/^tel:/.test(h)) send('contact_phone', { link_text: label });
     else if (/^mailto:/.test(h)) send('contact_email', { link_text: label });
     else if (/demo\//.test(h)) send('demo_open', { link_url: h, link_text: label });

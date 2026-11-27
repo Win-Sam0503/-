@@ -238,3 +238,7 @@
     .pay { list-style: none; max-width: 640px; margin: 22px auto 0; display: grid; gap: 8px; }
     .pay li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: .95rem; }
     .svc-price { display: inline-block; background: #fff7e0; color: #8a5a00; border-radius: 999px; padding: 4px 14px; font-weight: 800; margin-bottom: 18px; }
+
+    /* Instagram 按鈕 */
+    .btn-ig { background: linear-gradient(45deg, #f58529, #dd2a7b 45%, #8134af 75%, #515bd4); color: #fff; }
+    .btn-ig:hover { filter: brightness(1.05); }
