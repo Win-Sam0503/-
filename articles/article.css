@@ -1,0 +1,46 @@
+/* 教學文章共用樣式（搭配 ../css/style.css） */
+.article { max-width: 780px; padding-bottom: 40px; }
+.article h1 { font-size: clamp(1.6rem, 4.5vw, 2.3rem); line-height: 1.35; margin: 18px 0 8px; }
+.article .meta { color: var(--muted); font-size: .9rem; margin-bottom: 22px; }
+.article h2 { font-size: 1.4rem; margin: 36px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.article h3 { font-size: 1.1rem; margin: 22px 0 8px; }
+.article p { margin-bottom: 12px; font-size: 1.02rem; line-height: 1.85; }
+.article .small { font-size: .88rem; color: var(--muted); }
+.article code { background: #eef4f1; color: #0f3d3e; padding: 1px 6px; border-radius: 6px; font-size: .92em; word-break: break-all; }
+.article pre { background: #0f3d3e; color: #e6fff6; border-radius: 12px; padding: 14px 16px; overflow-x: auto; margin-bottom: 12px; }
+.article pre code { background: none; color: inherit; padding: 0; font-size: .95rem; word-break: normal; }
+.answer { background: var(--brand-soft); border-left: 5px solid var(--brand); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; line-height: 1.9; font-size: 1.05rem; }
+.tip { background: #fff7e0; border-radius: 10px; padding: 10px 14px; font-size: .95rem !important; }
+.t { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: .95rem; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.t th, .t td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+.t th { background: #f4f7f6; color: var(--muted); font-size: .85rem; }
+.tool { background: var(--card); border: 2px solid var(--brand); border-radius: 16px; padding: 18px; margin: 22px 0; }
+.tool h2 { margin: 0 0 12px; padding: 0; border: 0; font-size: 1.2rem; }
+.tool hr { border: 0; border-top: 1px dashed var(--line); margin: 16px 0; }
+.tool label { font-size: .88rem; font-weight: 700; color: var(--muted); display: block; margin-bottom: 4px; }
+.tool .in { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 1.1rem; }
+.tool .in:focus { outline: 2px solid var(--brand); }
+.tool-grid { display: grid; gap: 16px; grid-template-columns: 1fr 1.2fr; align-items: start; }
+.unit-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.unit-btns button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 10px; font: inherit; font-size: .85rem; cursor: pointer; }
+.out div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.out span { color: var(--muted); font-size: .9rem; }
+.out b { color: var(--brand-dark); font-size: 1.1rem; }
+.row2 { display: flex; gap: 6px; align-items: center; }
+.row2 .in { width: 80px; }
+.cta-mini { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--deep); color: #fff; border-radius: 14px; padding: 16px 18px; margin: 14px 0 8px; }
+.cta-mini span { color: #b9e3d6; font-size: .92rem; }
+.author { display: flex; gap: 14px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 30px; }
+.author span { color: var(--muted); font-size: .92rem; }
+.author a { color: var(--brand); font-weight: 700; }
+.avatar-sm { width: 56px; height: 56px; border-radius: 50%; background: var(--deep); color: #fff; font-weight: 900; font-size: 1.6rem; display: grid; place-items: center; flex: none; }
+.article details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; }
+.article details summary { font-weight: 700; cursor: pointer; }
+.article details p { margin: 8px 0 0; color: var(--muted); }
+.post-list { display: grid; gap: 16px; }
+.post { display: block; text-decoration: none; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
+.post:hover { border-color: var(--brand); }
+.post .tag2 { font-size: .8rem; color: var(--brand); font-weight: 700; }
+.post h2 { font-size: 1.2rem; margin: 4px 0 6px; border: 0; padding: 0; }
+.post p { color: var(--muted); font-size: .95rem; margin: 0; }
+@media (max-width: 640px) { .tool-grid { grid-template-columns: 1fr; } }
