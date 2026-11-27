@@ -84,6 +84,10 @@
       .panel { padding: 16px; }
     }
   </style>
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-3XZR9GG8QR"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-3XZR9GG8QR');</script>
+  <script src="../js/track.js" defer></script>
 </head>
 <body>
 
@@ -188,7 +192,7 @@
   </section>
 </main>
 
-<footer>© 2026 煒程式工作室｜訂貨系統線上試用（示範資料）</footer>
+<footer>© 2026 煒程式工作室｜訂貨系統線上試用（示範資料）｜<a href="../privacy/">隱私權說明</a></footer>
 
 <script>
 (function () {
@@ -402,7 +406,7 @@
     st.mine.push({ id: 'M' + Date.now(), teacher: '你（試用）', mine: true, cls: $('fClass').value.trim(), project: $('fProject').value.trim(),
       groups: $('fGroups').value.trim(), date: $('fDate').value || iso(nextMonday(0)),
       items: st.cart.map(function (c) { return { name: c.name, qty: parseFloat(c.qty), unit: c.unit, note: c.note }; }) });
-    st.cart = []; save();
+    st.cart = []; save(); if (window.wcTrack) wcTrack('demo_order_submit');
     $('orderForm').hidden = true; $('okBox').hidden = false; renderSteps();
     $('okBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
@@ -463,7 +467,7 @@
 
   // ---------- 角色切換 ----------
   function setRole(r) {
-    st.role = r;
+    st.role = r; if (r === 'A' && window.wcTrack) wcTrack('demo_order_admin');
     $('tabT').setAttribute('aria-selected', r === 'T'); $('tabA').setAttribute('aria-selected', r === 'A');
     $('viewT').hidden = r !== 'T'; $('viewA').hidden = r !== 'A';
     if (r === 'A') renderAdmin();

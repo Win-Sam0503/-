@@ -66,6 +66,10 @@
     .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--deep); color: #fff; padding: 12px 18px; border-radius: 12px; font-weight: 700; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 92%; text-align: center; }
     @media (max-width: 640px) { .panel { padding: 14px; } }
   </style>
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-3XZR9GG8QR"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-3XZR9GG8QR');</script>
+  <script src="../../js/track.js" defer></script>
 </head>
 <body>
 
@@ -138,7 +142,7 @@
   </section>
 </main>
 
-<footer>© 2026 煒程式工作室｜排班系統線上試玩（示範資料）</footer>
+<footer>© 2026 煒程式工作室｜排班系統線上試玩（示範資料）｜<a href="../../privacy/">隱私權說明</a></footer>
 
 <script>
 (function () {
@@ -276,7 +280,7 @@
     }
     var t0 = Date.now();
     if (solve(0)) {
-      st.a = out; st.sel = null; save(); render();
+      st.a = out; st.sel = null; save(); render(); if (window.wcTrack) wcTrack('demo_shift_auto');
       var hs = STAFF.map(function (p) { return cnt[p.n] * 4; });
       toast('⚡ 自動排班完成：' + out.length + ' 個班次全部補滿，沒有人請假被排、沒有人超時（' + Math.max(1, Date.now() - t0) + ' 毫秒）');
     } else toast('人手不夠，排不滿，請增加員工或放寬每週上限');

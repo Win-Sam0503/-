@@ -65,6 +65,10 @@
     .c4 { background: #c7d2fe; } .c5 { background: #fed7aa; } .c6 { background: #bae6fd; } .c7 { background: #e9d5ff; }
     @media (max-width: 640px) { .panel { padding: 14px; } table.tt td { height: 62px; } }
   </style>
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-3XZR9GG8QR"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-3XZR9GG8QR');</script>
+  <script src="../../js/track.js" defer></script>
 </head>
 <body>
 
@@ -142,7 +146,7 @@
   </section>
 </main>
 
-<footer>© 2026 煒程式工作室｜排課系統線上試玩（示範資料）</footer>
+<footer>© 2026 煒程式工作室｜排課系統線上試玩（示範資料）｜<a href="../../privacy/">隱私權說明</a></footer>
 
 <script>
 (function () {
@@ -326,7 +330,7 @@
     }
     var t0 = Date.now();
     if (solve(0)) {
-      st.pl = keep.concat(out); st.sel = null; save(); render();
+      st.pl = keep.concat(out); st.sel = null; save(); render(); if (window.wcTrack) wcTrack('demo_schedule_auto');
       toast('⚡ 自動排課完成：' + st.pl.length + ' 節全部排入、零衝堂（' + Math.max(1, Date.now() - t0) + ' 毫秒）');
     } else toast('條件太嚴格，排不出來，請放寬老師的不可排時段');
   });
