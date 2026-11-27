@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Excel 下拉選單教學：資料驗證一步一步做（含 Google 試算表、連動選單）｜煒程式工作室</title>
+  <meta name="description" content="共用表格最怕大家寫法不一樣：公斤、kg、KG、公克。教你用 Excel 與 Google 試算表的「資料驗證」做下拉選單、擋掉錯誤輸入，還有「選廠商自動出現該廠商食材」的連動下拉選單。">
+  <meta name="keywords" content="Excel 下拉選單,資料驗證,Excel 資料驗證,Google 試算表 下拉選單,連動下拉選單,INDIRECT,Excel 清單">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/articles/excel-dropdown/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Excel 下拉選單怎麼做？資料驗證教學，讓大家不再亂打字">
+  <meta property="og:description" content="共用表格最怕大家寫法不一樣：公斤、kg、KG、公克。教你用 Excel 與 Google 試算表的「資料驗證」做下拉選單、擋掉錯誤輸入，還有「選廠商自動出現該廠商食材」的連動下拉選單。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/articles/excel-dropdown/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "Excel 下拉選單怎麼做？資料驗證教學，讓大家不再亂打字", "description": "共用表格最怕大家寫法不一樣：公斤、kg、KG、公克。教你用 Excel 與 Google 試算表的「資料驗證」做下拉選單、擋掉錯誤輸入，還有「選廠商自動出現該廠商食材」的連動下拉選單。", "datePublished": "2026-11-27", "dateModified": "2026-11-27", "inLanguage": "zh-Hant-TW", "author": {"@type": "Person", "name": "阿程", "url": "https://win-sam0503.github.io/-/#about"}, "publisher": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "mainEntityOfPage": "https://win-sam0503.github.io/-/articles/excel-dropdown/"}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Excel 下拉選單在哪裡設定？", "acceptedAnswer": {"@type": "Answer", "text": "選取儲存格後，點「資料」→「資料驗證」，儲存格內允許選「清單」，來源選選項的範圍。"}}, {"@type": "Question", "name": "Google 試算表怎麼做下拉選單？", "acceptedAnswer": {"@type": "Answer", "text": "選取儲存格後，點「資料」→「資料驗證」→「新增規則」，條件選「下拉式選單（來自範圍）」。"}}, {"@type": "Question", "name": "怎麼做連動下拉選單？", "acceptedAnswer": {"@type": "Answer", "text": "把每組選項定義成名稱（例如「菜商」），第二層下拉選單的來源填 =INDIRECT($A2)，就會依第一層選的內容顯示對應選項。"}}]}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "煒程式工作室", "item": "https://win-sam0503.github.io/-/"}, {"@type": "ListItem", "position": 2, "name": "教學文章", "item": "https://win-sam0503.github.io/-/articles/"}, {"@type": "ListItem", "position": 3, "name": "Excel 下拉選單怎麼做？資料驗證教學，讓大家不再亂打字", "item": "https://win-sam0503.github.io/-/articles/excel-dropdown/"}]}</script>
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../article.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../">教學文章</a>
+      <a href="../../demo/">線上試用</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap article">
+  <div class="crumb"><a href="../../">首頁</a> › <a href="../">教學文章</a> › Excel 下拉選單怎麼做？資料驗證教學，讓大家不再亂打字</div>
+
+  <h1>Excel 下拉選單怎麼做？資料驗證教學，讓大家不再亂打字</h1>
+  <p class="meta">2026/11/27・阿程（煒程式工作室）・閱讀約 5 分鐘</p>
+
+  <div class="answer"><b>重點整理：</b>Excel：選取儲存格 →「資料」→「資料驗證」→ 儲存格內允許選「清單」→ 來源選你的選項範圍。Google 試算表：「資料」→「資料驗證」→「新增規則」→ 條件選「下拉式選單（來自範圍）」。</div>
+
+<p>多人共用的表格（訂貨單、出勤表、庫存表）最常見的問題，就是<b>同一個東西大家寫法不一樣</b>：「公斤」「kg」「KG」「公克」……加總時全部被當成不同的東西，報表就亂了。</p>
+<p>解決方法很簡單：<b>把可以填的內容做成下拉選單</b>，不讓大家自己打字。</p>
+
+<h2>步驟 0：先準備「選項清單」</h2>
+<p>開一張新的工作表，取名「清單」，在 A 欄列出所有選項，例如單位：</p>
+<table class="t"><thead><tr><th>清單!A 欄</th></tr></thead><tbody><tr><td>單位</td></tr><tr><td>g</td></tr><tr><td>公斤</td></tr><tr><td>斤</td></tr><tr><td>兩</td></tr><tr><td>顆</td></tr><tr><td>把</td></tr></tbody></table>
+<p class="tip">💡 選項放在另一張工作表，之後要新增選項只要改這裡，所有下拉選單會一起更新。</p>
+
+<h2>Excel 做法</h2>
+<ol class="list">
+<li>選取要做下拉選單的儲存格範圍（例如訂單表的「單位」欄）。</li>
+<li>點上方「<b>資料</b>」→「<b>資料驗證</b>」。</li>
+<li>「儲存格內允許」選「<b>清單</b>」。</li>
+<li>「來源」輸入 <code>=清單!$A$2:$A$7</code>（或用滑鼠直接選範圍）。</li>
+<li>切到「<b>錯誤提醒</b>」分頁，勾選「輸入的資料不正確時顯示警訊」，樣式選「<b>停止</b>」，訊息可以寫「請從下拉選單選擇單位」。</li>
+<li>按「確定」。</li>
+</ol>
+
+<h2>Google 試算表做法</h2>
+<ol class="list">
+<li>選取要做下拉選單的儲存格範圍。</li>
+<li>點「<b>資料</b>」→「<b>資料驗證</b>」→「<b>新增規則</b>」。</li>
+<li>「條件」選「<b>下拉式選單（來自範圍）</b>」，範圍填 <code>清單!A2:A7</code>。</li>
+<li>展開「進階選項」，「如果資料無效」選「<b>拒絕輸入內容</b>」。</li>
+<li>按「完成」。</li>
+</ol>
+<p class="small">（選項不多時，也可以直接選「下拉式選單」，把選項一個一個打進去。）</p>
+
+<h2>進階：連動下拉選單（選廠商 → 只出現該廠商的食材）</h2>
+<p>例如 A 欄選了「菜商」，B 欄的下拉選單就只出現洋蔥、青蔥、番茄；選「肉商」就只出現豬肉、雞腿。</p>
+<ol class="list">
+<li>在「清單」工作表，把每家廠商的食材分欄列好：C 欄放菜商的食材、D 欄放肉商的食材。</li>
+<li>把每一欄<b>命名</b>成廠商名稱：選取 C2:C10 →「公式」→「定義名稱」→ 名稱填「菜商」；D 欄同樣命名「肉商」。</li>
+<li>A 欄（廠商）先用前面的方法做成下拉選單，選項是「菜商、肉商」。</li>
+<li>B 欄（食材）的資料驗證「來源」填：</li>
+</ol>
+<pre><code>=INDIRECT($A2)</code></pre>
+<p><code>INDIRECT</code> 會把 A2 的文字（例如「菜商」）當成範圍名稱，於是 B 欄就只會出現菜商的食材。</p>
+<p class="tip">⚠️ 範圍名稱不能有空格、不能用數字開頭，也不要取成像儲存格位置的名稱（例如「A1」）。</p>
+
+<h2>小技巧：找出已經打錯的資料</h2>
+<p>舊資料已經亂掉了？在 Excel 設好資料驗證後，點「資料」→「資料驗證」旁的小箭頭 →「<b>圈選錯誤資料</b>」，不符合清單的儲存格會被紅圈圈起來，一個一個修正就好。Google 試算表則會在不符合的儲存格右上角顯示紅色三角形。</p>
+
+<h2>做成系統之後</h2>
+<p>我做的訂貨系統裡，單位也是用類似的概念：老師只能從清單選單位，打「公克」會自動換成「g」、「台斤」換成「斤」，清單以外的寫法會標紅色、不能送出。所以後面的加總和換算才不會出錯。</p>
+
+  <div class="cta-mini">
+    <div><b>📊 表格太亂、整理太花時間？</b><br><span>把重複的整理工作交給 Excel 自動化或系統處理。</span></div>
+    <a class="btn btn-primary" href="../../excel-system/">看 Excel 服務</a>
+  </div>
+
+  <h2>常見問題</h2>
+  <details><summary>Excel 下拉選單在哪裡設定？</summary><p>選取儲存格後，點「資料」→「資料驗證」，儲存格內允許選「清單」，來源選選項的範圍。</p></details>
+  <details><summary>Google 試算表怎麼做下拉選單？</summary><p>選取儲存格後，點「資料」→「資料驗證」→「新增規則」，條件選「下拉式選單（來自範圍）」。</p></details>
+  <details><summary>怎麼做連動下拉選單？</summary><p>把每組選項定義成名稱（例如「菜商」），第二層下拉選單的來源填 =INDIRECT($A2)，就會依第一層選的內容顯示對應選項。</p></details>
+
+  <div class="author">
+    <div class="avatar-sm">煒</div>
+    <div>
+      <b>阿程｜煒程式工作室</b><br>
+      <span>高雄在地，專門做訂貨系統、排課系統、進貨驗收與 Excel 自動化。有 Excel 或系統的問題，歡迎<a href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 問我</a>。</span>
+    </div>
+  </div>
+
+  <section style="padding:24px 0 0">
+    <h2 style="margin-top:0">相關服務</h2>
+    <div class="other-svc">
+      <a href="../../excel-system/">📊 Excel 系統與整理 →</a>
+      <a href="../../order-system/">📦 訂貨系統 →</a>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜<a href="../">更多教學文章</a></footer>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>餐廳叫貨怎麼管理？5 步驟從 LINE 訂單到自動叫貨單（附 Excel 公式）｜煒程式工作室</title>
+  <meta name="description" content="餐廳、中央廚房、學校餐飲科叫貨常遇到訂單散落 LINE、單位不一致、截止後還在改單。用 5 個步驟整理叫貨流程，附 Excel SUMIFS 依廠商加總公式。">
+  <meta name="keywords" content="餐廳叫貨,叫貨管理,叫貨單,食材叫貨,中央廚房叫貨,餐飲訂貨,Excel 叫貨表,SUMIFS">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/articles/restaurant-ordering/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="餐廳叫貨怎麼管理？從 LINE 訂單到自動叫貨單的 5 個步驟">
+  <meta property="og:description" content="餐廳、中央廚房、學校餐飲科叫貨常遇到訂單散落 LINE、單位不一致、截止後還在改單。用 5 個步驟整理叫貨流程，附 Excel SUMIFS 依廠商加總公式。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/articles/restaurant-ordering/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "餐廳叫貨怎麼管理？從 LINE 訂單到自動叫貨單的 5 個步驟", "description": "餐廳、中央廚房、學校餐飲科叫貨常遇到訂單散落 LINE、單位不一致、截止後還在改單。用 5 個步驟整理叫貨流程，附 Excel SUMIFS 依廠商加總公式。", "datePublished": "2026-11-27", "dateModified": "2026-11-27", "inLanguage": "zh-Hant-TW", "author": {"@type": "Person", "name": "阿程", "url": "https://win-sam0503.github.io/-/#about"}, "publisher": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "mainEntityOfPage": "https://win-sam0503.github.io/-/articles/restaurant-ordering/"}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "叫貨單位寫法不一致怎麼辦？", "acceptedAnswer": {"@type": "Answer", "text": "建立一份食材總表，固定每樣食材的名稱與單位；下單時用下拉選單選擇，不讓大家自己打字，就能統一寫法。"}}, {"@type": "Question", "name": "Excel 怎麼依廠商加總叫貨量？", "acceptedAnswer": {"@type": "Answer", "text": "用 SUMIFS，例如 =SUMIFS(訂單!$D:$D,訂單!$B:$B,A2,訂單!$C:$C,B2)，可以同時依食材和廠商加總數量。"}}, {"@type": "Question", "name": "叫貨截止時間怎麼訂比較好？", "acceptedAnswer": {"@type": "Answer", "text": "依廠商送貨時間往前推，留 2～3 天給整理和廠商備貨。例如週四送貨，就訂週一中午截止。"}}]}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "煒程式工作室", "item": "https://win-sam0503.github.io/-/"}, {"@type": "ListItem", "position": 2, "name": "教學文章", "item": "https://win-sam0503.github.io/-/articles/"}, {"@type": "ListItem", "position": 3, "name": "餐廳叫貨怎麼管理？從 LINE 訂單到自動叫貨單的 5 個步驟", "item": "https://win-sam0503.github.io/-/articles/restaurant-ordering/"}]}</script>
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../article.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../">教學文章</a>
+      <a href="../../demo/">線上試用</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap article">
+  <div class="crumb"><a href="../../">首頁</a> › <a href="../">教學文章</a> › 餐廳叫貨怎麼管理？從 LINE 訂單到自動叫貨單的 5 個步驟</div>
+
+  <h1>餐廳叫貨怎麼管理？從 LINE 訂單到自動叫貨單的 5 個步驟</h1>
+  <p class="meta">2026/11/27・阿程（煒程式工作室）・閱讀約 6 分鐘</p>
+
+  <div class="answer"><b>重點整理：</b>① 建立一份「食材總表」統一品名與單位 ② 固定截止時間 ③ 統一下單管道 ④ 依廠商自動加總、換算單位 ⑤ 驗收對帳。前 3 步做好，叫貨就能省下一大半時間。</div>
+
+<p>很多餐廳、中央廚房、學校餐飲科的叫貨流程是這樣的：大家用 LINE 傳訂單，負責叫貨的人每天把訊息一則一則抄下來，再依廠商加總、換算單位，最後打電話或傳訊息給菜商、肉商。</p>
+<p>量少的時候還好，一旦每週有幾十張單，就會開始出錯：<b>漏單、單位寫法不一樣、截止後還有人改單、月底對帳對不起來</b>。以下是我幫高職餐飲科整理叫貨流程時，實際用過的 5 個步驟。</p>
+
+<h2>步驟 1：建立一份「食材總表」</h2>
+<p>叫貨出錯，最常見的原因是<b>同一樣東西有好幾種寫法</b>：「蔥」「青蔥」「三星蔥」、「牛番茄」「番茄」。加總時就會被拆成好幾項。</p>
+<p>先做一張食材總表，每樣食材固定一個名稱，並記下：</p>
+<table class="t"><thead><tr><th>欄位</th><th>範例</th><th>用途</th></tr></thead><tbody>
+<tr><td>食材名稱</td><td>青蔥</td><td>大家統一用這個名字</td></tr>
+<tr><td>別名</td><td>蔥、三星蔥</td><td>搜尋時打別名也找得到</td></tr>
+<tr><td>廠商</td><td>A菜商</td><td>之後依廠商自動分單</td></tr>
+<tr><td>叫貨單位</td><td>斤、把</td><td>廠商習慣的單位</td></tr>
+<tr><td>參考單價</td><td>35／把</td><td>估算成本用</td></tr>
+</tbody></table>
+
+<h2>步驟 2：固定截止時間</h2>
+<p>例如「<b>每週一中午 12:00 截止下週的訂單</b>」。截止後就不能再改，臨時要加的另外處理。這樣叫貨的人才有完整的資料可以整理，廠商也有時間備貨。</p>
+<p class="tip">💡 截止前一天傳一則提醒，例如「明天中午截止，還沒訂的請盡快」，可以大幅減少漏單。</p>
+
+<h2>步驟 3：統一下單管道</h2>
+<p>不要同時有 LINE、紙本、口頭好幾種方式。統一成<b>一張線上表單或一個系統</b>，讓每筆訂單都有：日期、班級（或分店）、訂購人、食材、數量、單位。</p>
+<p>如果暫時還沒有系統，Google 表單＋Google 試算表就是很好的起點：表單送出後，資料自動整理在試算表裡。</p>
+
+<h2>步驟 4：依廠商自動加總、換算單位</h2>
+<p>訂單資料整理好之後，就可以用公式依廠商加總。假設「訂單」工作表的 B 欄是食材、C 欄是廠商、D 欄是數量（公克）：</p>
+<pre><code>=SUMIFS(訂單!$D:$D,訂單!$B:$B,A2,訂單!$C:$C,B2)</code></pre>
+<p>在彙整表的 A 欄放食材、B 欄放廠商，就會算出每樣食材的總公克數。例如洋蔥 1500 g＋300 g ＝ <b>1800 g</b>。</p>
+<p>再用這個公式換成菜商習慣的「幾斤幾兩」（C 欄是合計公克）：</p>
+<pre><code>=INT(ROUNDUP(C2/37.5,0)/16)&amp;"斤"&amp;MOD(ROUNDUP(C2/37.5,0),16)&amp;"兩"</code></pre>
+<p>1800 g 會變成 <b>3斤0兩</b>。換算原理可以看這篇：<a href="../gram-to-taiwan-jin/">公克換算台斤、台兩</a>。</p>
+<p class="small">（以上公式在 Excel 和 Google 試算表都能用，我實際測試過結果正確。）</p>
+
+<h2>步驟 5：驗收、對帳</h2>
+<p>貨到時照著叫貨單點貨，記下少送、送錯、品質不好的品項；月底再把每次的銷貨單金額加總，跟發票比對。詳細做法可以看：<a href="../receiving-checklist/">進貨驗收要注意什麼？驗收表範本</a>。</p>
+
+<h2>什麼時候該從 Excel 升級成系統？</h2>
+<p>如果你遇到下面任何一種情況，就很值得考慮做一套訂貨系統：</p>
+<ul class="list">
+<li>每週訂單超過 20～30 張，整理要花好幾個小時</li>
+<li>下單的人很多（例如很多位老師、很多家分店），單位怎麼樣都寫不統一</li>
+<li>要跟 5 家以上的廠商叫貨，每家單位都不一樣</li>
+<li>老闆或主管想知道每張單、每個月花了多少錢</li>
+</ul>
+<p>我幫高職餐飲科做的訂貨系統，就是把上面 5 個步驟全部自動化：老師用手機下單、每週自動鎖單、一鍵產生各廠商叫貨單、自動換算斤兩並估價。</p>
+
+  <div class="cta-mini">
+    <div><b>🖐 想看自動叫貨單長什麼樣子？</b><br><span>免費線上試用：用老師身分下單，再切換成管理者看自動彙整。</span></div>
+    <a class="btn btn-primary" href="../../demo/">立即試用</a>
+  </div>
+
+  <h2>常見問題</h2>
+  <details><summary>叫貨單位寫法不一致怎麼辦？</summary><p>建立一份食材總表，固定每樣食材的名稱與單位；下單時用下拉選單選擇，不讓大家自己打字，就能統一寫法。</p></details>
+  <details><summary>Excel 怎麼依廠商加總叫貨量？</summary><p>用 SUMIFS，例如 =SUMIFS(訂單!$D:$D,訂單!$B:$B,A2,訂單!$C:$C,B2)，可以同時依食材和廠商加總數量。</p></details>
+  <details><summary>叫貨截止時間怎麼訂比較好？</summary><p>依廠商送貨時間往前推，留 2～3 天給整理和廠商備貨。例如週四送貨，就訂週一中午截止。</p></details>
+
+  <div class="author">
+    <div class="avatar-sm">煒</div>
+    <div>
+      <b>阿程｜煒程式工作室</b><br>
+      <span>高雄在地，專門做訂貨系統、排課系統、進貨驗收與 Excel 自動化。有 Excel 或系統的問題，歡迎<a href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 問我</a>。</span>
+    </div>
+  </div>
+
+  <section style="padding:24px 0 0">
+    <h2 style="margin-top:0">相關服務</h2>
+    <div class="other-svc">
+      <a href="../../order-system/">📦 訂貨系統 →</a>
+      <a href="../../demo/">🖐 線上試用訂貨系統 →</a>
+      <a href="../../receiving-system/">✅ 進貨驗收系統 →</a>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜<a href="../">更多教學文章</a></footer>
+</body>
+</html>

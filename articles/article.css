@@ -44,3 +44,6 @@
 .post h2 { font-size: 1.2rem; margin: 4px 0 6px; border: 0; padding: 0; }
 .post p { color: var(--muted); font-size: .95rem; margin: 0; }
 @media (max-width: 640px) { .tool-grid { grid-template-columns: 1fr; } }
+.article .list { margin: 0 0 14px 1.3em; line-height: 1.85; }
+.article .list li { margin-bottom: 6px; }
+.article a:not(.btn):not(.post) { color: var(--brand); font-weight: 600; }

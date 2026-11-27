@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>補習班排課不撞課：Excel 衝堂檢查公式＋5 個排課技巧｜煒程式工作室</title>
+  <meta name="description" content="排課最怕老師、教室、班級時間撞在一起。教你用 Excel／Google 試算表一筆一列記錄課程，用 COUNTIFS 自動標出衝堂，再加上 5 個實用排課技巧。">
+  <meta name="keywords" content="排課,補習班排課,排課表,衝堂,Excel 排課,課表 Excel,COUNTIFS,才藝教室排課,排課技巧">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/articles/class-scheduling/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="補習班排課怎麼排才不會撞課？Excel 衝堂檢查公式＋5 個技巧">
+  <meta property="og:description" content="排課最怕老師、教室、班級時間撞在一起。教你用 Excel／Google 試算表一筆一列記錄課程，用 COUNTIFS 自動標出衝堂，再加上 5 個實用排課技巧。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/articles/class-scheduling/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "補習班排課怎麼排才不會撞課？Excel 衝堂檢查公式＋5 個技巧", "description": "排課最怕老師、教室、班級時間撞在一起。教你用 Excel／Google 試算表一筆一列記錄課程，用 COUNTIFS 自動標出衝堂，再加上 5 個實用排課技巧。", "datePublished": "2026-11-27", "dateModified": "2026-11-27", "inLanguage": "zh-Hant-TW", "author": {"@type": "Person", "name": "阿程", "url": "https://win-sam0503.github.io/-/#about"}, "publisher": {"@type": "Organization", "name": "煒程式工作室", "url": "https://win-sam0503.github.io/-/"}, "mainEntityOfPage": "https://win-sam0503.github.io/-/articles/class-scheduling/"}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Excel 怎麼檢查排課有沒有衝堂？", "acceptedAnswer": {"@type": "Answer", "text": "把課程一筆一列記錄（星期、節次、老師、教室、班級），用 =IF(COUNTIFS($A:$A,A2,$B:$B,B2,$C:$C,C2)>1,\"⚠ 衝堂\",\"\") 檢查同一時段同一位老師是否重複。"}}, {"@type": "Question", "name": "課表應該直接畫在格子裡嗎？", "acceptedAnswer": {"@type": "Answer", "text": "建議另外用「一筆一列」的課程清單當作主資料，課表格子再從清單產生，這樣才方便用公式檢查衝堂與統計節數。"}}, {"@type": "Question", "name": "排課要先排哪些課？", "acceptedAnswer": {"@type": "Answer", "text": "先排限制最多的：只能在特定教室上的課、只有少數老師能教的課，以及固定不能動的課。"}}]}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "煒程式工作室", "item": "https://win-sam0503.github.io/-/"}, {"@type": "ListItem", "position": 2, "name": "教學文章", "item": "https://win-sam0503.github.io/-/articles/"}, {"@type": "ListItem", "position": 3, "name": "補習班排課怎麼排才不會撞課？Excel 衝堂檢查公式＋5 個技巧", "item": "https://win-sam0503.github.io/-/articles/class-scheduling/"}]}</script>
+  <link rel="stylesheet" href="../../css/style.css">
+  <link rel="stylesheet" href="../article.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../">教學文章</a>
+      <a href="../../demo/">線上試用</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap article">
+  <div class="crumb"><a href="../../">首頁</a> › <a href="../">教學文章</a> › 補習班排課怎麼排才不會撞課？Excel 衝堂檢查公式＋5 個技巧</div>
+
+  <h1>補習班排課怎麼排才不會撞課？Excel 衝堂檢查公式＋5 個技巧</h1>
+  <p class="meta">2026/11/27・阿程（煒程式工作室）・閱讀約 6 分鐘</p>
+
+  <div class="answer"><b>重點整理：</b>排課要同時檢查 3 種衝突——<b>老師、教室、班級</b>。把課程「一筆一列」記錄，再用 <code>COUNTIFS</code> 檢查同一時段是否重複，就能自動標出衝堂。</div>
+
+<p>不管是補習班、才藝教室還是學校，排課最怕的就是「撞課」：同一位老師同一時間被排了兩堂、兩個班被排進同一間教室。這種錯誤常常要到上課當天才發現。</p>
+<p>這篇教你用 Excel 或 Google 試算表，<b>讓表格自動幫你抓出衝堂</b>。</p>
+
+<h2>排課的 3 種衝突</h2>
+<table class="t"><thead><tr><th>衝突</th><th>例子</th></tr></thead><tbody>
+<tr><td>👩‍🏫 老師衝堂</td><td>王老師週一第 1 節同時被排在 302 和 305</td></tr>
+<tr><td>🏫 教室衝堂</td><td>A101 週一第 2 節同時排了兩個班</td></tr>
+<tr><td>👥 班級衝堂</td><td>302 班週一第 1 節同時有兩門課</td></tr>
+</tbody></table>
+
+<h2>關鍵：課程要「一筆一列」記錄</h2>
+<p>很多人直接在「課表格子」裡打字（橫軸星期、縱軸節次）。這樣看起來直覺，但<b>電腦很難幫你檢查</b>。建議另外開一張「課程清單」，每堂課一列：</p>
+<table class="t"><thead><tr><th>A 星期</th><th>B 節次</th><th>C 老師</th><th>D 教室</th><th>E 班級</th></tr></thead><tbody>
+<tr><td>一</td><td>1</td><td>王老師</td><td>A101</td><td>302</td></tr>
+<tr><td>一</td><td>1</td><td>王老師</td><td>A102</td><td>305</td></tr>
+<tr><td>一</td><td>2</td><td>林老師</td><td>A101</td><td>302</td></tr>
+<tr><td>一</td><td>2</td><td>陳老師</td><td>A101</td><td>201</td></tr>
+</tbody></table>
+<p>課表格子之後可以用篩選或樞紐分析從這張清單產生，不用手動維護兩份。</p>
+
+<h2>用 COUNTIFS 自動檢查衝堂</h2>
+<p>在 F 欄（老師衝堂）第 2 列輸入：</p>
+<pre><code>=IF(COUNTIFS($A:$A,A2,$B:$B,B2,$C:$C,C2)&gt;1,"⚠ 衝堂","")</code></pre>
+<p>意思是：<b>同一個星期、同一節、同一位老師</b>如果出現超過 1 次，就標「⚠ 衝堂」。往下拉複製到每一列。</p>
+<p>教室和班級也一樣，只要把最後一組條件換掉：</p>
+<pre><code>教室衝堂（G 欄）：=IF(COUNTIFS($A:$A,A2,$B:$B,B2,$D:$D,D2)&gt;1,"⚠ 衝堂","")
+班級衝堂（H 欄）：=IF(COUNTIFS($A:$A,A2,$B:$B,B2,$E:$E,E2)&gt;1,"⚠ 衝堂","")</code></pre>
+<p>用上面的範例資料，會標出：王老師週一第 1 節<b>老師衝堂</b>、A101 週一第 2 節<b>教室衝堂</b>。（我實際在試算表測試過，結果正確。）</p>
+<p class="tip">💡 再搭配「條件式格式設定」，把有「⚠」的列整列標紅色，一眼就看得到。</p>
+
+<h2>5 個排課技巧</h2>
+<ol class="list">
+<li><b>先排限制最多的課</b>：只有特定教室能上的課（例如電腦教室、烘焙教室）、只有少數老師能教的課，先排。</li>
+<li><b>記下老師的不可排時段</b>：另外開一欄寫「週三下午不行」，排之前先看。</li>
+<li><b>固定的課先「鎖定」</b>：例如每週固定的社團、早自習，先放好、標記不要動。</li>
+<li><b>注意每週上限</b>：用 <code>COUNTIF</code> 算每位老師這週排了幾節，避免超過鐘點上限。</li>
+<li><b>排完一定跑一次衝堂檢查</b>：全部都沒有「⚠」再公布。</li>
+</ol>
+
+<h2>課表一多，可以交給系統自動排</h2>
+<p>手動排課在 10 個班以下還算可行；班級、老師、教室一多，光是調一堂課就可能牽動好幾堂。</p>
+<p>我做過一套用 Google 試算表搭配程式的排課系統，用學校的真實資料測試：<b>16 個班級、25 位老師、36 間教室、116 段課，一鍵全部排入、沒有任何衝堂</b>。老師還可以用自己的專屬網址，手機打開就看到自己的課表。</p>
+
+  <div class="cta-mini">
+    <div><b>📅 課表太多排不完？</b><br><span>看看自動排課系統怎麼一鍵排入、零衝堂。</span></div>
+    <a class="btn btn-primary" href="../../scheduling-system/">看排課系統</a>
+  </div>
+
+  <h2>常見問題</h2>
+  <details><summary>Excel 怎麼檢查排課有沒有衝堂？</summary><p>把課程一筆一列記錄（星期、節次、老師、教室、班級），用 =IF(COUNTIFS($A:$A,A2,$B:$B,B2,$C:$C,C2)&gt;1,&quot;⚠ 衝堂&quot;,&quot;&quot;) 檢查同一時段同一位老師是否重複。</p></details>
+  <details><summary>課表應該直接畫在格子裡嗎？</summary><p>建議另外用「一筆一列」的課程清單當作主資料，課表格子再從清單產生，這樣才方便用公式檢查衝堂與統計節數。</p></details>
+  <details><summary>排課要先排哪些課？</summary><p>先排限制最多的：只能在特定教室上的課、只有少數老師能教的課，以及固定不能動的課。</p></details>
+
+  <div class="author">
+    <div class="avatar-sm">煒</div>
+    <div>
+      <b>阿程｜煒程式工作室</b><br>
+      <span>高雄在地，專門做訂貨系統、排課系統、進貨驗收與 Excel 自動化。有 Excel 或系統的問題，歡迎<a href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 問我</a>。</span>
+    </div>
+  </div>
+
+  <section style="padding:24px 0 0">
+    <h2 style="margin-top:0">相關服務</h2>
+    <div class="other-svc">
+      <a href="../../scheduling-system/">📅 排課系統 →</a>
+      <a href="../../excel-system/">📊 Excel 系統與整理 →</a>
+    </div>
+  </section>
+</main>
+
+<footer>© 2026 煒程式工作室｜<a href="../">更多教學文章</a></footer>
+</body>
+</html>
