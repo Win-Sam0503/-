@@ -8484,7 +8484,8 @@
       if (first) { if (open) html += '</tbody></table></div>'; html += '<div class="bblk"><table class="btbl">' + cols + '<tbody>'; open = true; }
       var rs = ' class="vm" rowspan="' + span[keys[i].key] + '"';
       html += '<tr' + (first ? ' class="vfirst"' : '') + (r.i !== undefined ? ' data-pi="' + r.i + '"' : '') + '>' +
-        (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? '<br><b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) + '</td>') : '') +
+        (first ? (r.kind === '補庫存' ? '<td' + rs + ' colspan="3"><b>補庫存</b>' + cont + '</td>' : '<td' + rs + '>' + esc(shortDate(r.date)) + cont + '</td><td' + rs + '>' + esc(r.className) + (r.tag ? '<br><b class="dtag">【' + esc(r.tag) + '】</b>' : '') + '</td><td' + rs + '>' + esc(r.teacher) +
+          (r.i !== undefined && r.kind === '訂單' && r.orderNo && !keys[i].cont ? '<div class="noprint" style="margin-top:6px"><button type="button" class="btn ghost small" data-paddcls="' + r.i + '" title="老師臨時要多叫的，直接加到這班的訂單" style="padding:2px 6px;white-space:nowrap">＋ 加料</button></div>' : '') + '</td>') : '') +
         cells(r) + '</tr>';
     });
     if (open) html += '</tbody></table></div>';
@@ -10245,6 +10246,44 @@
     if (inp.classList.contains('pa-qty')) { var it = data.items.filter(function (x) { return x.name === tr.querySelector('.pa-name').value.trim(); })[0]; var uu = tr.querySelector('.pa-unit'); if (!uu.value && it && it.unit) uu.value = it.unit; uu.focus(); return; }
     paInline(tr);
   });
+  // ＋ 臨時加料：老師臨時多要的，直接加進那一班的訂單（料單、分貨、驗收、成本都會跟著有），再加到這張訂貨單
+  function pAddToClass(r) {
+    var v = r.vendor;
+    var dl = '<datalist id="pacItems">' + data.items.filter(function (it) { return it.vendor === v || ((data.vendorSplit || {})[it.vendor] && [data.vendorSplit[it.vendor].baking, data.vendorSplit[it.vendor].other].indexOf(v) >= 0); })
+      .concat(data.items.filter(function (it) { return it.vendor !== v; })).map(function (it) { return '<option value="' + esc(it.name) + '">'; }).join('') + '</datalist>';
+    ask('', '加進這班的訂單', { noText: '取消', html: '<div class="info-check" style="text-align:left"><h3>＋ 臨時加料：' + esc(shortDate(r.date) + ' ' + r.className + ' ' + r.teacher) + '</h3>' +
+      '<div class="small muted">會直接加進這位老師這張訂單（訂單編號 ' + esc(r.orderNo) + '），料單、分貨、驗收和成本都會一起有；廠商是「' + esc(v) + '」。</div>' + dl +
+      '<label for="pacName" style="margin-top:8px">食材</label><input id="pacName" list="pacItems" autocomplete="off" maxlength="40" placeholder="打食材名稱（食材總表沒有的會自動新增）">' +
+      '<div class="row" style="gap:8px;margin-top:6px"><div style="flex:1"><label for="pacQty">數量（全班）</label><input id="pacQty" type="text" autocomplete="off"></div>' +
+      '<div style="flex:1"><label for="pacUnit">單位</label><input id="pacUnit" type="text" class="unit-input" data-free="1" maxlength="10" autocomplete="off"></div></div>' +
+      '<label for="pacNote" style="margin-top:6px">備註（會帶到叫貨單）</label><input id="pacNote" maxlength="60" autocomplete="off"></div>' }).then(function (ok) {
+      if (!ok) return;
+      var name = $('pacName').value.trim(), q = normNum($('pacQty').value), unit = $('pacUnit').value.trim(), note = $('pacNote').value.trim();
+      if (!name || q === '' || q === null || !(Number(q) > 0)) { notice('請填食材名稱和數量。'); return; }
+      var it = data.items.filter(function (x) { return x.name === name; })[0];
+      var ch = { add: true, kind: 'food', name: name, qty: Number(q), unit: unit || (it && it.unit) || '', note: note };
+      if (it) ch.itemId = it.id; else ch.newItem = { name: name, vendor: v, unit: unit, dept: '通用' };
+      msg('vendorMsg', 'info', '加入中…');
+      call('adminUpdateOrder', token, r.orderNo, [ch], null, '臨時加料（廠商訂貨單）', false).then(function () {
+        var same = !it || it.vendor === v || ((data.vendorSplit || {})[it.vendor] && [data.vendorSplit[it.vendor].baking, data.vendorSplit[it.vendor].other].indexOf(v) >= 0);
+        if (!it) data.items.push({ id: '', name: name, vendor: v, unit: unit, dept: '通用' });
+        if (same) {
+          pState.rows.push({ date: r.date, group: r.group, vendor: v, orderNo: r.orderNo, className: r.className, teacher: r.teacher, dept: r.dept, name: name, id: it ? it.id : '',
+            need: Number(q), needUnit: ch.unit, kind: '訂單', qty: Number(q), unit: ch.unit, note: note, flag: '臨時加料' });
+          pState.dirty[v] = true;
+          renderPurchase();
+          msg('vendorMsg', 'ok', '已把「' + name + ' ' + q + ' ' + ch.unit + '」加進 ' + r.className + ' ' + r.teacher + ' 的訂單，也加到 ' + v + ' 的訂貨單。記得按「先儲存」或「確定 ' + v + ' 叫貨」。');
+        } else {
+          msg('vendorMsg', 'ok', '已把「' + name + '」加進 ' + r.className + ' ' + r.teacher + ' 的訂單。這樣是跟「' + it.vendor + '」叫，按上面「↻ 重新產生」就會出現在那家的訂貨單（這家沒存的修改會先暫存）。');
+        }
+      }).catch(function (e) { msg('vendorMsg', 'error', '加入失敗：' + e.message); });
+    });
+    setTimeout(function () {
+      var n = $('pacName'); if (!n) return; n.focus();
+      n.addEventListener('change', function () { var it = data.items.filter(function (x) { return x.name === n.value.trim(); })[0]; if (it && !$('pacUnit').value) $('pacUnit').value = it.unit || ''; });
+    }, 50);
+  }
+  $('vendorSheets').addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-paddcls]'); if (b && pState) pAddToClass(pState.rows[Number(b.getAttribute('data-paddcls'))]); });
   function pAdd(v, date, group) {
     pState.rows.push({ date: date, group: group, vendor: v, name: '', id: '', need: '', needUnit: '', kind: '補庫存', qty: '', unit: '', note: '' });
     var idx = pState.rows.length - 1;
