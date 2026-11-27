@@ -242,3 +242,10 @@
     /* Instagram 按鈕 */
     .btn-ig { background: linear-gradient(45deg, #f58529, #dd2a7b 45%, #8134af 75%, #515bd4); color: #fff; }
     .btn-ig:hover { filter: brightness(1.05); }
+
+    /* ===== 線上試玩 ===== */
+    .try-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .card.try { display: flex; flex-direction: column; text-decoration: none; color: var(--text); border: 2px solid var(--line); transition: border-color .15s, transform .15s; }
+    .card.try:hover { border-color: var(--brand); transform: translateY(-3px); }
+    .card.try p { flex: 1; }
+    .try-btn { display: block; text-align: center; background: var(--brand); color: #fff; font-weight: 800; border-radius: 10px; padding: 10px; margin-top: 6px; }
