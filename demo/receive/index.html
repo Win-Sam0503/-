@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>進貨驗收系統線上試玩｜高雄 煒程式工作室</title>
+  <meta name="description" content="免費線上試玩進貨驗收系統：照叫貨單逐項點貨，少送、送錯、品質不好一鍵標記、拍照留證、手寫簽名，月底自動和發票對帳。不用註冊，打開就能玩。">
+  <link rel="canonical" href="https://win-sam0503.github.io/-/demo/receive/">
+  <meta name="robots" content="index, follow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="進貨驗收系統線上試玩｜煒程式工作室">
+  <meta property="og:description" content="照叫貨單點貨、問題拍照留證、手寫簽名、月底自動對帳。不用註冊，打開就能玩。">
+  <meta property="og:url" content="https://win-sam0503.github.io/-/demo/receive/">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="煒程式工作室">
+  <link rel="stylesheet" href="../../css/style.css">
+  <style>
+    .demo-bar { background: #fff7e0; border-bottom: 1px solid #f0dfae; font-size: .9rem; }
+    .demo-bar .wrap { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+    .demo-bar b { color: #8a5a00; }
+    .linkbtn { background: none; border: 0; color: var(--brand); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; }
+    .d-head { padding-top: 28px; padding-bottom: 6px; text-align: center; }
+    .d-head h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); margin-bottom: 6px; }
+    .d-head p { color: var(--muted); }
+    .tabs { display: flex; gap: 8px; justify-content: center; margin: 16px 0; flex-wrap: wrap; }
+    .tab { border: 2px solid var(--line); background: var(--card); border-radius: 999px; padding: 10px 18px; font: inherit; font-weight: 800; cursor: pointer; color: var(--text); }
+    .tab[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; }
+    .panel h2 { font-size: 1.1rem; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .panel h2 small { font-weight: 500; color: var(--muted); font-size: .85rem; }
+    .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+    .bcard { text-align: left; border: 2px solid var(--line); background: #fff; border-radius: 14px; padding: 14px 16px; cursor: pointer; font: inherit; color: var(--text); }
+    .bcard:hover { border-color: var(--brand); }
+    .bcard b { font-size: 1.1rem; }
+    .bcard .s { color: var(--muted); font-size: .9rem; }
+    .bcard.done { border-color: #34c38f; background: #f1fbf6; }
+    .bcard.issue { border-color: #f0a04b; background: #fff8ef; }
+    .badge { display: inline-block; font-size: .78rem; font-weight: 800; border-radius: 999px; padding: 2px 9px; margin-top: 8px; background: #eef1ef; color: var(--muted); }
+    .badge.ok { background: #d9f5e8; color: #137a52; } .badge.warn { background: #ffe9cc; color: #9a5300; }
+    .bhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .bhead h2 { margin: 0; }
+    .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .grp { font-weight: 800; color: #8a2b1d; border-bottom: 2px solid #e8c9c3; padding: 10px 0 4px; margin-top: 6px; }
+    .line { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .line.bad { background: #fff6f0; margin: 0 -10px; padding: 10px; border-radius: 10px; }
+    .lt { display: flex; justify-content: space-between; gap: 10px; font-weight: 800; }
+    .lt small { color: var(--muted); font-weight: 500; }
+    .st { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .st button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 7px 11px; font: inherit; font-size: .88rem; cursor: pointer; color: var(--text); }
+    .st button.on { background: #137a52; color: #fff; border-color: #137a52; }
+    .st button.on.p { background: #c2410c; border-color: #c2410c; }
+    .extra { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+    .in { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: .95rem; background: #fff; color: var(--text); }
+    .in.qty { width: 110px; }
+    .in.note { flex: 1; min-width: 160px; }
+    .photo { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c2410c; color: #c2410c; border-radius: 10px; padding: 7px 11px; font-weight: 700; cursor: pointer; font-size: .88rem; background: #fff; }
+    .photo input { display: none; }
+    .thumbs { display: flex; gap: 6px; margin-top: 6px; }
+    .thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+    .foot { position: sticky; bottom: 0; background: var(--card); border-top: 1px solid var(--line); margin: 14px -18px -18px; padding: 12px 18px; border-radius: 0 0 16px 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .sig { border: 2px dashed var(--line); border-radius: 12px; background: #fff; width: 100%; height: 160px; touch-action: none; display: block; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
+    .modal[hidden] { display: none; }
+    .mbox { background: #fff; border-radius: 16px; padding: 20px; width: min(520px, 100%); }
+    .mbox h3 { margin-bottom: 8px; }
+    table.t { width: 100%; border-collapse: collapse; font-size: .93rem; }
+    table.t th, table.t td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    table.t th { background: #f4f7f6; font-size: .8rem; color: var(--muted); }
+    table.t td.n { text-align: right; font-weight: 800; white-space: nowrap; }
+    .diff { font-weight: 900; font-size: 1.2rem; }
+    .diff.ok { color: #137a52; } .diff.bad { color: #c0392b; }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--deep); color: #fff; padding: 12px 18px; border-radius: 12px; font-weight: 700; z-index: 70; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 92%; text-align: center; }
+    .hint { background: var(--brand-soft); border-radius: 12px; padding: 12px 14px; font-size: .92rem; margin-bottom: 14px; }
+    @media (max-width: 640px) { .panel { padding: 14px; } .foot { margin: 14px -14px -14px; } }
+  </style>
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-3XZR9GG8QR"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-3XZR9GG8QR');</script>
+  <script src="../../js/track.js" defer></script>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a href="../../" class="logo">煒<span>程</span>式工作室</a>
+    <nav class="nav-links">
+      <a href="../../#services">服務項目</a>
+      <a href="../../receiving-system/">驗收系統介紹</a>
+      <a href="../">訂貨試用</a>
+      <a href="../../#contact" class="btn btn-primary">免費諮詢</a>
+    </nav>
+  </div>
+</header>
+
+<div class="demo-bar">
+  <div class="wrap">
+    <span>🧪 <b>示範模式</b>：廠商、品項都是假的，照片和簽名只存在你的瀏覽器，不會上傳。</span>
+    <button class="linkbtn" id="resetBtn" type="button">↺ 重新開始</button>
+  </div>
+</div>
+
+<main class="wrap" style="max-width:900px">
+  <div class="d-head">
+    <h1>進貨驗收系統線上試玩</h1>
+    <p>貨送到了！照叫貨單點貨、有問題拍照留證，月底一鍵對帳。</p>
+  </div>
+  <div class="tabs" role="tablist">
+    <button class="tab" type="button" data-t="list" aria-selected="true">✅ 驗收</button>
+    <button class="tab" type="button" data-t="month" aria-selected="false">💰 月結對帳</button>
+  </div>
+
+  <!-- 叫貨單列表 -->
+  <section id="vList" style="padding:0">
+    <div class="hint">💡 <b>先點一張叫貨單</b>，照班級逐項點貨。有問題的品項標記一下，可以拍照留證，最後簽名完成驗收。</div>
+    <div class="panel"><h2>📦 本週的叫貨單 <small>點一張開始驗收</small></h2><div class="cards" id="cards"></div></div>
+  </section>
+
+  <!-- 點貨 -->
+  <section id="vBatch" style="padding:0" hidden>
+    <div class="panel">
+      <div class="bhead"><h2 id="bTitle"></h2><button class="btn btn-ghost" type="button" id="backBtn">← 回列表</button></div>
+      <div class="tools"><button class="btn btn-primary" type="button" id="allOk">✓ 全部到齊</button><span style="color:var(--muted);font-size:.88rem;align-self:center">先按全部到齊，再改有問題的那幾項</span></div>
+      <div id="lines"></div>
+      <div class="foot"><span id="progress"></span><button class="btn btn-primary" type="button" id="finishBtn">完成驗收 →</button></div>
+    </div>
+  </section>
+
+  <!-- 月結對帳 -->
+  <section id="vMonth" style="padding:0" hidden>
+    <div class="hint">💡 每次驗收的<b>實到數量 × 單價</b>自動加總，少送、沒送會自動扣掉。填上發票金額，馬上看出差多少。</div>
+    <div class="panel">
+      <h2>💰 月結對帳 <select class="in" id="mVendor" aria-label="選擇廠商"></select></h2>
+      <div id="month"></div>
+    </div>
+  </section>
+
+  <section style="padding-top:8px">
+    <div class="cta-band">
+      <h2>想把驗收和對帳自動化？</h2>
+      <p>這是簡化版示範。真正的系統和訂貨系統資料互通、叫貨單自動帶入，還能拍銷貨單自動讀出金額｜📍 高雄可約面談，全台線上服務</p>
+      <div class="actions">
+        <a class="btn btn-line" href="https://line.me/R/ti/p/@376yuevo" target="_blank" rel="noopener">加 LINE 諮詢（@376yuevo）</a>
+        <a class="btn btn-ghost" href="../../receiving-system/">看完整功能介紹</a>
+        <a class="btn btn-ghost" href="../">也試試訂貨系統</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 簽名 -->
+<div class="modal" id="sigModal" hidden>
+  <div class="mbox">
+    <h3>✍ 驗收人簽名</h3>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:10px" id="sigSum"></p>
+    <canvas class="sig" id="sig" width="960" height="320" aria-label="簽名區"></canvas>
+    <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-ghost" type="button" id="sigClear">清除重簽</button>
+      <span><button class="btn btn-ghost" type="button" id="sigCancel">取消</button> <button class="btn btn-primary" type="button" id="sigOk">確認完成</button></span>
+    </div>
+  </div>
+</div>
+
+<footer>© 2026 煒程式工作室｜進貨驗收系統線上試玩（示範資料）｜<a href="../../privacy/">隱私權說明</a>｜<a href="https://www.instagram.com/wei.05_03/" target="_blank" rel="noopener">📷 Instagram</a></footer>
+
+<script>
+(function () {
+  'use strict';
+  var ST = [['ok', '✓ 到齊'], ['short', '少送'], ['none', '沒送'], ['wrong', '送錯'], ['more', '多送'], ['bad', '品質不好'], ['out', '缺貨']];
+  var SNAME = {}; ST.forEach(function (s) { SNAME[s[0]] = s[1].replace('✓ ', ''); });
+  function L(cls, t, name, q, u, price) { return { cls: cls, t: t, name: name, q: q, u: u, price: price }; }
+  var BATCHES = [
+    { id: 'A', vendor: 'A菜商', icon: '🥬', group: '週三、四、五送貨', invoice: 774, lines: [
+      L('302 班・王老師', '週三', '洋蔥', 3, '斤', 28), L('302 班・王老師', '週三', '青蔥', 2, '把', 35), L('302 班・王老師', '週三', '蒜頭', 1, '斤', 90),
+      L('305 班・林老師', '週三', '番茄', 4, '斤', 50), L('305 班・林老師', '週三', '高麗菜', 3, '顆', 45),
+      L('201 班・陳老師', '週四', '紅蘿蔔', 2, '斤', 30), L('201 班・陳老師', '週四', '馬鈴薯', 3, '斤', 45) ] },
+    { id: 'B', vendor: 'B肉商', icon: '🍖', group: '週三、四、五送貨', invoice: 2390, lines: [
+      L('302 班・王老師', '週三', '去骨雞腿', 6, '斤', 130), L('302 班・王老師', '週三', '豬五花肉', 2, '斤', 165), L('201 班・陳老師', '週四', '牛腱', 4, '斤', 320) ] },
+    { id: 'E', vendor: 'E乾貨', icon: '🌾', group: '整週合併', invoice: 536, lines: [
+      L('整週合計', '', '細砂糖', 2, '公斤', 45), L('整週合計', '', '高筋麵粉', 3, '公斤', 52), L('整週合計', '', '醬油', 2, '瓶', 85), L('整週合計', '', '沙拉油', 1, '瓶', 120) ] }
+  ];
+  var BMAP = {}; BATCHES.forEach(function (b) { BMAP[b.id] = b; });
+
+  var KEY = 'wcDemoRecv.v1';
+  var st = { chk: {}, cur: null, draft: null };   // chk[id] = { lines:[{s, got, note, photos}], sign, time }
+  try { var sv = JSON.parse(localStorage.getItem(KEY) || 'null'); if (sv && sv.chk) st.chk = sv.chk; } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ chk: st.chk })); } catch (e) { toast('照片太多，瀏覽器存不下，重新整理後照片會消失'); } }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+  function money(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+  function track(n) { if (window.wcTrack) window.wcTrack(n); }
+
+  // ---------- 列表 ----------
+  function renderList() {
+    $('cards').innerHTML = BATCHES.map(function (b) {
+      var c = st.chk[b.id], issues = c ? c.lines.filter(function (l) { return l.s && l.s !== 'ok'; }).length : 0;
+      var badge = !c ? '<span class="badge">還沒驗收</span>' : issues ? '<span class="badge warn">⚠ ' + issues + ' 項問題</span>' : '<span class="badge ok">✓ 已驗收</span>';
+      return '<button type="button" class="bcard' + (c ? (issues ? ' issue' : ' done') : '') + '" data-b="' + b.id + '"><b>' + b.icon + ' ' + esc(b.vendor) + '</b><div class="s">' + esc(b.group) + '・' + b.lines.length + ' 項</div>' + badge +
+        (c ? '<div class="s" style="margin-top:4px">驗收人簽名：' + (c.sign ? '✍ 已簽' : '—') + '・' + esc(c.time) + '</div>' : '') + '</button>';
+    }).join('');
+  }
+  $('cards').addEventListener('click', function (e) { var b = e.target.closest('[data-b]'); if (b) openBatch(b.getAttribute('data-b')); });
+
+  // ---------- 點貨 ----------
+  function openBatch(id) {
+    var b = BMAP[id], c = st.chk[id];
+    st.cur = id;
+    st.draft = c ? JSON.parse(JSON.stringify(c.lines)) : b.lines.map(function () { return { s: '', got: '', note: '', photos: [] }; });
+    $('vList').hidden = true; $('vBatch').hidden = false;
+    $('bTitle').textContent = b.icon + ' ' + b.vendor + '｜' + b.group;
+    renderLines(); window.scrollTo({ top: 0, behavior: 'smooth' }); track('demo_receive_open');
+  }
+  function renderLines() {
+    var b = BMAP[st.cur], last = '', h = '';
+    b.lines.forEach(function (l, i) {
+      var d = st.draft[i];
+      var key = (l.t ? l.t + '　' : '') + l.cls;
+      if (key !== last) { h += '<div class="grp">' + esc(key) + '</div>'; last = key; }
+      var problem = d.s && d.s !== 'ok';
+      h += '<div class="line' + (problem ? ' bad' : '') + '" data-i="' + i + '"><div class="lt"><span>' + esc(l.name) + '</span><span>' + l.q + ' ' + esc(l.u) + '</span></div>' +
+        '<div class="st">' + ST.map(function (s) { return '<button type="button" data-s="' + s[0] + '" class="' + (d.s === s[0] ? 'on' + (s[0] !== 'ok' ? ' p' : '') : '') + '">' + s[1] + '</button>'; }).join('') + '</div>';
+      if (problem) {
+        h += '<div class="extra">' + (/short|more/.test(d.s) ? '<input class="in qty" inputmode="decimal" placeholder="實到多少" value="' + esc(d.got) + '" aria-label="實到數量"><span>' + esc(l.u) + '</span>' : '') +
+          '<input class="in note" placeholder="備註，例如：司機說明天補" value="' + esc(d.note) + '" maxlength="40">' +
+          '<label class="photo">📷 拍照<input type="file" accept="image/*" capture="environment"></label></div>' +
+          (d.photos.length ? '<div class="thumbs">' + d.photos.map(function (p) { return '<img src="' + p + '" alt="問題照片">'; }).join('') + '</div>' : '');
+      }
+      h += '</div>';
+    });
+    $('lines').innerHTML = h; renderProgress();
+  }
+  function renderProgress() {
+    var n = st.draft.filter(function (d) { return d.s; }).length, iss = st.draft.filter(function (d) { return d.s && d.s !== 'ok'; }).length;
+    $('progress').textContent = '已點 ' + n + '／' + st.draft.length + (iss ? '・問題 ' + iss + ' 項' : '');
+  }
+  $('lines').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-s]'); if (!btn) return;
+    var i = +btn.closest('.line').getAttribute('data-i'), d = st.draft[i];
+    d.s = btn.getAttribute('data-s'); if (d.s === 'ok') { d.got = ''; d.note = ''; }
+    renderLines();
+    if (d.s !== 'ok') { var q = document.querySelector('.line[data-i="' + i + '"] .qty, .line[data-i="' + i + '"] .note'); if (q) q.focus({ preventScroll: true }); }
+  });
+  $('lines').addEventListener('input', function (e) {
+    var line = e.target.closest('.line'); if (!line) return; var d = st.draft[+line.getAttribute('data-i')];
+    if (e.target.classList.contains('qty')) d.got = e.target.value.replace(/[^\d.]/g, '');
+    if (e.target.classList.contains('note')) d.note = e.target.value;
+  });
+  $('lines').addEventListener('change', function (e) {
+    if (e.target.type !== 'file' || !e.target.files[0]) return;
+    var d = st.draft[+e.target.closest('.line').getAttribute('data-i')], f = e.target.files[0], r = new FileReader();
+    r.onload = function () {
+      var img = new Image();
+      img.onload = function () {   // 縮小，避免塞爆瀏覽器空間
+        var c = document.createElement('canvas'), k = Math.min(1, 320 / Math.max(img.width, img.height));
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        d.photos.push(c.toDataURL('image/jpeg', .7)); renderLines(); toast('📷 照片已加入（示範：只存在你的瀏覽器）');
+      };
+      img.src = r.result;
+    };
+    r.readAsDataURL(f);
+  });
+  $('allOk').addEventListener('click', function () { st.draft.forEach(function (d) { if (!d.s) d.s = 'ok'; }); renderLines(); toast('✓ 都標成到齊了，有問題的再點一下改掉'); });
+  $('backBtn').addEventListener('click', function () { $('vBatch').hidden = true; $('vList').hidden = false; renderList(); });
+
+  // ---------- 簽名 ----------
+  var cv = $('sig'), ctx = cv.getContext('2d'), drawing = false, signed = false;
+  function pos(e) { var r = cv.getBoundingClientRect(), p = e.touches ? e.touches[0] : e; return [(p.clientX - r.left) * cv.width / r.width, (p.clientY - r.top) * cv.height / r.height]; }
+  function start(e) { drawing = true; signed = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p[0], p[1]); e.preventDefault(); }
+  function move(e) { if (!drawing) return; var p = pos(e); ctx.lineTo(p[0], p[1]); ctx.stroke(); e.preventDefault(); }
+  function end() { drawing = false; }
+  ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.strokeStyle = '#15302c';
+  cv.addEventListener('mousedown', start); cv.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+  cv.addEventListener('touchstart', start, { passive: false }); cv.addEventListener('touchmove', move, { passive: false }); cv.addEventListener('touchend', end);
+  function clearSig() { ctx.clearRect(0, 0, cv.width, cv.height); signed = false; }
+  $('sigClear').addEventListener('click', clearSig);
+  $('sigCancel').addEventListener('click', function () { $('sigModal').hidden = true; });
+  $('finishBtn').addEventListener('click', function () {
+    var miss = st.draft.filter(function (d) { return !d.s; }).length;
+    if (miss) { toast('還有 ' + miss + ' 項沒點，先按「✓ 全部到齊」再改有問題的'); return; }
+    var noQty = st.draft.filter(function (d) { return /short|more/.test(d.s) && !(parseFloat(d.got) >= 0 && d.got !== ''); }).length;
+    if (noQty) { toast('少送、多送要填「實到多少」'); return; }
+    var iss = st.draft.filter(function (d) { return d.s !== 'ok'; }).length;
+    $('sigSum').textContent = BMAP[st.cur].vendor + '：共 ' + st.draft.length + ' 項，' + (iss ? '有 ' + iss + ' 項問題' : '全部到齊') + '。請在下面簽名。';
+    clearSig(); $('sigModal').hidden = false;
+  });
+  $('sigOk').addEventListener('click', function () {
+    if (!signed) { toast('請先在框框裡簽名'); return; }
+    var now = new Date();
+    st.chk[st.cur] = { lines: st.draft, sign: cv.toDataURL('image/png'), time: (now.getMonth() + 1) + '/' + now.getDate() + ' ' + ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2) };
+    save(); $('sigModal').hidden = true; $('vBatch').hidden = true; $('vList').hidden = false; renderList();
+    var iss = st.draft.filter(function (d) { return d.s !== 'ok'; }).length;
+    toast(iss ? '✅ 驗收完成！有 ' + iss + ' 項問題，系統會通知管理者' : '✅ 驗收完成，全部到齊！'); track('demo_receive_done');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  // ---------- 月結對帳 ----------
+  $('mVendor').innerHTML = BATCHES.map(function (b) { return '<option value="' + b.id + '">' + b.icon + ' ' + esc(b.vendor) + '</option>'; }).join('');
+  function got(l, d) {
+    if (!d || d.s === 'ok') return l.q;
+    if (d.s === 'short' || d.s === 'more') return parseFloat(d.got) || 0;
+    if (d.s === 'none' || d.s === 'out' || d.s === 'wrong') return 0;
+    return l.q;   // 品質不好：先照數量算，另外跟廠商談扣款
+  }
+  function renderMonth() {
+    var b = BMAP[$('mVendor').value], c = st.chk[b.id], sum = 0;
+    var rows = b.lines.map(function (l, i) {
+      var d = c && c.lines[i], q = got(l, d), amt = q * l.price; sum += amt;
+      var note = !c ? '還沒驗收，照叫貨量估' : d.s === 'ok' ? '' : SNAME[d.s] + (d.s === 'short' || d.s === 'more' ? '（叫 ' + l.q + '，實到 ' + q + '）' : '') + (d.note ? '：' + esc(d.note) : '');
+      return '<tr><td>' + esc(l.name) + (note ? '<br><small style="color:#c2410c">' + note + '</small>' : '') + '</td><td class="n">' + q + ' ' + esc(l.u) + '</td><td class="n">' + money(l.price) + '</td><td class="n">' + money(amt) + '</td></tr>';
+    }).join('');
+    var inv = b.invoice, diff = inv - sum;
+    $('month').innerHTML = (c ? '' : '<p class="hint" style="margin-bottom:12px">這家還沒驗收，先回「✅ 驗收」點貨，數字會更準。</p>') +
+      '<table class="t"><thead><tr><th>品項</th><th style="text-align:right">實到</th><th style="text-align:right">單價</th><th style="text-align:right">金額</th></tr></thead><tbody>' + rows +
+      '<tr><td><b>系統計算合計</b></td><td></td><td></td><td class="n">' + money(sum) + '</td></tr></tbody></table>' +
+      '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px"><label style="font-weight:800">發票金額 <input class="in" id="inv" inputmode="numeric" value="' + inv + '" style="width:120px"></label>' +
+      '<span id="diffOut"></span></div>';
+    function upd() {
+      var v = parseFloat($('inv').value) || 0, df = v - sum;
+      $('diffOut').innerHTML = Math.abs(df) < 1 ? '<span class="diff ok">✓ 金額相符</span>' : '<span class="diff bad">⚠ 發票' + (df > 0 ? '多' : '少') + ' ' + money(Math.abs(df)) + '</span>' + (df > 0 && c && c.lines.some(function (d) { return d.s !== 'ok'; }) ? '<br><small style="color:var(--muted)">可能是少送、沒送的品項廠商還是算錢了，拿驗收紀錄跟廠商確認</small>' : '');
+    }
+    $('inv').addEventListener('input', upd); upd();
+  }
+  $('mVendor').addEventListener('change', renderMonth);
+
+  // ---------- 分頁、重設 ----------
+  document.querySelector('.tabs').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-t]'); if (!t) return; var m = t.getAttribute('data-t');
+    document.querySelectorAll('.tab').forEach(function (x) { x.setAttribute('aria-selected', x === t); });
+    $('vList').hidden = m !== 'list'; $('vBatch').hidden = true; $('vMonth').hidden = m !== 'month';
+    if (m === 'month') { renderMonth(); track('demo_receive_month'); } else renderList();
+  });
+  $('resetBtn').addEventListener('click', function () { st.chk = {}; save(); $('vBatch').hidden = true; $('vMonth').hidden = true; $('vList').hidden = false;
+    document.querySelectorAll('.tab').forEach(function (x) { x.setAttribute('aria-selected', x.getAttribute('data-t') === 'list'); }); renderList(); toast('已重新開始'); });
+
+  renderList();
+})();
+</script>
+</body>
+</html>
